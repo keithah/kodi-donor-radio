@@ -1,0 +1,8 @@
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Radio, \"live\"",URI="/audio/main.m3u8?sig=a%2Fb&x=1"
+#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=80000,URI="iframe.m3u8?token=a,b"
+#EXT-X-STREAM-INF:BANDWIDTH=128000,AUDIO="audio",CODECS="mp4a.40.2"
+low/index.m3u8?sig=low
+#EXT-X-STREAM-INF:BANDWIDTH=256000,AUDIO="audio"
+high/index.m3u8?sig=high
