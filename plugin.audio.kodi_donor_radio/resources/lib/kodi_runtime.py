@@ -265,8 +265,6 @@ def run_plugin(argv):
             session_id = _relay_path(session.get('playback_url',''), client.descriptor.port)
             if session_id is None or session.get('id') != session_id:
                 raise ValueError('Invalid relay response')
-            if not station.uuid.startswith('fixture-'):
-                _operation(lambda: browser.click(station.uuid), monitor, cancel)
             entry = xbmcgui.ListItem(label=station.name, path=session['playback_url'])
             entry.setProperty('IsPlayable', 'true')
             # Let Kodi discover Content-Type from the authoritative relay response;
@@ -276,6 +274,13 @@ def run_plugin(argv):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)
             xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+        else:
+            # Playback is already resolved. Directory reporting must never revoke it.
+            if not station.uuid.startswith('fixture-'):
+                try:
+                    browser.click(station.uuid)
+                except Exception:
+                    pass
         return
     xbmcplugin.setContent(handle, 'songs')
     try:

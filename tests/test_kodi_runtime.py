@@ -131,18 +131,29 @@ def test_cancelled_search_does_not_fetch(kodi,monkeypatch):
     assert browser.searches==[] and state.items==[]
 
 
-def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch):
+@pytest.mark.parametrize('click_failure', [False, True])
+def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,click_failure):
     runtime,state,profile=kodi; browser=directory(monkeypatch,runtime)
     descriptor=ServiceDescriptor(32123,'a'*48,'b'*64); runtime.publish_descriptor(profile,descriptor)
-    created=[]
+    created=[]; stopped=[]; click_states=[]
+    def click(uuid):
+        browser.clicks.append(uuid)
+        click_states.append(list(state.resolved))
+        if click_failure:
+            raise OSError('Directory unavailable')
+    browser.click=click
     class Client:
         def __init__(self,descriptor,timeout=10): self.descriptor=descriptor
         def health(self): return {'status':'ok','instance_id':'a'*48}
+        def stop(self,session_id): stopped.append(session_id)
         def create(self,station): created.append(station); return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48}
     monkeypatch.setattr(runtime,'ControlClient',Client)
     route(runtime,action='play',station=json.dumps(STATION.__dict__))
     assert created==[STATION] and browser.clicks==['station-1']
     assert len(state.resolved)==1 and state.resolved[0][0]
+    assert click_states == [state.resolved]
+    assert stopped == []
+    assert 'localized-30011' not in state.messages
     assert state.resolved[0][1].path=='http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48
     # Directory codec/HLS fields are hints; the relay's response is authoritative.
     assert not hasattr(state.resolved[0][1], 'mime')

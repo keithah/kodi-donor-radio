@@ -231,3 +231,24 @@ All eight task reviews passed after their fixes. CodeRabbit completed a branch r
 `python3 -m pytest -q`: 321 passed in 33.71 seconds. This run emitted a transient local test-server exception banner without a retained traceback, so the output was not pristine; no test failed. `python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip` passed. Independent `python3 tools/smoke_relay_ffmpeg.py` decoded MP3, ICY and HLS, each with exit 0, 32,000 nonzero PCM bytes and empty stderr. The package SHA-256 remains `df35c648e1fe3bd478213ab91c80d640699869b1e71a6ef846551284070bf182`.
 
 Targeted review found an intentionally disconnected request in `tests/test_transport.py::test_failure_during_request_transmission_never_tries_next_address` whose standard HTTP-server handler can print a thread exception on write. This plausibly explains the banner but does not establish its exact cause. Review approval is unchanged; no production defect was established by the banner alone.
+
+## Pre-PR review corrections
+
+Verified and fixed the URL-policy bypass through IPv4-embedded IPv6: standard
+NAT64 prefixes and mapped IPv4 remain blocked; 6to4 and both Teredo endpoints
+are checked for non-global IPv4 addresses. Deterministic resolver regressions
+also preserve public native IPv6, public 6to4, and the exact fixture-origin
+exception. Radio Browser click reporting now runs once after successful Kodi
+resolution, outside playback failure cleanup; reporting errors cannot stop or
+revoke the resolved session. Existing startup/create cancellation tests still
+pass, and ordering/failure-isolation regressions cover the new boundary. Fixture
+documentation now describes the accepted `Range: bytes=0-` full-body probe.
+
+Validation: targeted transport/runtime suite **82 passed in 9.74s**; full suite
+**331 passed in 33.76s** on Python 3.9.6. Both runs emitted the previously noted
+local HTTP test-server exception banner; no tests failed. Package creation and
+`check_package.py` exited 0. Rebuilt ZIP SHA-256:
+`8d46bab589c0127fdea6f3bd8294e546bb4ae19ec660cfcbebae70f6d7ed0d0b`.
+The official `kodi-addon-checker --branch omega` check on that ZIP extracted to
+`dist/checker-prepr/` exited 0 with no addon problems or warnings; the separate
+host LibreSSL warning remains. Kodi playback acceptance remains pending.

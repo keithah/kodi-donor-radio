@@ -75,6 +75,34 @@ def test_unsafe_urls_are_rejected(url):
         UrlPolicy().resolve(url)
 
 
+@pytest.mark.parametrize('address', [
+    '64:ff9b::a00:1', '64:ff9b::808:808', '64:ff9b:1::a00:1',
+    '::ffff:8.8.8.8', '2002:c0a8:101::',
+    # Teredo: public server/private client, then private server/public client.
+    '2001:0:808:808:0:ffff:f5ff:fffe',
+    '2001:0:a00:1:0:ffff:f7f7:f7f7',
+])
+def test_ipv4_embedding_cannot_bypass_public_destination_policy(address):
+    from url_policy import UrlPolicy, UnsafeUrl
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
+    policy = UrlPolicy(resolver=resolve, test_origins={'http://fixture.example:8765'})
+    with pytest.raises(UnsafeUrl):
+        policy.resolve('http://station.example/')
+    # The explicit fixture exception still applies to exactly one origin.
+    assert policy.resolve('http://fixture.example:8765/live').addresses[0][3][0] == address
+    with pytest.raises(UnsafeUrl):
+        policy.resolve('http://fixture.example:8766/live')
+
+
+@pytest.mark.parametrize('address', ['2606:4700:4700::1111', '2002:808:808::'])
+def test_public_native_and_6to4_ipv6_destinations_remain_usable(address):
+    from url_policy import UrlPolicy
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
+    assert UrlPolicy(resolver=resolve).resolve('https://station.example/').addresses[0][3][0] == address
+
+
 def test_private_dns_and_mixed_answers_rejected():
     from url_policy import UrlPolicy, UnsafeUrl
     def resolve(*args, **kwargs):

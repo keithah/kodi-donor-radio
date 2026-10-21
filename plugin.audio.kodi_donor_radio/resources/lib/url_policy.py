@@ -6,6 +6,21 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 
+_NAT64 = (ipaddress.ip_network('64:ff9b::/96'), ipaddress.ip_network('64:ff9b:1::/48'))
+
+
+def _unsafe_embedded_ipv4(address):
+    if address.version != 6:
+        return False
+    # Translation prefixes may route to IPv4 despite a global IPv6 classification.
+    if address.ipv4_mapped is not None or any(address in prefix for prefix in _NAT64):
+        return True
+    if address.sixtofour is not None and not address.sixtofour.is_global:
+        return True
+    # Teredo embeds both the server and client; neither may target a local network.
+    return address.teredo is not None and any(not value.is_global for value in address.teredo)
+
+
 class UnsafeUrl(ValueError):
     pass
 
@@ -45,7 +60,7 @@ class UrlPolicy:
             addresses = []
             for family, socktype, proto, _, sockaddr in records:
                 address = ipaddress.ip_address(sockaddr[0])
-                if not allowed and (not address.is_global or getattr(address, 'ipv4_mapped', None) is not None):
+                if not allowed and (not address.is_global or _unsafe_embedded_ipv4(address)):
                     raise UnsafeUrl('Non-public destination')
                 if family in (socket.AF_INET, socket.AF_INET6):
                     entry = (family, socktype, proto, sockaddr)
