@@ -305,7 +305,6 @@ def test_abrupt_disconnect_closes_continuous_origin(relay, origin):
 
 def test_control_client_and_credential_headers_not_forwarded(relay, origin):
     from control import ControlClient
-    from control import ControlClient
     control = ControlClient(relay[3])
     assert control.health()['status'] == 'ok'
     result = control.create(Station('id', 'Radio', origin[0] + '/list', '', True))
