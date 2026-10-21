@@ -211,3 +211,62 @@ def test_dns_timeout_bounds_open_and_cancellation():
         timer.join()
     finally:
         release.set()
+
+
+def test_pre_request_ipv6_failure_falls_back_to_validated_ipv4(server):
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    destinations = []
+    def dns(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('2001:4860:4860::8888', port, 0, 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.8.8', port))]
+    class RoutedSocket(socket.socket):
+        def connect(self, address):
+            destinations.append(address)
+            if self.family == socket.AF_INET6:
+                raise OSError('IPv6 unavailable')
+            return super().connect(('127.0.0.1', server[0].server_port))
+    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=RoutedSocket)
+    with client.open('http://radio.example/', {}, threading.Event()) as response:
+        assert response.read(5) == b'hello'
+    assert destinations == [('2001:4860:4860::8888', 80, 0, 0), ('8.8.8.8', 80)]
+    assert len(server[1]) == 1
+
+
+def test_failure_during_request_transmission_never_tries_next_address(server):
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    destinations = []
+    def dns(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.8.8', port)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.4.4', port))]
+    class UncertainSocket(socket.socket):
+        def connect(self, address):
+            destinations.append(address)
+            return super().connect(('127.0.0.1', server[0].server_port))
+        def sendall(self, data, *args):
+            super().sendall(data, *args)
+            raise OSError('Request may have arrived')
+    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=UncertainSocket)
+    with pytest.raises(OSError, match='Request may have arrived'):
+        client.open('http://radio.example/', {}, threading.Event())
+    assert destinations == [('8.8.8.8', 80)]
+
+
+def test_address_fallback_shares_one_connect_deadline():
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    timeouts = []
+    def dns(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.8.8', port)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.4.4', port))]
+    class FailingSocket(socket.socket):
+        def connect(self, address):
+            timeouts.append(self.gettimeout())
+            time.sleep(.04)
+            raise OSError('Connection refused')
+    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=FailingSocket, connect_timeout=.1)
+    with pytest.raises(OSError):
+        client.open('http://radio.example/', {}, threading.Event())
+    assert len(timeouts) == 2
+    assert 0 < timeouts[1] < timeouts[0] - .02

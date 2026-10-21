@@ -4,16 +4,27 @@ import json
 import random
 import socket
 import threading
+import time
 from urllib.parse import quote, urlencode, urlsplit
 
-from http_client import HttpClient, HttpError, USER_AGENT, read_bounded
+from http_client import Cancelled, HttpClient, HttpError, USER_AGENT, bounded_lookup, read_bounded
 from models import Station
 
 
-def discover_mirrors():
-    """Use the documented all.api DNS lookup followed by reverse DNS."""
+def discover_mirrors(cancel=None, timeout=5):
+    """Bound documented forward and reverse DNS with one discovery deadline."""
+    cancel = cancel if cancel is not None else threading.Event()
+    deadline = time.monotonic() + timeout
+    return bounded_lookup(lambda: _lookup_mirrors(cancel, deadline), timeout, cancel)
+
+
+def _lookup_mirrors(cancel, deadline):
     names = set()
     for record in socket.getaddrinfo('all.api.radio-browser.info', 443, type=socket.SOCK_STREAM):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Mirror discovery timed out')
         try:
             name = socket.gethostbyaddr(record[4][0])[0].rstrip('.').lower()
             if name.endswith('.api.radio-browser.info'):
@@ -26,15 +37,21 @@ def discover_mirrors():
 
 
 class RadioBrowser:
-    def __init__(self, client=None, mirror_lookup=None):
+    def __init__(self, client=None, mirror_lookup=None, cancel=None, connect_timeout=5):
         self.client = client or HttpClient()
-        self.mirror_lookup = mirror_lookup or discover_mirrors
+        self.mirror_lookup = mirror_lookup
+        self.cancel = cancel if cancel is not None else threading.Event()
+        self.connect_timeout = connect_timeout
         self._mirrors = None
         self._preferred = None
 
     def _servers(self):
         if self._mirrors is None:
-            self._mirrors = list(dict.fromkeys(self.mirror_lookup()))
+            if self.mirror_lookup is None:
+                mirrors = discover_mirrors(self.cancel, self.connect_timeout)
+            else:
+                mirrors = bounded_lookup(self.mirror_lookup, self.connect_timeout, self.cancel)
+            self._mirrors = list(dict.fromkeys(mirrors))
         if not self._mirrors:
             raise HttpError('No Radio Browser mirrors available')
         return ([self._preferred] if self._preferred else []) + [m for m in self._mirrors if m != self._preferred]
@@ -43,14 +60,18 @@ class RadioBrowser:
         query = '?' + urlencode(params) if params is not None else ''
         last_error = None
         for mirror in self._servers():
+            if self.cancel.is_set():
+                raise Cancelled('Request cancelled')
             try:
                 with self.client.open(mirror.rstrip('/') + path + query,
-                                      {'User-Agent': USER_AGENT}, threading.Event()) as response:
+                                      {'User-Agent': USER_AGENT}, self.cancel) as response:
                     if response.status != 200:
                         raise HttpError('Directory HTTP error')
                     result = json.loads(read_bounded(response).decode('utf-8'))
                 self._preferred = mirror
                 return result
+            except Cancelled:
+                raise
             except (OSError, ValueError) as error:
                 last_error = error
                 if not retry:

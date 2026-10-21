@@ -150,3 +150,63 @@ def test_fragmented_playlist_signature_still_resolves():
     source = resolve_station('https://radio.example/source', Transport([playlist, stream]), threading.Event())
     assert source.response is stream and playlist.closed
     source.response.close()
+
+
+@pytest.mark.parametrize('stall', ['injected', 'forward', 'reverse'])
+def test_mirror_discovery_has_one_bounded_deadline(monkeypatch, stall):
+    import socket
+    import time
+    from radio_browser import RadioBrowser
+    entered, release = threading.Event(), threading.Event()
+    def blocked(*args, **kwargs):
+        entered.set()
+        release.wait(2)
+        return []
+    lookup = blocked if stall == 'injected' else None
+    if stall == 'forward':
+        monkeypatch.setattr(socket, 'getaddrinfo', blocked)
+    elif stall == 'reverse':
+        monkeypatch.setattr(socket, 'getaddrinfo', lambda *a, **kw: [(2, 1, 6, '', ('8.8.8.8', 443))])
+        monkeypatch.setattr(socket, 'gethostbyaddr', blocked)
+    transport = Transport([])
+    rb = RadioBrowser(transport, mirror_lookup=lookup, connect_timeout=.05)
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            rb.countries()
+        assert entered.is_set()
+        assert time.monotonic() - started < .3
+        assert transport.calls == []
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize('stall', ['injected', 'forward', 'reverse'])
+def test_mirror_discovery_can_be_cancelled(monkeypatch, stall):
+    import socket
+    import time
+    from http_client import Cancelled
+    from radio_browser import RadioBrowser
+    entered, release, cancel = threading.Event(), threading.Event(), threading.Event()
+    def blocked(*args, **kwargs):
+        entered.set()
+        release.wait(2)
+        return []
+    lookup = blocked if stall == 'injected' else None
+    if stall == 'forward':
+        monkeypatch.setattr(socket, 'getaddrinfo', blocked)
+    elif stall == 'reverse':
+        monkeypatch.setattr(socket, 'getaddrinfo', lambda *a, **kw: [(2, 1, 6, '', ('8.8.8.8', 443))])
+        monkeypatch.setattr(socket, 'gethostbyaddr', blocked)
+    rb = RadioBrowser(Transport([]), mirror_lookup=lookup, cancel=cancel)
+    timer = threading.Timer(.05, cancel.set)
+    timer.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(Cancelled):
+            rb.countries()
+        assert entered.is_set()
+        assert time.monotonic() - started < .3
+    finally:
+        release.set()
+        timer.join()

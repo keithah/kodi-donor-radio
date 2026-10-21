@@ -109,6 +109,41 @@ def read_bounded(response, limit=BODY_BYTES, initial=b''):
     raise ResponseTooLarge('Response exceeds size limit')
 
 
+def bounded_lookup(lookup, timeout, cancel):
+    """Bound a system DNS operation without spawning unbounded abandoned calls."""
+    if cancel.is_set():
+        raise Cancelled('Request cancelled')
+    if timeout <= 0:
+        raise TimeoutError('DNS lookup timed out')
+    deadline = time.monotonic() + timeout
+    while not _DNS_SLOTS.acquire(blocking=False):
+        if cancel.wait(.02):
+            raise Cancelled('Request cancelled')
+        if time.monotonic() >= deadline:
+            raise TimeoutError('DNS lookup timed out')
+    done, result = threading.Event(), []
+    def run_lookup():
+        try:
+            result.append((True, lookup()))
+        except Exception as error:
+            result.append((False, error))
+        finally:
+            _DNS_SLOTS.release()
+            done.set()
+    threading.Thread(target=run_lookup, daemon=True).start()
+    while not done.wait(min(.02, max(0, deadline - time.monotonic()))):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        if time.monotonic() >= deadline:
+            raise TimeoutError('DNS lookup timed out')
+    if cancel.is_set():
+        raise Cancelled('Request cancelled')
+    success, value = result[0]
+    if not success:
+        raise value
+    return value
+
+
 class HttpClient:
     def __init__(self, policy=None, connect_timeout=5, read_timeout=10,
                  max_redirects=5, socket_factory=None, ssl_context=None):
@@ -128,10 +163,11 @@ class HttpClient:
         for redirect in range(self.max_redirects + 1):
             if cancel.is_set():
                 raise Cancelled('Request cancelled')
-            destination = self._resolve(url, cancel)
+            deadline = time.monotonic() + self.connect_timeout
+            destination = self._resolve(url, cancel, deadline)
             if cancel.is_set():
                 raise Cancelled('Request cancelled')
-            response = self._request(url, destination, outgoing, cancel)
+            response = self._request(url, destination, outgoing, cancel, deadline)
             if response.status not in (301, 302, 303, 307, 308):
                 return response
             location = response.headers.get('location')
@@ -145,62 +181,51 @@ class HttpClient:
             url = next_url
         raise HttpError('Excessive redirects')
 
-    def _resolve(self, url, cancel):
-        deadline = time.monotonic() + self.connect_timeout
-        while not _DNS_SLOTS.acquire(blocking=False):
-            if cancel.wait(.02):
-                raise Cancelled('Request cancelled')
-            if time.monotonic() >= deadline:
-                raise TimeoutError('DNS resolution timed out')
-        done, result = threading.Event(), []
-        def lookup():
-            try:
-                result.append((True, self.policy.resolve(url)))
-            except Exception as error:
-                result.append((False, error))
-            finally:
-                _DNS_SLOTS.release()
-                done.set()
-        threading.Thread(target=lookup, daemon=True).start()
-        while not done.wait(min(.02, max(0, deadline - time.monotonic()))):
-            if cancel.is_set():
-                raise Cancelled('Request cancelled')
-            if time.monotonic() >= deadline:
-                raise TimeoutError('DNS resolution timed out')
-        if cancel.is_set():
-            raise Cancelled('Request cancelled')
-        success, value = result[0]
-        if not success:
-            raise value
-        return value
+    def _resolve(self, url, cancel, deadline):
+        return bounded_lookup(lambda: self.policy.resolve(url),
+                              max(0, deadline - time.monotonic()), cancel)
 
-    def _request(self, url, destination, headers, cancel):
+    def _request(self, url, destination, headers, cancel, deadline):
         last_error = None
         for family, socktype, proto, sockaddr in destination.addresses:
             if cancel.is_set():
                 raise Cancelled('Request cancelled')
-            conn = http.client.HTTPConnection(destination.hostname, destination.port, timeout=self.connect_timeout)
-            sock = self.socket_factory(family, socktype, proto)
-            lifetime = _Lifetime(conn, sock, cancel)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('HTTP connection timed out')
+            conn = http.client.HTTPConnection(destination.hostname, destination.port, timeout=remaining)
+            lifetime = None
+            request_started = False
             try:
-                sock.settimeout(self.connect_timeout)
+                sock = self.socket_factory(family, socktype, proto)
+                lifetime = _Lifetime(conn, sock, cancel)
+                sock.settimeout(remaining)
                 sock.connect(sockaddr)  # Numeric address only; never resolve hostname again.
                 if destination.scheme == 'https':
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('HTTP connection timed out')
+                    sock.settimeout(remaining)
                     sock = self.ssl_context.wrap_socket(sock, server_hostname=destination.hostname)
                     lifetime.sock = sock
                 sock.settimeout(self.read_timeout)
                 conn.sock = sock
                 parts = urlsplit(url)
                 path = urlunsplit(('', '', parts.path or '/', parts.query, ''))
+                # Conservatively mark transmission before request(), which may
+                # send headers before raising. Such failures must never retry.
+                request_started = True
                 conn.request('GET', path, headers=headers)
                 raw = conn.getresponse()
                 return Response(raw, lifetime, url)
             except Exception as error:
-                lifetime.close()
+                if lifetime is not None:
+                    lifetime.close()
+                else:
+                    conn.close()
                 if cancel.is_set():
                     raise Cancelled('Request cancelled') from error
-                # Do not repeat a GET after bytes may have been sent: click counters
-                # and some station URLs have side effects despite the HTTP method.
                 last_error = TimeoutError('HTTP request timed out') if isinstance(error, socket.timeout) else error
-                break
+                if request_started or not isinstance(error, OSError):
+                    break
         raise last_error or HttpError('No usable destination')
