@@ -24,7 +24,7 @@ STATION = Station('station-1', 'Station One', 'https://radio.example/live', 'MP3
 
 @pytest.fixture
 def kodi(monkeypatch, tmp_path):
-    state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], logs=[], settings={},
+    state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
                             input='jazz', cancel=False, abort=False, waits=0, players=[], action=None)
     class Item:
         def __init__(self, label='', path=''):
@@ -35,6 +35,8 @@ def kodi(monkeypatch, tmp_path):
     class Dialog:
         def input(self, heading): state.messages.append(heading); return state.input
         def ok(self, heading, message): state.messages.append(message)
+        def notification(self, heading, message, icon, time):
+            state.notifications.append((heading, message, icon, time))
     class Progress:
         def create(self, heading, message): state.messages.append(message)
         def iscanceled(self): return state.cancel
@@ -60,7 +62,8 @@ def kodi(monkeypatch, tmp_path):
         'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
                                 log=lambda value, level: state.logs.append(value)),
         'xbmcaddon': SimpleNamespace(Addon=Addon),
-        'xbmcgui': SimpleNamespace(ListItem=Item, Dialog=Dialog, DialogProgress=Progress),
+        'xbmcgui': SimpleNamespace(ListItem=Item, Dialog=Dialog, DialogProgress=Progress,
+                                  NOTIFICATION_ERROR='error'),
         'xbmcplugin': SimpleNamespace(
             addDirectoryItem=lambda handle, url, listitem, isFolder=False: state.items.append((url,listitem,isFolder)),
             endOfDirectory=lambda handle, **kwargs: state.ended.append(kwargs),
@@ -348,19 +351,30 @@ def test_late_stop_callback_does_not_stop_current_playback(kodi):
     player.playing=False; player.onPlayBackStopped(); assert stopped==['a'*48,'c'*48]
 
 
-def test_service_recovers_from_invalid_setting_without_kodi_restart(kodi):
+@pytest.mark.parametrize('recover', [True, False])
+def test_service_error_remains_responsive_without_modal_dialog(kodi,monkeypatch,recover):
     runtime,state,profile=kodi
     state.settings.update(test_mode=True,test_origin='http://private.example')
+    def modal(*args):
+        pytest.fail('Background service must not wait for a modal dialog')
+    monkeypatch.setattr(runtime.xbmcgui.Dialog, 'ok', modal)
     visits=[]
     def action(monitor):
         if not visits:
             visits.append('invalid')
-            state.settings['test_mode']=False; monitor.onSettingsChanged()
+            if recover:
+                state.settings['test_mode']=False; monitor.onSettingsChanged()
+            else:
+                state.abort=True
         else:
             visits.append(runtime.read_descriptor(profile)); state.abort=True
     state.action=action; runtime.run_service()
-    assert len(visits)==2 and visits[1].port>0
-    assert 'localized-30014' in state.messages
+    if recover:
+        assert len(visits)==2 and visits[1].port>0
+    else:
+        assert visits==['invalid']
+    assert not (profile/'service.json').exists()
+    assert state.notifications==[('localized-30000','localized-30014','error',5000)]
 
 
 def test_actual_relay_switch_and_callback_cancel_old_sources(kodi):

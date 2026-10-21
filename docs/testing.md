@@ -269,3 +269,32 @@ fresh extraction in `dist/checker-prepr-host/` all exited 0. The addon checker
 reported no problems or warnings; its separate host LibreSSL warning remains.
 Latest ZIP SHA-256:
 `c4d49902cea95b27e3237a51c069c32dc1456b658b499313b68223e93cf94d76`.
+
+### Background failure and legacy ICY follow-up
+
+The next review reproduced two gaps. Background service failures used a modal
+OK dialog, delaying its abort/settings wait loop; this path now emits a localized
+error notification. Two regression cases forbid modal invocation and exercise
+abort and corrected-setting recovery with descriptor cleanup. Other interactive
+plugin dialogs retain their behavior.
+
+Legacy SHOUTcast `ICY 200 OK` responses failed standard HTTP parsing before
+station resolution despite the existing ICY metadata decoder. A bounded status
+adapter now normalizes only the leading `ICY ` token to `HTTP/1.0 ` and delegates
+status validation to the stdlib. Headers and body retain their original buffered
+stream and stdlib behavior. Actual socket responses verify continuous station
+resolution, unchanged audio and metadata, ordinary HTTP/1.0 and HTTP/1.1, malformed
+protocol/status rejection, and the status-line size limit. The legacy success
+case failed before the fix, while ordinary HTTP and rejection cases passed.
+
+Combined targeted transport/ICY/Kodi runtime validation: **115 passed in 18.63s**,
+with the previously documented local HTTP-handler banner and no failures.
+Full suite: **349 passed in 42.65s**, with the same banner and no failures.
+Package creation, `check_package.py`, and the official Omega addon checker on
+`dist/checker-prepr-icy/` all exited 0. The checker reported no addon problems or
+warnings, alongside the known host LibreSSL warning. Latest ZIP SHA-256:
+`1b2b3635b800e16363b74c1d960c18a75f8743638eeaf602daeddf9e403404a7`.
+Rerunning `python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg`
+after the transport change decoded continuous MP3, ICY, and HLS successfully:
+each returned exit 0, 32,000 nonzero PCM bytes, and empty stderr. This remains
+FFmpeg decoder evidence, not heard audio or Kodi runtime acceptance.

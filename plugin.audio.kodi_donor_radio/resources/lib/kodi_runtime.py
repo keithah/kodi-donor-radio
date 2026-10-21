@@ -383,7 +383,7 @@ def run_service():
                 manager.expire()
                 if monitor.waitForAbort(.5): break
         except (OSError, ValueError):
-            _error(30014)
+            xbmcgui.Dialog().notification(text(30000), text(30014), xbmcgui.NOTIFICATION_ERROR, 5000)
             # Stay subscribed so correcting settings can restart a failed service.
             while not monitor.abortRequested() and not monitor.settings_changed:
                 if monitor.waitForAbort(.5): break

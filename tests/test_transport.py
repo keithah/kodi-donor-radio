@@ -15,6 +15,12 @@ def server():
         protocol_version = 'HTTP/1.1'
         def do_GET(self):
             requests.append((self.path, dict(self.headers)))
+            if self.path == '/legacy-icy':
+                body = b'abcd\x02' + b"StreamTitle='Example';".ljust(32, b'\0') + b'efgh\0'
+                self.connection.sendall(self.server.status_line +
+                    b'\r\nContent-Type: audio/mpeg\r\nicy-metaint: 4\r\n\r\n' + body)
+                self.close_connection = True
+                return
             if self.path.startswith('/bad-status'):
                 self.connection.sendall(b'garbage status token=secret\r\n\r\n')
                 self.close_connection = True
@@ -101,6 +107,40 @@ def test_public_native_and_6to4_ipv6_destinations_remain_usable(address):
     def resolve(host, port, **kwargs):
         return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
     assert UrlPolicy(resolver=resolve).resolve('https://station.example/').addresses[0][3][0] == address
+
+
+@pytest.mark.parametrize('status_line', [b'ICY 200 OK', b'HTTP/1.0 200 OK', b'HTTP/1.1 200 OK'])
+def test_radio_status_line_preserves_audio_and_metadata(server,status_line):
+    from icy import IcyDecoder
+    from station_resolver import resolve_station
+    server[0].status_line = status_line
+    client, origin = local_client(server[0])
+    source = resolve_station(origin + '/legacy-icy', client, threading.Event())
+    assert source.protocol == 'continuous'
+    metadata = []
+    decoder = IcyDecoder(int(source.response.headers['icy-metaint']), metadata.append)
+    audio = decoder.feed(source.initial_bytes)
+    with source.response as response:
+        assert response.status == 200
+        while True:
+            block = response.read(3)
+            if not block:
+                break
+            audio += decoder.feed(block)
+    decoder.finish()
+    assert audio == b'abcdefgh'
+    assert metadata == [{'StreamTitle': 'Example'}]
+    assert server[1][0][1]['Icy-MetaData'] == '1'
+
+
+@pytest.mark.parametrize('status_line', [b'ICY nope OK', b'ICY 099 Bad', b'ICY 1000 Bad',
+    b'ICYY 200 OK', b'icy 200 OK', b'ICY 200 ' + b'x' * 65536])
+def test_malformed_legacy_status_is_rejected(server,status_line):
+    from http_client import HttpError
+    server[0].status_line = status_line
+    client, origin = local_client(server[0])
+    with pytest.raises(HttpError):
+        client.open(origin + '/legacy-icy', {}, threading.Event())
 
 
 def test_private_dns_and_mixed_answers_rejected():

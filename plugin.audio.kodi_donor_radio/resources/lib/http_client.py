@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Small HTTP client with pinned destinations and explicit streaming ownership."""
 import http.client
+import io
 import socket
 import ssl
 import threading
@@ -15,6 +16,25 @@ BODY_BYTES = 1024 * 1024
 USER_AGENT = 'kodi-donor-radio/0.1.0'
 # getaddrinfo cannot be interrupted; cap abandoned system resolver calls.
 _DNS_SLOTS = threading.BoundedSemaphore(8)
+
+
+class _IcyResponse(http.client.HTTPResponse):
+    """Normalize the legacy radio protocol token, retaining stdlib parsing."""
+    def _read_status(self):
+        stream = self.fp
+        line = stream.readline(http.client._MAXLINE + 1)
+        if len(line) > http.client._MAXLINE:
+            raise http.client.LineTooLong('status line')
+        if line.startswith(b'ICY '):
+            line = b'HTTP/1.0 ' + line[4:]
+        # Replay only this bounded status line through the standard validator.
+        # Headers and body continue on the untouched original buffered stream.
+        with io.BytesIO(line) as status:
+            self.fp = status
+            try:
+                return super()._read_status()
+            finally:
+                self.fp = stream
 
 
 class Cancelled(OSError):
@@ -209,6 +229,7 @@ class HttpClient:
             conn = http.client.HTTPConnection(destination.hostname, destination.port, timeout=remaining)
             # TLS is wrapped below; Host still needs the scheme's default port.
             conn.default_port = 443 if destination.scheme == 'https' else 80
+            conn.response_class = _IcyResponse
             lifetime = None
             request_started = False
             try:
