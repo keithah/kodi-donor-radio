@@ -248,3 +248,43 @@ def test_finish_prevents_late_observations_reviving_breaks():
     t.finish('closed')
     t.observe(playlist(daterange()), 'a', 0)
     assert sink.events == []
+
+
+def test_delayed_older_in_does_not_close_newer_out():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:60\n', 10, count=3), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT:60\n', 12), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 11, count=2), 'a', 0)
+    assert not events(sink, 'break_end')
+    assert sink.events[-1].kind == 'cue_observed'
+    t.observe(playlist('#EXT-X-CUE-IN\n', 13), 'a', 0)
+    assert len(events(sink, 'break_end')) == 1
+    assert events(sink, 'break_end')[0].details['cue_id'] == '12'
+    assert events(sink, 'break_end')[0].details['media_sequence'] == 13
+
+
+@pytest.mark.parametrize('older', ['#EXT-X-CUE-OUT:90\n',
+                                   '#EXT-X-CUE-OUT-CONT:ElapsedTime=5,Duration=90\n'])
+def test_delayed_older_start_or_progress_does_not_mutate_newer_break(older):
+    t, sink = tracker()
+    t.observe(playlist(count=3), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT:60\n', 12), 'a', 0)
+    t.observe(playlist(older, 11, count=2), 'a', 0)
+    assert len(events(sink, 'break_start')) == 1
+    assert not events(sink, 'break_update')
+    assert not events(sink, 'break_unresolved')
+    t.finish('closed')
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert sink.events[-1].details['cue_id'] == '12'
+    assert sink.events[-1].details['duration'] == 60
+
+
+@pytest.mark.parametrize('continuation', ['ElapsedTime=25,Duration=30', '25/30'])
+def test_initial_continuation_expires_after_remaining_duration(continuation):
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:%s\n' % continuation), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_unresolved']
+    assert sink.events[0].details['classification'] == 'in_progress'
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+    assert sink.events[-1].details['media_position'] == 0
+    assert sink.events[-1].details['duration'] == 30

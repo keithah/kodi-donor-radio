@@ -73,6 +73,8 @@ class _Break:
     position: Optional[float]
     duration: Optional[float]
     semantic: tuple
+    last_sequence: int
+    expected_end: Optional[float]
     closed: bool = False
 
 
@@ -153,7 +155,7 @@ class CueTracker:
         # Unknown attributes are evidence, not meaningful lifecycle updates.
         semantic = (action, duration, elapsed, start.isoformat() if start else None,
                     end.isoformat() if end else None, payloads)
-        return attrs, action, duration, start, semantic
+        return attrs, action, duration, elapsed, start, semantic
 
     def _timeline(self, playlist, state, rendition):
         segments = playlist.segments
@@ -212,8 +214,8 @@ class CueTracker:
             if end is not None:
                 for record in self._breaks.values():
                     if (record.rendition == rendition_id and record.epoch == epoch
-                            and record.position is not None and record.duration is not None
-                            and end >= record.position + record.duration):
+                            and record.expected_end is not None
+                            and end >= record.expected_end):
                         self._unresolved(record, 'expected_duration_elapsed')
 
     def _observe_cue(self, cue, rendition, epoch, state, offset):
@@ -228,15 +230,18 @@ class CueTracker:
             return
         if parsed is None:
             return
-        attrs, action, duration, start, semantic = parsed
+        attrs, action, duration, elapsed, start, semantic = parsed
         family = 'daterange' if cue.source == 'EXT-X-DATERANGE' else 'cue'
         scope = (rendition, epoch, cue.discontinuity, family)
         cue_id = attrs.get('ID', str(cue.sequence))
         key = scope + (cue_id,)
-        active = [r for k, r in self._breaks.items() if k[:4] == scope and not r.closed]
+        scoped = [r for k, r in self._breaks.items() if k[:4] == scope]
+        active = [r for r in scoped if not r.closed]
+        stale = family == 'cue' and any(r.last_sequence > cue.sequence for r in scoped)
+        compatible = [r for r in active if r.last_sequence <= cue.sequence]
         record = self._breaks.get(key)
-        if family == 'cue' and action in ('progress', 'end') and active:
-            record = active[-1]
+        if family == 'cue' and action in ('progress', 'end') and compatible:
+            record = max(compatible, key=lambda r: r.last_sequence)
             key = scope + (record.cue_id,)
             cue_id = record.cue_id
         # Explicit IN has its own boundary identity even when linked to a break.
@@ -251,8 +256,10 @@ class CueTracker:
         if action == 'progress' or (action == 'start' and past_start and record is None):
             classification = 'in_progress'
         self._emit('cue_observed', cue, rendition, epoch, classification, position, duration, cue_id)
-        if action == 'opaque' or cue.discontinuity < state['disc']:
+        if action == 'opaque' or stale or cue.discontinuity < state['disc']:
             return
+        if record is not None:
+            record.last_sequence = cue.sequence
         if action == 'end':
             if record is not None and not record.closed:
                 record.closed = True
@@ -264,6 +271,10 @@ class CueTracker:
                 record.semantic = semantic
                 record.cue = cue
                 if duration is not None:
+                    if action == 'progress' and elapsed is not None and position is not None:
+                        record.expected_end = position + max(duration - elapsed, 0.0)
+                    elif record.expected_end is not None and record.duration is not None:
+                        record.expected_end += duration - record.duration
                     record.duration = duration
                 self._emit('break_update', cue, rendition, epoch, position=position,
                            duration=duration, cue_id=cue_id)
@@ -271,7 +282,10 @@ class CueTracker:
         if family == 'cue':
             for old in active:
                 self._unresolved(old, 'superseded')
-        record = _Break(cue, rendition, epoch, cue_id, family, position, duration, semantic)
+        expected_end = (position + max(duration - (elapsed or 0.0), 0.0)
+                        if position is not None and duration is not None else None)
+        record = _Break(cue, rendition, epoch, cue_id, family, position, duration,
+                        semantic, cue.sequence, expected_end)
         self._breaks[key] = record
         if len(self._breaks) > DEDUP_LIMIT:
             _, retired = self._breaks.popitem(last=False)
