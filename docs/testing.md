@@ -50,13 +50,14 @@ and private network targets remain blocked. Test mode and diagnostic logging
 both default to disabled. Service restart applies setting changes and retires
 old playback sessions.
 
-In Kodi 21.3, install the ZIP when packaging is available, verify service startup,
+In Kodi 21.3, install the packaged ZIP, verify service startup,
 browse/search stations, and play MP3, AAC, ICY and each HLS fixture. Confirm heard
 audio, inspect sanitized logs against expected cue schedules, switch stations
 rapidly, stop playback, restart the service, and quit Kodi. Record the exact Kodi
 build, OS, installation outcome, audio behavior and cleanup timings. Verify
 continuous playback when Kodi sends HEAD, Range or repeated GET requests: the
-relay returns 405 for HEAD, accepts `Range: bytes=0-` with HTTP 200 for
+relay returns metadata-only 200 for HEAD on continuous streams and playlists
+(405 for segment/map HEAD), accepts `Range: bytes=0-` with HTTP 200 for
 continuous streams and rewritten manifests, and returns 416 for other seeks on
 those resources. Segment/map byte-range semantics are preserved. Only one
 continuous consumer is permitted. The adapter preserves Kodi content lookup and
@@ -158,8 +159,9 @@ policy with no override. This verifies decoding, not audible listening or Kodi.
 
 Cue expiry now reports `break_unresolved(expected_duration_elapsed)` once and
 retains association with the original break. A later same-epoch explicit IN
-emits one `break_end` with that ID. Supersession, epoch, discontinuity and timeline
-gap still retire association. HTTP parser/protocol exceptions become sanitized
+emits one `break_end` with that ID. Supersession, epoch and timeline gaps retire
+association. Discontinuities retire generic cues unless an explicit CONT/IN at
+the next boundary proves continuation; DATERANGE IDs survive discontinuities. HTTP parser/protocol exceptions become sanitized
 `HttpError` values at request/read boundaries; discovery can fail over, while
 uncertain delivery and click counting remain single-attempt operations.
 
@@ -374,3 +376,35 @@ creation, `check_package.py`, and the official Omega checker on the fresh
 addon problems or warnings; its separate host LibreSSL warning remains.
 Latest ZIP SHA-256:
 `782ca281487adac19becfcae1f5963a91cc7fda51e87fc5288a47d424781d983`.
+
+### Cue identity across discontinuities
+
+The two overlapping review findings were verified against RFC 8216
+[§4.3.2.7 and §4.3.2.7.1](https://www.rfc-editor.org/rfc/rfc8216.html#section-4.3.2.7)
+and the repository media fixture. DATERANGE identity now spans discontinuities
+within one rendition/epoch. The approved generic-cue refinement preserves an
+active association only at an explicit consecutive CONT/IN boundary; the full
+policy and unchanged terminal cases are in [implementation decisions](implementation-decisions.md).
+Crossing does not imply a new start or reliable expiry origin. CONT/IN observation
+deduplication uses sequence identity so closing a linked break cannot produce a
+duplicate observation when the window repeats.
+
+Eight initial lifecycle regressions failed before the fix. A strengthened
+repeated-window test separately reproduced and fixed duplicate CONT evidence.
+Coverage includes combined and rolling windows, OUT before the first ad segment,
+same-ID DATERANGE end matching, reused IDs/new epochs, malformed/uncued/skipped
+boundaries, stale cues, unknown timing, and the existing media fixture. The cue
+suite passed **69 tests in 0.32s**; the earlier combined cue/relay/fixture run
+passed **105 tests in 19.08s** before the final deduplication strengthening.
+The current Kodi smoke instructions now describe the available ZIP and correct
+metadata-only HEAD behavior.
+Final full suite: **391 passed in 46.72s**, with the previously documented local
+HTTP-handler banner and no failures. Package creation and `check_package.py`
+exited 0. Latest ZIP SHA-256:
+`8ff997287825f02db1c360012cbc3a7b9cafabfccd4a1e8dd60e4de1c26d65c7`.
+FFmpeg smoke during this fix wave decoded MP3, ICY and HLS with exit 0, 32,000
+nonzero PCM bytes and empty stderr each; that run preceded the final event-only
+deduplication adjustment. Kodi runtime acceptance remains pending.
+Official Omega checker on the final ZIP extraction in
+`dist/checker-prepr-discontinuity-final/` exited 0 with no addon problems or
+warnings; the separate host LibreSSL warning remains.

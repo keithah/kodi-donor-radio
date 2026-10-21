@@ -186,6 +186,28 @@ class CueTracker:
             state['last'], state['end'] = last.sequence, end
         return offset, end
 
+    def _advance_discontinuity(self, rendition, epoch, state, disc, bridge=None):
+        keep = None
+        if bridge is not None and disc == state['disc'] + 1:
+            try:
+                parsed = self._semantics(bridge)
+            except ValueError:
+                parsed = None
+            if parsed is not None and parsed[1] in ('progress', 'end'):
+                candidates = [r for r in self._breaks.values()
+                              if r.rendition == rendition and r.epoch == epoch
+                              and r.family == 'cue' and not r.closed
+                              and r.cue.discontinuity < disc and r.last_sequence <= bridge.sequence
+                              and (not parsed[0].get('ID') or parsed[0]['ID'] == r.cue_id)]
+                if len(candidates) == 1:
+                    keep = candidates[0]
+                    # Identity survives explicit continuation, not a timestamp assumption.
+                    # A CONT with explicit elapsed time may establish a fresh origin.
+                    keep.expected_origin = None
+        self._close_matching(rendition, 'discontinuity',
+                             lambda r: r.family == 'cue' and r.cue.discontinuity < disc and r is not keep)
+        state['disc'] = disc
+
     def observe(self, playlist: Playlist, rendition_id: str, epoch: int) -> None:
         with self._lock:
             if self._finished or playlist.is_master:
@@ -203,17 +225,22 @@ class CueTracker:
                     self._close_matching(retired, 'retention_limit')
             self._streams.move_to_end(rendition_id)
             offset, end = self._timeline(playlist, state, rendition_id)
+            first_segments, first_cues = {}, {}
+            for segment in playlist.segments:
+                first_segments.setdefault(segment.discontinuity, segment.sequence)
+            for cue in playlist.cues:
+                if cue.source != 'EXT-X-DATERANGE':
+                    first_cues.setdefault(cue.discontinuity, cue)
             for cue in playlist.cues:
                 if cue.discontinuity > state['disc']:
-                    self._close_matching(rendition_id, 'discontinuity',
-                                         lambda r: r.cue.discontinuity < cue.discontinuity)
-                    state['disc'] = cue.discontinuity
+                    bridge = first_cues.get(cue.discontinuity)
+                    if bridge is not None and bridge.sequence != first_segments.get(cue.discontinuity, bridge.sequence):
+                        bridge = None
+                    self._advance_discontinuity(rendition_id, epoch, state, cue.discontinuity, bridge)
                 self._observe_cue(cue, rendition_id, epoch, state, offset)
             max_disc = max((s.discontinuity for s in playlist.segments), default=state['disc'])
             if max_disc > state['disc']:
-                self._close_matching(rendition_id, 'discontinuity',
-                                     lambda r: r.cue.discontinuity < max_disc)
-                state['disc'] = max_disc
+                self._advance_discontinuity(rendition_id, epoch, state, max_disc)
             if end is not None:
                 for record in self._breaks.values():
                     if (record.rendition == rendition_id and record.epoch == epoch
@@ -237,10 +264,11 @@ class CueTracker:
             return
         attrs, action, duration, elapsed, start, semantic = parsed
         family = 'daterange' if cue.source == 'EXT-X-DATERANGE' else 'cue'
-        scope = (rendition, epoch, cue.discontinuity, family)
+        scope = (rendition, epoch, None if family == 'daterange' else cue.discontinuity, family)
         cue_id = attrs.get('ID', str(cue.sequence))
         key = scope + (cue_id,)
-        scoped = [r for k, r in self._breaks.items() if k[:4] == scope]
+        scoped = [r for r in self._breaks.values()
+                  if r.rendition == rendition and r.epoch == epoch and r.family == family]
         active = [r for r in scoped if not r.closed]
         stale = family == 'cue' and any(r.last_sequence > cue.sequence for r in scoped)
         compatible = [r for r in active if r.last_sequence <= cue.sequence]
@@ -249,8 +277,8 @@ class CueTracker:
             record = max(compatible, key=lambda r: r.last_sequence)
             key = scope + (record.cue_id,)
             cue_id = record.cue_id
-        # Explicit IN has its own boundary identity even when linked to a break.
-        identity = cue.sequence if family == 'cue' and action == 'end' else cue_id
+        # CONT/IN observation identity must not change when their linked break closes.
+        identity = cue.sequence if family == 'cue' and action in ('progress', 'end') else cue_id
         fingerprint = hashlib.sha256(repr(semantic).encode()).digest()
         if not self._remember(scope + (cue.source, identity, fingerprint)):
             return
@@ -261,10 +289,10 @@ class CueTracker:
         if action == 'progress' or (action == 'start' and past_start and record is None):
             classification = 'in_progress'
         self._emit('cue_observed', cue, rendition, epoch, classification, position, duration, cue_id)
-        if action == 'opaque' or stale or cue.discontinuity < state['disc']:
+        if action == 'opaque' or stale or (family == 'cue' and cue.discontinuity < state['disc']):
             return
         if record is not None:
-            record.last_sequence = cue.sequence
+            record.last_sequence = max(record.last_sequence, cue.sequence)
         if action == 'end':
             if record is not None and not record.closed:
                 record.closed = True

@@ -177,8 +177,8 @@ def test_repeated_discontinuity_does_not_reset_epoch():
     t.observe(playlist(daterange(), 11, disc=1), 'a', 0)
     assert len(events(sink, 'break_start')) == 1
     t.observe(playlist('#EXT-X-DISCONTINUITY\n' + daterange(), 12, disc=1), 'a', 0)
-    assert len(events(sink, 'break_start')) == 2
-    assert len(events(sink, 'break_unresolved')) == 1
+    assert len(events(sink, 'break_start')) == 1
+    assert not events(sink, 'break_unresolved')
 
 
 def test_overlapping_windows_align_positions_but_gap_leaves_timing_unknown():
@@ -358,7 +358,7 @@ def test_later_explicit_in_ends_expired_break_once_with_original_id():
     assert sink.events[3].details['cue_id'] == '10'  # linked cue_observed
 
 
-@pytest.mark.parametrize('boundary', ['superseded', 'epoch', 'gap', 'discontinuity'])
+@pytest.mark.parametrize('boundary', ['superseded', 'epoch', 'gap'])
 def test_expired_break_cannot_end_after_terminal_boundary(boundary):
     t, sink = tracker()
     t.observe(playlist('#EXT-X-CUE-OUT:5\n'), 'a', 0)
@@ -422,3 +422,103 @@ def test_daterange_start_date_correction_is_meaningful():
     t.observe(playlist(daterange()), 'a', 0)
     t.observe(playlist(daterange(start='2026-10-21T17:01:05Z')), 'a', 0)
     assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_update']
+
+
+@pytest.mark.parametrize('rolling', [False, True])
+@pytest.mark.parametrize('out_before_first_segment', [False, True])
+def test_explicit_continuation_bridges_discontinuities_without_new_break(rolling,out_before_first_segment):
+    t, sink = tracker()
+    out = '#EXT-X-CUE-OUT:60\n'
+    cont = '#EXT-X-CUE-OUT-CONT:ElapsedTime=5,Duration=60\n'
+    end = '#EXT-X-CUE-IN\n'
+    if rolling:
+        windows = [playlist(out, 10, count=0 if out_before_first_segment else 1),
+                   playlist(cont, 10 if out_before_first_segment else 11, disc=1),
+                   playlist(end, 11 if out_before_first_segment else 12, disc=2)]
+    else:
+        prefix = '' if out_before_first_segment else '#EXTINF:5,\n10.aac\n'
+        windows = [playlist(out + prefix + '#EXT-X-DISCONTINUITY\n' + cont +
+                    '#EXTINF:5,\nad.aac\n#EXT-X-DISCONTINUITY\n' + end, 10)]
+    for window in windows:
+        t.observe(window, 'a', 0)
+        t.observe(window, 'a', 0)
+    assert len(events(sink, 'cue_observed')) == 3
+    assert len(events(sink, 'break_start')) == 1
+    assert len(events(sink, 'break_end')) == 1
+    assert not events(sink, 'break_unresolved')
+    assert not events(sink, 'break_update')
+    assert events(sink, 'break_start')[0].details['cue_id'] == '10'
+    assert events(sink, 'break_end')[0].details['cue_id'] == '10'
+
+
+def test_daterange_identity_survives_uncued_discontinuities_with_unknown_media_timing():
+    t, sink = tracker()
+    t.observe(playlist(daterange(), 10), 'a', 0)
+    t.observe(playlist(sequence=11, disc=1), 'a', 0)
+    t.observe(playlist(daterange(',SCTE35-IN=0xFC01,END-DATE="2026-10-21T17:01:30Z"'), 12, disc=2), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
+    assert all(e.details['cue_id'] == 'ad-1' for e in sink.events)
+    assert all(e.details['media_position'] is None for e in sink.events)
+
+
+@pytest.mark.parametrize('boundary', ['no-cue', 'malformed', 'skipped', 'late', 'different-id'])
+def test_unproven_discontinuity_cannot_bridge_cue_association(boundary):
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:ID="old",DURATION=60\n', 10), 'a', 0)
+    content = {'no-cue':'', 'malformed':'#EXT-X-CUE-OUT-CONT:ElapsedTime=bad\n',
+               'skipped':'#EXT-X-CUE-IN\n',
+               'late':'#EXTINF:5,\n11.aac\n#EXT-X-CUE-IN\n',
+               'different-id':'#EXT-X-CUE-OUT-CONT:ID="other",ElapsedTime=5,Duration=60\n'}[boundary]
+    t.observe(playlist(content, 11, disc=2 if boundary=='skipped' else 1), 'a', 0)
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert events(sink, 'break_unresolved')[0].details['cue_id'] == 'old'
+    assert not events(sink, 'break_end')
+
+
+def test_expired_cue_can_match_explicit_in_at_next_discontinuity():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:5\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 11, disc=1), 'a', 0)
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert len(events(sink, 'break_end')) == 1
+    assert events(sink, 'break_end')[0].details['cue_id'] == '10'
+
+
+def test_stale_cue_after_cross_discontinuity_continuation_cannot_end_it():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:60\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=5,Duration=60\n', 11, disc=1), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 10), 'a', 0)
+    assert not events(sink, 'break_end')
+    t.observe(playlist('#EXT-X-CUE-IN\n', 12, disc=2), 'a', 0)
+    assert [e.details['cue_id'] for e in events(sink, 'break_end')] == ['10']
+
+
+def test_discontinuity_continuation_without_elapsed_does_not_infer_expiry():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:10\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:Duration=10\n', 11, disc=1), 'a', 0)
+    assert not events(sink, 'break_unresolved')
+    t.observe(playlist('#EXT-X-CUE-IN\n', 12, disc=2), 'a', 0)
+    assert [e.details['cue_id'] for e in events(sink, 'break_end')] == ['10']
+
+
+def test_new_out_reusing_id_across_discontinuity_is_a_new_generic_break():
+    t, sink = tracker()
+    out = '#EXT-X-CUE-OUT:ID="same",DURATION=60\n'
+    t.observe(playlist(out, 10), 'a', 0)
+    t.observe(playlist(out, 11, disc=1), 'a', 0)
+    assert len(events(sink, 'break_start')) == 2
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert events(sink, 'break_unresolved')[0].details['reason'] == 'discontinuity'
+
+
+def test_repository_media_fixture_links_continuation_and_same_id_date_range_end():
+    t, sink = tracker()
+    text = (Path(__file__).parent/'fixtures/hls/media.m3u8').read_text()
+    text = text.replace('#EXT-X-CUE-IN', '#EXT-X-DATERANGE:ID="break-1",START-DATE="2026-10-21T12:00:00Z",SCTE35-IN=0xFC01\n#EXT-X-CUE-IN')
+    t.observe(parse_playlist(text, 'https://radio.example/live.m3u8'), 'a', 0)
+    assert not events(sink, 'break_unresolved')
+    assert [e.details['cue_id'] for e in events(sink, 'break_end')] == ['break-1','100']
+    # The past DATERANGE start is in-progress evidence, not an invented start.
+    assert [e.details['cue_id'] for e in events(sink, 'break_start')] == ['100']
