@@ -81,4 +81,4 @@ Repository-policy exception and rights to replace/distribute particular station 
 
 ## Review status
 
-Written design awaiting user review. Implementation and its execution plan have not started.
+User approved this design on 2026-10-21 and requested an implementation plan. Product implementation has not started.
