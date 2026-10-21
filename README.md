@@ -6,10 +6,11 @@ addon service. Optional local diagnostics record ICY metadata and explicit HLS
 cue evidence from the stream delivered to Kodi. The POC preserves programme
 audio and does not insert ads, resolve VAST, or send remote analytics.
 
-**Kodi playback validation is pending.** Kodi 21.3 Omega is the target, with
-`xbmc.python` 3.0.1. Packaging, pure-Python integration tests and static checker
-results do not establish audible playback or Kodi runtime compatibility. See
-[the validation record](docs/testing.md) for evidence and outstanding checks.
+**Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
+ICY and five controlled HLS cue scenarios. This host required a process-local
+workaround for a Kodi USB initialization hang. Advancing player time and cue
+logs were verified; audible output was not independently confirmed. See
+[the validation record](docs/testing.md) for evidence and remaining limits.
 
 ## Build and install
 

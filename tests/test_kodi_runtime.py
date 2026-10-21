@@ -149,7 +149,7 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
         def __init__(self,descriptor,timeout=10): self.descriptor=descriptor
         def health(self): return {'status':'ok','instance_id':'a'*48}
         def stop(self,session_id): stopped.append(session_id)
-        def create(self,station): created.append(station); return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48}
+        def create(self,station): created.append(station); return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,'mime_type':'audio/aac'}
     monkeypatch.setattr(runtime,'ControlClient',Client)
     route(runtime,action='play',station=json.dumps(STATION.__dict__))
     assert created==[STATION] and browser.clicks==['station-1']
@@ -159,8 +159,9 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
     assert 'localized-30011' not in state.messages
     assert state.resolved[0][1].path=='http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48
     # Directory codec/HLS fields are hints; the relay's response is authoritative.
-    assert not hasattr(state.resolved[0][1], 'mime')
-    assert getattr(state.resolved[0][1], 'lookup', True)
+    assert state.resolved[0][1].mime == 'audio/aac'
+    # Kodi's redirect lookup opens a GET before the decoder, consuming the relay.
+    assert state.resolved[0][1].lookup is False
 
 
 @pytest.mark.parametrize('failure', ['missing','invalid','upstream','malformed'])
@@ -210,7 +211,7 @@ def test_cancelled_create_stops_late_session(kodi,monkeypatch):
         def create(self,station):
             entered.set()
             released.wait(1)
-            return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48}
+            return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,'mime_type':'audio/aac'}
         def stop(self,session_id): assert session_id=='c'*48; stopped.set()
     monkeypatch.setattr(runtime,'ControlClient',Client)
     state.action=lambda monitor: setattr(state,'cancel',True) if entered.is_set() else None

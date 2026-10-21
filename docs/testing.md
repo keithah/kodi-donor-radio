@@ -9,11 +9,12 @@ The minimum declared dependency is **`xbmc.python` 3.0.1**, as supplied by the
 [21.3 source metadata](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.python/addon.xml).
 This is a Kodi addon API version, not an embedded CPython version.
 
-**Tested Kodi runtime: none.** This host has no Kodi application or `kodi`
-command. Python tests use narrow Kodi boundary fakes; they do not establish
-Kodi runtime compatibility. The development host uses Python 3.9.6. Source
-uses a Python 3.8-compatible syntax subset; other Python installations have
-not been exercised.
+**Tested Kodi runtime: 21.3 Omega**, revision `20251031-a3a448d26b`,
+macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. The host is
+`mbpdev`. A process-local USB restriction was required to complete Kodi startup;
+see the runtime record below. All eight controlled streams produced advancing
+Kodi player time. HLS cue schedules matched exactly. Audible output was not
+independently confirmed; other Kodi platforms remain untested.
 
 The same addon registers the music plugin and service. Official 21.3 sources
 verify the [audio plugin extension](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.python/pluginsource.xsd),
@@ -22,7 +23,7 @@ verify the [audio plugin extension](https://github.com/xbmc/xbmc/blob/21.3-Omega
 [Monitor abort/settings callbacks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Monitor.h),
 [player callbacks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Player.h),
 and [`xbmcvfs.translatePath`](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/ModuleXbmcvfs.h).
-Addon metadata explicitly records that playback validation is pending.
+Addon metadata continues to identify this as an experimental POC.
 
 ## Automated adapter checks
 
@@ -39,7 +40,7 @@ settings restart/recovery, opt-in diagnostics and exact fixture-origin policy.
 Profile modes 0700 and descriptor mode 0600 are checked on POSIX. Windows uses
 its native file locking; Windows ACL behavior has not been runtime-tested.
 
-## Controlled Kodi smoke test still required
+## Controlled Kodi smoke procedure
 
 Generate authored tone assets and start the developer fixture server as described
 in [fixture instructions](../tools/README-fixtures.md). Configure **Enable test
@@ -60,10 +61,10 @@ relay returns metadata-only 200 for HEAD on continuous streams and playlists
 (405 for segment/map HEAD), accepts `Range: bytes=0-` with HTTP 200 for
 continuous streams and rewritten manifests, and returns 416 for other seeks on
 those resources. Segment/map byte-range semantics are preserved. Only one
-continuous consumer is permitted. The adapter preserves Kodi content lookup and
-never forces MIME from directory
-codec/HLS hints; the authoritative media type comes from the relay response.
-Kodi content lookup and demux selection still need runtime validation.
+continuous consumer is permitted. The adapter disables Kodi content lookup because it performs an extra disposable
+GET that consumes the continuous stream. The control response provides the MIME
+type from the resolved upstream response, never directory codec/HLS hints.
+Kodi playback was verified with this behavior; see the runtime record below.
 
 Cancellation returns control to the Kodi UI promptly and stops a session when a
 late create response arrives. An in-flight service resolver is bounded by its
@@ -76,7 +77,7 @@ Kodi exposes the media URL, idle expiry provides final cleanup.
 No cues observed means no cues observed; it does not prove that no advertisements
 exist. Observation time differs from the listener's audible playback time.
 
-## Package and live verification — 2026-10-21
+## Historical pre-Kodi package and live verification — 2026-10-21
 
 Development host: **macOS 26.6.2, build 25G83**, arm64; Python **3.9.6**.
 No `kodi` command or `/Applications/Kodi.app` is installed. No Kodi installation, Kodi
@@ -424,3 +425,74 @@ Full suite: **395 passed in 46.83s**, clean output. Package creation,
 addon problems or warnings, alongside the known separate host LibreSSL warning.
 Latest ZIP SHA-256:
 `f39d96a58b0a89c8b50ba7079be1f220cd881ea763fa9744554691007305d12c`.
+
+## Actual Kodi runtime — 2026-10-21
+
+Installed the official Kodi 21.3 ARM64 application via Homebrew; Developer ID
+signature and notarization assessment passed. Normal startup repeatedly hung
+in macOS `IOServiceOpen` during Kodi USB interface enumeration. A bounded
+standalone diagnostic identified the RTL9210B-CG storage interface: Ethernet
+interfaces returned successfully, while its interface-open call timed out.
+Reading the interface class from IORegistry completed for all six interfaces.
+
+For testing, the unmodified Kodi binary was launched using a process-local
+sandbox profile denying `IOUSBDeviceUserClientV2` and
+`IOUSBInterfaceUserClientV3` opens. This disables direct Kodi USB peripheral
+discovery for that launch; USB networking remains connected. No system security
+setting or app signature changed. A separate proposed Kodi source patch replaces
+the blocking interface-class query with a registry read. Its small harness passed
+12 property cases and six live interfaces, but it has not been built into Kodi
+or submitted upstream. This source patch is separate from the radio addon.
+
+The addon ZIP was extracted into the Kodi profile and enabled through Kodi's
+loopback JSON-RPC API. The ZIP-install dialog was not exercised. Test mode and
+diagnostics were enabled with exact origin `http://127.0.0.1:8765`. Playback used
+the plugin URLs returned by Kodi's fixture directory, exercising `setResolvedUrl`
+and the embedded service rather than opening fixture-origin URLs directly.
+
+Initial continuous playback failed with HTTP 409: Kodi's content lookup performs
+a disposable GET before the decoder GET. The adapter now disables that lookup
+and uses MIME metadata returned by the service from its resolved response. A
+second runtime failure delayed service availability: a Python stack dump located
+it in `HTTPServer.server_bind` → `socket.getfqdn('127.0.0.1')`. Numeric loopback
+binding now avoids this unnecessary reverse-DNS lookup.
+
+| Runtime check | Observed result |
+| --- | --- |
+| MP3, AAC, ICY | Active Kodi player with advancing time; ICY metadata logged |
+| HLS OUT/IN | cue_observed, break_start, cue_observed, break_end, all signaled |
+| HLS mid-break entry | in_progress observation then signaled observation/end; no start |
+| HLS missing end | signaled observation/start then break_unresolved |
+| HLS no cues | No cue records |
+| HLS malformed cue | One invalid cue observation |
+| Directory | Country/tag pages and next pages, BBC search returned results |
+| Live station | First BBC Radio 1 directory result played with advancing time |
+| Stop | Player.Stop ended each tested playback |
+
+All five HLS schedules were compared in order with the fixture server's expected
+JSON, filtering by station and latest session. No-cue success is absence of
+observed cues, not proof of absent advertisements. Initial directory requests
+returned Retry after timeouts; subsequent requests succeeded without a directory
+code change. The reason for those transient lookup delays was not established.
+
+Raw runtime evidence and the USB diagnostic artifacts are kept outside this
+checkout. Player clocks and decoder logs establish playback activity, not heard
+audio. VAST insertion, ad replacement, audible-output capture, other platforms,
+and full Kodi validation of the USB source patch remain outside this result.
+
+After the DNS-free bind fix, a fresh Kodi launch published the service descriptor
+in **0.787 seconds** (the instrumented previous launch spent **35.005 seconds**
+in server startup). Authenticated service health and a new MP3/AAC/ICY switching
+sequence passed. Switching every four seconds retained active playback and
+retired each previous media URL with HTTP 404. Player.Stop left no active player.
+Application.Quit completed in **2.023 seconds** and removed the service descriptor.
+The temporary startup instrumentation was replaced with the packaged entry point.
+The fixture server and Kodi were stopped after testing. Settings-dialog restart
+behavior and audible output remain unverified.
+
+Final full suite: **399 passed in 47.92s**. The continuous-playback fix's focused
+suite passed 79 tests; the no-DNS bind regression first failed on an unexpected
+`socket.getfqdn` call, then the relay suite passed 38 tests including a real
+loopback health request. Package creation and `check_package.py` passed.
+ZIP SHA-256:
+`9db622bc949ff42df6a28b2e6d526dcf329d0d3db036ff3c6b035d1e336964b2`.

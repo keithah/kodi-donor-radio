@@ -7,7 +7,7 @@ import json
 import re
 import secrets
 import socket
-from socketserver import ThreadingMixIn
+from socketserver import TCPServer, ThreadingMixIn
 import threading
 import time
 from urllib.parse import urlsplit
@@ -37,6 +37,12 @@ class _Server(ThreadingMixIn, HTTPServer):
         self.lock = threading.Lock()
         self.connections, self.workers = set(), set()
         super().__init__(('127.0.0.1', 0), _Handler)
+
+    def server_bind(self):
+        # HTTPServer resolves getfqdn() during bind. Our numeric loopback-only
+        # listener needs no DNS, which can otherwise stall service startup.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def process_request(self, request, address):
         if not self.slots.acquire(blocking=False):
@@ -154,7 +160,13 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(400)
         except Exception:
             return self._reply(502)
-        self._reply(201, {'id': session.id, 'playback_url': session.playback_url})
+        # Resolve from the fetched response, never Radio Browser codec/HLS hints.
+        mime = ('application/vnd.apple.mpegurl' if session.source.protocol == 'hls'
+                else session.source.response.headers.get('content-type', '').split(';', 1)[0].strip().lower())
+        if len(mime) > 128 or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime):
+            mime = 'application/octet-stream'
+        self._reply(201, {'id': session.id, 'playback_url': session.playback_url,
+                          'mime_type': mime})
 
     def do_DELETE(self):
         match = _SESSION.fullmatch(self.path) if self._valid_target() else None

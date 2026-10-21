@@ -305,6 +305,7 @@ def test_abrupt_disconnect_closes_continuous_origin(relay, origin):
 
 def test_control_client_and_credential_headers_not_forwarded(relay, origin):
     from control import ControlClient
+    from control import ControlClient
     control = ControlClient(relay[3])
     assert control.health()['status'] == 'ok'
     result = control.create(Station('id', 'Radio', origin[0] + '/list', '', True))
@@ -452,3 +453,34 @@ def test_head_validates_exact_resources_without_fetching_segments(relay,origin):
     assert origin[1] == calls and not relay[2].events and not s.cancel.is_set()
     relay[1].stop(s.id)
     assert request(s.playback_url, 'HEAD')[0] == 404
+
+
+@pytest.mark.parametrize('path,hint,expected_mime', [
+    ('/icy', True, 'audio/mpeg'),
+    ('/audio', True, 'application/octet-stream'),
+    ('/list', False, 'application/vnd.apple.mpegurl'),
+])
+def test_control_exposes_resolved_mime_without_consuming_media(relay, origin, path, hint, expected_mime):
+    from control import ControlClient
+    control = ControlClient(relay[3])
+    result = control.create(Station('mime', 'Radio', origin[0] + path, 'WRONG', hint))
+    assert result['mime_type'] == expected_mime
+    assert request(result['playback_url'])[0] == 200
+
+
+def test_loopback_relay_start_does_not_resolve_hostname(monkeypatch):
+    from relay import RelayServer
+
+    def unexpected_lookup(*args, **kwargs):
+        raise AssertionError('Loopback relay startup must not wait for DNS')
+
+    monkeypatch.setattr(socket, 'getfqdn', unexpected_lookup)
+    server = RelayServer()
+    try:
+        descriptor = server.start()
+        assert server._server.server_name == '127.0.0.1'
+        assert server._server.server_port == descriptor.port
+        assert server._server.socket.getsockname() == ('127.0.0.1', descriptor.port)
+        assert request('http://127.0.0.1:%s/health' % descriptor.port)[0] == 200
+    finally:
+        server.close()

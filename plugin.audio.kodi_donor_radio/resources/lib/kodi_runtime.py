@@ -267,8 +267,15 @@ def run_plugin(argv):
                 raise ValueError('Invalid relay response')
             entry = xbmcgui.ListItem(label=station.name, path=session['playback_url'])
             entry.setProperty('IsPlayable', 'true')
-            # Let Kodi discover Content-Type from the authoritative relay response;
-            # directory codec/HLS fields can be wrong after playlist indirection.
+            mime = session.get('mime_type', 'application/octet-stream')
+            if (not isinstance(mime, str) or len(mime) > 128
+                    or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime)):
+                raise ValueError('Invalid relay MIME type')
+            # Kodi's redirect/content lookup performs a disposable GET before
+            # decoder playback. That would consume our single continuous reader.
+            # The service already resolved redirects and the authoritative MIME.
+            entry.setMimeType(mime)
+            entry.setContentLookup(False)
             xbmcplugin.setResolvedUrl(handle, True, entry)
         except (OSError, ValueError, KeyError, TypeError):
             if session: stop(session)
