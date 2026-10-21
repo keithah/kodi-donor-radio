@@ -16,7 +16,7 @@ import re
 import threading
 from typing import Callable, Optional
 
-from hls import CueObservation, Playlist
+from hls import CueObservation, Playlist, parse_iso_datetime
 from models import Event, EventSink
 
 
@@ -38,7 +38,7 @@ def _number(value):
 def _date(value):
     if value is None:
         return None
-    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    parsed = parse_iso_datetime(value)
     if 'T' not in value or parsed.tzinfo is None:
         raise ValueError('invalid_date')
     return parsed.astimezone(timezone.utc)

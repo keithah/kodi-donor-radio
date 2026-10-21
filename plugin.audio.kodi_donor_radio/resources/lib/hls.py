@@ -133,6 +133,18 @@ def _attributes(value):
     return attrs, spans
 
 
+def parse_iso_datetime(value):
+    """Accept ISO 8601 basic offsets on Python 3.8/3.9 without changing evidence."""
+    if 'T' not in value:
+        raise ValueError('Missing timestamp')
+    offset = re.search(r'([+-])(\d{2})(\d{2})$', value)
+    if offset:
+        if int(offset.group(2)) > 23 or int(offset.group(3)) > 59:
+            raise ValueError('Invalid timezone offset')
+        value = value[:offset.start()] + offset.group(1) + offset.group(2) + ':' + offset.group(3)
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
+
 def _integer(value, positive=False):
     if not re.fullmatch(r'[0-9]+', value):
         raise InvalidPlaylist('Invalid integer')
@@ -301,9 +313,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 raise InvalidPlaylist('Invalid playlist type')
         elif tag == 'EXT-X-PROGRAM-DATE-TIME':
             try:
-                if 'T' not in value:
-                    raise ValueError('Missing timestamp')
-                datetime.fromisoformat(value.replace('Z', '+00:00'))
+                parse_iso_datetime(value)
             except ValueError as error:
                 raise InvalidPlaylist('Invalid program date time') from error
         if tag in ('EXT-X-DATERANGE', 'EXT-X-CUE-OUT', 'EXT-X-CUE-OUT-CONT', 'EXT-X-CUE-IN'):

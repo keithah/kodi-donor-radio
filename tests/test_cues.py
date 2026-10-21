@@ -319,3 +319,25 @@ def test_duration_added_to_continuation_retains_prior_elapsed_origin():
     assert kinds(sink) == ['cue_observed', 'cue_observed', 'break_update', 'break_unresolved']
     assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
     assert sink.events[-1].details['media_position'] == 0
+
+
+@pytest.mark.parametrize('start', [
+    '2026-10-21T17:01:00+0000',
+    '2026-10-21T22:31:00+0530',
+    '2026-10-21T10:01:00-0700',
+])
+def test_daterange_basic_timezone_normalizes_repeated_boundaries(start):
+    t, sink = tracker()
+    t.observe(playlist(daterange(start=start)), 'a', 0)
+    t.observe(playlist(daterange(start='2026-10-21T17:01:00Z')), 'a', 0)
+    t.observe(playlist(daterange(',DURATION=30,END-DATE="2026-10-21T17:01:30+0000",SCTE35-IN=0xFC01', start=start)), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
+    assert events(sink, 'break_end')[0].details['duration'] == 30
+
+
+@pytest.mark.parametrize('offset', ['+2400', '+1260', '-9999', '+0000junk'])
+def test_daterange_malformed_basic_timezone_remains_invalid(offset):
+    t, sink = tracker()
+    t.observe(playlist(daterange(start='2026-10-21T17:01:00' + offset)), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+    assert sink.events[0].details['classification'] == 'invalid'

@@ -71,3 +71,104 @@ Kodi exposes the media URL, idle expiry provides final cleanup.
 
 No cues observed means no cues observed; it does not prove that no advertisements
 exist. Observation time differs from the listener's audible playback time.
+
+## Package and live verification — 2026-10-21
+
+Development host: **macOS 26.6.2, build 25G83**, arm64; Python **3.9.6**.
+No `kodi` command or `/Applications/Kodi.app` is installed. No Kodi installation,
+audio playback or audible tone test was performed. The target remains Kodi 21.3;
+**actual tested Kodi/embedded Python version: none**.
+
+Reproduce the source-only distribution from the repository root:
+
+```sh
+python3 -m pytest -q
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+```
+
+The packaging test suite verifies the single addon root, both entry points,
+metadata/API dependency, complete GPL v2 text, localization/artwork, approved
+contents, 0644 regular files and byte-for-byte reproducibility despite source
+mtime/mode changes. Tampered ZIP checks cover missing sources, invalid XML,
+identity/license mismatch, missing localization, invalid artwork, secrets, extra
+roots, traversal, executable members, symlinks and duplicates. No tests, generated
+fixture audio, development tools, caches or virtual environments ship in the ZIP.
+Final full suite: **270 passed in 25.15s**. Final package creation and
+`check_package.py` both exited 0. Artifact:
+`dist/plugin.audio.kodi_donor_radio-0.1.0.zip`; SHA-256:
+`505232bc4518646195582153e6631ce2222bf392cc127dea375fa3eba7488361`.
+
+The [official Kodi addon checker](https://github.com/xbmc/addon-check) documents
+installation with `pip install kodi-addon-checker` and invocation against an addon
+directory. Its current CLI also requires the target branch. Installed locally in
+the ignored `.venv/checker/` directory; no application or checker was installed
+globally. Exact version command and package-validation invocation:
+
+```sh
+.venv/checker/bin/kodi-addon-checker --version
+# kodi-addon-checker 0.0.36
+.venv/checker/bin/kodi-addon-checker --branch omega dist/checker/plugin.audio.kodi_donor_radio
+```
+
+`dist/checker/plugin.audio.kodi_donor_radio` is extracted from the final ZIP, not
+a different source tree. The first run exited 0 and reported no problems and no
+warnings; icon 512×512, JPEG fanart 1280×720 and PO validation passed. The final
+run after the timestamp compatibility change also completed successfully with
+`We found no problems and no warnings, please enjoy your day.` The host emits a
+separate urllib3 warning because system Python uses LibreSSL 2.8.3; this is a
+checker-development-environment warning, not an addon runtime result. The checker
+is static validation and cannot establish Kodi playback compatibility.
+
+### Live Radio Browser sample
+
+Command: `python3 tools/smoke_radio_browser.py --limit 3`. Directory discovery and
+each station have a 15-second deadline, a maximum 1 MiB finite-body cap and the
+production public-address/redirect policy. No `/json/url/` click report is called.
+Samples do not decode audio, report tracking or infer cue/advertisement coverage.
+Only UUIDs, schemes, classifications and byte counts are recorded; upstream URLs
+and directory names are omitted.
+
+Initial run **2026-10-21 17:55:44 UTC**: discovery succeeded; two continuous streams
+returned 512 bytes each, while the HLS sample produced a parser failure. Bounded
+follow-up inspection identified a valid ISO 8601 basic timezone in
+`EXT-X-PROGRAM-DATE-TIME`, for example `2026-10-21T17:58:58+0000`. The playlist master
+parsed; its child media playlist used supported tags. Python 3.9's
+`datetime.fromisoformat` rejected `+0000`. This was a supported-timestamp
+compatibility defect, not a reachability failure or intentionally unsupported HLS
+feature. The fix normalizes basic `+HHMM`/`-HHMM` offsets to extended form for
+parsing only, retaining original playlist/evidence text. DATERANGE start/end
+parsing shares that helper; invalid hour/minute values remain rejected.
+
+Final run **2026-10-21 18:00:27 UTC**, exit **0**, discovery succeeded:
+
+| Station UUID | Input scheme | Resolved protocol | Outcome | Bytes sampled |
+| --- | --- | --- | --- | ---: |
+| `c685c086-b716-4edd-b313-d4a7baf1084c` | HTTPS | HLS | reachable | 4,096 |
+| `db93a00f-9191-46ab-9e87-ec9b373b3eee` | HTTP | continuous | reachable | 512 |
+| `ffc0d701-f43b-4232-8be6-f7ff72add8ef` | HTTPS | continuous | reachable | 512 |
+
+Final sample: **0 reachability failures, 0 parser failures, 0 unsupported/policy
+rejections**. These three directory results are not a representative protocol,
+codec, geographic, uptime or advertisement sample. “Reachable” means bytes were
+received and sampled HLS syntax parsed; it does not mean heard/decoded playback.
+No cues observed means no cues observed, never proof that no ads exist.
+
+### Kodi acceptance status
+
+| Required real Kodi check | Result on this host |
+| --- | --- |
+| Install final ZIP and start embedded service | Pending — Kodi unavailable |
+| Search/browse and real-station playback | Pending — Kodi unavailable |
+| Hear MP3/AAC tone and controlled ICY metadata/audio | Pending — Kodi unavailable |
+| Hear HLS tone and match every fixture window/event timeline | Pending — Kodi unavailable |
+| Stop, rapid station switch, settings restart, quit and resource cleanup | Pending — Kodi unavailable |
+| Verify probing/HEAD/Range/reopen, buffering and audible boundaries | Pending — Kodi unavailable |
+
+A future tester must record exact Kodi build, embedded Python version, OS, heard
+audio and timings here. Pure-Python tests and the static checker do not replace
+these acceptance checks. Generate fixture audio with FFmpeg into ignored
+`tests/generated-audio/`, enable the exact local fixture origin in test mode, and
+restart the fixture server between scenarios. Expected events are available at
+`/expected/{scenario}.json`; compare ordered event kind/classification for all
+three windows rather than assuming a skipped window was observed.

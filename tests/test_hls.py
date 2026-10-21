@@ -232,3 +232,29 @@ def test_playlist_type_preserves_supported_values(value):
     from hls import rewrite_playlist
     text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:' + value + '\n#EXTINF:6,\nseg.aac\n'
     assert '#EXT-X-PLAYLIST-TYPE:' + value + '\n' in rewrite_playlist(parse(text), lambda u: '/opaque/resource')
+
+
+@pytest.mark.parametrize('timestamp', [
+    '2026-10-21T17:58:58+0000',
+    '2026-10-21T17:58:58.125+0530',
+    '2026-10-21T17:58:58-0700',
+])
+def test_program_date_time_accepts_iso_basic_timezone_on_older_python(timestamp):
+    from hls import rewrite_playlist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n'
+    parsed = parse(text)
+    assert len(parsed.segments) == 1
+    assert '#EXT-X-PROGRAM-DATE-TIME:' + timestamp in rewrite_playlist(parsed, lambda url: '/opaque/segment')
+
+
+@pytest.mark.parametrize('timestamp', [
+    '2026-10-21T17:58:58+2400',
+    '2026-10-21T17:58:58+1260',
+    '2026-10-21T17:58:58-9999',
+    '2026-99-21T17:58:58+0000',
+    '2026-10-21T17:58:58+0000junk',
+])
+def test_program_date_time_rejects_malformed_basic_timezone(timestamp):
+    from hls import InvalidPlaylist
+    with pytest.raises(InvalidPlaylist):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n')
