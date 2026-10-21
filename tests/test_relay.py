@@ -297,7 +297,8 @@ def test_abrupt_disconnect_closes_continuous_origin(relay, origin):
     client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
     client.close()
     deadline = time.monotonic() + 2
-    while not s.source.response.closed and time.monotonic() < deadline:
+    # Transport closure can precede handler unwinding and session cancellation.
+    while not (s.source.response.closed and s.cancel.is_set()) and time.monotonic() < deadline:
         time.sleep(.02)
     assert s.source.response.closed and s.cancel.is_set()
 

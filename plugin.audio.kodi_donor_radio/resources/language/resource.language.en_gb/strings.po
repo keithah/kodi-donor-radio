@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+msgid ""
+msgstr ""
+"Language: en_GB\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgctxt "#30000"
+msgid "Kodi Donor Radio"
+msgstr ""
+
+msgctxt "#30001"
+msgid "Search stations"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Browse countries"
+msgstr ""
+
+msgctxt "#30003"
+msgid "Browse tags"
+msgstr ""
+
+msgctxt "#30004"
+msgid "Settings"
+msgstr ""
+
+msgctxt "#30005"
+msgid "Next page"
+msgstr ""
+
+msgctxt "#30006"
+msgid "Retry"
+msgstr ""
+
+msgctxt "#30007"
+msgid "Controlled test streams"
+msgstr ""
+
+msgctxt "#30010"
+msgid "The radio service is unavailable. Enable the add-on service and retry."
+msgstr ""
+
+msgctxt "#30011"
+msgid "This station could not be played through the radio service. Try another station."
+msgstr ""
+
+msgctxt "#30012"
+msgid "The radio directory could not be loaded. Select Retry to try again."
+msgstr ""
+
+msgctxt "#30013"
+msgid "Loading radio…"
+msgstr ""
+
+msgctxt "#30014"
+msgid "The radio service could not start. Check the add-on settings and retry."
+msgstr ""
+
+msgctxt "#30020"
+msgid "Test: MP3 tone"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Test: AAC tone"
+msgstr ""
+
+msgctxt "#30022"
+msgid "Test: ICY metadata"
+msgstr ""
+
+msgctxt "#30023"
+msgid "Test: HLS cue out and in"
+msgstr ""
+
+msgctxt "#30024"
+msgid "Test: HLS join during break"
+msgstr ""
+
+msgctxt "#30025"
+msgid "Test: HLS missing cue in"
+msgstr ""
+
+msgctxt "#30026"
+msgid "Test: HLS no cues"
+msgstr ""
+
+msgctxt "#30027"
+msgid "Test: HLS malformed cue"
+msgstr ""
+
+msgctxt "#30030"
+msgid "Local diagnostics"
+msgstr ""
+
+msgctxt "#30031"
+msgid "Enable diagnostic logging"
+msgstr ""
+
+msgctxt "#30032"
+msgid "Save bounded, sanitised event logs in the add-on profile and Kodi debug log. No cues observed does not prove that no ads exist."
+msgstr ""
+
+msgctxt "#30033"
+msgid "Developer fixtures"
+msgstr ""
+
+msgctxt "#30034"
+msgid "Enable test mode"
+msgstr ""
+
+msgctxt "#30035"
+msgid "Show controlled test streams and allow only the exact configured loopback origin. The service restarts when settings change."
+msgstr ""
+
+msgctxt "#30036"
+msgid "Fixture server origin"
+msgstr ""
+
+msgctxt "#30037"
+msgid "Use http://127.0.0.1:PORT with the explicit port of your local fixture server. No path or trailing slash."
+msgstr ""
