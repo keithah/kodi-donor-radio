@@ -28,10 +28,17 @@ def server():
                 self.end_headers()
                 return
             self.send_response(200)
-            self.send_header('Content-Length', '100' if self.path == '/slow' else '5')
+            if self.path != '/close-delimited':
+                self.send_header('Content-Length', '100' if self.path == '/slow' else '5')
+            if self.path in ('/empty-fixed', '/truncated-fixed', '/close-delimited'):
+                self.close_connection = True
             self.end_headers()
             if self.path == '/slow':
                 time.sleep(.6)
+            elif self.path == '/empty-fixed':
+                pass
+            elif self.path == '/truncated-fixed':
+                self.wfile.write(b'hi')
             else:
                 self.wfile.write(b'hello')
         def log_message(self, *args):
@@ -270,3 +277,28 @@ def test_address_fallback_shares_one_connect_deadline():
         client.open('http://radio.example/', {}, threading.Event())
     assert len(timeouts) == 2
     assert 0 < timeouts[1] < timeouts[0] - .02
+
+
+@pytest.mark.parametrize('path,prefix', [('/empty-fixed', b''), ('/truncated-fixed', b'hi')])
+def test_fixed_length_premature_eof_raises_and_closes(server, path, prefix):
+    from http_client import HttpError
+    client, origin = local_client(server[0])
+    response = client.open(origin + path, {}, threading.Event())
+    received = bytearray()
+    with pytest.raises(HttpError, match='Incomplete HTTP response'):
+        while True:
+            block = response.read(64)
+            if not block:
+                break
+            received.extend(block)
+    assert bytes(received) == prefix and response.closed
+
+
+def test_zero_size_read_and_close_delimited_eof_remain_valid(server):
+    from http_client import read_bounded
+    client, origin = local_client(server[0])
+    with client.open(origin + '/', {}, threading.Event()) as response:
+        assert response.read(0) == b''
+        assert read_bounded(response) == b'hello'
+    with client.open(origin + '/close-delimited', {}, threading.Event()) as response:
+        assert read_bounded(response) == b'hello'

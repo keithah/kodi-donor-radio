@@ -29,7 +29,14 @@ def origin():
             calls[self.path] += 1
             seen_headers.append(dict(self.headers))
             status, headers, body = 200, {}, audio
-            if self.path == '/reset':
+            if self.path == '/truncated-list':
+                body = b'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-CUE-OUT:20\n#EXTINF:2,\n/segment\n'
+                headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            elif self.path == '/empty-segment':
+                body = b''
+            elif self.path == '/truncated-segment':
+                body = b'part'
+            elif self.path == '/reset':
                 version = calls[self.path]
                 seq = 10 if version <= 3 else 9 if version == 4 else 0
                 lead = '#EXTINF:2,\n/segment?reset=9\n' if version == 4 else ''
@@ -68,7 +75,10 @@ def origin():
             self.send_response(status)
             for key, value in headers.items():
                 self.send_header(key, value)
-            self.send_header('Content-Length', '100000000' if self.path == '/hang' else str(len(body)))
+            truncated = self.path in ('/truncated-list', '/empty-segment', '/truncated-segment')
+            self.send_header('Content-Length', '100000000' if self.path == '/hang' else str(len(body) + (100 if truncated else 0)))
+            if truncated:
+                self.close_connection = True
             self.end_headers()
             try:
                 self.wfile.write(body)
@@ -327,3 +337,32 @@ def test_playlist_reset_reuses_cue_id_in_new_epoch_but_overlap_does_not(relay, o
     starts = [e for e in relay[2].events if e.kind == 'break_start']
     assert [e.details['epoch'] for e in starts] == [0, 1]
     assert any(e.kind == 'break_unresolved' and e.details['reason'] == 'epoch_changed' for e in relay[2].events)
+
+
+@pytest.mark.parametrize('path,kind', [('/empty-segment', 'segment'), ('/truncated-list', 'playlist')])
+def test_premature_upstream_eof_before_headers_is_502(relay, origin, path, kind):
+    s = create(relay, origin, '/list')
+    route = s.register_many([origin[0] + path], [kind])[0]
+    count = s.resource_count
+    status, _, body = request('http://127.0.0.1:%s' % relay[3].port + route)
+    assert status == 502 and body == b''
+    assert s.resource_count == count
+    assert [e.kind for e in relay[2].events] == ['stream_error']
+    assert relay[2].events[0].details['reason'] == 'incomplete_upstream_body'
+
+
+def test_premature_segment_eof_after_headers_terminates_and_observes_error(relay, origin):
+    s = create(relay, origin, '/list')
+    route = s.register_many([origin[0] + '/truncated-segment'], ['segment'])[0]
+    conn = http.client.HTTPConnection('127.0.0.1', relay[3].port, timeout=2)
+    try:
+        conn.request('GET', route)
+        response = conn.getresponse()
+        assert response.status == 200  # status was already delivered with first bytes
+        with pytest.raises(http.client.IncompleteRead) as error:
+            response.read()
+        assert error.value.partial == b'part'
+        assert relay[2].events[-1].kind == 'stream_error'
+        assert relay[2].events[-1].details['reason'] == 'incomplete_upstream_body'
+    finally:
+        conn.close()

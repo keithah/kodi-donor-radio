@@ -29,6 +29,11 @@ class HttpError(OSError):
     pass
 
 
+class IncompleteResponse(HttpError):
+    """The origin ended before its HTTP body framing was complete."""
+    pass
+
+
 class _Lifetime:
     def __init__(self, connection, sock, cancel):
         self.connection, self.sock, self.cancel = connection, sock, cancel
@@ -78,6 +83,10 @@ class Response:
             result = self._raw.read1(min(size, CHUNK_BYTES))
             if self._lifetime.cancel.is_set():
                 raise Cancelled('Request cancelled')
+            # read1 deliberately avoids full-chunk buffering, but unlike read()
+            # it does not raise when a fixed-length body ends prematurely.
+            if not result and size and self._raw.length not in (None, 0):
+                raise IncompleteResponse('Incomplete HTTP response')
             return result
         except Exception as error:
             self.close()
@@ -85,6 +94,8 @@ class Response:
                 raise Cancelled('Request cancelled') from error
             if isinstance(error, socket.timeout):
                 raise TimeoutError('HTTP read timed out') from error
+            if isinstance(error, http.client.IncompleteRead):
+                raise IncompleteResponse('Incomplete HTTP response') from error
             raise
 
     def close(self):

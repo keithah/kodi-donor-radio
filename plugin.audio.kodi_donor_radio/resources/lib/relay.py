@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from control import ServiceDescriptor
 from hls import parse_playlist, rewrite_playlist
-from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, read_bounded
+from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse, read_bounded
 from icy import IcyDecoder
 from models import Event, Station
 from sessions import ResourceLimit, SessionManager
@@ -176,6 +176,15 @@ class _Handler(BaseHTTPRequestHandler):
         except KeyError:
             if not self._started:
                 self._reply(404)
+        except IncompleteResponse:
+            # Fixed schema and reason only: origin exceptions can contain secrets.
+            session.sink.emit(Event('stream_error', session.id, session.station.uuid,
+                                    session.source.protocol, 'http', {},
+                                    datetime.now(timezone.utc).isoformat(), time.monotonic(),
+                                    {'reason': 'incomplete_upstream_body'}))
+            if not self._started:
+                self._reply(502)
+            self.close_connection = True
         except Exception:
             if not self._started:
                 self._reply(502)
