@@ -1,0 +1,250 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Cue signals describe upstream evidence, never listener audibility or aired ads."""
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from cues import CueTracker
+from events import JsonEventSink
+from hls import parse_playlist
+
+
+class Sink:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event):
+        self.events.append(event)
+
+
+def tracker(sink=None):
+    sink = sink or Sink()
+    return CueTracker('session', 'station', sink,
+                      lambda: datetime(2026, 10, 21, 17, 0, tzinfo=timezone.utc),
+                      lambda: 123.5), sink
+
+
+def playlist(body='', sequence=10, count=1, disc=0):
+    return parse_playlist('#EXTM3U\n#EXT-X-TARGETDURATION:5\n'
+                          '#EXT-X-MEDIA-SEQUENCE:%d\n#EXT-X-DISCONTINUITY-SEQUENCE:%d\n'
+                          % (sequence, disc) + body + ''.join(
+                              '#EXTINF:5,ordinary advertisement title\n%d.aac\n' % n
+                              for n in range(sequence, sequence + count)),
+                          'https://radio.example/live.m3u8')
+
+
+def kinds(sink):
+    return [event.kind for event in sink.events]
+
+
+def events(sink, kind):
+    return [event for event in sink.events if event.kind == kind]
+
+
+def test_explicit_cue_out_in_repeated_windows_and_observation_clocks():
+    t, sink = tracker()
+    p = parse_playlist((Path(__file__).parent / 'fixtures/hls/cue-lifecycle.m3u8').read_text(),
+                       'https://radio.example/live.m3u8')
+    for _ in range(3):
+        t.observe(p, 'audio', 2)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
+    start, end = events(sink, 'break_start')[0], events(sink, 'break_end')[0]
+    assert start.details['classification'] == 'signaled'
+    assert start.details['media_position'] == 0
+    assert end.details['media_position'] == 5
+    assert start.details['rendition_id'] == 'audio'
+    assert start.details['epoch'] == 2
+    assert start.observed_at == '2026-10-21T17:00:00Z'
+    assert start.monotonic_at == 123.5
+    assert start.protocol == 'hls' and start.session_id == 'session'
+
+
+def test_join_mid_break_does_not_invent_start():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=10,Duration=30\n'), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 11), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'cue_observed', 'break_end']
+    assert sink.events[0].details['classification'] == 'in_progress'
+
+
+def test_missing_end_is_unresolved():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:30\n'), 'a', 0)
+    t.finish('session_closed')
+    t.finish('session_closed')
+    assert kinds(sink) == ['cue_observed', 'break_start', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'session_closed'
+
+
+def test_expected_duration_expiry_is_unresolved_not_explicit_end():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:10\n'), 'a', 0)
+    t.observe(playlist(sequence=11, count=2), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+
+
+def test_explicit_end_wins_over_expected_expiry_in_same_window():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:5\n#EXTINF:5,\n10.aac\n#EXT-X-CUE-IN\n', 10), 'a', 0)
+    assert len(events(sink, 'break_end')) == 1
+    assert not events(sink, 'break_unresolved')
+
+
+def daterange(extra='', start='2026-10-21T17:01:00Z'):
+    return '#EXT-X-DATERANGE:ID="ad-1",START-DATE="%s",SCTE35-OUT=0xFC00%s\n' % (start, extra)
+
+
+def test_daterange_updates_are_normalized_and_only_meaningful():
+    t, sink = tracker()
+    for attrs in ['', ',X-NOTE="first"', ',DURATION=30', ',DURATION=30.0',
+                  ',DURATION=30,SCTE35-IN=0xFC01,END-DATE="2026-10-21T17:01:30Z"']:
+        t.observe(playlist(daterange(attrs)), 'a', 0)
+    assert len(events(sink, 'break_start')) == 1
+    assert len(events(sink, 'break_update')) == 1
+    assert events(sink, 'break_update')[0].details['duration'] == 30
+    assert len(events(sink, 'break_end')) == 1
+    assert all('media_position' not in e.to_dict().get('details', {}) for e in sink.events)
+    assert len(events(sink, 'cue_observed')) == 3
+
+
+def test_active_daterange_is_observed_in_progress():
+    t, sink = tracker()
+    t.observe(playlist(daterange(',DURATION=30', start='2026-10-21T16:59:50Z')), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+    assert sink.events[0].details['classification'] == 'in_progress'
+    t.finish('session_closed')
+    assert sink.events[-1].kind == 'break_unresolved'
+
+
+@pytest.mark.parametrize('body', [
+    '#EXT-X-CUE-OUT:DURATION=bad\n',
+    '#EXT-X-CUE-OUT:DURATION=30,SCTE35="??"\n',
+    '#EXT-X-CUE-OUT:DURATION=30,SCTE35="Zm9v"\n',
+    '#EXT-X-DATERANGE:ID="bad",SCTE35-OUT=0xZZ\n',
+    '#EXT-X-DATERANGE:ID="bad",SCTE35-OUT=0xF\n',
+    '#EXT-X-DATERANGE:ID="bad",SCTE35-IN=0xFC01,END-DATE="bad"\n',
+])
+def test_malformed_cue_is_invalid_observation_not_start(body):
+    t, sink = tracker()
+    t.observe(playlist(body), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+    assert sink.events[0].details['classification'] == 'invalid'
+
+
+def test_cmd_is_opaque_even_if_encoded_payload_is_valid():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-DATERANGE:ID="cmd",SCTE35-CMD=0xFC00\n'), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+    assert sink.events[0].details['classification'] == 'opaque'
+
+
+def test_generic_dateranges_titles_and_discontinuities_do_not_confirm_break():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-DATERANGE:ID="song",CLASS="advertisement"\n'
+                       '#EXT-X-DISCONTINUITY\n'), 'a', 0)
+    assert sink.events == []
+
+
+def test_reused_id_after_epoch_is_distinct():
+    t, sink = tracker()
+    p = playlist(daterange())
+    t.observe(p, 'a', 0)
+    t.observe(p, 'a', 1)
+    assert len(events(sink, 'break_start')) == 2
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert sink.events[2].details['reason'] == 'epoch_changed'
+
+
+def test_renditions_do_not_merge_breaks():
+    t, sink = tracker()
+    for rendition in ('a', 'b'):
+        t.observe(playlist(daterange()), rendition, 0)
+    t.observe(playlist(daterange(',SCTE35-IN=0xFC01')), 'a', 0)
+    t.finish('closed')
+    assert len(events(sink, 'break_start')) == 2
+    assert events(sink, 'break_end')[0].details['rendition_id'] == 'a'
+    assert events(sink, 'break_unresolved')[0].details['rendition_id'] == 'b'
+
+
+def test_repeated_discontinuity_does_not_reset_epoch():
+    t, sink = tracker()
+    p = playlist('#EXT-X-DISCONTINUITY\n' + daterange())
+    t.observe(p, 'a', 0)
+    t.observe(p, 'a', 0)
+    t.observe(playlist(daterange(), 11, disc=1), 'a', 0)
+    assert len(events(sink, 'break_start')) == 1
+    t.observe(playlist('#EXT-X-DISCONTINUITY\n' + daterange(), 12, disc=1), 'a', 0)
+    assert len(events(sink, 'break_start')) == 2
+    assert len(events(sink, 'break_unresolved')) == 1
+
+
+def test_overlapping_windows_align_positions_but_gap_leaves_timing_unknown():
+    t, sink = tracker()
+    t.observe(playlist(count=2), 'a', 0)
+    t.observe(playlist('#EXTINF:5,\n11.aac\n#EXT-X-CUE-OUT:30\n', 11), 'a', 0)
+    assert events(sink, 'break_start')[0].details['media_position'] == 10
+    t.observe(playlist('#EXT-X-CUE-IN\n', 20), 'a', 0)
+    assert events(sink, 'break_unresolved')[0].details['reason'] == 'timeline_gap'
+    assert 'media_position' not in sink.events[-1].to_dict()['details']
+    assert not events(sink, 'break_end')
+
+
+def test_end_without_start_does_not_invent_break():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-IN\n'), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+
+
+def test_parallel_repeated_observations_are_serialized():
+    t, sink = tracker()
+    p = playlist('#EXT-X-CUE-OUT:30\n')
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda _: t.observe(p, 'a', 0), range(40)))
+    assert kinds(sink) == ['cue_observed', 'break_start']
+
+
+def test_tracker_evidence_uses_existing_sanitized_sink(tmp_path):
+    debug = []
+    t, _ = tracker(JsonEventSink(tmp_path, True, debug.append))
+    t.observe(playlist('#EXT-X-CUE-OUT:ID="token=private",DURATION=30\n'), 'a', 0)
+    assert 'private' not in ''.join(debug)
+    assert 'REDACTED' in ''.join(debug)
+
+
+def test_end_date_update_is_meaningful_but_never_a_cue_in():
+    t, sink = tracker()
+    t.observe(playlist(daterange()), 'a', 0)
+    t.observe(playlist(daterange(',END-DATE="2026-10-21T17:01:30Z"')), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_update']
+    t.finish('closed')
+    assert sink.events[-1].kind == 'break_unresolved'
+
+
+def test_late_response_from_old_epoch_cannot_reset_new_epoch():
+    t, sink = tracker()
+    p = playlist(daterange())
+    t.observe(p, 'a', 1)
+    t.observe(p, 'a', 0)
+    t.observe(p, 'a', 1)
+    assert kinds(sink) == ['cue_observed', 'break_start']
+
+
+def test_dedup_retains_recent_evidence_and_evicts_oldest_at_limit():
+    t, sink = tracker()
+    for sequence in range(4097):
+        t.observe(playlist('#EXT-X-CUE-IN\n', sequence), 'a', 0)
+    assert len(sink.events) == 4097
+    t.observe(playlist('#EXT-X-CUE-IN\n', 4096), 'a', 0)
+    assert len(sink.events) == 4097
+    t.observe(playlist('#EXT-X-CUE-IN\n', 0), 'a', 0)
+    assert len(sink.events) == 4098
+
+
+def test_finish_prevents_late_observations_reviving_breaks():
+    t, sink = tracker()
+    t.finish('closed')
+    t.observe(playlist(daterange()), 'a', 0)
+    assert sink.events == []
