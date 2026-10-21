@@ -49,7 +49,7 @@ def test_search_failover_unicode_pagination_and_malformed_isolation():
     assert transport.calls[0][0].startswith('https://one.example/json/stations/search?')
     assert transport.calls[1][0].startswith('https://two.example/json/stations/search?')
     for call, offset in [(transport.calls[1], '0'), (transport.calls[2], '50')]:
-        assert parse_qs(urlsplit(call[0]).query) == {'name': ['Café 音'], 'country': ['France'], 'tag': ['jazz'], 'offset': [offset], 'limit': ['50'], 'hidebroken': ['true']}
+        assert parse_qs(urlsplit(call[0]).query) == {'name': ['Café 音'], 'country': ['France'], 'countryExact': ['true'], 'tag': ['jazz'], 'tagExact': ['true'], 'offset': [offset], 'limit': ['50'], 'hidebroken': ['true']}
         assert call[1]['User-Agent'] == 'kodi-donor-radio/0.1.0'
 
 
@@ -210,3 +210,16 @@ def test_mirror_discovery_can_be_cancelled(monkeypatch, stall):
     finally:
         release.set()
         timer.join()
+
+
+@pytest.mark.parametrize('country,tag,exact', [
+    ('', '', {}), ('Congo', '', {'countryExact':['true']}),
+    ('', 'rock', {'tagExact':['true']}),
+    ('Congo', 'rock', {'countryExact':['true'], 'tagExact':['true']}),
+])
+def test_selected_categories_are_exact_but_name_search_remains_partial(country,tag,exact):
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.search('Radio', country, tag, 50, limit=25) == []
+    query = parse_qs(urlsplit(transport.calls[0][0]).query, keep_blank_values=True)
+    assert query == dict({'name':['Radio'], 'country':[country], 'tag':[tag],
+                          'offset':['50'], 'limit':['25'], 'hidebroken':['true']}, **exact)

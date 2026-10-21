@@ -86,6 +86,10 @@ class RadioBrowser:
 
     def search(self, name, country, tag, offset, limit=50):
         params = {'name': name, 'country': country, 'tag': tag}
+        if country:
+            params['countryExact'] = 'true'
+        if tag:
+            params['tagExact'] = 'true'
         params.update(self._page(offset, limit))
         params['hidebroken'] = 'true'
         rows = self._json('/json/stations/search', params)

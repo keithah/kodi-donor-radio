@@ -408,3 +408,19 @@ deduplication adjustment. Kodi runtime acceptance remains pending.
 Official Omega checker on the final ZIP extraction in
 `dist/checker-prepr-discontinuity-final/` exited 0 with no addon problems or
 warnings; the separate host LibreSSL warning remains.
+
+### Exact directory categories
+
+The final full-branch review identified substring matching for chosen country
+and tag categories. The [official advanced-search API](https://docs.radio-browser.info/#advanced-station-search)
+defaults `countryExact` and `tagExact` to false. Search now supplies each exact
+flag only when its category is nonempty. Free-text name matching, offsets,
+limits, broken-station filtering and failover remain unchanged. Four query
+regressions failed before the fix; directory/Kodi runtime tests passed
+**66 tests in 1.59s**. No transport or decoder behavior changed in this correction.
+Full suite: **395 passed in 46.83s**, clean output. Package creation,
+`check_package.py`, and the official Omega checker on the fresh
+`dist/checker-prepr-categories/` extraction exited 0. The checker reported no
+addon problems or warnings, alongside the known separate host LibreSSL warning.
+Latest ZIP SHA-256:
+`f39d96a58b0a89c8b50ba7079be1f220cd881ea763fa9744554691007305d12c`.
