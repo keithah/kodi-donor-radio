@@ -161,20 +161,27 @@ class SessionManager:
         self._session, self._pending, self._closed = None, None, False
 
     def create(self, station):
+        # Register selection order before queuing behind an older resolver.
+        # The event is also an ownership token: stale waiters cannot replace it.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Manager closed')
+            if self._pending is not None:
+                self._pending.set()
+            cancel = self._pending = threading.Event()
         with self._create_lock:
-            with self._lock:
-                if self._closed:
-                    raise RuntimeError('Manager closed')
-                old, self._session = self._session, None
-                cancel = self._pending = threading.Event()
-            if old is not None:
-                old.close('station_changed')
             source = None
             try:
+                with self._lock:
+                    if self._closed or self._pending is not cancel or cancel.is_set():
+                        raise RuntimeError('Station selection cancelled')
+                    old, self._session = self._session, None
+                if old is not None:
+                    old.close('station_changed')
                 source = self.resolver(station.url, self.client, cancel)
                 with self._lock:
-                    if self._closed or cancel.is_set():
-                        raise RuntimeError('Manager closed')
+                    if self._closed or self._pending is not cancel or cancel.is_set():
+                        raise RuntimeError('Station selection cancelled')
                     session = PlaybackSession(station, source, cancel, self.base_url,
                                               self.sink, self.resource_limit)
                     self._session = session
@@ -186,7 +193,8 @@ class SessionManager:
                 raise
             finally:
                 with self._lock:
-                    self._pending = None
+                    if self._pending is cancel:
+                        self._pending = None
 
     def get(self, session_id):
         self.expire()

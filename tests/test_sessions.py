@@ -91,3 +91,73 @@ def test_close_cancels_inflight_resolution_without_waiting_for_create_lock():
     assert stopped.wait(1)
     worker.join(1)
     assert not worker.is_alive()
+
+
+@pytest.mark.parametrize('selections', [2, 3])
+@pytest.mark.parametrize('close_manager', [False, True])
+def test_newest_selection_cancels_running_and_queued_creates(selections,close_manager):
+    from sessions import SessionManager
+    entered, cancelled, release = threading.Event(), threading.Event(), threading.Event()
+    queued = {str(index): threading.Event() for index in range(selections)}
+    calls, successes, failures, probes = [], {}, {}, []
+
+    class ObservedLock:
+        # Signal queue entry without depending on scheduler timing or FIFO locks.
+        def __init__(self): self.lock = threading.Lock()
+        def __enter__(self):
+            queued[threading.current_thread().name].set()
+            self.lock.acquire()
+        def __exit__(self, *args): self.lock.release()
+
+    def resolve(url, client, cancel):
+        calls.append(url)
+        probe = Probe(); probes.append(probe)
+        if url.endswith('/0'):
+            entered.set()
+            if cancel.wait(2): cancelled.set()
+            release.wait(2)
+        # Simulate an upstream completion racing cancellation: it still owns a probe.
+        return ResolvedSource(url, 'continuous', probe, b'a')
+
+    m = SessionManager(resolver=resolve)
+    m._create_lock = ObservedLock()
+    def create(index):
+        try:
+            successes[index] = m.create(Station(str(index), 'Radio',
+                'http://radio.example/%d' % index, 'MP3', False))
+        except Exception as error:
+            failures[index] = error
+    workers = []
+    try:
+        for index in range(selections):
+            worker = threading.Thread(target=create, args=(index,), name=str(index))
+            workers.append(worker); worker.start()
+            assert queued[str(index)].wait(1)
+            if index == 0:
+                assert entered.wait(1)
+            elif index == 1:
+                assert cancelled.wait(1), 'New selection did not cancel pending resolution'
+        if close_manager:
+            m.close()
+        release.set()
+        for worker in workers:
+            worker.join(1)
+            assert not worker.is_alive()
+        assert probes[0].closed
+        assert all(isinstance(error, RuntimeError) for error in failures.values())
+        if close_manager:
+            assert not successes
+            assert set(failures) == set(range(selections))
+            assert calls == ['http://radio.example/0']
+        else:
+            latest = selections - 1
+            assert set(successes) == {latest}
+            assert set(failures) == set(range(latest))
+            assert calls == ['http://radio.example/0', 'http://radio.example/%d' % latest]
+            assert m.get(successes[latest].id) is successes[latest]
+            assert not probes[-1].closed
+    finally:
+        release.set()
+        m.close()
+        for worker in workers: worker.join(3)
+    assert all(probe.closed for probe in probes)

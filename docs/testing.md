@@ -322,3 +322,22 @@ Package creation and `check_package.py` exited 0. Latest ZIP SHA-256:
 Official Omega checker on the fresh extraction in `dist/checker-prepr-unicode/`
 exited 0 with no addon problems or warnings; its separate host LibreSSL warning
 remains. Actual Kodi acceptance remains pending.
+
+### Concurrent station selection follow-up
+
+Review reproduced a second selection waiting behind an uncancelled pending
+resolver. Each create now registers its own cancellation/ownership token before
+waiting for the serialization lock and cancels the preceding selection. Queued
+stale requests cannot enter resolution or overwrite the latest pending token;
+both pre-resolution and publication checks enforce ownership. Late responses
+from cancelled requests are closed, and manager close also cancels the latest
+queued selection. Four deterministic two-/three-selection regressions reproduced
+the original cancellation failure and now cover newest-selection publication,
+stale queue rejection, late probe cleanup, and close during queued resolution.
+The session/relay/Kodi runtime suites passed **81 tests in 17.08s**.
+Full suite: **361 passed in 44.37s**, clean output. Package creation and
+`check_package.py` exited 0. Latest ZIP SHA-256:
+`bb7d0fc37d7b20e9a511d2ac8d551f28533fc724c734458247157371701bc01c`.
+Official Omega checker on `dist/checker-prepr-selection/`, extracted from that
+ZIP, exited 0 with no addon problems or warnings; the known separate host
+LibreSSL warning remains. Actual Kodi playback acceptance remains pending.
