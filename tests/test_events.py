@@ -134,3 +134,18 @@ def test_oversized_context_cannot_exceed_one_log_file(tmp_path):
     record = json.loads(path.read_text())
     assert record["details"]["reason"]
     assert record["monotonic_at"] == 123.5
+
+
+@pytest.mark.parametrize("reference", [
+    "/live/audio.m3u8?signature=query123#fragment123",
+    "segments/audio.aac?signature=query123#fragment123",
+])
+def test_log_redacts_nested_relative_url_credentials(tmp_path, reference):
+    metadata = {"nested": [{"cue": reference}]}
+    debug = []
+    JsonEventSink(tmp_path, True, debug.append).emit(observation(evidence=metadata))
+    output = (tmp_path / "events.jsonl").read_text() + "".join(debug)
+    assert "query123" not in output
+    assert "fragment123" not in output
+    assert sanitize(metadata) == {"nested": [{"cue": "[REDACTED]"}]}
+    assert sanitize("#EXT-X-CUE-OUT:DURATION=30") == "#EXT-X-CUE-OUT:DURATION=30"

@@ -14,7 +14,9 @@ from models import Event, EventSink
 EVIDENCE_BYTES = 2048
 LOG_BYTES = 1024 * 1024
 _REDACTED = "[REDACTED]"
-_URL = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*:/{1,2}|//)")
+_URL = re.compile(
+    r"(?i)(?:[a-z][a-z0-9+.-]*:/{1,2}|//|(?<=[^\s<>\"'#?])[?#][^\s<>\"']+)"
+)
 _CREDENTIAL_TEXT = re.compile(
     r"(?i)\b(?:auth|username|authorization|proxy-authorization|cookie|set-cookie|password|passwd|"
     r"token|secret|api[-_ ]?key|credentials?)\s*[=:]|\b(?:bearer|basic)\s+\S+"
