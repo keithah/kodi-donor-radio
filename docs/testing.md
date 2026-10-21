@@ -221,3 +221,13 @@ these acceptance checks. Generate fixture audio with FFmpeg into ignored
 restart the fixture server between scenarios. Expected events are available at
 `/expected/{scenario}.json`; compare ordered event kind/classification for all
 three windows rather than assuming a skipped window was observed.
+
+## Review record
+
+All eight task reviews passed after their fixes. CodeRabbit completed a branch review with two findings (HTTP exception normalization and fractional timestamp compatibility); both were reproduced and fixed. The independent whole-branch review additionally identified initial range-request compatibility and late cue-in handling. A real FFmpeg check then exposed extensionless HLS route rejection. The final scoped review approved all fixes within POC scope. No review claims actual Kodi playback verification.
+
+## Controller verification after final review
+
+`python3 -m pytest -q`: 321 passed in 33.71 seconds. This run emitted a transient local test-server exception banner without a retained traceback, so the output was not pristine; no test failed. `python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip` passed. Independent `python3 tools/smoke_relay_ffmpeg.py` decoded MP3, ICY and HLS, each with exit 0, 32,000 nonzero PCM bytes and empty stderr. The package SHA-256 remains `df35c648e1fe3bd478213ab91c80d640699869b1e71a6ef846551284070bf182`.
+
+Targeted review found an intentionally disconnected request in `tests/test_transport.py::test_failure_during_request_transmission_never_tries_next_address` whose standard HTTP-server handler can print a thread exception on write. This plausibly explains the banner but does not establish its exact cause. Review approval is unchanged; no production defect was established by the banner alone.

@@ -81,4 +81,4 @@ Repository-policy exception and rights to replace/distribute particular station 
 
 ## Review status
 
-User approved this design on 2026-10-21 and requested an implementation plan. Product implementation has not started.
+User approved this design on 2026-10-21 and selected subagent-driven execution. The POC implementation is committed on feat/radio-poc. Actual Kodi playback validation remains pending; see the implementation plan and docs/testing.md.
