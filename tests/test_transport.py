@@ -165,7 +165,18 @@ def test_socket_uses_validated_address_without_dns_rebinding(server):
     assert destinations == [('8.8.8.8', 80)]
 
 
-def test_tls_checks_original_hostname(server):
+@pytest.mark.parametrize('url,expected_host,expected_sni', [
+    ('http://radio.example/', 'radio.example', []),
+    ('http://radio.example:80/', 'radio.example', []),
+    ('https://radio.example/', 'radio.example', ['radio.example']),
+    ('https://radio.example:443/', 'radio.example', ['radio.example']),
+    ('https://radio.example:8443/', 'radio.example:8443', ['radio.example']),
+    ('https://radio.example:80/', 'radio.example:80', ['radio.example']),
+    ('http://radio.example:443/', 'radio.example:443', []),
+    ('https://[2606:4700:4700::1111]/', '[2606:4700:4700::1111]', ['2606:4700:4700::1111']),
+    ('https://[2606:4700:4700::1111]:8443/', '[2606:4700:4700::1111]:8443', ['2606:4700:4700::1111']),
+])
+def test_request_preserves_original_host_and_tls_name(server,url,expected_host,expected_sni):
     from http_client import HttpClient
     from url_policy import UrlPolicy
     hostnames = []
@@ -181,9 +192,10 @@ def test_tls_checks_original_hostname(server):
         def connect(self, address):
             return super().connect(('127.0.0.1', server[0].server_port))
     client = HttpClient(UrlPolicy(resolver=dns), socket_factory=RoutedSocket, ssl_context=Context())
-    with client.open('https://radio.example/', {}, threading.Event()) as response:
+    with client.open(url, {'Host': 'untrusted.example'}, threading.Event()) as response:
         assert response.read(5) == b'hello'
-    assert hostnames == ['radio.example']
+    assert hostnames == expected_sni
+    assert server[1][-1][1]['Host'] == expected_host
     assert HttpClient().ssl_context.check_hostname
     assert HttpClient().ssl_context.verify_mode == ssl.CERT_REQUIRED
 

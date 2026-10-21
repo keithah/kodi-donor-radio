@@ -252,3 +252,20 @@ local HTTP test-server exception banner; no tests failed. Package creation and
 The official `kodi-addon-checker --branch omega` check on that ZIP extracted to
 `dist/checker-prepr/` exited 0 with no addon problems or warnings; the separate
 host LibreSSL warning remains. Kodi playback acceptance remains pending.
+
+### HTTPS Host header follow-up
+
+The next CodeRabbit pass identified HTTPConnection's default port of 80 being
+used for manually wrapped HTTPS sockets. Wire-header regressions reproduced
+unwanted `:443` on standard HTTPS origins and missing `:80` on nonstandard
+HTTPS port 80. The connection now uses the URL scheme's default port when
+serializing Host. Nine deterministic cases cover implicit/explicit defaults,
+nondefault ports, IPv6 brackets, original TLS hostname, and rejection of a
+caller-supplied Host override. Four cases failed before the fix; the transport
+suite then passed **49 tests in 12.73s**, with the existing test-handler banner.
+Full suite: **339 passed in 37.64s**, with that same banner and no failures.
+Package creation, `check_package.py`, and official Omega addon checker on the
+fresh extraction in `dist/checker-prepr-host/` all exited 0. The addon checker
+reported no problems or warnings; its separate host LibreSSL warning remains.
+Latest ZIP SHA-256:
+`c4d49902cea95b27e3237a51c069c32dc1456b658b499313b68223e93cf94d76`.

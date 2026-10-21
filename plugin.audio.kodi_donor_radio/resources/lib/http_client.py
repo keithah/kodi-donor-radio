@@ -207,6 +207,8 @@ class HttpClient:
             if remaining <= 0:
                 raise TimeoutError('HTTP connection timed out')
             conn = http.client.HTTPConnection(destination.hostname, destination.port, timeout=remaining)
+            # TLS is wrapped below; Host still needs the scheme's default port.
+            conn.default_port = 443 if destination.scheme == 'https' else 80
             lifetime = None
             request_started = False
             try:
