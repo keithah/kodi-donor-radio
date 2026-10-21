@@ -258,3 +258,25 @@ def test_program_date_time_rejects_malformed_basic_timezone(timestamp):
     from hls import InvalidPlaylist
     with pytest.raises(InvalidPlaylist):
         parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n')
+
+
+@pytest.mark.parametrize('fraction,microsecond', [('1', 100000), ('12', 120000), ('123', 123000),
+                                                ('1234', 123400), ('12345', 123450),
+                                                ('123456', 123456), ('123456789', 123456)])
+def test_fractional_timestamp_accepts_valid_precision_preserves_manifest(fraction, microsecond):
+    from hls import parse_iso_datetime, rewrite_playlist
+    timestamp = '2026-10-21T17:00:00.' + fraction + '+0530'
+    parsed_date = parse_iso_datetime(timestamp)
+    assert parsed_date.microsecond == microsecond
+    assert parsed_date.utcoffset().total_seconds() == 19800
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n'
+    assert '#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n' in rewrite_playlist(parse(text), lambda url: '/opaque/segment')
+
+
+@pytest.mark.parametrize('timestamp', ['2026-02-30T17:00:00.1Z', '2026-10-21T25:00:00.12Z',
+    '2026-10-21T17:00:00.Z', '2026-10-21T17:00:00.12junkZ', '2026-10-21T17:00:00.12.3Z',
+    '2026-10-21T17:00:00.12+12:60'])
+def test_fractional_timestamp_does_not_hide_invalid_date_or_syntax(timestamp):
+    from hls import InvalidPlaylist
+    with pytest.raises(InvalidPlaylist):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n')

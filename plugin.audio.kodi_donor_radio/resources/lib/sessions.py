@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import secrets
 import threading
 import time
+from urllib.parse import urlsplit
 
 from cues import CueTracker
 from http_client import HttpClient
@@ -61,10 +62,19 @@ class PlaybackSession:
                                   lambda: datetime.now(timezone.utc), time.monotonic)
 
     def route(self, resource_id):
-        return '/media/%s/%s' % (self.id, resource_id)
+        resource = self._resources[resource_id]
+        suffix = ''
+        if resource.kind in ('hls', 'playlist'):
+            suffix = '.m3u8'
+        elif resource.kind != 'continuous':
+            filename = urlsplit(resource.url).path.rsplit('/', 1)[-1]
+            extension = filename.rsplit('.', 1)[-1].lower()
+            if '.' in filename and extension in ('ts', 'aac', 'mp3', 'mp4', 'm4s', 'm4a', 'ac3', 'ec3'):
+                suffix = '.' + extension
+        return '/media/%s/%s%s' % (self.id, resource_id, suffix)
 
     def _id(self, route):
-        return route.rsplit('/', 1)[-1]
+        return route.rsplit('/', 1)[-1].split('.', 1)[0]
 
     @property
     def resource_count(self):

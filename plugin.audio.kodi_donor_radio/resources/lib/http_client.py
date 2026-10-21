@@ -95,7 +95,9 @@ class Response:
             if isinstance(error, socket.timeout):
                 raise TimeoutError('HTTP read timed out') from error
             if isinstance(error, http.client.IncompleteRead):
-                raise IncompleteResponse('Incomplete HTTP response') from error
+                raise IncompleteResponse('Incomplete HTTP response') from None
+            if isinstance(error, http.client.HTTPException):
+                raise HttpError('Invalid HTTP response') from None
             raise
 
     def close(self):
@@ -236,7 +238,12 @@ class HttpClient:
                     conn.close()
                 if cancel.is_set():
                     raise Cancelled('Request cancelled') from error
-                last_error = TimeoutError('HTTP request timed out') if isinstance(error, socket.timeout) else error
+                if isinstance(error, socket.timeout):
+                    last_error = TimeoutError('HTTP request timed out')
+                elif isinstance(error, http.client.HTTPException):
+                    last_error = HttpError('Invalid HTTP response')
+                else:
+                    last_error = error
                 if request_started or not isinstance(error, OSError):
                     break
         raise last_error or HttpError('No usable destination')

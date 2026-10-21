@@ -207,7 +207,8 @@ def _service(profile, monitor, cancel):
 def _relay_path(value, port):
     try:
         parts = urlsplit(value)
-        match = re.fullmatch(r'/media/([0-9a-f]{48})/[0-9a-f]{48}', parts.path)
+        match = re.fullmatch(r'/media/([0-9a-f]{48})/[0-9a-f]{48}'
+                             r'(?:\.(?:m3u8|ts|aac|mp3|mp4|m4s|m4a|ac3|ec3))?', parts.path)
         if (parts.scheme == 'http' and parts.netloc == '127.0.0.1:%d' % port
                 and not parts.query and not parts.fragment and match):
             return match.group(1)

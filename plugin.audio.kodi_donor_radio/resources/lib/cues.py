@@ -76,6 +76,7 @@ class _Break:
     last_sequence: int
     expected_origin: Optional[float]
     closed: bool = False
+    unresolved_reported: bool = False
 
 
 class CueTracker:
@@ -105,12 +106,14 @@ class CueTracker:
              'duration': duration, 'cue_id': cue_id, 'classification': classification,
              'reason': reason}))
 
-    def _unresolved(self, record, reason):
+    def _unresolved(self, record, reason, terminal=True):
         if not record.closed:
-            record.closed = True
-            self._emit('break_unresolved', record.cue, record.rendition, record.epoch,
-                       position=record.position, duration=record.duration,
-                       cue_id=record.cue_id, reason=reason)
+            record.closed = terminal
+            if not record.unresolved_reported:
+                record.unresolved_reported = True
+                self._emit('break_unresolved', record.cue, record.rendition, record.epoch,
+                           position=record.position, duration=record.duration,
+                           cue_id=record.cue_id, reason=reason)
 
     def _close_matching(self, rendition, reason, predicate=lambda record: True):
         for record in self._breaks.values():
@@ -216,7 +219,9 @@ class CueTracker:
                     if (record.rendition == rendition_id and record.epoch == epoch
                             and record.expected_origin is not None and record.duration is not None
                             and end >= record.expected_origin + record.duration):
-                        self._unresolved(record, 'expected_duration_elapsed')
+                        # Expected expiry is evidence of a missing boundary,
+                        # not terminal: a later published IN can still match.
+                        self._unresolved(record, 'expected_duration_elapsed', terminal=False)
 
     def _observe_cue(self, cue, rendition, epoch, state, offset):
         position = (cue.media_position + offset

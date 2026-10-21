@@ -341,3 +341,47 @@ def test_daterange_malformed_basic_timezone_remains_invalid(offset):
     t.observe(playlist(daterange(start='2026-10-21T17:01:00' + offset)), 'a', 0)
     assert kinds(sink) == ['cue_observed']
     assert sink.events[0].details['classification'] == 'invalid'
+
+
+def test_later_explicit_in_ends_expired_break_once_with_original_id():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:5\n'), 'a', 0)
+    t.observe(playlist(sequence=10), 'a', 0)
+    t.observe(playlist(sequence=11), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 12), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-IN\n', 13), 'a', 0)
+    t.finish('closed')
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert len(events(sink, 'break_end')) == 1
+    assert events(sink, 'break_end')[0].details['cue_id'] == '10'
+    assert events(sink, 'break_end')[0].details['media_sequence'] == 12
+    assert sink.events[3].details['cue_id'] == '10'  # linked cue_observed
+
+
+@pytest.mark.parametrize('boundary', ['superseded', 'epoch', 'gap', 'discontinuity'])
+def test_expired_break_cannot_end_after_terminal_boundary(boundary):
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:5\n'), 'a', 0)
+    if boundary == 'superseded':
+        t.observe(playlist('#EXT-X-CUE-OUT:30\n', 11), 'a', 0)
+        t.observe(playlist('#EXT-X-CUE-IN\n', 12), 'a', 0)
+        assert [e.details['cue_id'] for e in events(sink, 'break_end')] == ['11']
+    else:
+        t.observe(playlist('#EXT-X-CUE-IN\n', 20 if boundary == 'gap' else 11,
+                           disc=1 if boundary == 'discontinuity' else 0),
+                  'a', 1 if boundary == 'epoch' else 0)
+        assert not events(sink, 'break_end')
+    t.finish('closed')
+    assert len([e for e in events(sink, 'break_unresolved') if e.details['cue_id'] == '10']) == 1
+
+
+@pytest.mark.parametrize('fraction', ['1', '12', '1234', '12345', '123456789'])
+def test_daterange_fractional_precision_remains_signaled_with_original_evidence(fraction):
+    t, sink = tracker()
+    start = '2026-10-21T17:01:00.' + fraction + 'Z'
+    end = '2026-10-21T17:01:30.' + fraction + 'Z'
+    t.observe(playlist(daterange(',DURATION=30', start=start)), 'a', 0)
+    t.observe(playlist(daterange(',DURATION=30,SCTE35-IN=0xFC01,END-DATE="' + end + '"', start=start)), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
+    assert sink.events[0].evidence['START-DATE'] == start
+    assert sink.events[-1].evidence['END-DATE'] == end

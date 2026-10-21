@@ -56,9 +56,14 @@ service and retires existing playback sessions.
 
 A directory entry is a hint, not proof of codec or protocol support. Broken,
 geo-restricted, certificate-invalid and unavailable stations can fail independently
-of the parser. HEAD and continuous Range are currently rejected; continuous
-streams have one consumer and retire on disconnect. Kodi's probing/reopening
-behavior still needs runtime validation. Supported HLS syntax is defined by
+of the parser. Continuous streams and rewritten manifests accept the initial
+`Range: bytes=0-` probe with a full HTTP 200 response; other seeks return 416.
+Segment/map byte ranges retain upstream 206/416 semantics. HEAD returns 405;
+continuous streams have one consumer and retire on disconnect. Kodi's
+probing/reopening behavior still needs runtime validation. HLS routes preserve
+only allowlisted media extensions after opaque IDs. Extensionless or unknown
+segment extensions remain opaque and may be rejected by strict demuxers.
+Supported HLS syntax is defined by
 `resources/lib/hls.py`; in-band SCTE-35/ID3/codec parsing is outside this POC.
 
 ## Diagnostics and controlled verification
@@ -80,6 +85,16 @@ Generate playable authored 440 Hz tones and run the developer fixture server:
 python3 tools/generate_audio.py --ffmpeg /opt/homebrew/bin/ffmpeg
 python3 tools/fixture_server.py --assets tests/generated-audio --port 8765
 ```
+
+To decode MP3, ICY and normal HLS fixtures through an automatically started
+relay and origin, run after generating assets:
+
+```sh
+python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
+```
+
+This developer smoke requires two seconds of nonzero decoded PCM audio from each
+fixture; it does not run Kodi.
 
 Use the actual developer FFmpeg path on your system. Generated MP3/AAC/HLS assets
 are ignored under `tests/generated-audio/` and excluded from the ZIP. In addon

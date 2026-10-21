@@ -367,3 +367,48 @@ def test_premature_segment_eof_after_headers_terminates_and_observes_error(relay
         assert relay[2].events[-1].details['reason'] == 'incomplete_upstream_body'
     finally:
         conn.close()
+
+
+@pytest.mark.parametrize('path,expected', [('/audio', 'audio'), ('/icy', 'icy'), ('/list', 'hls')])
+def test_initial_full_body_range_probe_is_accepted(relay, origin, path, expected):
+    s = create(relay, origin, path)
+    status, headers, body = request(s.playback_url, headers={'Range': 'bytes=0-'})
+    assert status == 200
+    assert 'Content-Range' not in headers
+    if expected == 'hls':
+        assert body.startswith(b'#EXTM3U')
+        assert request(resource_url(s, body), headers={'Range': 'bytes=2-5'})[0] == 206
+        assert 'Range' not in origin[3][-2]  # manifest probe was not forwarded
+    else:
+        assert body == (b'abcdefgh' if expected == 'icy' else origin[2])
+        assert origin[1][path] == 1  # the retained probe remains the sole upstream
+
+
+@pytest.mark.parametrize('path', ['/audio', '/list'])
+@pytest.mark.parametrize('value', ['bytes=1-', 'bytes=0-10', 'bytes=-10', 'invalid'])
+def test_nonseekable_resources_reject_other_ranges(relay, origin, path, value):
+    s = create(relay, origin, path)
+    assert request(s.playback_url, headers={'Range': value})[0] == 416
+
+
+def test_safe_suffix_routes_are_exact_and_still_relay_ranges(relay, origin):
+    s = create(relay, origin, '/list')
+    assert s.playback_url.endswith('.m3u8')
+    base = 'http://127.0.0.1:%s' % relay[3].port
+    for extension in ('ts', 'aac', 'mp3', 'mp4', 'm4s', 'm4a', 'ac3', 'ec3'):
+        route = s.register_many([origin[0] + '/segment.' + extension + '?token=secret'], ['segment'])[0]
+        assert route.endswith('.' + extension)
+        assert 'token' not in route and 'segment' not in route
+        assert request(base + route, headers={'Range': 'bytes=2-5'})[0] == 206
+        assert request(base + route.rsplit('.', 1)[0] + '.exe')[0] == 404
+        assert request(base + route.rsplit('.', 1)[0])[0] == 404
+    unknown = s.register_many([origin[0] + '/segment.untrusted'], ['segment'])[0]
+    assert '.' not in unknown.rsplit('/', 1)[-1]
+    assert request(base + unknown + '.ts')[0] == 404
+    assert request(base + unknown)[0] == 200
+
+
+def test_extensionless_path_named_like_codec_does_not_gain_suffix(relay, origin):
+    s = create(relay, origin, '/list')
+    route = s.register_many([origin[0] + '/ts'], ['segment'])[0]
+    assert '.' not in route.rsplit('/', 1)[-1]

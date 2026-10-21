@@ -386,3 +386,12 @@ def test_actual_relay_switch_and_callback_cancel_old_sources(kodi):
             ControlClient(ServiceDescriptor(fresh.port,descriptor.instance_id,descriptor.control_token)).stop('a'*48)
     finally:
         server.close(); origin.shutdown(); origin.server_close(); worker.join(1)
+
+
+@pytest.mark.parametrize('suffix', ['.m3u8', '.ts', '.mp4', '.m4s', '.aac', '.mp3', '.m4a', '.ac3', '.ec3'])
+def test_adapter_recognizes_safe_suffix_playback_routes(kodi, suffix):
+    runtime, _, _ = kodi
+    url = 'http://127.0.0.1:32123/media/' + 'a' * 48 + '/' + 'b' * 48
+    assert runtime._relay_path(url + suffix, 32123) == 'a' * 48
+    assert runtime._relay_path(url + '.exe', 32123) is None
+    assert runtime._relay_path(url + suffix + '?upstream=secret', 32123) is None

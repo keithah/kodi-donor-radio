@@ -56,8 +56,11 @@ audio, inspect sanitized logs against expected cue schedules, switch stations
 rapidly, stop playback, restart the service, and quit Kodi. Record the exact Kodi
 build, OS, installation outcome, audio behavior and cleanup timings. Verify
 continuous playback when Kodi sends HEAD, Range or repeated GET requests: the
-relay currently rejects HEAD/continuous Range and permits only one continuous
-consumer. The adapter preserves Kodi content lookup and never forces MIME from directory
+relay returns 405 for HEAD, accepts `Range: bytes=0-` with HTTP 200 for
+continuous streams and rewritten manifests, and returns 416 for other seeks on
+those resources. Segment/map byte-range semantics are preserved. Only one
+continuous consumer is permitted. The adapter preserves Kodi content lookup and
+never forces MIME from directory
 codec/HLS hints; the authoritative media type comes from the relay response.
 Kodi content lookup and demux selection still need runtime validation.
 
@@ -75,8 +78,9 @@ exist. Observation time differs from the listener's audible playback time.
 ## Package and live verification — 2026-10-21
 
 Development host: **macOS 26.6.2, build 25G83**, arm64; Python **3.9.6**.
-No `kodi` command or `/Applications/Kodi.app` is installed. No Kodi installation,
-audio playback or audible tone test was performed. The target remains Kodi 21.3;
+No `kodi` command or `/Applications/Kodi.app` is installed. No Kodi installation, Kodi
+audio playback or audible tone test was performed. The separate FFmpeg decode
+smoke below verifies synthetic audio through the relay. The target remains Kodi 21.3;
 **actual tested Kodi/embedded Python version: none**.
 
 Reproduce the source-only distribution from the repository root:
@@ -94,10 +98,11 @@ mtime/mode changes. Tampered ZIP checks cover missing sources, invalid XML,
 identity/license mismatch, missing localization, invalid artwork, secrets, extra
 roots, traversal, executable members, symlinks and duplicates. No tests, generated
 fixture audio, development tools, caches or virtual environments ship in the ZIP.
-Final full suite: **270 passed in 25.15s**. Final package creation and
+Final full suite: **321 passed in 33.75s** (Python 3.9.6; final fix wave).
+Final package creation and
 `check_package.py` both exited 0. Artifact:
 `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`; SHA-256:
-`505232bc4518646195582153e6631ce2222bf392cc127dea375fa3eba7488361`.
+`df35c648e1fe3bd478213ab91c80d640699869b1e71a6ef846551284070bf182`.
 
 The [official Kodi addon checker](https://github.com/xbmc/addon-check) documents
 installation with `pip install kodi-addon-checker` and invocation against an addon
@@ -114,11 +119,55 @@ globally. Exact version command and package-validation invocation:
 `dist/checker/plugin.audio.kodi_donor_radio` is extracted from the final ZIP, not
 a different source tree. The first run exited 0 and reported no problems and no
 warnings; icon 512×512, JPEG fanart 1280×720 and PO validation passed. The final
-run after the timestamp compatibility change also completed successfully with
+run after the final protocol/cue compatibility fixes also completed successfully
+with
 `We found no problems and no warnings, please enjoy your day.` The host emits a
 separate urllib3 warning because system Python uses LibreSSL 2.8.3; this is a
 checker-development-environment warning, not an addon runtime result. The checker
 is static validation and cannot establish Kodi playback compatibility.
+
+### Final protocol regression and decoder verification
+
+Initial real FFmpeg requests failed all three fixtures with HTTP 416 because its
+normal initial `Range: bytes=0-` probe was rejected. The relay now ignores that
+full-body probe for continuous sources and rewritten manifests, returning 200.
+It reuses the original continuous probe connection. Unsupported seeks remain
+416; segment/map ranges still pass upstream and retain 206/416 validation.
+
+The next decode exposed FFmpeg 9.0.1's `allowed_segment_extensions` rejection of
+extensionless opaque HLS routes. Known playlists now use an opaque ID plus
+`.m3u8`. Media routes preserve only an allowlisted path extension (`ts`, `aac`,
+`mp3`, `mp4`, `m4s`, `m4a`, `ac3`, `ec3`); no upstream names, query values or URLs
+are embedded. Exact registered route matching rejects modified/missing suffixes.
+Extensionless and unknown origin segment extensions remain opaque; strict
+clients can reject these, and no codec/extension guess is made before fetching.
+The Kodi boundary recognizes the same safe suffixes for resolution and cleanup.
+
+Reproduce after audio generation:
+
+```sh
+python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
+```
+
+This starts its own exact-origin fixture and relay, decodes two seconds to
+mono 8 kHz 16-bit PCM, checks nonzero samples, and shuts both servers down.
+On 2026-10-21, FFmpeg **9.0.1** returned **exit 0**, **32,000 PCM bytes** and
+**nonzero audio** for each of `/continuous.mp3`, `/icy.mp3` and
+`/hls/normal/index.m3u8`, with empty error output. It uses normal FFmpeg extension
+policy with no override. This verifies decoding, not audible listening or Kodi.
+
+Cue expiry now reports `break_unresolved(expected_duration_elapsed)` once and
+retains association with the original break. A later same-epoch explicit IN
+emits one `break_end` with that ID. Supersession, epoch, discontinuity and timeline
+gap still retire association. HTTP parser/protocol exceptions become sanitized
+`HttpError` values at request/read boundaries; discovery can fail over, while
+uncertain delivery and click counting remain single-attempt operations.
+
+PROGRAM-DATE-TIME and DATERANGE accept valid decimal fraction widths on Python
+3.9.6 by padding/truncating only the parsing copy to six microsecond digits.
+Original manifest and event evidence remain unchanged. Invalid dates, empty or
+malformed fractions and out-of-range offsets remain rejected. Python 3.8 has
+not been directly exercised.
 
 ### Live Radio Browser sample
 

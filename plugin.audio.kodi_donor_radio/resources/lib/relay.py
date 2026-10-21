@@ -22,7 +22,7 @@ from sessions import ResourceLimit, SessionManager
 
 _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-control',
                       'etag', 'last-modified', 'expires'})
-_MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})$')
+_MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|mp3|mp4|m4s|m4a|ac3|ec3))?$')
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
 
 
@@ -156,8 +156,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(404)
         try:
             with session.acquire(match.group(2)) as resource:
+                if self.path != session.route(resource.id):
+                    return self._reply(404)
                 if resource.kind == 'continuous':
-                    if self.headers.get('Range'):
+                    if self.headers.get('Range') not in (None, 'bytes=0-'):
                         return self._reply(416)
                     if not session.claim_continuous():
                         return self._reply(409)
@@ -245,9 +247,15 @@ class _Handler(BaseHTTPRequestHandler):
         headers = {'User-Agent': USER_AGENT}
         value = self.headers.get('Range')
         if value:
-            if resource.kind in ('hls', 'playlist') or not re.fullmatch(r'bytes=(?:[0-9]+-[0-9]*|-[0-9]+)', value):
-                return self._reply(416)
-            headers['Range'] = value
+            if resource.kind in ('hls', 'playlist'):
+                # Rewritten manifests have no upstream byte correspondence.
+                # Media clients commonly probe the whole body with this range.
+                if value != 'bytes=0-':
+                    return self._reply(416)
+            else:
+                if not re.fullmatch(r'bytes=(?:[0-9]+-[0-9]*|-[0-9]+)', value):
+                    return self._reply(416)
+                headers['Range'] = value
         response = self.server.relay.manager.client.open(resource.url, headers, session.cancel)
         try:
             self._check_encoding(response)

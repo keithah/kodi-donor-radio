@@ -134,15 +134,21 @@ def _attributes(value):
 
 
 def parse_iso_datetime(value):
-    """Accept ISO 8601 basic offsets on Python 3.8/3.9 without changing evidence."""
-    if 'T' not in value:
-        raise ValueError('Missing timestamp')
-    offset = re.search(r'([+-])(\d{2})(\d{2})$', value)
-    if offset:
-        if int(offset.group(2)) > 23 or int(offset.group(3)) > 59:
+    """Normalize ISO fractions/offsets for Python 3.8/3.9, only for parsing."""
+    match = re.fullmatch(r'([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})'
+                         r'(?:\.([0-9]+))?(Z|[+-][0-9]{2}:?[0-9]{2})?', value)
+    if match is None:
+        raise ValueError('Invalid timestamp')
+    stamp, fraction, offset = match.groups()
+    if fraction is not None:
+        # datetime has microsecond precision; source text/evidence stays intact.
+        stamp += '.' + fraction[:6].ljust(6, '0')
+    if offset and offset != 'Z':
+        digits = offset[1:].replace(':', '')
+        if int(digits[:2]) > 23 or int(digits[2:]) > 59:
             raise ValueError('Invalid timezone offset')
-        value = value[:offset.start()] + offset.group(1) + offset.group(2) + ':' + offset.group(3)
-    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        offset = offset[0] + digits[:2] + ':' + digits[2:]
+    return datetime.fromisoformat(stamp + ('+00:00' if offset == 'Z' else offset or ''))
 
 
 def _integer(value, positive=False):

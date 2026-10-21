@@ -15,6 +15,20 @@ def server():
         protocol_version = 'HTTP/1.1'
         def do_GET(self):
             requests.append((self.path, dict(self.headers)))
+            if self.path.startswith('/bad-status'):
+                self.connection.sendall(b'garbage status token=secret\r\n\r\n')
+                self.close_connection = True
+                return
+            if self.path == '/bad-chunk':
+                self.connection.sendall(b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\ninvalid-secret\r\n')
+                self.close_connection = True
+                return
+            if self.path.startswith('/json/countries'):
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'[]')
+                return
             if self.path == '/redirect-private':
                 self.send_response(302)
                 self.send_header('Location', 'http://192.168.1.2/secret')
@@ -302,3 +316,64 @@ def test_zero_size_read_and_close_delimited_eof_remain_valid(server):
         assert read_bounded(response) == b'hello'
     with client.open(origin + '/close-delimited', {}, threading.Event()) as response:
         assert read_bounded(response) == b'hello'
+
+
+def test_malformed_status_is_safe_http_error_without_address_retry(server):
+    from http_client import HttpClient, HttpError
+    from url_policy import UrlPolicy
+    destinations = []
+    def dns(host, port, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, port)) for ip in ('8.8.8.8', '8.8.4.4')]
+    class RoutedSocket(socket.socket):
+        def connect(self, address):
+            destinations.append(address)
+            return super().connect(('127.0.0.1', server[0].server_port))
+    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=RoutedSocket)
+    with pytest.raises(HttpError) as error:
+        client.open('http://radio.example/bad-status', {}, threading.Event())
+    assert 'secret' not in str(error.value)
+    assert destinations == [('8.8.8.8', 80)]
+    assert len(server[1]) == 1
+
+
+def test_malformed_response_allows_discovery_failover_but_click_is_single_attempt(server):
+    from radio_browser import RadioBrowser
+    client, base = local_client(server[0])
+    rb = RadioBrowser(client, mirror_lookup=lambda: [base + '/bad-status', base])
+    assert rb.countries() == []
+    assert len(server[1]) == 2
+    rb = RadioBrowser(client, mirror_lookup=lambda: [base + '/bad-status', base])
+    rb.click('station')
+    assert len(server[1]) == 3
+
+
+def test_malformed_chunk_body_is_safe_http_error_and_closes(server):
+    from http_client import HttpError, read_bounded
+    client, base = local_client(server[0])
+    response = client.open(base + '/bad-chunk', {}, threading.Event())
+    with pytest.raises(HttpError) as error:
+        read_bounded(response)
+    assert response.closed and 'secret' not in str(error.value)
+
+
+@pytest.mark.parametrize('protocol_error', ['HTTPException', 'LineTooLong', 'BadStatusLine'])
+def test_other_read_protocol_errors_are_normalized_and_closed(protocol_error):
+    import http.client
+    from http_client import HttpError, Response
+    class Raw:
+        status, length = 200, None
+        def getheaders(self):
+            return []
+        def read1(self, size):
+            raise getattr(http.client, protocol_error)('secret')
+        def close(self):
+            pass
+    class Lifetime:
+        cancel = threading.Event()
+        closed = False
+        def close(self):
+            self.closed = True
+    response = Response(Raw(), Lifetime(), 'https://radio.example/')
+    with pytest.raises(HttpError) as error:
+        response.read(10)
+    assert response.closed and 'secret' not in str(error.value)
