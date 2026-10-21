@@ -13,7 +13,7 @@ media.mp4?sig=abc%2Fdef&part=1
 #EXT-X-DISCONTINUITY
 #EXT-X-CUE-OUT-CONT:ElapsedTime=5.5,Duration=12,SCTE35=/DA=
 #EXTINF:6,
-#EXT-X-BYTERANGE:1000
+#EXT-X-BYTERANGE:1000@0
 /shared/media.mp4?sig=second
 #EXT-X-CUE-IN
 #EXTINF:1,

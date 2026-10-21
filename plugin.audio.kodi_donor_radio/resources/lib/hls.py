@@ -151,6 +151,13 @@ def _duration(value):
     return number
 
 
+def _byte_range(value):
+    if not re.fullmatch(r'[1-9][0-9]*(?:@[0-9]+)?', value):
+        raise InvalidPlaylist('Invalid byte range')
+    length, separator, offset = value.partition('@')
+    return int(length), int(offset) if separator else None
+
+
 def _resolve(uri, final_url):
     if not uri or any(c.isspace() or ord(c) < 32 or c in '\\"' for c in uri) or '{$' in uri:
         raise InvalidPlaylist('Invalid resource URI')
@@ -182,6 +189,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
     refs, segments, cues = [], [], []
     sequence, disc_base, disc, position = 0, 0, 0, 0.0
     target, pending_duration, pending_variant = None, None, False
+    pending_range, previous_ranged_url = None, None
     master, media, seen = False, False, set()
     for index, raw in enumerate(lines[1:], 1):
         line = raw.rstrip('\r\n')
@@ -193,6 +201,10 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 kind, pending_variant = 'playlist', False
             elif pending_duration is not None:
                 kind = 'segment'
+                if pending_range is not None and pending_range[1] is None and previous_ranged_url != url:
+                    raise InvalidPlaylist('Implicit byte range needs preceding subrange of same resource')
+                previous_ranged_url = url if pending_range is not None else None
+                pending_range = None
                 segments.append(Segment(sequence + len(segments), disc, pending_duration, position, url))
                 position += pending_duration
                 pending_duration = None
@@ -227,7 +239,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         allowed_uri = 'URI' if tag in ('EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-I-FRAME-STREAM-INF') else None
         if attrs:
             for key in attrs:
-                if _URI_KEY.search(key) and key != allowed_uri:
+                if key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or (_URI_KEY.search(key) and key != allowed_uri):
                     raise UnsupportedPlaylist('Unsupported URI-bearing attribute')
         elif tag not in _MEDIA and tag not in ('EXT-X-VERSION', 'EXT-X-INDEPENDENT-SEGMENTS'):
             if _URI_KEY.search(value) or _URI_VALUE.search(value):
@@ -250,6 +262,10 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         if tag == 'EXT-X-KEY':
             if attrs != {'METHOD': 'NONE'}:
                 raise UnsupportedPlaylist('Encrypted HLS is unsupported')
+        elif tag == 'EXT-X-MAP' and 'BYTERANGE' in attrs:
+            if not spans['BYTERANGE'][2]:
+                raise InvalidPlaylist('Map byte range must be quoted')
+            _byte_range(attrs['BYTERANGE'])
         elif tag == 'EXTINF':
             if pending_duration is not None or ',' not in value:
                 raise InvalidPlaylist('Malformed segment duration')
@@ -277,8 +293,12 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         elif tag == 'EXT-X-DISCONTINUITY':
             disc += 1
         elif tag == 'EXT-X-BYTERANGE':
-            if not re.fullmatch(r'[1-9][0-9]*(?:@[0-9]+)?', value):
-                raise InvalidPlaylist('Invalid byte range')
+            if pending_range is not None:
+                raise InvalidPlaylist('Repeated segment byte range')
+            pending_range = _byte_range(value)
+        elif tag == 'EXT-X-PLAYLIST-TYPE':
+            if value not in ('EVENT', 'VOD'):
+                raise InvalidPlaylist('Invalid playlist type')
         elif tag == 'EXT-X-PROGRAM-DATE-TIME':
             try:
                 if 'T' not in value:
@@ -289,7 +309,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         if tag in ('EXT-X-DATERANGE', 'EXT-X-CUE-OUT', 'EXT-X-CUE-OUT-CONT', 'EXT-X-CUE-IN'):
             cues.append(CueObservation(tag, attrs, sequence + len(segments), disc,
                                        None if tag == 'EXT-X-DATERANGE' else position))
-    if pending_duration is not None or pending_variant:
+    if pending_duration is not None or pending_variant or pending_range is not None:
         raise InvalidPlaylist('Missing declared URI')
     if not master and target is None:
         raise InvalidPlaylist('Missing target duration')

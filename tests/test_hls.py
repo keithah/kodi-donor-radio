@@ -57,7 +57,7 @@ def test_preserves_non_uri_lines_and_line_endings():
     changed = {ref.line_index for ref in playlist.uri_references}
     assert all(line == output.splitlines(keepends=True)[i]
                for i, line in enumerate(original_lines) if i not in changed)
-    assert '#EXT-X-BYTERANGE:1000\r\n' in output
+    assert '#EXT-X-BYTERANGE:1000@0\r\n' in output
     assert playlist.lines == tuple(original_lines)
 
 
@@ -177,3 +177,58 @@ def test_rewrite_rejects_nonlocal_or_injected_registered_routes(route):
     playlist = parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg.aac\n')
     with pytest.raises(InvalidPlaylist):
         rewrite_playlist(playlist, lambda u: route)
+
+
+@pytest.mark.parametrize('attribute', ['X-ASSET-LIST', 'X-ASSET-URI'])
+@pytest.mark.parametrize('resource', ['https://ads.example/assets.json', '../ads/assets.json'])
+def test_interstitial_asset_references_fail_closed(attribute, resource):
+    from hls import UnsupportedPlaylist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-DATERANGE:ID="ad",CLASS="com.apple.hls.interstitial",START-DATE="2026-10-21T12:00:00Z",{}="{}"\n#EXTINF:6,\nseg.aac\n'.format(attribute, resource)
+    with pytest.raises(UnsupportedPlaylist):
+        parse(text)
+
+
+@pytest.mark.parametrize('range_value', ['bad', '0@0', '12@bad', '-1@0', '12@-1'])
+def test_map_byte_range_must_be_valid(range_value):
+    from hls import InvalidPlaylist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MAP:URI="init.mp4",BYTERANGE="{}"\n#EXTINF:6,\nseg.aac\n'.format(range_value)
+    with pytest.raises(InvalidPlaylist):
+        parse(text)
+
+
+@pytest.mark.parametrize('preceding', [
+    '',
+    '#EXTINF:6,\nmedia.mp4\n',
+    '#EXTINF:6,\n#EXT-X-BYTERANGE:10@0\nother.mp4\n',
+    '#EXTINF:6,\n#EXT-X-BYTERANGE:10@0\nmedia.mp4?sig=other\n',
+    '#EXTINF:6,\n#EXT-X-BYTERANGE:10@0\nmedia.mp4\n#EXTINF:6,\nmedia.mp4\n',
+])
+def test_implicit_segment_range_requires_preceding_subrange_of_same_resource(preceding):
+    from hls import InvalidPlaylist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n' + preceding + '#EXTINF:6,\n#EXT-X-BYTERANGE:10\nmedia.mp4\n'
+    with pytest.raises(InvalidPlaylist):
+        parse(text)
+
+
+def test_valid_implicit_ranges_and_map_ranges_preserved():
+    from hls import rewrite_playlist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MAP:URI="init.mp4",BYTERANGE="400@0"\n#EXTINF:6,\n#EXT-X-BYTERANGE:10@400\nmedia.mp4\n#EXTINF:6,\n#EXT-X-BYTERANGE:20\n./media.mp4\n#EXTINF:6,\n#EXT-X-BYTERANGE:30\nmedia.mp4\n'
+    output = rewrite_playlist(parse(text), lambda u: '/opaque/resource')
+    assert 'BYTERANGE="400@0"' in output
+    assert '#EXT-X-BYTERANGE:10@400\n/opaque/resource\n' in output
+    assert '#EXT-X-BYTERANGE:20\n/opaque/resource\n' in output
+    assert '#EXT-X-BYTERANGE:30\n/opaque/resource\n' in output
+
+
+@pytest.mark.parametrize('value', ['URI="https://upstream.example/raw"', 'LIVE', 'vod', ''])
+def test_playlist_type_rejects_invalid_values(value):
+    from hls import InvalidPlaylist
+    with pytest.raises(InvalidPlaylist):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:' + value + '\n#EXTINF:6,\nseg.aac\n')
+
+
+@pytest.mark.parametrize('value', ['EVENT', 'VOD'])
+def test_playlist_type_preserves_supported_values(value):
+    from hls import rewrite_playlist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PLAYLIST-TYPE:' + value + '\n#EXTINF:6,\nseg.aac\n'
+    assert '#EXT-X-PLAYLIST-TYPE:' + value + '\n' in rewrite_playlist(parse(text), lambda u: '/opaque/resource')
