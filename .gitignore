@@ -10,3 +10,4 @@ dist/
 htmlcov/
 .DS_Store
 .superpowers/sdd/
+tests/generated-audio/
