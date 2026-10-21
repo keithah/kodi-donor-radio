@@ -58,8 +58,9 @@ A directory entry is a hint, not proof of codec or protocol support. Broken,
 geo-restricted, certificate-invalid and unavailable stations can fail independently
 of the parser. Continuous streams and rewritten manifests accept the initial
 `Range: bytes=0-` probe with a full HTTP 200 response; other seeks return 416.
-Segment/map byte ranges retain upstream 206/416 semantics. HEAD returns 405;
-continuous streams have one consumer and retire on disconnect. Kodi's
+Segment/map byte ranges retain upstream 206/416 semantics. HEAD returns retained
+metadata for continuous streams and playlist MIME types without consuming playback;
+segment/map HEAD remains 405. Continuous streams have one consumer and retire on disconnect. Kodi's
 probing/reopening behavior still needs runtime validation. HLS routes preserve
 only allowlisted media extensions after opaque IDs. Extensionless or unknown
 segment extensions remain opaque and may be rejected by strict demuxers.

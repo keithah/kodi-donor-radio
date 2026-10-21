@@ -79,8 +79,16 @@ _MEDIA = frozenset({
 _ATTR_TAGS = frozenset({'EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-STREAM-INF',
                          'EXT-X-I-FRAME-STREAM-INF', 'EXT-X-DATERANGE',
                          'EXT-X-KEY', 'EXT-X-START', 'EXT-X-SESSION-DATA'})
+_ATTR_NAME = re.compile(r'([A-Za-z0-9-]+)=')
 _URI_KEY = re.compile(r'(?:URI|URL)', re.I)
+# Skip quoted values; inspect only unquoted tokens followed by an assignment.
+_URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
 _URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*://|\{\$)', re.I)
+
+
+def _has_uri_assignment(value):
+    return any(match.group('equals') and _URI_KEY.search(match.group('key'))
+               for match in _URI_TOKENS.finditer(value))
 
 
 def _attributes(value):
@@ -91,13 +99,13 @@ def _attributes(value):
     """
     attrs, spans, i = {}, {}, 0
     while i < len(value):
-        match = re.match(r'([A-Za-z0-9-]+)=', value[i:])
+        match = _ATTR_NAME.match(value, i)
         if not match:
             raise InvalidPlaylist('Malformed attribute list')
         key = match.group(1)
         if key in attrs:
             raise InvalidPlaylist('Duplicate attribute')
-        i += len(match.group(0))
+        i = match.end()
         quoted = i < len(value) and value[i] == '"'
         if quoted:
             i += 1
@@ -251,7 +259,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
             if '=' in value:
                 attrs = _attributes(value)[0]
             else:
-                if _URI_KEY.search(value) or _URI_VALUE.search(value):
+                if _has_uri_assignment(value) or _URI_VALUE.search(value):
                     raise UnsupportedPlaylist('Unsupported URI-bearing cue')
                 attrs = {'RAW': value}
         allowed_uri = 'URI' if tag in ('EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-I-FRAME-STREAM-INF') else None
@@ -260,7 +268,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 if key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or (_URI_KEY.search(key) and key != allowed_uri):
                     raise UnsupportedPlaylist('Unsupported URI-bearing attribute')
         elif tag not in _MEDIA and tag not in ('EXT-X-VERSION', 'EXT-X-INDEPENDENT-SEGMENTS'):
-            if _URI_KEY.search(value) or _URI_VALUE.search(value):
+            if _has_uri_assignment(value) or _URI_VALUE.search(value):
                 raise UnsupportedPlaylist('Unsupported URI-bearing tag')
         if master and media:
             raise InvalidPlaylist('Mixed master and media tags')

@@ -107,7 +107,31 @@ class _Handler(BaseHTTPRequestHandler):
                 and hmac.compare_digest(value.encode(), expected.encode()))
 
     def do_HEAD(self):
-        self._reply(405)
+        if not self._valid_target():
+            return self._reply(404)
+        match = _MEDIA.fullmatch(self.path)
+        if match is None:
+            return self._reply(405 if not self.path.startswith('/media/') else 404)
+        session = self.server.relay.manager.get(match.group(1))
+        if session is None:
+            return self._reply(404)
+        try:
+            resource = session.lookup(match.group(2))
+            if resource is None or session.cancel.is_set() or self.path != session.route(resource.id):
+                return self._reply(404)
+            # Metadata lookup must not acquire/claim the stream, fetch, or observe cues.
+            if resource.kind == 'continuous':
+                headers = session.source.response.headers
+            elif resource.kind in ('hls', 'playlist'):
+                headers = {'content-type': 'application/vnd.apple.mpegurl'}
+            else:
+                return self._reply(405)  # Segment/map metadata is not retained.
+            # HEAD ignores Range; no transformed body length is known here.
+            self._headers(200, headers)
+        except KeyError:
+            self._reply(404)
+        except ValueError:
+            self._reply(502)
 
     def do_POST(self):
         if not self._valid_target() or self.path != '/sessions':

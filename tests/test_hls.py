@@ -280,3 +280,44 @@ def test_fractional_timestamp_does_not_hide_invalid_date_or_syntax(timestamp):
     from hls import InvalidPlaylist
     with pytest.raises(InvalidPlaylist):
         parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-PROGRAM-DATE-TIME:' + timestamp + '\n#EXTINF:6,\nseg.aac\n')
+
+
+@pytest.mark.parametrize('tag', [
+    '#EXT-X-VENDOR:Security information from Curl',
+    '#EXT-X-SCTE35:CUE="/DAuRl=="',
+    '#EXT-X-VENDOR:NOTE="URI=ordinary text",MARKER=YES',
+    '#EXT-X-CUE-OUT-CONT:Security',
+])
+def test_non_reference_vendor_text_is_preserved(tag):
+    from hls import rewrite_playlist
+    text = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n' + tag + '\n#EXTINF:6,\nseg.aac\n'
+    assert tag in rewrite_playlist(parse(text), lambda uri: '/opaque/media')
+
+
+@pytest.mark.parametrize('value', [
+    'URI="../hidden"', 'X-URI-SUFFIX="../hidden"', 'OTHER=YES,URL="../hidden"',
+    'OTHER=YES, X_URL_SUFFIX = "../hidden"', 'X.URL="../hidden"',
+    'NOTE="https://upstream.example/hidden"', 'NOTE="{$host}/hidden"',
+])
+def test_unknown_tag_actual_references_still_fail_closed(value):
+    from hls import UnsupportedPlaylist
+    with pytest.raises(UnsupportedPlaylist):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-VENDOR:' + value + '\n#EXTINF:6,\nseg.aac\n')
+
+
+def test_many_attributes_parse_with_bounded_slice_copying():
+    from hls import _attributes
+    class CountedString(str):
+        copied = 0
+        def __getitem__(self, key):
+            result = super().__getitem__(key)
+            if isinstance(key, slice): self.copied += len(result)
+            return result
+    value = CountedString(','.join('X-%d=value%d' % (index, index) for index in range(2000)))
+    attrs, spans = _attributes(value)
+    assert len(attrs) == 2000
+    assert attrs['X-0'] == 'value0' and attrs['X-1999'] == 'value1999'
+    start, end, quoted = spans['X-1999']
+    assert value[start:end] == 'value1999' and not quoted
+    # Count copied characters, not elapsed time: repeated suffix copies are quadratic.
+    assert value.copied < len(value) * 2

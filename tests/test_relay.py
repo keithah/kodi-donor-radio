@@ -231,7 +231,7 @@ def test_cancel_shutdown_ends_blocked_reads_within_deadline(relay, origin):
 
 def test_head_does_not_consume_probe_and_second_get_fails_clearly(relay, origin):
     s = create(relay, origin, '/audio')
-    assert request(s.playback_url, 'HEAD')[0] == 405
+    assert request(s.playback_url, 'HEAD')[0] == 200
     assert not s.source.response.closed
     assert request(s.playback_url)[2] == origin[2]
     assert request(s.playback_url)[0] == 404
@@ -412,3 +412,43 @@ def test_extensionless_path_named_like_codec_does_not_gain_suffix(relay, origin)
     s = create(relay, origin, '/list')
     route = s.register_many([origin[0] + '/ts'], ['segment'])[0]
     assert '.' not in route.rsplit('/', 1)[-1]
+
+
+@pytest.mark.parametrize('path,content_type', [('/audio', None), ('/icy', 'audio/mpeg'),
+    ('/list', 'application/vnd.apple.mpegurl')])
+def test_head_metadata_does_not_claim_fetch_or_observe_before_playback(relay,origin,path,content_type):
+    s = create(relay, origin, path)
+    calls = origin[1].copy()
+    for headers in ({}, {'Range': 'bytes=1-'}):
+        status, returned, body = request(s.playback_url, 'HEAD', headers=headers)
+        assert status == 200 and body == b''
+        assert returned.get('Content-Type') == content_type
+        assert 'Content-Length' not in returned and 'icy-metaint' not in returned
+        assert origin[1] == calls and not relay[2].events
+        assert not s.cancel.is_set() and not s.active
+        if s.source.response is not None:
+            assert not s.source.response.closed
+    status, _, body = request(s.playback_url)
+    assert status == 200
+    if path == '/list':
+        assert body.startswith(b'#EXTM3U')
+    else:
+        assert body == (b'abcdefgh' if path == '/icy' else origin[2])
+        assert origin[1] == calls
+
+
+def test_head_validates_exact_resources_without_fetching_segments(relay,origin):
+    s = create(relay, origin, '/list')
+    base = 'http://127.0.0.1:%s' % relay[3].port
+    variant = s.register_many([origin[0] + '/variant-a'], ['playlist'])[0]
+    segment = s.register_many([origin[0] + '/segment.ts'], ['segment'])[0]
+    calls = origin[1].copy()
+    assert request(base + variant, 'HEAD')[0] == 200
+    assert request(base + segment, 'HEAD')[0] == 405
+    for invalid in (s.playback_url + '?url=hidden', s.playback_url[:-5],
+                    base + segment[:-3], base + '/media/' + 'a'*48 + '/' + 'b'*48):
+        assert request(invalid, 'HEAD')[0] == 404
+    assert request(base + '/sessions', 'HEAD')[0] == 405
+    assert origin[1] == calls and not relay[2].events and not s.cancel.is_set()
+    relay[1].stop(s.id)
+    assert request(s.playback_url, 'HEAD')[0] == 404

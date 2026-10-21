@@ -341,3 +341,36 @@ Full suite: **361 passed in 44.37s**, clean output. Package creation and
 Official Omega checker on `dist/checker-prepr-selection/`, extracted from that
 ZIP, exited 0 with no addon problems or warnings; the known separate host
 LibreSSL warning remains. Actual Kodi playback acceptance remains pending.
+
+### HLS attribute parsing and safe HEAD follow-up
+
+The next review reproduced quadratic attribute-name suffix copying and false
+URI detections inside vendor text/quoted base64. Attribute matching now advances
+by absolute offsets without repeatedly copying the remaining line. A counted
+string regression verifies 2,000 parsed attributes and bounded copied characters
+without a timing threshold. The URI guard skips quoted values while checking
+assignment keys, retaining actual URI/URL-key, absolute URL and variable guards.
+Four benign text/payload cases and the copy-budget test failed before fixes.
+
+The HEAD finding was checked against official
+[Kodi 21.3 CurlFile.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/filesystem/CurlFile.cpp#L1554-L1572):
+`Stat` falls back from failed HEAD to a normal transfer and aborts after receiving
+data. The relay now serves metadata-only HEAD 200 for registered continuous
+streams and playlists, using retained upstream headers or the known playlist
+MIME type. It does not claim/acquire playback, fetch upstream bytes, or observe
+cues. Range is ignored for HEAD; no transformed Content-Length is invented.
+Segment/map HEAD remains 405 without an upstream request because their metadata
+is not retained. Exact opaque route validation and GET range semantics remain.
+Five HEAD regressions failed before this fix; tests now verify HEAD-then-GET
+returns intact audio, preserves the sole probe, and does not emit premature
+metadata/cue events. Kodi runtime acceptance still requires a real Kodi test.
+
+Combined relay/HLS suite: **138 passed in 18.56s**, clean output.
+Full suite: **377 passed in 46.88s**, with the previously documented local HTTP
+handler exception banner and no failures. FFmpeg smoke again decoded MP3, ICY
+and HLS with exit 0, 32,000 nonzero PCM bytes and empty stderr for each. Package
+creation, `check_package.py`, and the official Omega checker on the fresh
+`dist/checker-prepr-head/` extraction exited 0. The official checker reported no
+addon problems or warnings; its separate host LibreSSL warning remains.
+Latest ZIP SHA-256:
+`782ca281487adac19becfcae1f5963a91cc7fda51e87fc5288a47d424781d983`.
