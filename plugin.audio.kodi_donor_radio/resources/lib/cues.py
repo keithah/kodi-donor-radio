@@ -74,7 +74,7 @@ class _Break:
     duration: Optional[float]
     semantic: tuple
     last_sequence: int
-    expected_end: Optional[float]
+    expected_origin: Optional[float]
     closed: bool = False
 
 
@@ -214,8 +214,8 @@ class CueTracker:
             if end is not None:
                 for record in self._breaks.values():
                     if (record.rendition == rendition_id and record.epoch == epoch
-                            and record.expected_end is not None
-                            and end >= record.expected_end):
+                            and record.expected_origin is not None and record.duration is not None
+                            and end >= record.expected_origin + record.duration):
                         self._unresolved(record, 'expected_duration_elapsed')
 
     def _observe_cue(self, cue, rendition, epoch, state, offset):
@@ -270,11 +270,9 @@ class CueTracker:
             if not record.closed and semantic != record.semantic:
                 record.semantic = semantic
                 record.cue = cue
+                if action == 'progress' and elapsed is not None and position is not None:
+                    record.expected_origin = position - elapsed
                 if duration is not None:
-                    if action == 'progress' and elapsed is not None and position is not None:
-                        record.expected_end = position + max(duration - elapsed, 0.0)
-                    elif record.expected_end is not None and record.duration is not None:
-                        record.expected_end += duration - record.duration
                     record.duration = duration
                 self._emit('break_update', cue, rendition, epoch, position=position,
                            duration=duration, cue_id=cue_id)
@@ -282,10 +280,11 @@ class CueTracker:
         if family == 'cue':
             for old in active:
                 self._unresolved(old, 'superseded')
-        expected_end = (position + max(duration - (elapsed or 0.0), 0.0)
-                        if position is not None and duration is not None else None)
+        # Keep inferred origin separate from the observed continuation position.
+        # It remains usable when duration is first supplied in a later update.
+        expected_origin = position - (elapsed or 0.0) if position is not None else None
         record = _Break(cue, rendition, epoch, cue_id, family, position, duration,
-                        semantic, cue.sequence, expected_end)
+                        semantic, cue.sequence, expected_origin)
         self._breaks[key] = record
         if len(self._breaks) > DEDUP_LIMIT:
             _, retired = self._breaks.popitem(last=False)

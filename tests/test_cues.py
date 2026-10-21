@@ -288,3 +288,34 @@ def test_initial_continuation_expires_after_remaining_duration(continuation):
     assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
     assert sink.events[-1].details['media_position'] == 0
     assert sink.events[-1].details['duration'] == 30
+
+
+def test_duration_added_to_durationless_out_enables_original_boundary_expiry():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT:10\n', 10), 'a', 0)
+    t.observe(playlist(sequence=11), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed',
+                           'break_update', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+    assert sink.events[-1].details['media_position'] == 0
+
+
+def test_late_duration_correction_retains_original_known_start():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT:ID="break"\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT:ID="break",DURATION=20\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT:ID="break",DURATION=10\n', 11), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_update',
+                           'cue_observed', 'break_update', 'break_unresolved']
+    assert sink.events[-1].details['duration'] == 10
+    assert sink.events[-1].details['media_position'] == 0
+
+
+def test_duration_added_to_continuation_retains_prior_elapsed_origin():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=25\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:Duration=30\n', 10), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'cue_observed', 'break_update', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+    assert sink.events[-1].details['media_position'] == 0
