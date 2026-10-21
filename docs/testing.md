@@ -298,3 +298,27 @@ Rerunning `python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
 after the transport change decoded continuous MP3, ICY, and HLS successfully:
 each returned exit 0, 32,000 nonzero PCM bytes, and empty stderr. This remains
 FFmpeg decoder evidence, not heard audio or Kodi runtime acceptance.
+
+### Unicode request targets and continuation evidence follow-up
+
+A subsequent review reproduced non-ASCII path/query failure at HTTP request-line
+encoding. The transport now UTF-8 percent-encodes only non-ASCII characters,
+preserving existing ASCII request targets, reserved characters, signature values,
+and percent-escape spelling. Actual socket tests cover Unicode paths/queries and
+a parsed relative HLS segment URI; three cases failed before the fix.
+
+Increasing continuation ElapsedTime also emitted redundant lifecycle updates.
+`cue_observed` still records each distinct continuation, while `break_update`
+now reflects supplied duration changes or start/end date changes. Record evidence
+and inferred origin timing refresh even without a lifecycle update. Regressions
+cover advancing windows after OUT and mid-break entry, deduplication, expected
+expiry, later duration arrival, and changed dates. Three regression cases failed
+before the fix; existing duration addition/correction checks remain green.
+Combined cue/transport suite: **117 passed in 19.73s**, clean output.
+Full suite: **357 passed in 44.45s**, clean output. Refreshed FFmpeg smoke decoded
+MP3, ICY and HLS with exit 0, 32,000 nonzero PCM bytes and empty stderr for each.
+Package creation and `check_package.py` exited 0. Latest ZIP SHA-256:
+`414a32316d486de664aa2156c54323fcaf794139c091406eef493ea455f47ef9`.
+Official Omega checker on the fresh extraction in `dist/checker-prepr-unicode/`
+exited 0 with no addon problems or warnings; its separate host LibreSSL warning
+remains. Actual Kodi acceptance remains pending.

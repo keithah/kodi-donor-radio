@@ -272,15 +272,19 @@ class CueTracker:
                            duration=duration if duration is not None else record.duration, cue_id=cue_id)
             return
         if record is not None:
-            if not record.closed and semantic != record.semantic:
+            if not record.closed:
+                # Continuation elapsed time is evidence, not a new boundary.
+                changed = ((duration is not None and duration != record.duration)
+                           or semantic[3:5] != record.semantic[3:5])
                 record.semantic = semantic
                 record.cue = cue
                 if action == 'progress' and elapsed is not None and position is not None:
                     record.expected_origin = position - elapsed
                 if duration is not None:
                     record.duration = duration
-                self._emit('break_update', cue, rendition, epoch, position=position,
-                           duration=duration, cue_id=cue_id)
+                if changed:
+                    self._emit('break_update', cue, rendition, epoch, position=position,
+                               duration=duration, cue_id=cue_id)
             return
         if family == 'cue':
             for old in active:

@@ -385,3 +385,40 @@ def test_daterange_fractional_precision_remains_signaled_with_original_evidence(
     assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
     assert sink.events[0].evidence['START-DATE'] == start
     assert sink.events[-1].evidence['END-DATE'] == end
+
+
+@pytest.mark.parametrize('join_mid_break', [False, True])
+def test_advancing_continuations_keep_evidence_without_lifecycle_updates(join_mid_break):
+    t, sink = tracker()
+    initial = ('#EXT-X-CUE-OUT-CONT:ElapsedTime=0,Duration=30\n'
+               if join_mid_break else '#EXT-X-CUE-OUT:30\n')
+    t.observe(playlist(initial, 10), 'a', 0)
+    for sequence, elapsed in [(11, 5), (12, 10), (13, 15)]:
+        window = playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=%d,Duration=30\n' % elapsed, sequence)
+        t.observe(window, 'a', 0)
+        t.observe(window, 'a', 0)
+    assert len(events(sink, 'cue_observed')) == 4
+    assert [e.evidence['ElapsedTime'] for e in events(sink, 'cue_observed')[1:]] == ['5','10','15']
+    assert len(events(sink, 'break_start')) == (0 if join_mid_break else 1)
+    assert not events(sink, 'break_update')
+    assert not events(sink, 'break_unresolved')
+    t.observe(playlist(sequence=14, count=2), 'a', 0)
+    assert len(events(sink, 'break_unresolved')) == 1
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+
+
+def test_continuation_timing_refresh_survives_suppressed_update():
+    t, sink = tracker()
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=0\n', 10), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=10\n', 11), 'a', 0)
+    t.observe(playlist('#EXT-X-CUE-OUT-CONT:Duration=20\n', 12), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'cue_observed', 'cue_observed',
+                           'break_update', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'expected_duration_elapsed'
+
+
+def test_daterange_start_date_correction_is_meaningful():
+    t, sink = tracker()
+    t.observe(playlist(daterange()), 'a', 0)
+    t.observe(playlist(daterange(start='2026-10-21T17:01:05Z')), 'a', 0)
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_update']

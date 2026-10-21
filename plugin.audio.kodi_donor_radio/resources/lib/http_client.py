@@ -6,7 +6,7 @@ import socket
 import ssl
 import threading
 import time
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 from url_policy import UrlPolicy, origin
 
@@ -248,6 +248,8 @@ class HttpClient:
                 conn.sock = sock
                 parts = urlsplit(url)
                 path = urlunsplit(('', '', parts.path or '/', parts.query, ''))
+                # Preserve signed ASCII targets and existing escapes byte-for-byte.
+                path = ''.join(quote(char, safe='') if ord(char) > 127 else char for char in path)
                 # Conservatively mark transmission before request(), which may
                 # send headers before raising. Such failures must never retry.
                 request_started = True

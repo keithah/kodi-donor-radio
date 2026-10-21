@@ -457,3 +457,27 @@ def test_other_read_protocol_errors_are_normalized_and_closed(protocol_error):
     with pytest.raises(HttpError) as error:
         response.read(10)
     assert response.closed and 'secret' not in str(error.value)
+
+
+@pytest.mark.parametrize('target,expected', [
+    ('/café/音.mp3?title=été&city=東京', '/caf%C3%A9/%E9%9F%B3.mp3?title=%C3%A9t%C3%A9&city=%E6%9D%B1%E4%BA%AC'),
+    ('/a%2fb/音?sig=A%2Bb%2fC%3D&x=:/?@!$&\'()*+,;=[]~',
+     '/a%2fb/%E9%9F%B3?sig=A%2Bb%2fC%3D&x=:/?@!$&\'()*+,;=[]~'),
+    ('/a%2fb?sig=A%2Bb%2fC%3D&x=:/?@!$&\'()*+,;=[]~',
+     '/a%2fb?sig=A%2Bb%2fC%3D&x=:/?@!$&\'()*+,;=[]~'),
+])
+def test_unicode_request_target_encodes_only_non_ascii(server,target,expected):
+    client, origin = local_client(server[0])
+    with client.open(origin + target, {}, threading.Event()) as response:
+        assert response.read(5) == b'hello'
+    assert server[1][0][0] == expected
+
+
+def test_relative_hls_unicode_segment_uses_encoded_wire_target(server):
+    from hls import parse_playlist
+    client, origin = local_client(server[0])
+    parsed = parse_playlist('#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXTINF:5,\n../音.aac?sig=a%2Fb&title=été\n',
+                            origin + '/live/index.m3u8')
+    with client.open(parsed.segments[0].uri, {}, threading.Event()) as response:
+        assert response.read(5) == b'hello'
+    assert server[1][0][0] == '/%E9%9F%B3.aac?sig=a%2Fb&title=%C3%A9t%C3%A9'
