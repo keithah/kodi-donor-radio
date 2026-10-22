@@ -1,3 +1,56 @@
+# Controlled VAST ads — implementation checkpoint
+
+Status: work in progress, not release-ready. Branch: `codex/vast-controlled-ads`.
+
+Checkpoint verification: `python3 -m pytest -q` passed **513 tests in 74.81 seconds**,
+exit 0, against implementation commit `beec95b`. No server traceback appeared in
+this run. The following checkpoint commit changes documentation only.
+
+## Completed and task-reviewed
+
+Tasks 1–6 implement controlled audio/VAST fixtures, bounded VAST resolution,
+creative validation/cache, immutable HLS composition, relay/session integration,
+and playback-evidenced tracking. Relay tests independently decode preroll and
+midroll media and verify source fallback. Task reviews found and corrected
+published-media retention, cache-failure fallback, and false completion after a
+seek followed by stationary playback samples.
+
+## Implemented, awaiting review
+
+Task 7 integrates Kodi settings and playback callbacks. Its implementation report
+is retained below. Successful tracking remains disabled until empirical clock
+mapping is established. The focused adapter/runtime/session/tracking/relay/package
+run reported 109 passing tests at commit `beec95b`.
+
+## Next steps
+
+1. Review Task 7 and fix verified findings.
+2. Add usable UI entries for the ad fixture server's source endpoints.
+3. Run controlled ad acceptance on unpatched Kodi master `434da3c`: normal ads,
+   fallback cases, pause, buffering, seek, station switch, and stop. Verify the
+   clock mapping across ad discontinuities and advancing live windows before
+   enabling successful tracking. The earlier master playback results cover the
+   observation POC, not this new insertion implementation.
+4. Complete independent smoke tooling, record decoded audio and playback evidence,
+   and distinguish that evidence from speaker output actually heard or captured.
+5. Finish documentation/versioning, full tests, ZIP validation, and the official
+   Kodi addon checker. Obtain current exact-commit Steward primary/adversarial
+   and CodeRabbit passes before opening the implementation PR.
+
+## Constraints and known limits
+
+- Ads require explicit test settings and the configured loopback fixture origin;
+  general Radio Browser stations are excluded. No production advertising traffic.
+- The supported media is clear single-rendition AAC-LC MPEG-TS at 48 kHz stereo.
+- Published media is retained for the session. Hard cache caps can terminate new
+  manifests on long sessions; previously published resources remain available
+  until stop or idle expiry. There is no inferred playback-based eviction.
+- Preroll adds latency. No catch-up, arbitrary truncation, or programme deletion.
+- Kodi clock calibration, audible output verification, and final review gates are
+  outstanding. The new PR has not been opened.
+
+---
+
 # Task 7 — Kodi adapter and explicit test settings
 
 ## Result
