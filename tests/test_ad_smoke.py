@@ -49,7 +49,35 @@ def test_completion_after_stop_fails():
 
 def test_unmapped_success_beacon_fails():
     trace = valid(); trace['events'] = [{'event': 'complete', 'placement_id': 'a', 'at': 1.5}]
-    assert any('unmapped' in item for item in check_trace(trace))
+    assert any('playback evidence' in item for item in check_trace(trace))
+
+
+def test_claimed_mapping_cannot_make_relay_only_success_pass():
+    trace = valid(); trace['mapping_proven'] = True
+    trace['events'] = [{'event': 'complete', 'placement_id': 'a', 'at': 1.5}]
+    assert any('playback evidence' in item for item in check_trace(trace))
+
+
+def test_kodi_smoke_rejects_unrelated_item_even_with_advancing_clock():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': False, 'time_seconds': 1.0},
+        {'playing': True, 'item_matches_expected': False, 'time_seconds': 3.0}]}
+    assert any('item' in item for item in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_rejects_frozen_clock_on_expected_item():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0}]}
+    assert any('advance' in item for item in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_accepts_expected_item_with_advancing_clock():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.4},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.8}]}
+    assert smoke_ad_kodi.validate_observation(result) == []
 
 
 def test_kodi_rpc_ignores_async_notification_before_matching_response(monkeypatch):

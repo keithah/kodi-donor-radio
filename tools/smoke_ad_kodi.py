@@ -54,16 +54,18 @@ def _time(value):
             value.get('seconds', 0) + value.get('milliseconds', 0) / 1000)
 
 
-def sample(port):
+def sample(port, expected_file):
     active = rpc('Player.GetActivePlayers', port=port)
     if not active:
         return {'playing': False}
     playerid = active[0]['playerid']
     props = rpc('Player.GetProperties', {'playerid': playerid,
         'properties': ['time', 'totaltime', 'speed', 'cachepercentage', 'live', 'canseek']}, port=port)
+    item = rpc('Player.GetItem', {'playerid': playerid, 'properties': ['file']}, port=port)['item']
     conditions = rpc('XBMC.GetInfoBooleans',
                      {'booleans': ['Player.Caching', 'Player.Paused']}, port=port)
     return {'playing': True, 'playerid': playerid, 'time_seconds': _time(props.get('time')),
+            'item_matches_expected': item.get('file') == expected_file,
             'total_seconds': _time(props.get('totaltime')), 'speed': props.get('speed'),
             'cachepercentage': props.get('cachepercentage'), 'live': props.get('live'),
             'canseek': props.get('canseek'), 'player_caching': conditions.get('Player.Caching'),
@@ -86,6 +88,22 @@ def _menu_file(port, source):
         if station and json.loads(station[0]).get('url', '').endswith('/source/' + source + '/index.m3u8'):
             return item['file'], item.get('label')
     raise RuntimeError('Controlled source not listed in Kodi test menu: ' + source)
+
+
+def validate_observation(result):
+    """Require the requested Kodi item and locally advancing player time."""
+    active = [sample for sample in result['timeline'] if sample.get('playing')]
+    failures = []
+    if not active or any(sample.get('item_matches_expected') is not True for sample in active):
+        failures.append('active Kodi item did not consistently match requested fixture')
+    matched = [sample['time_seconds'] for sample in active
+               if sample.get('item_matches_expected') is True
+               and sample.get('time_seconds') is not None]
+    bounded_progress = sum(delta for earlier, later in zip(matched, matched[1:])
+                           if 0 < (delta := later - earlier) <= .75)
+    if bounded_progress < .5:
+        failures.append('requested Kodi item did not show 0.5s of bounded clock advance')
+    return failures
 
 
 def observe(origin, port, source, duration, actions):
@@ -117,7 +135,7 @@ def observe(origin, port, source, duration, actions):
                 action_results.append({'at': round(elapsed, 3), 'action': action,
                                        'accepted': False, 'error': type(error).__name__})
         try:
-            observation = sample(port)
+            observation = sample(port, file)
         except (OSError, RuntimeError) as error:
             observation = {'rpc_error': type(error).__name__}
         observation['at'] = round(time.monotonic() - start, 3)
@@ -130,9 +148,11 @@ def observe(origin, port, source, duration, actions):
     except (OSError, RuntimeError):
         pass
     time.sleep(.5)
-    return {'source': source, 'label': label, 'timeline': timeline,
+    result = {'source': source, 'label': label, 'timeline': timeline,
             'actions': action_results, 'fixture': _stats(origin),
             'audible_output_verified': False, 'mapping_proven': False}
+    result['validation_failures'] = validate_observation(result)
+    return result
 
 
 def main():
@@ -162,9 +182,8 @@ def main():
         clocks = [s['time_seconds'] for s in result['timeline'] if s.get('time_seconds') is not None]
         print(result['source'], 'clock samples', len(clocks), 'range',
               (min(clocks), max(clocks)) if clocks else None, 'actions', result['actions'],
-              'beacons', result['fixture']['beacons'])
-    return 0 if all(any(s.get('time_seconds') is not None for s in result['timeline'])
-                    for result in report['scenarios']) else 1
+              'beacons', result['fixture']['beacons'], 'failures', result['validation_failures'])
+    return 1 if any(result['validation_failures'] for result in report['scenarios']) else 0
 
 
 if __name__ == '__main__':

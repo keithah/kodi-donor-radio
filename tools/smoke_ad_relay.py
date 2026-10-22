@@ -45,8 +45,10 @@ def check_trace(trace):
         if key in seen:
             failures.append('duplicate playback event: %s/%s' % key)
         seen.add(key)
-        if event['event'] in SUCCESS_EVENTS and not trace.get('mapping_proven', False):
-            failures.append('unmapped success event: %s' % event['event'])
+        if event['event'] in SUCCESS_EVENTS:
+            # This tool only fetches and decodes media. A trace-supplied flag
+            # cannot attest that Kodi presented any of it to the listener.
+            failures.append('no playback evidence for success event: %s' % event['event'])
         stopped_at = trace['stopped_at']
         if stopped_at is not None and event['event'] == 'complete' and event['at'] > stopped_at:
             failures.append('completion after stop')
@@ -113,7 +115,7 @@ def observe(origin, scenario, vast, preroll, midroll):
             trace = {'scenario': scenario, 'vast': vast, 'sections': sections,
                      'expected_sections': expected, 'samples': samples,
                      'expected_samples': [96256] * len(expected), 'first_pts': first_pts,
-                     'events': events, 'stopped_at': None, 'mapping_proven': False,
+                     'events': events, 'stopped_at': None,
                      'manifest_discontinuities': manifest.count('#EXT-X-DISCONTINUITY\n'),
                      'requests': stats['requests'], 'beacons': stats['beacons']}
             trace['failures'] = check_trace(trace)
