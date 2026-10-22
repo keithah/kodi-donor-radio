@@ -70,3 +70,40 @@ def test_early_playback_error_flushes_preparation_error(monkeypatch):
     adapter.bind(session.id)
     adapter.on_end('cancelled', session.id)
     assert calls == [403]
+
+
+def test_shutdown_cancels_inflight_error_beacon_without_kodi_calls():
+    entered = threading.Event()
+    cancelled = threading.Event()
+    caller = threading.current_thread()
+    class Client:
+        def open(self, url, headers, cancel, **kwargs):
+            assert threading.current_thread() is not caller
+            entered.set()
+            assert __import__('time').monotonic() < kwargs['deadline']
+            for _ in range(200):
+                if cancel.is_set():
+                    cancelled.set()
+                    break
+                __import__('time').sleep(.005)
+            raise OSError('cancelled')
+    session = _session()
+    session.ad_enabled = True
+    pending = [AdError(403, 'No supported VAST media', ('http://127.0.0.1:8765/error',))]
+    session.take_ad_errors = lambda: [pending.pop()] if pending else []
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    def is_playing():
+        assert threading.current_thread() is caller
+        return False
+    player = SimpleNamespace(isPlaying=is_playing)
+    adapter = KodiAdPlayback(manager, player, client=Client(),
+                             fixture_origin='http://127.0.0.1:8765')
+    adapter.bind(session.id)
+    adapter.sample()
+    assert entered.wait(1)
+    before = __import__('time').monotonic()
+    adapter.close()
+    assert __import__('time').monotonic() - before < 1
+    assert cancelled.is_set()
+    assert adapter.session_id is None

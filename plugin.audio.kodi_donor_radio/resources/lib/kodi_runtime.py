@@ -371,26 +371,41 @@ class RelayPlayer(xbmc.Player):
     def __init__(self, manager, port, fixture_origin=None):
         super().__init__()
         self.manager, self.port, self.owned = manager, port, None
+        self._generation = 0
+        self._armed_generation = None
         self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin)
 
     def onAVStarted(self):
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
-        old, self.owned = self.owned, current
+        old = self.owned
+        if current != old:
+            self._generation += 1
+            self._armed_generation = None
+        self.owned = current
         if old is not None and old != current:
             self.ads.on_end('cancelled', old)
             self.manager.stop(old)
         if current is not None:
             self.ads.bind(current)
+            self._arm_current()
 
     def onPlayBackStarted(self):
         self.onAVStarted()
 
     def _finished(self, reason):
         # A stop callback for the old stream can arrive after a rapid switch.
-        if self.isPlaying():
+        if self.isPlaying() or xbmc.getCondVisibility('Player.Caching'):
+            return
+        try:
+            current = _relay_path(self.getPlayingFile(), self.port)
+        except RuntimeError:
+            current = None
+        if (self.owned is None or self._armed_generation != self._generation
+                or current not in (None, self.owned)):
             return
         old, self.owned = self.owned, None
+        self._armed_generation = None
         if old is not None:
             self.ads.on_end(reason, old)
             self.manager.stop(old)
@@ -398,10 +413,42 @@ class RelayPlayer(xbmc.Player):
     def onPlayBackStopped(self): self._finished('cancelled')
     def onPlayBackEnded(self): self._finished('source_end')
     def onPlayBackError(self): self._finished('cancelled')
-    def onPlayBackPaused(self): self.ads.on_pause(self.owned)
-    def onPlayBackResumed(self): self.ads.on_resume(self.owned)
-    def onPlayBackSeek(self, time, seek_offset): self.ads.on_seek(self.owned)
-    def onPlayBackSeekChapter(self, chapter): self.ads.on_seek(self.owned)
+    def _arm_current(self):
+        if self.owned is None or not self.isPlaying():
+            return
+        try:
+            current = _relay_path(self.getPlayingFile(), self.port)
+        except RuntimeError:
+            return
+        if current == self.owned:
+            self._armed_generation = self._generation
+
+    def _callback_session(self):
+        if self._armed_generation != self._generation or not self.isPlaying():
+            return None
+        try:
+            current = _relay_path(self.getPlayingFile(), self.port)
+        except RuntimeError:
+            return None
+        return self.owned if current == self.owned else None
+
+    def onPlayBackPaused(self):
+        identity = self._callback_session()
+        if identity is not None and xbmc.getCondVisibility('Player.Paused'):
+            self.ads.on_pause(identity)
+
+    def onPlayBackResumed(self):
+        identity = self._callback_session()
+        if identity is not None and not xbmc.getCondVisibility('Player.Paused'):
+            self.ads.on_resume(identity)
+
+    def onPlayBackSeek(self, time, seek_offset):
+        identity = self._callback_session()
+        if identity is not None: self.ads.on_seek(identity)
+
+    def onPlayBackSeekChapter(self, chapter):
+        identity = self._callback_session()
+        if identity is not None: self.ads.on_seek(identity)
 
     def sample_ads(self):
         if self.owned is None:
@@ -411,6 +458,7 @@ class RelayPlayer(xbmc.Player):
         except RuntimeError:
             return
         if current == self.owned:
+            self._arm_current()
             self.ads.sample()
 
 

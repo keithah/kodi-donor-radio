@@ -25,7 +25,8 @@ STATION = Station('station-1', 'Station One', 'https://radio.example/live', 'MP3
 @pytest.fixture
 def kodi(monkeypatch, tmp_path):
     state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
-                            input='jazz', cancel=False, abort=False, waits=0, players=[], action=None)
+                            input='jazz', cancel=False, abort=False, waits=0, players=[], action=None,
+                            player_paused=False, player_caching=False)
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
@@ -60,6 +61,7 @@ def kodi(monkeypatch, tmp_path):
         def openSettings(self): state.settings_opened = True
     modules = {
         'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
+                                getCondVisibility=lambda condition: state.player_paused if condition == 'Player.Paused' else state.player_caching,
                                 log=lambda value, level: state.logs.append(value)),
         'xbmcaddon': SimpleNamespace(Addon=Addon),
         'xbmcgui': SimpleNamespace(ListItem=Item, Dialog=Dialog, DialogProgress=Progress,
@@ -543,3 +545,99 @@ def test_player_refuses_ad_sample_when_file_has_switched_before_callback(kodi):
     player.ads.sample = lambda: sampled.append(True)
     player.sample_ads()
     assert sampled == []
+
+
+def test_old_native_callbacks_during_new_stream_load_cannot_change_or_retire_it(kodi):
+    runtime, state, _ = kodi
+    old_id, new_id = 'a'*48, 'c'*48
+    stopped = []
+    manager = SimpleNamespace(stop=stopped.append, get=lambda identity: None)
+    player = runtime.RelayPlayer(manager, 32123)
+    states = []
+    player.ads.on_pause = lambda identity: states.append(('pause', identity))
+    player.ads.on_resume = lambda identity: states.append(('resume', identity))
+    player.ads.on_seek = lambda identity: states.append(('seek', identity))
+    player.ads.on_end = lambda reason, identity: states.append(('end', identity))
+    player.file = 'http://127.0.0.1:32123/media/' + old_id + '/' + 'b'*48
+    player.playing = True
+    player.onAVStarted()
+    player.file = 'http://127.0.0.1:32123/media/' + new_id + '/' + 'd'*48
+    player.playing = False
+    player.onAVStarted()
+    assert stopped == [old_id]
+    states.clear()
+    player.onPlayBackPaused()
+    player.onPlayBackResumed()
+    player.onPlayBackSeek(3000, 1000)
+    player.onPlayBackSeekChapter(2)
+    player.onPlayBackStopped()
+    player.onPlayBackEnded()
+    player.onPlayBackError()
+    assert states == []
+    assert stopped == [old_id]
+    assert player.owned == new_id
+    player.playing = True
+    player.sample_ads()
+    state.player_paused = True
+    player.onPlayBackPaused()
+    assert states == [('pause', new_id)]
+
+
+def test_delayed_native_callbacks_after_arm_require_current_file_and_state(kodi):
+    runtime, state, _ = kodi
+    old_id, new_id = 'a'*48, 'c'*48
+    stopped = []
+    player = runtime.RelayPlayer(SimpleNamespace(stop=stopped.append, get=lambda identity: None), 32123)
+    calls = []
+    player.ads.on_pause = lambda identity: calls.append(('pause', identity))
+    player.ads.on_resume = lambda identity: calls.append(('resume', identity))
+    player.ads.on_seek = lambda identity: calls.append(('seek', identity))
+    player.file = 'http://127.0.0.1:32123/media/' + old_id + '/' + 'b'*48
+    player.playing = True
+    player.onAVStarted()
+    player.file = 'http://127.0.0.1:32123/media/' + new_id + '/' + 'd'*48
+    player.onAVStarted()
+    player.sample_ads()
+    calls.clear()
+    player.onPlayBackPaused()  # old pause; current player is not paused
+    state.player_paused = True
+    player.onPlayBackResumed()  # old resume; current player remains paused
+    assert calls == []
+    player.playing = False
+    state.player_caching = True
+    player.onPlayBackStopped()  # old stop while the new player buffers
+    assert player.owned == new_id
+    state.player_caching = False
+    player.file = 'http://127.0.0.1:32123/media/' + old_id + '/' + 'b'*48
+    player.onPlayBackSeek(1000, 1000)
+    player.onPlayBackStopped()
+    assert calls == [] and stopped == [old_id]
+    assert player.owned == new_id
+
+
+def test_shutdown_cancels_pending_demand_without_resuming_old_stream(kodi):
+    runtime, _, _ = kodi
+    entered, released = threading.Event(), threading.Event()
+    def resolve(url, client, cancel):
+        entered.set()
+        cancel.wait(1)
+        released.set()
+        raise OSError('cancelled demand')
+    manager = SessionManager(resolver=resolve)
+    player = runtime.RelayPlayer(manager, 32123)
+    outcomes = []
+    def demand():
+        try:
+            manager.create(STATION)
+        except OSError:
+            outcomes.append('cancelled')
+    worker = threading.Thread(target=demand)
+    worker.start()
+    assert entered.wait(1)
+    player.ads.close()
+    manager.close()
+    assert released.wait(1)
+    worker.join(1)
+    assert outcomes == ['cancelled']
+    assert manager.get('a'*48) is None
+    assert player.owned is None
