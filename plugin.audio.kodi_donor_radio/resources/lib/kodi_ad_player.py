@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 import math
 import time
+from urllib.parse import urlsplit
 
 from ad_models import PlaybackSample
 from ad_tracking import AdTracker, BeaconWorker, enqueue_ad_error
@@ -10,7 +11,7 @@ from models import Event
 
 
 class KodiAdPlayback:
-    """Mapping stays off until a measured Kodi clock contract is installed."""
+    """Map Kodi time only for opted-in loopback fixture sessions."""
     def __init__(self, manager, player, client=None, fixture_origin=None):
         self.manager, self.player = manager, player
         self.client = client or getattr(manager, 'client', None)
@@ -26,9 +27,20 @@ class KodiAdPlayback:
         self.last_sample = None
 
     def enable_mapping(self, mapper):
-        """Task 8 may install a verified epoch mapper returning output seconds or None."""
+        """Install a fixture mapper returning output seconds or None."""
         self.mapper = mapper
         self.mapping_valid = False
+
+    @staticmethod
+    def _is_loopback_fixture(value):
+        try:
+            parts = urlsplit(value)
+            return (parts.scheme == 'http' and parts.hostname == '127.0.0.1' and
+                    parts.port is not None and parts.path == '' and not parts.query and
+                    not parts.fragment and parts.username is None and parts.password is None and
+                    value == 'http://127.0.0.1:%d' % parts.port)
+        except (TypeError, ValueError):
+            return False
 
     def _emit(self, record):
         if self.session is None:
@@ -49,9 +61,14 @@ class KodiAdPlayback:
         self.session_id, self.session = session_id, session
         self.paused = self.seeking = False
         self.mapping_valid = False
-        if self.fixture_origin and getattr(session, 'ad_enabled', True):
+        self.mapper = None
+        if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', True):
             self.worker = BeaconWorker(self.client, session.cancel, self.fixture_origin)
             self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue)
+            # This experimental raw media clock is deliberately limited to the
+            # explicit loopback fixture route. AdTracker's continuity window
+            # rejects ambiguous long stalls; production sources have no mapper.
+            self.enable_mapping(lambda _session, _presentation, seconds: seconds)
 
     def sample(self):
         session = self.session
@@ -114,6 +131,7 @@ class KodiAdPlayback:
         if self.worker is not None:
             self.worker.close()
         self.session_id = self.session = self.tracker = self.worker = None
+        self.mapper = None
         self.mapping_valid = False
         self.last_sample = None
         self.paused = self.seeking = False

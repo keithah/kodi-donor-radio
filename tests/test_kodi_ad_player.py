@@ -1,8 +1,9 @@
-"""Kodi playback evidence stays session scoped and uncalibrated by default."""
+"""Kodi playback evidence stays session scoped and fixture-only."""
 from types import SimpleNamespace
+from itertools import count
 import threading
 
-from ad_models import AdError, Presentation
+from ad_models import AdError, Placement, Presentation, ResolvedAd, TrackingUrl
 from kodi_ad_player import KodiAdPlayback
 
 
@@ -14,16 +15,75 @@ def _session(identity="a"):
                            take_ad_errors=lambda: [])
 
 
-def test_unverified_clock_does_not_send_success_beacons():
+def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkeypatch):
     session = _session()
-    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: 0.1)
-    manager = SimpleNamespace(get=lambda identity: session)
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0, tuple(
+        TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+        for event in ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')),
+        ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    clocks = iter((0.1, 0.3, 0.55, 0.8, 1.0))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    records, queued = [], []
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url):
+            queued.append((placement_id, event, url)); return True
+        def close(self): pass
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=records.append))
     adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(), fixture_origin="http://127.0.0.1:8765")
     adapter.bind(session.id)
-    adapter.sample()
-    assert adapter.mapping_valid is False
-    assert adapter.last_sample.mapped is False
+    ticks = count()
+    monkeypatch.setattr('kodi_ad_player.time.monotonic', lambda: 10.0 + next(ticks) * .2)
+    for _ in range(5):
+        adapter.sample()
+    assert adapter.mapping_valid is True
+    assert adapter.last_sample.position_seconds == 1.0
+    assert [event for _, event, _ in queued] == [
+        'impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete']
+    assert all(url.startswith('http://127.0.0.1:8765/') for _, _, url in queued)
     adapter.on_end("source_end")
+
+
+def test_fixture_clock_jump_does_not_cross_ad_completion(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0,
+                    (TrackingUrl('complete', 'http://127.0.0.1:8765/track/placement/complete'),), ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 192528),), False)
+    clocks = iter((1.37, 1.37, 7.77))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    queued = []
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, *event): queued.append(event); return True
+        def close(self): pass
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(), fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    times = iter((10.0, 15.0, 15.26))
+    monkeypatch.setattr('kodi_ad_player.time.monotonic', lambda: next(times))
+    for _ in range(3):
+        adapter.sample()
+    assert adapter.last_sample.mapped is True
+    assert not any(event[1] == 'complete' for event in queued)
+    adapter.close()
+
+
+def test_non_fixture_session_does_not_install_clock_mapper():
+    session = _session()
+    session.ad_enabled = True
+    adapter = KodiAdPlayback(SimpleNamespace(get=lambda identity: session),
+                             SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .1),
+                             client=SimpleNamespace(), fixture_origin=None)
+    adapter.bind(session.id)
+    assert adapter.mapper is None
+    adapter.close()
 
 
 def test_stale_callbacks_cannot_retire_new_session():

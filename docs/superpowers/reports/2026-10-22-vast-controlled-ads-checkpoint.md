@@ -2,12 +2,14 @@
 
 Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
 
-Latest verification: `python3 -m pytest -q` passed **532 tests in 85.32 seconds**
-at `2490e39`; `git diff --check` passed. Task 8 relay decode checks and identity-
-gated Kodi playback checks passed. The measured Kodi clock nevertheless jumped
-across an ad boundary without a decoded-position anchor, so ad-time mapping and
-success beacons remain disabled. Steward, CodeRabbit, and the implementation PR
-are intentionally pending until the playback acceptance gate can pass.
+Latest verification: `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
+after enabling a loopback-only experimental raw Kodi-clock mapper; compileall and
+`git diff --check` passed. A fresh five-scenario Kodi run sent success beacons for
+advancing fixture playback and suppressed quartiles/completion across the delayed
+stall jump. This test-only mapper is not enabled for ordinary Radio Browser
+sessions. A stable absolute clock anchor and audible output remain unverified, so
+production tracking is not ready. Steward, CodeRabbit, and the implementation PR
+remain pending until the broader acceptance gate passes.
 
 ## Completed and task-reviewed
 
@@ -25,15 +27,18 @@ fixtures, independent relay decoding, Kodi smoke tooling, and measured playback
 reports. Task 7 and Task 8 code reviews approved the implementation after fixes.
 Kodi `getTime` held at 1.370 seconds for over five seconds with caching false, then
 jumped to 7.770 seconds in 260 ms as caching became true. This crossed the preroll
-completion boundary without proof those samples were presented. Pause/seek were
-unsupported on the tested live HLS stream, and audible output was not verified.
-See `docs/testing.md` and the Task 8 verdict in the external test report directory.
+completion boundary without proof those samples were presented. The fixture-only
+mapper uses the raw Kodi clock and the tracker's continuity guard; its end-to-end
+test delivered milestones during normal playback and suppressed milestones across
+the stall. Pause/seek were unsupported on the tested live HLS stream, and audible
+output was not verified. See `docs/testing.md` and the Task 8 verdict in the
+external test report directory.
 
 ## Next steps
 
 1. Find and validate a Kodi playback-position source that anchors decoded samples
    to the composed presentation through live-window movement and discontinuities;
-   retain disabled success tracking until that evidence exists.
+   keep the raw-clock mapper fixture-only until that evidence exists.
 2. Verify audible output and missing/early-end playback in Kodi, and establish a
    supported pause/seek contract for the intended stream type.
 3. Finish packaging/versioning and the official Kodi addon checker. Once playback
