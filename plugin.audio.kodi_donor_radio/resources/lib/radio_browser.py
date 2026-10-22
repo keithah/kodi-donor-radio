@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Bounded Radio Browser reads and deliberately non-retried click counting."""
+import json
+import random
+import socket
+import threading
+import time
+from urllib.parse import quote, urlencode, urlsplit
+
+from http_client import Cancelled, HttpClient, HttpError, USER_AGENT, bounded_lookup, read_bounded
+from models import Station
+
+
+def discover_mirrors(cancel=None, timeout=5):
+    """Bound documented forward and reverse DNS with one discovery deadline."""
+    cancel = cancel if cancel is not None else threading.Event()
+    deadline = time.monotonic() + timeout
+    return bounded_lookup(lambda: _lookup_mirrors(cancel, deadline), timeout, cancel)
+
+
+def _lookup_mirrors(cancel, deadline):
+    names = set()
+    for record in socket.getaddrinfo('all.api.radio-browser.info', 443, type=socket.SOCK_STREAM):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Mirror discovery timed out')
+        try:
+            name = socket.gethostbyaddr(record[4][0])[0].rstrip('.').lower()
+            if name.endswith('.api.radio-browser.info'):
+                names.add('https://' + name)
+        except OSError:
+            continue
+    mirrors = sorted(names)
+    random.shuffle(mirrors)
+    return mirrors
+
+
+class RadioBrowser:
+    def __init__(self, client=None, mirror_lookup=None, cancel=None, connect_timeout=5):
+        self.client = client or HttpClient()
+        self.mirror_lookup = mirror_lookup
+        self.cancel = cancel if cancel is not None else threading.Event()
+        self.connect_timeout = connect_timeout
+        self._mirrors = None
+        self._preferred = None
+
+    def _servers(self):
+        if self._mirrors is None:
+            if self.mirror_lookup is None:
+                mirrors = discover_mirrors(self.cancel, self.connect_timeout)
+            else:
+                mirrors = bounded_lookup(self.mirror_lookup, self.connect_timeout, self.cancel)
+            self._mirrors = list(dict.fromkeys(mirrors))
+        if not self._mirrors:
+            raise HttpError('No Radio Browser mirrors available')
+        return ([self._preferred] if self._preferred else []) + [m for m in self._mirrors if m != self._preferred]
+
+    def _json(self, path, params=None, retry=True):
+        query = '?' + urlencode(params) if params is not None else ''
+        last_error = None
+        for mirror in self._servers():
+            if self.cancel.is_set():
+                raise Cancelled('Request cancelled')
+            try:
+                with self.client.open(mirror.rstrip('/') + path + query,
+                                      {'User-Agent': USER_AGENT}, self.cancel) as response:
+                    if response.status != 200:
+                        raise HttpError('Directory HTTP error')
+                    result = json.loads(read_bounded(response).decode('utf-8'))
+                self._preferred = mirror
+                return result
+            except Cancelled:
+                raise
+            except (OSError, ValueError) as error:
+                last_error = error
+                if not retry:
+                    break
+        raise last_error or HttpError('Directory request failed')
+
+    @staticmethod
+    def _page(offset, limit):
+        if offset < 0 or limit < 1 or limit > 50:
+            raise ValueError('Invalid directory page')
+        return {'offset': offset, 'limit': limit}
+
+    def search(self, name, country, tag, offset, limit=50):
+        params = {'name': name, 'country': country, 'tag': tag}
+        if country:
+            params['countryExact'] = 'true'
+        if tag:
+            params['tagExact'] = 'true'
+        params.update(self._page(offset, limit))
+        params['hidebroken'] = 'true'
+        rows = self._json('/json/stations/search', params)
+        if not isinstance(rows, list):
+            raise ValueError('Invalid station list')
+        stations = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            uuid, title = row.get('stationuuid'), row.get('name')
+            url = row.get('url_resolved') or row.get('url')
+            codec, hls = row.get('codec', ''), row.get('hls', 0)
+            if (not all(isinstance(value, str) and value for value in (uuid, title, url))
+                    or not isinstance(codec, str) or hls not in (0, 1, False, True)):
+                continue
+            try:
+                if urlsplit(url).scheme not in ('http', 'https') or not urlsplit(url).hostname:
+                    continue
+            except ValueError:
+                continue
+            stations.append(Station(uuid, title, url, codec, bool(hls)))
+        return stations
+
+    def _names(self, path, params):
+        rows = self._json(path, params)
+        if not isinstance(rows, list):
+            raise ValueError('Invalid directory list')
+        return [row['name'] for row in rows if isinstance(row, dict) and isinstance(row.get('name'), str)]
+
+    def countries(self):
+        return self._names('/json/countries', {'limit': 300})
+
+    def tags(self, offset, limit=50):
+        return self._names('/json/tags', self._page(offset, limit))
+
+    def click(self, uuid):
+        """One invocation per user selection; uncertain delivery is never retried."""
+        try:
+            self._json('/json/url/' + quote(uuid, safe=''), retry=False)
+        except (OSError, ValueError):
+            pass  # Click counting cannot prevent listening.

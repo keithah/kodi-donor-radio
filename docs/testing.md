@@ -1,0 +1,498 @@
+# Validation record
+
+## Runtime target and requirements
+
+Target: **Kodi 21.3 Omega**, the latest stable release found in the official
+[release directory](https://mirrors.kodi.tv/releases/windows/win64/) on
+2026-10-21. Kodi 22.0 Piers RC1 is a release candidate, not the stable target.
+The minimum declared dependency is **`xbmc.python` 3.0.1**, as supplied by the
+[21.3 source metadata](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.python/addon.xml).
+This is a Kodi addon API version, not an embedded CPython version.
+
+**Tested Kodi runtime: 21.3 Omega**, revision `20251031-a3a448d26b`,
+macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. The host is
+`mbpdev`. A process-local USB restriction was required to complete Kodi startup;
+see the runtime record below. All eight controlled streams produced advancing
+Kodi player time. HLS cue schedules matched exactly. Audible output was not
+independently confirmed; other Kodi platforms remain untested.
+
+The same addon registers the music plugin and service. Official 21.3 sources
+verify the [audio plugin extension](https://github.com/xbmc/xbmc/blob/21.3-Omega/addons/xbmc.python/pluginsource.xsd),
+[service extension and modern settings format](https://github.com/xbmc/xbmc/tree/21.3-Omega/addons/service.xbmc.versioncheck),
+[directory and resolved URL calls](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/ModuleXbmcplugin.h),
+[Monitor abort/settings callbacks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Monitor.h),
+[player callbacks](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Player.h),
+and [`xbmcvfs.translatePath`](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/ModuleXbmcvfs.h).
+Addon metadata continues to identify this as an experimental POC.
+
+## Automated adapter checks
+
+Run `python3 -m pytest tests/test_kodi_runtime.py tests/test_relay.py tests/test_sessions.py -q`
+for Kodi navigation/lifecycle and real loopback relay checks. Run
+`python3 -m pytest -q` for the full suite. No Kodi fake modules ship in the addon.
+
+Checks cover search/country/tag pages, cancellation and localized failures,
+click reporting once per ordinary station selection, opaque loopback playback
+URLs, unavailable service and startup deadline, late create cancellation,
+restricted atomic descriptor publication and stale-instance-safe deletion,
+player callbacks, actual station replacement and stale control token rejection,
+settings restart/recovery, opt-in diagnostics and exact fixture-origin policy.
+Profile modes 0700 and descriptor mode 0600 are checked on POSIX. Windows uses
+its native file locking; Windows ACL behavior has not been runtime-tested.
+
+## Controlled Kodi smoke procedure
+
+Generate authored tone assets and start the developer fixture server as described
+in [fixture instructions](../tools/README-fixtures.md). Configure **Enable test
+mode** and set the exact origin, for example `http://127.0.0.1:8765`, matching the
+server port. Only numeric `127.0.0.1`, HTTP and an explicit port are accepted;
+no path, trailing slash or other local address is allowed. Other loopback ports
+and private network targets remain blocked. Test mode and diagnostic logging
+both default to disabled. Service restart applies setting changes and retires
+old playback sessions.
+
+In Kodi 21.3, install the packaged ZIP, verify service startup,
+browse/search stations, and play MP3, AAC, ICY and each HLS fixture. Confirm heard
+audio, inspect sanitized logs against expected cue schedules, switch stations
+rapidly, stop playback, restart the service, and quit Kodi. Record the exact Kodi
+build, OS, installation outcome, audio behavior and cleanup timings. Verify
+continuous playback when Kodi sends HEAD, Range or repeated GET requests: the
+relay returns metadata-only 200 for HEAD on continuous streams and playlists
+(405 for segment/map HEAD), accepts `Range: bytes=0-` with HTTP 200 for
+continuous streams and rewritten manifests, and returns 416 for other seeks on
+those resources. Segment/map byte-range semantics are preserved. Only one
+continuous consumer is permitted. The adapter disables Kodi content lookup because it performs an extra disposable
+GET that consumes the continuous stream. The control response provides the MIME
+type from the resolved upstream response, never directory codec/HLS hints.
+Kodi playback was verified with this behavior; see the runtime record below.
+
+Cancellation returns control to the Kodi UI promptly and stops a session when a
+late create response arrives. An in-flight service resolver is bounded by its
+network limits; if the control connection times out before returning a session
+ID, an unclaimed session expires after 120 seconds. Kodi player callbacks do
+not identify sessions: tracked media URLs and matching session IDs prevent an
+old stop event from cancelling a newer session. If a startup error arrives before
+Kodi exposes the media URL, idle expiry provides final cleanup.
+
+No cues observed means no cues observed; it does not prove that no advertisements
+exist. Observation time differs from the listener's audible playback time.
+
+## Historical pre-Kodi package and live verification — 2026-10-21
+
+Development host: **macOS 26.6.2, build 25G83**, arm64; Python **3.9.6**.
+No `kodi` command or `/Applications/Kodi.app` is installed. No Kodi installation, Kodi
+audio playback or audible tone test was performed. The separate FFmpeg decode
+smoke below verifies synthetic audio through the relay. The target remains Kodi 21.3;
+**actual tested Kodi/embedded Python version: none**.
+
+Reproduce the source-only distribution from the repository root:
+
+```sh
+python3 -m pytest -q
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+```
+
+The packaging test suite verifies the single addon root, both entry points,
+metadata/API dependency, complete GPL v2 text, localization/artwork, approved
+contents, 0644 regular files and byte-for-byte reproducibility despite source
+mtime/mode changes. Tampered ZIP checks cover missing sources, invalid XML,
+identity/license mismatch, missing localization, invalid artwork, secrets, extra
+roots, traversal, executable members, symlinks and duplicates. No tests, generated
+fixture audio, development tools, caches or virtual environments ship in the ZIP.
+Final full suite: **321 passed in 33.75s** (Python 3.9.6; final fix wave).
+Final package creation and
+`check_package.py` both exited 0. Artifact:
+`dist/plugin.audio.kodi_donor_radio-0.1.0.zip`; SHA-256:
+`df35c648e1fe3bd478213ab91c80d640699869b1e71a6ef846551284070bf182`.
+
+The [official Kodi addon checker](https://github.com/xbmc/addon-check) documents
+installation with `pip install kodi-addon-checker` and invocation against an addon
+directory. Its current CLI also requires the target branch. Installed locally in
+the ignored `.venv/checker/` directory; no application or checker was installed
+globally. Exact version command and package-validation invocation:
+
+```sh
+.venv/checker/bin/kodi-addon-checker --version
+# kodi-addon-checker 0.0.36
+.venv/checker/bin/kodi-addon-checker --branch omega dist/checker/plugin.audio.kodi_donor_radio
+```
+
+`dist/checker/plugin.audio.kodi_donor_radio` is extracted from the final ZIP, not
+a different source tree. The first run exited 0 and reported no problems and no
+warnings; icon 512×512, JPEG fanart 1280×720 and PO validation passed. The final
+run after the final protocol/cue compatibility fixes also completed successfully
+with
+`We found no problems and no warnings, please enjoy your day.` The host emits a
+separate urllib3 warning because system Python uses LibreSSL 2.8.3; this is a
+checker-development-environment warning, not an addon runtime result. The checker
+is static validation and cannot establish Kodi playback compatibility.
+
+### Final protocol regression and decoder verification
+
+Initial real FFmpeg requests failed all three fixtures with HTTP 416 because its
+normal initial `Range: bytes=0-` probe was rejected. The relay now ignores that
+full-body probe for continuous sources and rewritten manifests, returning 200.
+It reuses the original continuous probe connection. Unsupported seeks remain
+416; segment/map ranges still pass upstream and retain 206/416 validation.
+
+The next decode exposed FFmpeg 9.0.1's `allowed_segment_extensions` rejection of
+extensionless opaque HLS routes. Known playlists now use an opaque ID plus
+`.m3u8`. Media routes preserve only an allowlisted path extension (`ts`, `aac`,
+`mp3`, `mp4`, `m4s`, `m4a`, `ac3`, `ec3`); no upstream names, query values or URLs
+are embedded. Exact registered route matching rejects modified/missing suffixes.
+Extensionless and unknown origin segment extensions remain opaque; strict
+clients can reject these, and no codec/extension guess is made before fetching.
+The Kodi boundary recognizes the same safe suffixes for resolution and cleanup.
+
+Reproduce after audio generation:
+
+```sh
+python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
+```
+
+This starts its own exact-origin fixture and relay, decodes two seconds to
+mono 8 kHz 16-bit PCM, checks nonzero samples, and shuts both servers down.
+On 2026-10-21, FFmpeg **9.0.1** returned **exit 0**, **32,000 PCM bytes** and
+**nonzero audio** for each of `/continuous.mp3`, `/icy.mp3` and
+`/hls/normal/index.m3u8`, with empty error output. It uses normal FFmpeg extension
+policy with no override. This verifies decoding, not audible listening or Kodi.
+
+Cue expiry now reports `break_unresolved(expected_duration_elapsed)` once and
+retains association with the original break. A later same-epoch explicit IN
+emits one `break_end` with that ID. Supersession, epoch and timeline gaps retire
+association. Discontinuities retire generic cues unless an explicit CONT/IN at
+the next boundary proves continuation; DATERANGE IDs survive discontinuities. HTTP parser/protocol exceptions become sanitized
+`HttpError` values at request/read boundaries; discovery can fail over, while
+uncertain delivery and click counting remain single-attempt operations.
+
+PROGRAM-DATE-TIME and DATERANGE accept valid decimal fraction widths on Python
+3.9.6 by padding/truncating only the parsing copy to six microsecond digits.
+Original manifest and event evidence remain unchanged. Invalid dates, empty or
+malformed fractions and out-of-range offsets remain rejected. Python 3.8 has
+not been directly exercised.
+
+### Live Radio Browser sample
+
+Command: `python3 tools/smoke_radio_browser.py --limit 3`. Directory discovery and
+each station have a 15-second deadline, a maximum 1 MiB finite-body cap and the
+production public-address/redirect policy. No `/json/url/` click report is called.
+Samples do not decode audio, report tracking or infer cue/advertisement coverage.
+Only UUIDs, schemes, classifications and byte counts are recorded; upstream URLs
+and directory names are omitted.
+
+Initial run **2026-10-21 17:55:44 UTC**: discovery succeeded; two continuous streams
+returned 512 bytes each, while the HLS sample produced a parser failure. Bounded
+follow-up inspection identified a valid ISO 8601 basic timezone in
+`EXT-X-PROGRAM-DATE-TIME`, for example `2026-10-21T17:58:58+0000`. The playlist master
+parsed; its child media playlist used supported tags. Python 3.9's
+`datetime.fromisoformat` rejected `+0000`. This was a supported-timestamp
+compatibility defect, not a reachability failure or intentionally unsupported HLS
+feature. The fix normalizes basic `+HHMM`/`-HHMM` offsets to extended form for
+parsing only, retaining original playlist/evidence text. DATERANGE start/end
+parsing shares that helper; invalid hour/minute values remain rejected.
+
+Final run **2026-10-21 18:00:27 UTC**, exit **0**, discovery succeeded:
+
+| Station UUID | Input scheme | Resolved protocol | Outcome | Bytes sampled |
+| --- | --- | --- | --- | ---: |
+| `c685c086-b716-4edd-b313-d4a7baf1084c` | HTTPS | HLS | reachable | 4,096 |
+| `db93a00f-9191-46ab-9e87-ec9b373b3eee` | HTTP | continuous | reachable | 512 |
+| `ffc0d701-f43b-4232-8be6-f7ff72add8ef` | HTTPS | continuous | reachable | 512 |
+
+Final sample: **0 reachability failures, 0 parser failures, 0 unsupported/policy
+rejections**. These three directory results are not a representative protocol,
+codec, geographic, uptime or advertisement sample. “Reachable” means bytes were
+received and sampled HLS syntax parsed; it does not mean heard/decoded playback.
+No cues observed means no cues observed, never proof that no ads exist.
+
+### Kodi acceptance status
+
+| Required real Kodi check | Result on this host |
+| --- | --- |
+| Install final ZIP and start embedded service | Pending — Kodi unavailable |
+| Search/browse and real-station playback | Pending — Kodi unavailable |
+| Hear MP3/AAC tone and controlled ICY metadata/audio | Pending — Kodi unavailable |
+| Hear HLS tone and match every fixture window/event timeline | Pending — Kodi unavailable |
+| Stop, rapid station switch, settings restart, quit and resource cleanup | Pending — Kodi unavailable |
+| Verify probing/HEAD/Range/reopen, buffering and audible boundaries | Pending — Kodi unavailable |
+
+A future tester must record exact Kodi build, embedded Python version, OS, heard
+audio and timings here. Pure-Python tests and the static checker do not replace
+these acceptance checks. Generate fixture audio with FFmpeg into ignored
+`tests/generated-audio/`, enable the exact local fixture origin in test mode, and
+restart the fixture server between scenarios. Expected events are available at
+`/expected/{scenario}.json`; compare ordered event kind/classification for all
+three windows rather than assuming a skipped window was observed.
+
+## Review record
+
+All eight task reviews passed after their fixes. CodeRabbit completed a branch review with two findings (HTTP exception normalization and fractional timestamp compatibility); both were reproduced and fixed. The independent whole-branch review additionally identified initial range-request compatibility and late cue-in handling. A real FFmpeg check then exposed extensionless HLS route rejection. The final scoped review approved all fixes within POC scope. No review claims actual Kodi playback verification.
+
+## Controller verification after final review
+
+`python3 -m pytest -q`: 321 passed in 33.71 seconds. This run emitted a transient local test-server exception banner without a retained traceback, so the output was not pristine; no test failed. `python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip` passed. Independent `python3 tools/smoke_relay_ffmpeg.py` decoded MP3, ICY and HLS, each with exit 0, 32,000 nonzero PCM bytes and empty stderr. The package SHA-256 remains `df35c648e1fe3bd478213ab91c80d640699869b1e71a6ef846551284070bf182`.
+
+Targeted review found an intentionally disconnected request in `tests/test_transport.py::test_failure_during_request_transmission_never_tries_next_address` whose standard HTTP-server handler can print a thread exception on write. This plausibly explains the banner but does not establish its exact cause. Review approval is unchanged; no production defect was established by the banner alone.
+
+## Pre-PR review corrections
+
+Verified and fixed the URL-policy bypass through IPv4-embedded IPv6: standard
+NAT64 prefixes and mapped IPv4 remain blocked; 6to4 and both Teredo endpoints
+are checked for non-global IPv4 addresses. Deterministic resolver regressions
+also preserve public native IPv6, public 6to4, and the exact fixture-origin
+exception. Radio Browser click reporting now runs once after successful Kodi
+resolution, outside playback failure cleanup; reporting errors cannot stop or
+revoke the resolved session. Existing startup/create cancellation tests still
+pass, and ordering/failure-isolation regressions cover the new boundary. Fixture
+documentation now describes the accepted `Range: bytes=0-` full-body probe.
+
+Validation: targeted transport/runtime suite **82 passed in 9.74s**; full suite
+**331 passed in 33.76s** on Python 3.9.6. Both runs emitted the previously noted
+local HTTP test-server exception banner; no tests failed. Package creation and
+`check_package.py` exited 0. Rebuilt ZIP SHA-256:
+`8d46bab589c0127fdea6f3bd8294e546bb4ae19ec660cfcbebae70f6d7ed0d0b`.
+The official `kodi-addon-checker --branch omega` check on that ZIP extracted to
+`dist/checker-prepr/` exited 0 with no addon problems or warnings; the separate
+host LibreSSL warning remains. Kodi playback acceptance remains pending.
+
+### HTTPS Host header follow-up
+
+The next CodeRabbit pass identified HTTPConnection's default port of 80 being
+used for manually wrapped HTTPS sockets. Wire-header regressions reproduced
+unwanted `:443` on standard HTTPS origins and missing `:80` on nonstandard
+HTTPS port 80. The connection now uses the URL scheme's default port when
+serializing Host. Nine deterministic cases cover implicit/explicit defaults,
+nondefault ports, IPv6 brackets, original TLS hostname, and rejection of a
+caller-supplied Host override. Four cases failed before the fix; the transport
+suite then passed **49 tests in 12.73s**, with the existing test-handler banner.
+Full suite: **339 passed in 37.64s**, with that same banner and no failures.
+Package creation, `check_package.py`, and official Omega addon checker on the
+fresh extraction in `dist/checker-prepr-host/` all exited 0. The addon checker
+reported no problems or warnings; its separate host LibreSSL warning remains.
+Latest ZIP SHA-256:
+`c4d49902cea95b27e3237a51c069c32dc1456b658b499313b68223e93cf94d76`.
+
+### Background failure and legacy ICY follow-up
+
+The next review reproduced two gaps. Background service failures used a modal
+OK dialog, delaying its abort/settings wait loop; this path now emits a localized
+error notification. Two regression cases forbid modal invocation and exercise
+abort and corrected-setting recovery with descriptor cleanup. Other interactive
+plugin dialogs retain their behavior.
+
+Legacy SHOUTcast `ICY 200 OK` responses failed standard HTTP parsing before
+station resolution despite the existing ICY metadata decoder. A bounded status
+adapter now normalizes only the leading `ICY ` token to `HTTP/1.0 ` and delegates
+status validation to the stdlib. Headers and body retain their original buffered
+stream and stdlib behavior. Actual socket responses verify continuous station
+resolution, unchanged audio and metadata, ordinary HTTP/1.0 and HTTP/1.1, malformed
+protocol/status rejection, and the status-line size limit. The legacy success
+case failed before the fix, while ordinary HTTP and rejection cases passed.
+
+Combined targeted transport/ICY/Kodi runtime validation: **115 passed in 18.63s**,
+with the previously documented local HTTP-handler banner and no failures.
+Full suite: **349 passed in 42.65s**, with the same banner and no failures.
+Package creation, `check_package.py`, and the official Omega addon checker on
+`dist/checker-prepr-icy/` all exited 0. The checker reported no addon problems or
+warnings, alongside the known host LibreSSL warning. Latest ZIP SHA-256:
+`1b2b3635b800e16363b74c1d960c18a75f8743638eeaf602daeddf9e403404a7`.
+Rerunning `python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg`
+after the transport change decoded continuous MP3, ICY, and HLS successfully:
+each returned exit 0, 32,000 nonzero PCM bytes, and empty stderr. This remains
+FFmpeg decoder evidence, not heard audio or Kodi runtime acceptance.
+
+### Unicode request targets and continuation evidence follow-up
+
+A subsequent review reproduced non-ASCII path/query failure at HTTP request-line
+encoding. The transport now UTF-8 percent-encodes only non-ASCII characters,
+preserving existing ASCII request targets, reserved characters, signature values,
+and percent-escape spelling. Actual socket tests cover Unicode paths/queries and
+a parsed relative HLS segment URI; three cases failed before the fix.
+
+Increasing continuation ElapsedTime also emitted redundant lifecycle updates.
+`cue_observed` still records each distinct continuation, while `break_update`
+now reflects supplied duration changes or start/end date changes. Record evidence
+and inferred origin timing refresh even without a lifecycle update. Regressions
+cover advancing windows after OUT and mid-break entry, deduplication, expected
+expiry, later duration arrival, and changed dates. Three regression cases failed
+before the fix; existing duration addition/correction checks remain green.
+Combined cue/transport suite: **117 passed in 19.73s**, clean output.
+Full suite: **357 passed in 44.45s**, clean output. Refreshed FFmpeg smoke decoded
+MP3, ICY and HLS with exit 0, 32,000 nonzero PCM bytes and empty stderr for each.
+Package creation and `check_package.py` exited 0. Latest ZIP SHA-256:
+`414a32316d486de664aa2156c54323fcaf794139c091406eef493ea455f47ef9`.
+Official Omega checker on the fresh extraction in `dist/checker-prepr-unicode/`
+exited 0 with no addon problems or warnings; its separate host LibreSSL warning
+remains. Actual Kodi acceptance remains pending.
+
+### Concurrent station selection follow-up
+
+Review reproduced a second selection waiting behind an uncancelled pending
+resolver. Each create now registers its own cancellation/ownership token before
+waiting for the serialization lock and cancels the preceding selection. Queued
+stale requests cannot enter resolution or overwrite the latest pending token;
+both pre-resolution and publication checks enforce ownership. Late responses
+from cancelled requests are closed, and manager close also cancels the latest
+queued selection. Four deterministic two-/three-selection regressions reproduced
+the original cancellation failure and now cover newest-selection publication,
+stale queue rejection, late probe cleanup, and close during queued resolution.
+The session/relay/Kodi runtime suites passed **81 tests in 17.08s**.
+Full suite: **361 passed in 44.37s**, clean output. Package creation and
+`check_package.py` exited 0. Latest ZIP SHA-256:
+`bb7d0fc37d7b20e9a511d2ac8d551f28533fc724c734458247157371701bc01c`.
+Official Omega checker on `dist/checker-prepr-selection/`, extracted from that
+ZIP, exited 0 with no addon problems or warnings; the known separate host
+LibreSSL warning remains. Actual Kodi playback acceptance remains pending.
+
+### HLS attribute parsing and safe HEAD follow-up
+
+The next review reproduced quadratic attribute-name suffix copying and false
+URI detections inside vendor text/quoted base64. Attribute matching now advances
+by absolute offsets without repeatedly copying the remaining line. A counted
+string regression verifies 2,000 parsed attributes and bounded copied characters
+without a timing threshold. The URI guard skips quoted values while checking
+assignment keys, retaining actual URI/URL-key, absolute URL and variable guards.
+Four benign text/payload cases and the copy-budget test failed before fixes.
+
+The HEAD finding was checked against official
+[Kodi 21.3 CurlFile.cpp](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/filesystem/CurlFile.cpp#L1554-L1572):
+`Stat` falls back from failed HEAD to a normal transfer and aborts after receiving
+data. The relay now serves metadata-only HEAD 200 for registered continuous
+streams and playlists, using retained upstream headers or the known playlist
+MIME type. It does not claim/acquire playback, fetch upstream bytes, or observe
+cues. Range is ignored for HEAD; no transformed Content-Length is invented.
+Segment/map HEAD remains 405 without an upstream request because their metadata
+is not retained. Exact opaque route validation and GET range semantics remain.
+Five HEAD regressions failed before this fix; tests now verify HEAD-then-GET
+returns intact audio, preserves the sole probe, and does not emit premature
+metadata/cue events. Kodi runtime acceptance still requires a real Kodi test.
+
+Combined relay/HLS suite: **138 passed in 18.56s**, clean output.
+Full suite: **377 passed in 46.88s**, with the previously documented local HTTP
+handler exception banner and no failures. FFmpeg smoke again decoded MP3, ICY
+and HLS with exit 0, 32,000 nonzero PCM bytes and empty stderr for each. Package
+creation, `check_package.py`, and the official Omega checker on the fresh
+`dist/checker-prepr-head/` extraction exited 0. The official checker reported no
+addon problems or warnings; its separate host LibreSSL warning remains.
+Latest ZIP SHA-256:
+`782ca281487adac19becfcae1f5963a91cc7fda51e87fc5288a47d424781d983`.
+
+### Cue identity across discontinuities
+
+The two overlapping review findings were verified against RFC 8216
+[§4.3.2.7 and §4.3.2.7.1](https://www.rfc-editor.org/rfc/rfc8216.html#section-4.3.2.7)
+and the repository media fixture. DATERANGE identity now spans discontinuities
+within one rendition/epoch. The approved generic-cue refinement preserves an
+active association only at an explicit consecutive CONT/IN boundary; the full
+policy and unchanged terminal cases are in [implementation decisions](implementation-decisions.md).
+Crossing does not imply a new start or reliable expiry origin. CONT/IN observation
+deduplication uses sequence identity so closing a linked break cannot produce a
+duplicate observation when the window repeats.
+
+Eight initial lifecycle regressions failed before the fix. A strengthened
+repeated-window test separately reproduced and fixed duplicate CONT evidence.
+Coverage includes combined and rolling windows, OUT before the first ad segment,
+same-ID DATERANGE end matching, reused IDs/new epochs, malformed/uncued/skipped
+boundaries, stale cues, unknown timing, and the existing media fixture. The cue
+suite passed **69 tests in 0.32s**; the earlier combined cue/relay/fixture run
+passed **105 tests in 19.08s** before the final deduplication strengthening.
+The current Kodi smoke instructions now describe the available ZIP and correct
+metadata-only HEAD behavior.
+Final full suite: **391 passed in 46.72s**, with the previously documented local
+HTTP-handler banner and no failures. Package creation and `check_package.py`
+exited 0. Latest ZIP SHA-256:
+`8ff997287825f02db1c360012cbc3a7b9cafabfccd4a1e8dd60e4de1c26d65c7`.
+FFmpeg smoke during this fix wave decoded MP3, ICY and HLS with exit 0, 32,000
+nonzero PCM bytes and empty stderr each; that run preceded the final event-only
+deduplication adjustment. Kodi runtime acceptance remains pending.
+Official Omega checker on the final ZIP extraction in
+`dist/checker-prepr-discontinuity-final/` exited 0 with no addon problems or
+warnings; the separate host LibreSSL warning remains.
+
+### Exact directory categories
+
+The final full-branch review identified substring matching for chosen country
+and tag categories. The [official advanced-search API](https://docs.radio-browser.info/#advanced-station-search)
+defaults `countryExact` and `tagExact` to false. Search now supplies each exact
+flag only when its category is nonempty. Free-text name matching, offsets,
+limits, broken-station filtering and failover remain unchanged. Four query
+regressions failed before the fix; directory/Kodi runtime tests passed
+**66 tests in 1.59s**. No transport or decoder behavior changed in this correction.
+Full suite: **395 passed in 46.83s**, clean output. Package creation,
+`check_package.py`, and the official Omega checker on the fresh
+`dist/checker-prepr-categories/` extraction exited 0. The checker reported no
+addon problems or warnings, alongside the known separate host LibreSSL warning.
+Latest ZIP SHA-256:
+`f39d96a58b0a89c8b50ba7079be1f220cd881ea763fa9744554691007305d12c`.
+
+## Actual Kodi runtime — 2026-10-21
+
+Installed the official Kodi 21.3 ARM64 application via Homebrew; Developer ID
+signature and notarization assessment passed. Normal startup repeatedly hung
+in macOS `IOServiceOpen` during Kodi USB interface enumeration. A bounded
+standalone diagnostic identified the RTL9210B-CG storage interface: Ethernet
+interfaces returned successfully, while its interface-open call timed out.
+Reading the interface class from IORegistry completed for all six interfaces.
+
+For testing, the unmodified Kodi binary was launched using a process-local
+sandbox profile denying `IOUSBDeviceUserClientV2` and
+`IOUSBInterfaceUserClientV3` opens. This disables direct Kodi USB peripheral
+discovery for that launch; USB networking remains connected. No system security
+setting or app signature changed. A separate proposed Kodi source patch replaces
+the blocking interface-class query with a registry read. Its small harness passed
+12 property cases and six live interfaces, but it has not been built into Kodi
+or submitted upstream. This source patch is separate from the radio addon.
+
+The addon ZIP was extracted into the Kodi profile and enabled through Kodi's
+loopback JSON-RPC API. The ZIP-install dialog was not exercised. Test mode and
+diagnostics were enabled with exact origin `http://127.0.0.1:8765`. Playback used
+the plugin URLs returned by Kodi's fixture directory, exercising `setResolvedUrl`
+and the embedded service rather than opening fixture-origin URLs directly.
+
+Initial continuous playback failed with HTTP 409: Kodi's content lookup performs
+a disposable GET before the decoder GET. The adapter now disables that lookup
+and uses MIME metadata returned by the service from its resolved response. A
+second runtime failure delayed service availability: a Python stack dump located
+it in `HTTPServer.server_bind` → `socket.getfqdn('127.0.0.1')`. Numeric loopback
+binding now avoids this unnecessary reverse-DNS lookup.
+
+| Runtime check | Observed result |
+| --- | --- |
+| MP3, AAC, ICY | Active Kodi player with advancing time; ICY metadata logged |
+| HLS OUT/IN | cue_observed, break_start, cue_observed, break_end, all signaled |
+| HLS mid-break entry | in_progress observation then signaled observation/end; no start |
+| HLS missing end | signaled observation/start then break_unresolved |
+| HLS no cues | No cue records |
+| HLS malformed cue | One invalid cue observation |
+| Directory | Country/tag pages and next pages, BBC search returned results |
+| Live station | First BBC Radio 1 directory result played with advancing time |
+| Stop | Player.Stop ended each tested playback |
+
+All five HLS schedules were compared in order with the fixture server's expected
+JSON, filtering by station and latest session. No-cue success is absence of
+observed cues, not proof of absent advertisements. Initial directory requests
+returned Retry after timeouts; subsequent requests succeeded without a directory
+code change. The reason for those transient lookup delays was not established.
+
+Raw runtime evidence and the USB diagnostic artifacts are kept outside this
+checkout. Player clocks and decoder logs establish playback activity, not heard
+audio. VAST insertion, ad replacement, audible-output capture, other platforms,
+and full Kodi validation of the USB source patch remain outside this result.
+
+After the DNS-free bind fix, a fresh Kodi launch published the service descriptor
+in **0.787 seconds** (the instrumented previous launch spent **35.005 seconds**
+in server startup). Authenticated service health and a new MP3/AAC/ICY switching
+sequence passed. Switching every four seconds retained active playback and
+retired each previous media URL with HTTP 404. Player.Stop left no active player.
+Application.Quit completed in **2.023 seconds** and removed the service descriptor.
+The temporary startup instrumentation was replaced with the packaged entry point.
+The fixture server and Kodi were stopped after testing. Settings-dialog restart
+behavior and audible output remain unverified.
+
+Final full suite: **399 passed in 47.92s**. The continuous-playback fix's focused
+suite passed 79 tests; the no-DNS bind regression first failed on an unexpected
+`socket.getfqdn` call, then the relay suite passed 38 tests including a real
+loopback health request. Package creation and `check_package.py` passed.
+ZIP SHA-256:
+`9db622bc949ff42df6a28b2e6d526dcf329d0d3db036ff3c6b035d1e336964b2`.

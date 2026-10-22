@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="plugin.audio.kodi_donor_radio" name="Kodi Donor Radio" version="0.1.0" provider-name="Kodi Donor Radio contributors">
+  <requires>
+    <!-- Kodi 21.3 Omega supplies xbmc.python 3.0.1; macOS runtime validation is recorded in docs/testing.md. -->
+    <import addon="xbmc.python" version="3.0.1"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="default.py">
+    <provides>audio</provides>
+  </extension>
+  <extension point="xbmc.service" library="service.py"/>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Discover radio and observe stream cues locally.</summary>
+    <description lang="en_GB">Browse Radio Browser and listen through an embedded relay. Optional local diagnostics record explicit upstream cues, which do not prove that an advertisement aired. Experimental POC targeting Kodi 21.3.</description>
+    <platform>all</platform>
+    <license>GPL-2.0-or-later</license>
+    <assets>
+      <icon>resources/icon.png</icon>
+      <fanart>resources/fanart.jpg</fanart>
+    </assets>
+  </extension>
+</addon>

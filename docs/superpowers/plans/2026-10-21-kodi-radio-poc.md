@@ -1,6 +1,6 @@
 # Kodi Radio POC Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Deliver an installable Kodi radio addon that discovers stations, relays supported playback through embedded Python, and accurately logs stream cues, establishing the foundation for monetization.
 
@@ -60,11 +60,11 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Produce frozen `Station(uuid, name, url, codec, hls)`; `Event(kind, session_id, station_uuid, protocol, source, evidence, observed_at, monotonic_at, details)` with schema version 1 on serialization; `EventSink.emit(event: Event) -> None`; `sanitize(value: object) -> object`. Details holds optional cue ID, duration, media sequence, discontinuity/rendition context, media position, classification and reason. Missing fields are omitted. Clock callables are injected into detectors.
 
-- [ ] Write `test_unknown_timing_is_omitted`, asserting no `media_position` or `duration` is invented; `test_log_redacts_nested_credentials`, asserting userinfo, query values, Authorization/cookie values and URL fragments never appear in serialized nested metadata; and `test_rotation_is_bounded`, asserting no more than three log files and capped evidence.
-- [ ] Run `python3 -m pytest tests/test_events.py -q`; confirm failure due to missing project modules, not broken test infrastructure.
-- [ ] Implement records and `JsonEventSink(profile: Path, enabled: bool, debug_log: Callable[[str], None])`. Use whitelisted structured fields; replace unstructured URLs and credential-bearing fields before truncation. Disabled sinks perform no filesystem writes. Add test/development configuration and ignore generated artifacts.
-- [ ] Run `python3 -m pytest tests/test_events.py -q`; require all tests pass.
-- [ ] Commit as `feat: add normalized stream events and bounded diagnostics`.
+- [x] Write `test_unknown_timing_is_omitted`, asserting no `media_position` or `duration` is invented; `test_log_redacts_nested_credentials`, asserting userinfo, query values, Authorization/cookie values and URL fragments never appear in serialized nested metadata; and `test_rotation_is_bounded`, asserting no more than three log files and capped evidence.
+- [x] Run `python3 -m pytest tests/test_events.py -q`; confirm failure due to missing project modules, not broken test infrastructure.
+- [x] Implement records and `JsonEventSink(profile: Path, enabled: bool, debug_log: Callable[[str], None])`. Use whitelisted structured fields; replace unstructured URLs and credential-bearing fields before truncation. Disabled sinks perform no filesystem writes. Add test/development configuration and ignore generated artifacts.
+- [x] Run `python3 -m pytest tests/test_events.py -q`; require all tests pass.
+- [x] Commit as `feat: add normalized stream events and bounded diagnostics`.
 
 ## Task 2: Bounded transport and Radio Browser discovery
 
@@ -72,12 +72,12 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Produce `HttpClient.open(url: str, headers: dict, cancel: threading.Event) -> Response`; Response is a context manager exposing `status`, `headers`, `final_url`, `read(size: int) -> bytes`, and `close()`. `UrlPolicy(test_origins: frozenset[str])` checks every destination. `RadioBrowser.search(name: str, country: str, tag: str, offset: int, limit: int = 50) -> list[Station]`, `.countries() -> list[str]`, `.tags(offset: int, limit: int = 50) -> list[str]`, `.click(uuid: str) -> None`. `resolve_station(url: str, client: HttpClient, cancel: Event) -> ResolvedSource` returns final URL and protocol; any probed continuous response is transferred to the session, not discarded and reopened.
 
-- [ ] Write transport tests asserting file URLs, private IPv4/IPv6 and redirected private targets are rejected; test a resolver changing from public to private between validation and connection, asserting the connected address is the validated address. Test TLS hostname verification remains tied to the original hostname, redirect credential stripping, timeout, oversized response and cancellation.
-- [ ] Write directory tests asserting mirror failover, descriptive `kodi-donor-radio/0.1.0` User-Agent, `limit=50`, increasing offsets, Unicode search encoding, empty results, malformed result isolation, and click counted only once per selection without automatic retries after uncertain delivery. Test M3U/PLS recursion limit, loops and MIME/content sniffing.
-- [ ] Run `python3 -m pytest tests/test_transport.py tests/test_radio_browser.py -q`; confirm expected failures.
-- [ ] Implement stdlib HTTP transport with validated pinned socket destinations, correct HTTPS SNI/hostname verification and deterministic cleanup. Discover Radio Browser mirrors through its documented DNS discovery; verify the current documented endpoints during implementation. Use injected mirror lookup and transport in unit tests. Resolve supported station indirection without downloading entire media bodies.
-- [ ] Run the two test files; require all pass, including an assertion that a continuous probe's response is reused.
-- [ ] Commit as `feat: add bounded station discovery and stream resolution`.
+- [x] Write transport tests asserting file URLs, private IPv4/IPv6 and redirected private targets are rejected; test a resolver changing from public to private between validation and connection, asserting the connected address is the validated address. Test TLS hostname verification remains tied to the original hostname, redirect credential stripping, timeout, oversized response and cancellation.
+- [x] Write directory tests asserting mirror failover, descriptive `kodi-donor-radio/0.1.0` User-Agent, `limit=50`, increasing offsets, Unicode search encoding, empty results, malformed result isolation, and click counted only once per selection without automatic retries after uncertain delivery. Test M3U/PLS recursion limit, loops and MIME/content sniffing.
+- [x] Run `python3 -m pytest tests/test_transport.py tests/test_radio_browser.py -q`; confirm expected failures.
+- [x] Implement stdlib HTTP transport with validated pinned socket destinations, correct HTTPS SNI/hostname verification and deterministic cleanup. Discover Radio Browser mirrors through its documented DNS discovery; verify the current documented endpoints during implementation. Use injected mirror lookup and transport in unit tests. Resolve supported station indirection without downloading entire media bodies.
+- [x] Run the two test files; require all pass, including an assertion that a continuous probe's response is reused.
+- [x] Commit as `feat: add bounded station discovery and stream resolution`.
 
 ## Task 3: HLS parsing, URI mapping and timeline observations
 
@@ -85,12 +85,12 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Consume Response and limits from Task 2. Produce `parse_playlist(text: str, final_url: str) -> Playlist` and `rewrite_playlist(playlist: Playlist, register: Callable[[str], str]) -> str`. Playlist contains source lines, URI references, media/discontinuity sequence, target duration, segment durations, and `CueObservation(source, attributes, sequence, discontinuity, media_position)` records. Media positions are relative only when derivable; do not manufacture absolute timestamps.
 
-- [ ] Write `test_rewrites_every_supported_uri`, asserting segment lines and URI attributes in MEDIA, MAP, and I-FRAME-STREAM-INF resolve against the redirected final URL and map to opaque routes. Include quoted commas, escaped values, root-relative URLs and signed relative URLs.
-- [ ] Write tests preserving byte-range tags, program-date-time, discontinuities and unchanged non-URI lines. Reject encryption, LL-HLS parts/preload/server-control, malformed playlists, oversized input and unsupported URI-bearing tags rather than leaking direct upstream references. Assert simultaneous renditions remain distinct.
-- [ ] Run `python3 -m pytest tests/test_hls.py -q`; confirm failures.
-- [ ] Implement parsers with explicit supported tags and attribute grammar. Return cue observations without interpreting advertisements. Preserve segment sequence/timeline context for the state machine and media bytes for the relay.
-- [ ] Run `python3 -m pytest tests/test_hls.py -q`; require all pass.
-- [ ] Commit as `feat: parse and rewrite observable HLS playlists`.
+- [x] Write `test_rewrites_every_supported_uri`, asserting segment lines and URI attributes in MEDIA, MAP, and I-FRAME-STREAM-INF resolve against the redirected final URL and map to opaque routes. Include quoted commas, escaped values, root-relative URLs and signed relative URLs.
+- [x] Write tests preserving byte-range tags, program-date-time, discontinuities and unchanged non-URI lines. Reject encryption, LL-HLS parts/preload/server-control, malformed playlists, oversized input and unsupported URI-bearing tags rather than leaking direct upstream references. Assert simultaneous renditions remain distinct.
+- [x] Run `python3 -m pytest tests/test_hls.py -q`; confirm failures.
+- [x] Implement parsers with explicit supported tags and attribute grammar. Return cue observations without interpreting advertisements. Preserve segment sequence/timeline context for the state machine and media bytes for the relay.
+- [x] Run `python3 -m pytest tests/test_hls.py -q`; require all pass.
+- [x] Commit as `feat: parse and rewrite observable HLS playlists`.
 
 ## Task 4: Cue lifecycle and deduplication
 
@@ -98,12 +98,12 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Consume Event, EventSink and CueObservation. Produce `CueTracker(session_id: str, station_uuid: str, sink: EventSink, utc_now: Callable, monotonic_now: Callable)`, `.observe(playlist: Playlist, rendition_id: str, epoch: int) -> None`, and `.finish(reason: str) -> None`. Trackers serialize state updates under a lock. Rendition identity is included in event details; cross-rendition observations are not falsely merged into one inferred break.
 
-- [ ] Write tests for cue-out/in and SCTE35-OUT/IN DATERANGE updates, asserting one start/end per rendition and epoch despite repeated windows, updated attributes emit only meaningful updates, and malformed encoded payloads produce invalid cue observations rather than confirmed starts. SCTE35-CMD alone remains opaque evidence unless decoded semantics are implemented and tested.
-- [ ] Write `test_join_mid_break_does_not_invent_start`, `test_missing_end_is_unresolved`, `test_reused_id_after_epoch_is_distinct` and negative tests for generic date ranges, title changes and bare discontinuities. Assert expiry is unresolved with a reason, never an explicit end. A live playlist containing an old cue does not imply the listener heard that boundary.
-- [ ] Run `python3 -m pytest tests/test_cues.py -q`; confirm failures.
-- [ ] Implement bounded deduplication using rendition, epoch, stable source identity and normalized payload. Track contiguous media positions across overlapping windows; mark timing unknown across gaps. Detect starts only for explicit supported cue semantics. A repeated discontinuity in overlapping playlists must not create a fresh epoch each fetch.
-- [ ] Run cue and HLS tests; require all pass and verify all six event kinds have exercised semantics.
-- [ ] Commit as `feat: track explicit break cues without duplicate events`.
+- [x] Write tests for cue-out/in and SCTE35-OUT/IN DATERANGE updates, asserting one start/end per rendition and epoch despite repeated windows, updated attributes emit only meaningful updates, and malformed encoded payloads produce invalid cue observations rather than confirmed starts. SCTE35-CMD alone remains opaque evidence unless decoded semantics are implemented and tested.
+- [x] Write `test_join_mid_break_does_not_invent_start`, `test_missing_end_is_unresolved`, `test_reused_id_after_epoch_is_distinct` and negative tests for generic date ranges, title changes and bare discontinuities. Assert expiry is unresolved with a reason, never an explicit end. A live playlist containing an old cue does not imply the listener heard that boundary.
+- [x] Run `python3 -m pytest tests/test_cues.py -q`; confirm failures.
+- [x] Implement bounded deduplication using rendition, epoch, stable source identity and normalized payload. Track contiguous media positions across overlapping windows; mark timing unknown across gaps. Detect starts only for explicit supported cue semantics. A repeated discontinuity in overlapping playlists must not create a fresh epoch each fetch.
+- [x] Run cue and HLS tests; require all pass and verify all six event kinds have exercised semantics.
+- [x] Commit as `feat: track explicit break cues without duplicate events`.
 
 ## Task 5: Continuous-stream ICY framing
 
@@ -111,12 +111,12 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Produce `IcyDecoder(metaint: int, on_metadata: Callable[[dict], None])`, `.feed(chunk: bytes) -> bytes`, `.finish() -> None`. Input is upstream framed data; output is audio only. The relay requests `Icy-MetaData: 1` upstream and consistently strips metadata downstream, omitting icy-metaint from the downstream headers. Metadata is emitted through EventSink as `metadata_observed`.
 
-- [ ] Write split-point tests feeding the same framed stream at every possible boundary; assert output equals original audio and metadata is emitted exactly once per received block. Cover zero-length blocks, invalid metaint, invalid encoding, truncated blocks and maximum 255 × 16-byte metadata blocks.
-- [ ] Add a title containing “advertisement” and assert no break_start event is emitted.
-- [ ] Run `python3 -m pytest tests/test_icy.py -q`; confirm failures.
-- [ ] Implement incremental bounded framing with partial-state storage; treat no metaint as plain audio at the relay level. Never advertise the upstream framed Content-Length after stripping metadata.
-- [ ] Run ICY tests; require all pass.
-- [ ] Commit as `feat: inspect ICY metadata without altering audio`.
+- [x] Write split-point tests feeding the same framed stream at every possible boundary; assert output equals original audio and metadata is emitted exactly once per received block. Cover zero-length blocks, invalid metaint, invalid encoding, truncated blocks and maximum 255 × 16-byte metadata blocks.
+- [x] Add a title containing “advertisement” and assert no break_start event is emitted.
+- [x] Run `python3 -m pytest tests/test_icy.py -q`; confirm failures.
+- [x] Implement incremental bounded framing with partial-state storage; treat no metaint as plain audio at the relay level. Never advertise the upstream framed Content-Length after stripping metadata.
+- [x] Run ICY tests; require all pass.
+- [x] Commit as `feat: inspect ICY metadata without altering audio`.
 
 ## Task 6: Session relay and end-to-end controlled sources
 
@@ -124,13 +124,13 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Produce `SessionManager.create(station: Station) -> PlaybackSession`, `.stop(session_id: str) -> None`, `.close() -> None`; PlaybackSession exposes `id` and `playback_url`. `RelayServer.start() -> ServiceDescriptor` and `.close() -> None`; descriptor contains port, instance ID and random control token. Control routes require the token: POST `/sessions` registers a station and DELETE `/sessions/{id}` stops it. Media uses random session/resource IDs; no route accepts an arbitrary query URL. Expose a health route without sensitive data.
 
-- [ ] Write integration tests with an in-process fixture origin: assert a continuous session has one upstream connection and byte-identical downstream audio; an HLS client receives precisely the playlist version inspected; segment hashes match; range requests preserve 206/Content-Range and valid 416 responses. Assert upstream failures do not become misleading 200 responses.
-- [ ] Add tests for forged session/resource IDs, unauthorized control, excessive resource registration, slow consumers, disconnected consumers, worker limits, cancellation and concurrent rendition requests. Assert resource count stays within limits as rolling playlists advance and active requests are not evicted mid-transfer. POST creation replaces the previous session deterministically.
-- [ ] Run `python3 -m pytest tests/test_relay.py tests/test_sessions.py -q`; confirm failures.
-- [ ] Implement the bounded threaded loopback server, close-delimited continuous output and media streaming backpressure. Preserve supported headers and reject unsupported protocol transformations. Wire HLS observations and ICY metadata to the same-session sink before forwarding their corresponding content. Active network reads end by timeout or cancellation; shutdown joins finish within 12 seconds.
-- [ ] Implement deterministic fixture schedules (normal breaks, mid-break entry, missing end, malformed cue and no-cue), connection counters and expected JSON events. Generate short MP3/AAC/HLS audio from a synthetic tone with the developer's FFmpeg; document regeneration and keep generated fixture assets outside the addon ZIP. Unit tests use small framing bytes; real Kodi tests use playable generated audio.
-- [ ] Run relay/session tests plus all parser tests; require pass. Run `python3 tools/fixture_server.py --help` and verify fixture URLs and scenario selection are documented.
-- [ ] Commit as `feat: relay observed radio streams through managed sessions`.
+- [x] Write integration tests with an in-process fixture origin: assert a continuous session has one upstream connection and byte-identical downstream audio; an HLS client receives precisely the playlist version inspected; segment hashes match; range requests preserve 206/Content-Range and valid 416 responses. Assert upstream failures do not become misleading 200 responses.
+- [x] Add tests for forged session/resource IDs, unauthorized control, excessive resource registration, slow consumers, disconnected consumers, worker limits, cancellation and concurrent rendition requests. Assert resource count stays within limits as rolling playlists advance and active requests are not evicted mid-transfer. POST creation replaces the previous session deterministically.
+- [x] Run `python3 -m pytest tests/test_relay.py tests/test_sessions.py -q`; confirm failures.
+- [x] Implement the bounded threaded loopback server, close-delimited continuous output and media streaming backpressure. Preserve supported headers and reject unsupported protocol transformations. Wire HLS observations and ICY metadata to the same-session sink before forwarding their corresponding content. Active network reads end by timeout or cancellation; shutdown joins finish within 12 seconds.
+- [x] Implement deterministic fixture schedules (normal breaks, mid-break entry, missing end, malformed cue and no-cue), connection counters and expected JSON events. Generate short MP3/AAC/HLS audio from a synthetic tone with the developer's FFmpeg; document regeneration and keep generated fixture assets outside the addon ZIP. Unit tests use small framing bytes; real Kodi tests use playable generated audio.
+- [x] Run relay/session tests plus all parser tests; require pass. Run `python3 tools/fixture_server.py --help` and verify fixture URLs and scenario selection are documented.
+- [x] Commit as `feat: relay observed radio streams through managed sessions`.
 
 ## Task 7: Kodi navigation and service lifecycle
 
@@ -138,13 +138,13 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** Consume RadioBrowser, SessionManager, RelayServer and ServiceDescriptor. Produce `run_plugin(argv: list[str]) -> None` and `run_service() -> None`. Kodi-specific imports live here or in entry points. The service owns the relay; the plugin reads an atomically published descriptor and uses authenticated control requests to resolve playback to the loopback URL.
 
-- [ ] Verify the current stable Kodi release and its Python addon metadata/API requirements using official sources; record the precise minimum dependency and tested runtime in addon.xml and docs/testing.md. Use music plugin and service extension points within the same package.
-- [ ] Write adapter tests for search/country/tag pagination, selection-to-resolved-URL flow, single click reporting, unavailable service, startup timeout, cancellation and localized error text. Assert no playback fallback bypasses the relay.
-- [ ] Write lifecycle tests asserting rapid station switches stop old streams, stale tokens fail after restart, an old service cannot delete a newer descriptor, debug logging is opt-in and test-stream navigation is absent by default. Test profile permissions where supported.
-- [ ] Run `python3 -m pytest tests/test_kodi_runtime.py -q`; confirm failures using narrow fake Kodi modules supplied only by tests.
-- [ ] Implement navigation, settings and lifecycle. Default settings: diagnostics disabled, test mode disabled; test fixture origin is accepted only in test mode and scoped to its exact loopback port. Use xbmc.Monitor abort handling, player stop/end/error callbacks and idle expiry for cleanup. Publish descriptors atomically and remove only the matching instance on exit.
-- [ ] Run adapter and relay tests; require all pass and XML parses. Check all displayed labels/errors map to strings.po entries.
-- [ ] Commit as `feat: integrate Kodi radio navigation and embedded service`.
+- [x] Verify the current stable Kodi release and its Python addon metadata/API requirements using official sources; record the precise minimum dependency and tested runtime in addon.xml and docs/testing.md. Use music plugin and service extension points within the same package.
+- [x] Write adapter tests for search/country/tag pagination, selection-to-resolved-URL flow, single click reporting, unavailable service, startup timeout, cancellation and localized error text. Assert no playback fallback bypasses the relay.
+- [x] Write lifecycle tests asserting rapid station switches stop old streams, stale tokens fail after restart, an old service cannot delete a newer descriptor, debug logging is opt-in and test-stream navigation is absent by default. Test profile permissions where supported.
+- [x] Run `python3 -m pytest tests/test_kodi_runtime.py -q`; confirm failures using narrow fake Kodi modules supplied only by tests.
+- [x] Implement navigation, settings and lifecycle. Default settings: diagnostics disabled, test mode disabled; test fixture origin is accepted only in test mode and scoped to its exact loopback port. Use xbmc.Monitor abort handling, player stop/end/error callbacks and idle expiry for cleanup. Publish descriptors atomically and remove only the matching instance on exit.
+- [x] Run adapter and relay tests; require all pass and XML parses. Check all displayed labels/errors map to strings.po entries.
+- [x] Commit as `feat: integrate Kodi radio navigation and embedded service`.
 
 ## Task 8: Package, runtime validation and monetization handoff
 
@@ -152,13 +152,13 @@ Shared limits: 5-second connect and 10-second read timeout, 5 redirects, 3 playl
 
 **Interfaces:** `python3 tools/package_addon.py --output dist` writes `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`. `python3 tools/check_package.py <zip>` exits zero only when source, valid XML, localization, license, artwork dimensions and allowed contents are present. `python3 tools/smoke_radio_browser.py --limit 3` performs bounded discovery/stream checks without requiring ad cues or counting synthetic clicks.
 
-- [ ] Write package tests asserting a single addon root, both entry points, correct metadata, no tests/fixture audio/pycache/secrets, and no executable permissions. Run `python3 -m pytest tests/test_package.py -q`; confirm failure before implementing packaging.
-- [ ] Implement deterministic ZIP creation/checking; add the full GPL-2.0 license text and project-authored 512×512 opaque icon plus 1280×720 JPEG fanart. Keep artwork simple and verify dimensions; no licensed third-party imagery. Document install, supported/unsupported streams, diagnostics location, fixture setup and limits.
-- [ ] Run `python3 -m pytest -q`, package creation and package checks; require all pass. Run the official Kodi addon checker using its documented current invocation if available; record its exact version, command and results. Do not claim checker validation if it could not run.
-- [ ] Run the bounded live discovery smoke command; record date, sampled station UUIDs, protocols and outcomes without secret URLs. Reachability failures are reported separately from parser failures. Do not infer advertisement coverage from this sample.
+- [x] Write package tests asserting a single addon root, both entry points, correct metadata, no tests/fixture audio/pycache/secrets, and no executable permissions. Run `python3 -m pytest tests/test_package.py -q`; confirm failure before implementing packaging.
+- [x] Implement deterministic ZIP creation/checking; add the full GPL-2.0 license text and project-authored 512×512 opaque icon plus 1280×720 JPEG fanart. Keep artwork simple and verify dimensions; no licensed third-party imagery. Document install, supported/unsupported streams, diagnostics location, fixture setup and limits.
+- [x] Run `python3 -m pytest -q`, package creation and package checks; require all pass. Run the official Kodi addon checker using its documented current invocation if available; record its exact version, command and results. Do not claim checker validation if it could not run.
+- [x] Run the bounded live discovery smoke command; record date, sampled station UUIDs, protocols and outcomes without secret URLs. Reachability failures are reported separately from parser failures. Do not infer advertisement coverage from this sample.
 - [ ] Install the ZIP in available Kodi and exercise search, real-station playback, controlled ICY and HLS scenarios, stop, station switch and restart. Match fixture events to expected timeline evidence and confirm audible tone playback. Record exact Kodi/OS version and results in docs/testing.md. If Kodi is unavailable, mark this acceptance check pending and explicitly report the limitation; do not replace it with mocked tests.
-- [ ] Write monetization-roadmap.md with sequential follow-on milestones: VAST audio/preroll and tracking; HLS break replacement/fallback with codec and duration compatibility; continuous-stream replacement investigation; listener ad budget and buffering policy. Each milestone lists its required acceptance evidence and decisions below.
-- [ ] Commit as `build: package radio POC and document validation`.
+- [x] Write monetization-roadmap.md with sequential follow-on milestones: VAST audio/preroll and tracking; HLS break replacement/fallback with codec and duration compatibility; continuous-stream replacement investigation; listener ad budget and buffering policy. Each milestone lists its required acceptance evidence and decisions below.
+- [x] Commit as `build: package radio POC and document validation`.
 
 ## Follow-on monetization decisions and acceptance evidence
 
@@ -170,6 +170,6 @@ These are separate implementation plans after the observation POC, not hidden wo
 
 ## Plan review and execution handoff
 
-Coverage review: Tasks 1–2 cover diagnostics/discovery/transport; Tasks 3–6 cover same-stream parsing, cue semantics and controlled fixtures; Tasks 7–8 cover Kodi packaging and runtime evidence. Future monetization is retained as staged work with explicit entry decisions. All five Review Focus items have tests in their owning tasks. Product code has not been written.
+Coverage review: Tasks 1–2 cover diagnostics/discovery/transport; Tasks 3–6 cover same-stream parsing, cue semantics and controlled fixtures; Tasks 7–8 cover Kodi packaging and runtime evidence. Future monetization is retained as staged work with explicit entry decisions. All five Review Focus items have tests in their owning tasks. Product implementation is committed on feat/radio-poc. The real Kodi acceptance step remains pending because Kodi is unavailable on this host.
 
-Recommended execution: native implementation in this session because the transport, parser and lifecycle interfaces are closely coupled. Subagent-driven execution is also available for per-task independent review. User reviews this plan and selects the execution approach before implementation begins.
+Execution selected by user: subagent-driven. All eight task reviews passed; final review fixes added zero-offset range compatibility, safe HLS suffix routing, late cue-in association after inferred expiry, normalized HTTP errors and ISO timestamp fractions. Real FFmpeg fixture playback passed for MP3, ICY and HLS. Actual Kodi runtime validation remains pending; see docs/testing.md.
