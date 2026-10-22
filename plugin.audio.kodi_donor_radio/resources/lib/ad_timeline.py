@@ -196,7 +196,9 @@ class AdTimeline:
                       and (self._highwater is None or s.sequence > self._highwater)]
             if any(s.uri not in source_segments or not _supported(source_segments[s.uri]) for s in unseen):
                 return self.snapshot()
-            if zero and zero_uri not in self._zero_anchors:
+            # A changed URI on an overlapping reload is source mutation, not
+            # a new epoch, and must not consume replay-suppression history.
+            if zero and (reset or not self._started) and zero_uri not in self._zero_anchors:
                 if len(self._zero_anchors) >= MAX_EPOCH_ANCHORS:
                     raise TimelineEpochLimit('source_epoch_history_exhausted')
                 self._zero_anchors.add(zero_uri)

@@ -238,8 +238,8 @@ def test_epoch_history_exhaustion_rejects_new_reset_without_mutation():
     for epoch in range(16):
         names = ['epoch%d-start' % epoch, 'epoch%d-next' % epoch]
         t.update(playlist(names), sources(*names))
-        later = ['epoch%d-next' % epoch, 'epoch%d-tail' % epoch]
-        t.update(playlist(later, sequence=1), sources(*later))
+        later = ['epoch%d-tail2' % epoch, 'epoch%d-tail3' % epoch]
+        t.update(playlist(later, sequence=2), sources(*later))
     current = t.snapshot()
     next_names = ['epoch16-start', 'epoch16-next']
     with pytest.raises(TimelineEpochLimit, match='source_epoch_history_exhausted'):
@@ -263,3 +263,37 @@ def test_terminal_interval_requires_every_source_segment_and_keeps_committed_byt
     for key in changed:
         changed[key] = media('mutated-' + changed[key].id)
     assert t.update(whole, changed) == committed
+
+
+def test_overlapping_zero_uri_mutation_does_not_consume_epoch_capacity():
+    t = AdTimeline(None, 2)
+    initial = playlist(['epoch0-start', 'epoch0-next'])
+    first = t.update(initial, sources('epoch0-start', 'epoch0-next'))
+    changed = playlist(['changed-zero', 'epoch0-next'])
+    assert t.update(changed, sources('changed-zero', 'epoch0-next')) == first
+    for epoch in range(16):
+        later = ['epoch%d-tail2' % epoch, 'epoch%d-tail3' % epoch]
+        t.update(playlist(later, sequence=2), sources(*later))
+        if epoch < 15:
+            next_names = ['epoch%d-start' % (epoch + 1), 'epoch%d-next' % (epoch + 1)]
+            t.update(playlist(next_names), sources(*next_names))
+    assert ids(t.snapshot()) == ['epoch15-tail2', 'epoch15-tail3']
+    before = t.snapshot()
+    novel = ['epoch16-start', 'epoch16-next']
+    with pytest.raises(TimelineEpochLimit, match='source_epoch_history_exhausted'):
+        t.update(playlist(novel), sources(*novel))
+    assert t.snapshot() == before
+
+
+def test_overlapping_zero_uri_mutation_at_capacity_keeps_snapshot_without_error():
+    t = AdTimeline(None, 2)
+    for epoch in range(16):
+        names = ['epoch%d-start' % epoch, 'epoch%d-next' % epoch]
+        t.update(playlist(names), sources(*names))
+        if epoch < 15:
+            later = ['epoch%d-tail2' % epoch, 'epoch%d-tail3' % epoch]
+            t.update(playlist(later, sequence=2), sources(*later))
+    current = t.snapshot()
+    changed = ['changed-at-cap', 'epoch15-next']
+    assert t.update(playlist(changed), sources(*changed)) == current
+    assert t.snapshot() == current
