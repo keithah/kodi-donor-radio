@@ -20,6 +20,32 @@ import time
 SCENARIOS = ('normal', 'mid-break', 'missing-end', 'malformed-cue', 'no-cue')
 
 
+def send_fixture_response(handler, body, mime, status=200, ranges=False):
+    """Send a finite fixture response; shared with the controlled ad origin."""
+    headers = {}
+    if ranges and handler.headers.get('Range'):
+        match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', handler.headers['Range'])
+        if match:
+            start = int(match.group(1))
+            end = min(int(match.group(2)) if match.group(2) else len(body) - 1, len(body) - 1)
+            if start <= end:
+                headers['Content-Range'] = 'bytes %s-%s/%s' % (start, end, len(body))
+                body, status = body[start:end + 1], 206
+            else:
+                headers['Content-Range'] = 'bytes */%s' % len(body)
+                body, status = b'', 416
+        else:
+            headers['Content-Range'] = 'bytes */%s' % len(body)
+            body, status = b'', 416
+    handler.send_response(status)
+    handler.send_header('Content-Type', mime)
+    handler.send_header('Content-Length', str(len(body)))
+    for key, value in headers.items():
+        handler.send_header(key, value)
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 def manifest(scenario, version):
     if scenario not in SCENARIOS or version not in (0, 1, 2):
         raise ValueError('Unknown fixture schedule')
@@ -119,28 +145,7 @@ def make_server(assets, host='127.0.0.1', port=8765):
             self.respond(b'', 'text/plain', 404)
 
         def respond(self, body, mime, status=200, ranges=False):
-            headers = {}
-            if ranges and self.headers.get('Range'):
-                match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', self.headers['Range'])
-                if match:
-                    start = int(match.group(1))
-                    end = min(int(match.group(2)) if match.group(2) else len(body) - 1, len(body) - 1)
-                    if start <= end:
-                        headers['Content-Range'] = 'bytes %s-%s/%s' % (start, end, len(body))
-                        body, status = body[start:end + 1], 206
-                    else:
-                        headers['Content-Range'] = 'bytes */%s' % len(body)
-                        body, status = b'', 416
-                else:
-                    headers['Content-Range'] = 'bytes */%s' % len(body)
-                    body, status = b'', 416
-            self.send_response(status)
-            self.send_header('Content-Type', mime)
-            self.send_header('Content-Length', str(len(body)))
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.end_headers()
-            self.wfile.write(body)
+            send_fixture_response(self, body, mime, status, ranges)
 
         def log_message(self, *args):
             pass

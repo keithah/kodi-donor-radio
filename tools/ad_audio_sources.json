@@ -1,0 +1,18 @@
+{
+  "sample_rate": 48000,
+  "channels": 2,
+  "aac_frames_per_segment": 94,
+  "segments": {
+    "source000.ts": {"section": "programme_a", "tone_hz": 440, "spoken": "Programme A"},
+    "source001.ts": {"section": "programme_a", "tone_hz": 440, "spoken": "Programme A"},
+    "source002.ts": {"section": "original_break", "tone_hz": 660, "spoken": "Original break"},
+    "source003.ts": {"section": "original_break", "tone_hz": 660, "spoken": "Original break"},
+    "source004.ts": {"section": "programme_b", "tone_hz": 550, "spoken": "Programme B"},
+    "source005.ts": {"section": "programme_b", "tone_hz": 550, "spoken": "Programme B"},
+    "source003-mutated.ts": {"section": "source_mutation", "tone_hz": 720, "spoken": "Mutated break"},
+    "replacement000.ts": {"section": "replacement", "tone_hz": 880, "spoken": "Replacement ad"},
+    "replacement001.ts": {"section": "replacement", "tone_hz": 880, "spoken": "Replacement ad"},
+    "preroll000.ts": {"section": "preroll", "tone_hz": 990, "spoken": "Pre roll ad"},
+    "preroll001.ts": {"section": "preroll", "tone_hz": 990, "spoken": "Pre roll ad"}
+  }
+}

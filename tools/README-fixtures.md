@@ -27,3 +27,18 @@ Each HLS schedule starts with its first request, advances at four-second interva
 Production URL policy intentionally rejects loopback/private origins. Python integration tests explicitly allow their exact local fixture origin. For addon/Kodi smoke tests on the same host, enable test mode and set the exact fixture origin (for example `http://127.0.0.1:8765`, without a trailing slash). Only numeric `127.0.0.1`, HTTP and the explicitly configured port are allowed; other local origins stay blocked. Test mode is disabled by default. The fixture server is a developer origin, not the embedded media relay.
 
 Relay behavior requiring actual Kodi playback validation: HEAD returns 200 with retained continuous-stream headers or the known playlist MIME type, without claiming, fetching, or observing playback; segment/map HEAD remains 405 and makes no upstream request; continuous `Range: bytes=0-` is treated as a full-body GET (200), while other continuous ranges return 416 without consuming the probe; one continuous GET owns the upstream, and its completion/disconnection retires the session. A later GET uses an expired URL and receives 404 (a simultaneous second GET receives 409). HLS playlists use complete GET responses, while segment/map ranges are forwarded. No Kodi playback compatibility has been verified by these tools or the pure-Python tests.
+
+## Controlled advertising origin
+
+Generate the separate ad fixtures and start their loopback-only origin:
+
+```sh
+python3 tools/generate_ad_audio.py --assets tests/generated-audio/ad
+python3 tools/ad_fixture_server.py --assets tests/generated-audio/ad --port 8766
+```
+
+The checked-in `tools/ad_audio_sources.json` describes every tone and spoken identifier. Generation uses developer FFmpeg, FFprobe and espeak; no generated binaries or runtime transcoder enter the addon. `metadata.json` beside the generated files records FFprobe packet and decoded-frame sample counts, MPEG PTS, and the tone identity checked by independently decoding each transport-stream segment. All segments are stereo AAC-LC at 48 kHz with 94 frames (96,256 samples); original-break and replacement pairs have equal frame counts.
+
+The ad origin serves `/vast/direct`, `/vast/wrapped`, `/vast/preroll`, `/vast/no-fill`, `/vast/empty`, `/vast/wrapper-cycle`, `/vast/wrapper-depth` (six nested wrappers), `/vast/invalid-xml`, `/vast/slow` (six seconds), `/vast/unsupported-media`, `/vast/wrong-duration`, and `/vast/failed-media`. The successful MediaFile points to `/ads/replacement.m3u8` or `/ads/preroll.m3u8`; their MPEG-TS segments and the intentionally unsupported MP4 are under `/ads/`. Source streams are `/source/normal/index.m3u8`, `/source/mutation/index.m3u8`, and `/source/expired-window/index.m3u8`. Every source begins with programme A, an explicitly marked original break, and programme B. Later manifest polls advance the window; mutation changes a break segment identity, while expired-window drops the early window.
+
+`/track/<placement>/<event>` alone records a beacon. `/stats` reports request, beacon, and window counters without counting itself. `/reset` clears them and restarts all source windows. Fetching VAST, playlists, or media cannot create a beacon.
