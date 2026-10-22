@@ -1,10 +1,13 @@
 # Controlled VAST ads — implementation checkpoint
 
-Status: work in progress, not release-ready. Branch: `codex/vast-controlled-ads`.
+Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
 
-Checkpoint verification: `python3 -m pytest -q` passed **513 tests in 74.81 seconds**,
-exit 0, against implementation commit `beec95b`. No server traceback appeared in
-this run. The following checkpoint commit changes documentation only.
+Latest verification: `python3 -m pytest -q` passed **532 tests in 85.32 seconds**
+at `2490e39`; `git diff --check` passed. Task 8 relay decode checks and identity-
+gated Kodi playback checks passed. The measured Kodi clock nevertheless jumped
+across an ad boundary without a decoded-position anchor, so ad-time mapping and
+success beacons remain disabled. Steward, CodeRabbit, and the implementation PR
+are intentionally pending until the playback acceptance gate can pass.
 
 ## Completed and task-reviewed
 
@@ -15,27 +18,27 @@ midroll media and verify source fallback. Task reviews found and corrected
 published-media retention, cache-failure fallback, and false completion after a
 seek followed by stationary playback samples.
 
-## Implemented, awaiting review
+## Implemented and reviewed; acceptance blocked
 
-Task 7 integrates Kodi settings and playback callbacks. Its implementation report
-is retained below. Successful tracking remains disabled until empirical clock
-mapping is established. The focused adapter/runtime/session/tracking/relay/package
-run reported 109 passing tests at commit `beec95b`.
+Task 7 integrates Kodi settings and playback callbacks; Task 8 adds controlled live
+fixtures, independent relay decoding, Kodi smoke tooling, and measured playback
+reports. Task 7 and Task 8 code reviews approved the implementation after fixes.
+Kodi `getTime` held at 1.370 seconds for over five seconds with caching false, then
+jumped to 7.770 seconds in 260 ms as caching became true. This crossed the preroll
+completion boundary without proof those samples were presented. Pause/seek were
+unsupported on the tested live HLS stream, and audible output was not verified.
+See `docs/testing.md` and the Task 8 verdict in the external test report directory.
 
 ## Next steps
 
-1. Review Task 7 and fix verified findings.
-2. Add usable UI entries for the ad fixture server's source endpoints.
-3. Run controlled ad acceptance on unpatched Kodi master `434da3c`: normal ads,
-   fallback cases, pause, buffering, seek, station switch, and stop. Verify the
-   clock mapping across ad discontinuities and advancing live windows before
-   enabling successful tracking. The earlier master playback results cover the
-   observation POC, not this new insertion implementation.
-4. Complete independent smoke tooling, record decoded audio and playback evidence,
-   and distinguish that evidence from speaker output actually heard or captured.
-5. Finish documentation/versioning, full tests, ZIP validation, and the official
-   Kodi addon checker. Obtain current exact-commit Steward primary/adversarial
-   and CodeRabbit passes before opening the implementation PR.
+1. Find and validate a Kodi playback-position source that anchors decoded samples
+   to the composed presentation through live-window movement and discontinuities;
+   retain disabled success tracking until that evidence exists.
+2. Verify audible output and missing/early-end playback in Kodi, and establish a
+   supported pause/seek contract for the intended stream type.
+3. Finish packaging/versioning and the official Kodi addon checker. Once playback
+   acceptance passes, run exact-commit Steward and CodeRabbit reviews, then open
+   the implementation PR.
 
 ## Constraints and known limits
 
