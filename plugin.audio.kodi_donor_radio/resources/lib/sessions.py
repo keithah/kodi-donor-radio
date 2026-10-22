@@ -64,6 +64,8 @@ class PlaybackSession:
         self.tracker = CueTracker(self.id, station.uuid, sink,
                                   lambda: datetime.now(timezone.utc), time.monotonic)
         self.ad = None
+        self.ad_enabled = False
+        self._ad_errors = []
         self._cache_routes = {}
         if (ad_config is not None and ad_config.enabled and source.protocol == 'hls'
                 and ad_config.fixture_origin and ad_config.vast_url
@@ -73,17 +75,31 @@ class PlaybackSession:
                     getattr(ad_client, 'policy', None), 'test_origins', frozenset())
                 and ad_config.fixture_origin.startswith('http://127.0.0.1:')
                 and (ad_config.preroll or ad_config.midroll)):
+            self.ad_enabled = True
             from ad_session import AdSession
             try:
                 self.ad = AdSession(ad_config, ad_client, cache_root or Path.cwd(), cancel,
-                                    resource_limit, source.final_url)
+                                    resource_limit, source.final_url, self._record_ad_error)
                 self.ad.active_ids = self.active_cached_ids
                 if ad_config.preroll and not ad_config.midroll and not self.ad.preroll_available:
                     self.ad.close()
                     self.ad = None
-            except Exception:
+            except Exception as error:
                 # No composed manifest has been published. Keep station playback.
+                from ad_models import AdError
+                if isinstance(error, AdError):
+                    self._record_ad_error(error)
                 self.ad = None
+
+    def _record_ad_error(self, error):
+        with self._lock:
+            if not self.cancel.is_set():
+                self._ad_errors.append(error)
+
+    def take_ad_errors(self):
+        with self._lock:
+            errors, self._ad_errors = self._ad_errors, []
+            return errors
 
     def presentation(self):
         return self.ad.presentation() if self.ad is not None else None
@@ -228,6 +244,7 @@ class SessionManager:
             if self._pending is not None:
                 self._pending.set()
             cancel = self._pending = threading.Event()
+            ad_config = self.ad_config
         with self._create_lock:
             source = None
             try:
@@ -243,7 +260,7 @@ class SessionManager:
                         raise RuntimeError('Station selection cancelled')
                     session = PlaybackSession(station, source, cancel, self.base_url,
                                               self.sink, self.resource_limit,
-                                              self.ad_config, self.client, self.cache_root)
+                                              ad_config, self.client, self.cache_root)
                     self._session = session
                     return session
             except Exception:

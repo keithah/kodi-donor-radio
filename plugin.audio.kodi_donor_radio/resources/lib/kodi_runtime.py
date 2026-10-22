@@ -18,6 +18,9 @@ import xbmcplugin
 import xbmcvfs
 
 from control import ControlClient, ServiceDescriptor
+from ad_models import AdConfig
+from ad_media import CreativeCache
+from kodi_ad_player import KodiAdPlayback
 from events import JsonEventSink
 from http_client import Cancelled, HttpClient
 from models import Station
@@ -27,6 +30,7 @@ from sessions import SessionManager
 from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
+AD_CREATE_TIMEOUT = 30.0
 PAGE_SIZE = 50
 _HEX48 = re.compile(r'^[0-9a-f]{48}$')
 _HEX64 = re.compile(r'^[0-9a-f]{64}$')
@@ -138,6 +142,29 @@ def runtime_policy():
     return UrlPolicy(test_origins={origin} if origin else frozenset())
 
 
+def ad_settings():
+    """Snapshot explicit fixture-only advertising choices for the next session."""
+    addon = xbmcaddon.Addon()
+    enabled = addon.getSettingBool('test_mode') and addon.getSettingBool('ad_enabled')
+    preroll = enabled and addon.getSettingBool('ad_preroll')
+    midroll = enabled and addon.getSettingBool('ad_midroll')
+    if not (preroll or midroll):
+        return AdConfig(False, False, False, '', '')
+    fixture = fixture_origin()
+    value = addon.getSetting('ad_vast_url')
+    try:
+        parts = urlsplit(value)
+        valid = (parts.scheme == 'http' and parts.netloc == urlsplit(fixture).netloc
+                 and parts.path.startswith('/') and parts.path != '/'
+                 and not parts.username and not parts.password and not parts.fragment
+                 and not any(ord(char) < 33 or ord(char) == 127 for char in value))
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError('Invalid VAST fixture URL')
+    return AdConfig(True, bool(preroll), bool(midroll), value, fixture)
+
+
 def event_sink(profile):
     return JsonEventSink(profile, xbmcaddon.Addon().getSettingBool('diagnostics'),
                          lambda line: xbmc.log(line, xbmc.LOGDEBUG))
@@ -186,7 +213,7 @@ def _operation(function, monitor, cancel, cleanup=None):
         progress.close()
 
 
-def _service(profile, monitor, cancel):
+def _service(profile, monitor, cancel, create_timeout=10):
     deadline = time.monotonic() + STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         if monitor.abortRequested() or cancel.is_set():
@@ -196,7 +223,7 @@ def _service(profile, monitor, cancel):
             client = ControlClient(descriptor, timeout=min(.5, max(.01, deadline - time.monotonic())))
             health = client.health()
             if health == {'status': 'ok', 'instance_id': descriptor.instance_id}:
-                return ControlClient(descriptor)
+                return ControlClient(descriptor, timeout=create_timeout)
         except (OSError, ValueError):
             pass
         if monitor.waitForAbort(.1):
@@ -253,7 +280,10 @@ def run_plugin(argv):
                 if origin is None or not station.url.startswith(origin + '/'):
                     raise ValueError('Test mode disabled')
             try:
-                client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
+                ad_create = (station.uuid.startswith('fixture-') and station.hls
+                             and ad_settings().enabled)
+                client = _operation(lambda: _service(profile_path(), monitor, cancel,
+                    AD_CREATE_TIMEOUT if ad_create else 10), monitor, cancel)
             except OSError as error:
                 if isinstance(error, Cancelled): raise
                 _error(30010)
@@ -338,40 +368,69 @@ def run_plugin(argv):
 
 
 class RelayPlayer(xbmc.Player):
-    def __init__(self, manager, port):
+    def __init__(self, manager, port, fixture_origin=None):
         super().__init__()
         self.manager, self.port, self.owned = manager, port, None
+        self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin)
 
     def onAVStarted(self):
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
         old, self.owned = self.owned, current
         if old is not None and old != current:
+            self.ads.on_end('cancelled', old)
             self.manager.stop(old)
+        if current is not None:
+            self.ads.bind(current)
 
     def onPlayBackStarted(self):
         self.onAVStarted()
 
-    def _finished(self):
+    def _finished(self, reason):
         # A stop callback for the old stream can arrive after a rapid switch.
         if self.isPlaying():
             return
         old, self.owned = self.owned, None
         if old is not None:
+            self.ads.on_end(reason, old)
             self.manager.stop(old)
 
-    def onPlayBackStopped(self): self._finished()
-    def onPlayBackEnded(self): self._finished()
-    def onPlayBackError(self): self._finished()
+    def onPlayBackStopped(self): self._finished('cancelled')
+    def onPlayBackEnded(self): self._finished('source_end')
+    def onPlayBackError(self): self._finished('cancelled')
+    def onPlayBackPaused(self): self.ads.on_pause(self.owned)
+    def onPlayBackResumed(self): self.ads.on_resume(self.owned)
+    def onPlayBackSeek(self, time, seek_offset): self.ads.on_seek(self.owned)
+    def onPlayBackSeekChapter(self, chapter): self.ads.on_seek(self.owned)
+
+    def sample_ads(self):
+        if self.owned is None:
+            return
+        try:
+            current = _relay_path(self.getPlayingFile(), self.port)
+        except RuntimeError:
+            return
+        if current == self.owned:
+            self.ads.sample()
 
 
 class ServiceMonitor(xbmc.Monitor):
     def __init__(self):
         super().__init__()
         self.settings_changed = False
+        self.ad_changed = False
+        self._base_settings = self._base_snapshot()
+
+    def _base_snapshot(self):
+        addon = xbmcaddon.Addon()
+        return (addon.getSettingBool('diagnostics'), addon.getSettingBool('test_mode'),
+                addon.getSetting('test_origin'))
 
     def onSettingsChanged(self):
-        self.settings_changed = True
+        if self._base_snapshot() != self._base_settings:
+            self.settings_changed = True
+        else:
+            self.ad_changed = True
 
 
 def run_service():
@@ -380,20 +439,32 @@ def run_service():
         server, descriptor = None, None
         try:
             profile = _private_profile(profile_path())
+            CreativeCache.cleanup_abandoned(profile)
             monitor.settings_changed = False
-            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile))
+            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
+                                     ad_config=ad_settings(), cache_root=profile)
             server = RelayServer(manager=manager)
             descriptor = server.start()
-            player = RelayPlayer(manager, descriptor.port)
+            player = RelayPlayer(manager, descriptor.port, fixture_origin())
             publish_descriptor(profile, descriptor)
             while not monitor.abortRequested() and not monitor.settings_changed:
+                if monitor.ad_changed:
+                    monitor.ad_changed = False
+                    try:
+                        manager.ad_config = ad_settings()
+                    except ValueError:
+                        # An incomplete edit must not retire the playing session.
+                        pass
                 manager.expire()
-                if monitor.waitForAbort(.5): break
+                player.sample_ads()
+                if monitor.waitForAbort(.25): break
         except (OSError, ValueError):
             xbmcgui.Dialog().notification(text(30000), text(30014), xbmcgui.NOTIFICATION_ERROR, 5000)
             # Stay subscribed so correcting settings can restart a failed service.
             while not monitor.abortRequested() and not monitor.settings_changed:
                 if monitor.waitForAbort(.5): break
         finally:
+            if 'player' in locals():
+                player.ads.close()
             if server is not None: server.close()
             if descriptor is not None: remove_descriptor(profile, descriptor)

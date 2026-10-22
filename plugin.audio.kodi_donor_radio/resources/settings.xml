@@ -16,6 +16,20 @@
           <control type="edit" format="string"/>
         </setting>
       </group>
+      <group id="3" label="30038">
+        <setting id="ad_enabled" type="boolean" label="30039" help="30040">
+          <level>0</level><default>false</default><control type="toggle"/>
+        </setting>
+        <setting id="ad_preroll" type="boolean" label="30041">
+          <level>0</level><default>false</default><control type="toggle"/>
+        </setting>
+        <setting id="ad_midroll" type="boolean" label="30042">
+          <level>0</level><default>false</default><control type="toggle"/>
+        </setting>
+        <setting id="ad_vast_url" type="string" label="30043" help="30044">
+          <level>0</level><default></default><control type="edit" format="string"/>
+        </setting>
+      </group>
     </category>
   </section>
 </settings>

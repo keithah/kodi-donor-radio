@@ -19,7 +19,9 @@ FILES = frozenset({
     'resources/language/resource.language.en_gb/strings.po',
     *('resources/lib/' + name + '.py' for name in (
         'control', 'cues', 'events', 'hls', 'http_client', 'icy', 'kodi_runtime',
-        'models', 'radio_browser', 'relay', 'sessions', 'station_resolver', 'url_policy')),
+        'models', 'radio_browser', 'relay', 'sessions', 'station_resolver', 'url_policy',
+        'ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
+        'vast', 'kodi_ad_player')),
 })
 
 

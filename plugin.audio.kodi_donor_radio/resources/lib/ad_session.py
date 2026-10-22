@@ -20,9 +20,11 @@ class CompositionFailure(ValueError):
 
 
 class AdSession:
-    def __init__(self, config, client, cache_root, cancel, resource_limit, source_origin):
+    def __init__(self, config, client, cache_root, cancel, resource_limit, source_origin,
+                 on_error=None):
         self.config, self.client, self.cancel = config, client, cancel
         self.source_origin = origin(source_origin)
+        self.on_error = on_error
         self.creative = CreativeCache(cache_root, client, config.fixture_origin)
         self.resolver = VastResolver(client, config.fixture_origin)
         self.timeline = None
@@ -54,7 +56,10 @@ class AdSession:
         try:
             ad = self.resolver.resolve(self.config.vast_url, self.cancel)
             return self.creative.prepare(ad, self.cancel) if ad is not None else None
-        except Exception:
+        except Exception as error:
+            from ad_models import AdError
+            if isinstance(error, AdError) and self.on_error is not None and not self.cancel.is_set():
+                self.on_error(error)
             return None
 
     def _prepare_midroll(self):

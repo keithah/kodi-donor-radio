@@ -119,3 +119,31 @@ msgstr ""
 msgctxt "#30037"
 msgid "Use http://127.0.0.1:PORT with the explicit port of your local fixture server. No path or trailing slash."
 msgstr ""
+
+msgctxt "#30038"
+msgid "Controlled advertising fixtures"
+msgstr ""
+
+msgctxt "#30039"
+msgid "Enable controlled ad insertion"
+msgstr ""
+
+msgctxt "#30040"
+msgid "Requires test mode, a fixture VAST URL on the configured loopback origin, and a controlled HLS station. Changes apply to the next session."
+msgstr ""
+
+msgctxt "#30041"
+msgid "Insert a preroll"
+msgstr ""
+
+msgctxt "#30042"
+msgid "Replace marked midroll breaks"
+msgstr ""
+
+msgctxt "#30043"
+msgid "Fixture VAST URL"
+msgstr ""
+
+msgctxt "#30044"
+msgid "Enter a VAST document URL on the exact configured fixture origin."
+msgstr ""

@@ -24,6 +24,72 @@ def station():
     return Station('station', 'Radio', 'http://radio.example/live', 'MP3', False)
 
 
+def test_ad_config_is_snapshotted_per_session_and_errors_survive_preparation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from ad_models import AdConfig, AdError
+    from sessions import SessionManager
+    from url_policy import UrlPolicy
+    import ad_session
+    origin = 'http://127.0.0.1:8765'
+    configs = []
+    class FakeAdSession:
+        def __init__(self, config, client, root, cancel, limit, source, on_error):
+            configs.append(config)
+            assert root == tmp_path
+            on_error(AdError(403, 'No supported VAST media', (origin + '/error',)))
+            self.preroll_available = False
+        def close(self): pass
+    monkeypatch.setattr(ad_session, 'AdSession', FakeAdSession)
+    client = SimpleNamespace(policy=UrlPolicy(test_origins={origin}))
+    first = AdConfig(True, True, True, origin + '/first.xml', origin)
+    second = AdConfig(True, True, True, origin + '/second.xml', origin)
+    manager = SessionManager(client=client, resolver=lambda *args: ResolvedSource(
+        origin + '/hls/index.m3u8', 'hls'), ad_config=first, cache_root=tmp_path)
+    session = manager.create(Station('fixture-1', 'Fixture', origin + '/hls/index.m3u8', 'AAC', True))
+    manager.ad_config = second
+    assert configs == [first]
+    assert len(session.take_ad_errors()) == 1
+    assert session.take_ad_errors() == []
+    manager.create(Station('fixture-2', 'Fixture', origin + '/hls/index.m3u8', 'AAC', True))
+    assert configs == [first, second]
+    manager.close()
+
+
+def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from ad_models import AdConfig
+    from sessions import SessionManager
+    from url_policy import UrlPolicy
+    import ad_session
+    origin = 'http://127.0.0.1:8765'
+    entered, release = threading.Event(), threading.Event()
+    configs = []
+    class FakeAdSession:
+        def __init__(self, config, *args):
+            configs.append(config)
+            self.preroll_available = False
+        def close(self): pass
+    monkeypatch.setattr(ad_session, 'AdSession', FakeAdSession)
+    def resolve(*args):
+        entered.set()
+        release.wait(1)
+        return ResolvedSource(origin + '/source.m3u8', 'hls')
+    initial = AdConfig(True, True, True, origin + '/initial.xml', origin)
+    later = AdConfig(True, True, True, origin + '/later.xml', origin)
+    manager = SessionManager(client=SimpleNamespace(policy=UrlPolicy(test_origins={origin})),
+                             resolver=resolve, ad_config=initial, cache_root=tmp_path)
+    worker = threading.Thread(target=lambda: manager.create(Station(
+        'fixture-1', 'Fixture', origin + '/source.m3u8', 'AAC', True)))
+    worker.start()
+    assert entered.wait(1)
+    manager.ad_config = later
+    release.set()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert configs == [initial]
+    manager.close()
+
+
 def test_switch_cancels_previous_and_invalidates_opaque_urls():
     m = manager()
     first = m.create(station())

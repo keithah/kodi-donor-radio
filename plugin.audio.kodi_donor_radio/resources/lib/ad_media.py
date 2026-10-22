@@ -207,18 +207,24 @@ class CreativeCache:
     prepare-owned pin for every segment once the presentation no longer needs
     the creative. Only opaque IDs should be used as HLS resource URLs.
     """
-    def __init__(self, profile: Path, client, fixture_origin):
-        self.client, self.fixture_origin = client, fixture_origin
-        self.root = Path(profile) / 'controlled-ad-creative-cache'
-        if self.root.is_symlink():
+    @staticmethod
+    def cleanup_abandoned(profile):
+        root = Path(profile) / 'controlled-ad-creative-cache'
+        if root.is_symlink():
             raise ValueError('Creative cache root cannot be a symlink')
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.root, 0o700)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root, 0o700)
         # Only descendants of our owned namespace are eligible for cleanup.
         with _SESSION_LOCK:
-            for path in self.root.iterdir():
+            for path in root.iterdir():
                 if path.is_dir() and not path.is_symlink() and path not in _ACTIVE_SESSIONS:
                     shutil.rmtree(path)
+        return root
+
+    def __init__(self, profile: Path, client, fixture_origin):
+        self.client, self.fixture_origin = client, fixture_origin
+        self.root = self.cleanup_abandoned(profile)
+        with _SESSION_LOCK:
             self.session = self.root / uuid.uuid4().hex
             self.session.mkdir(mode=0o700)
             _ACTIVE_SESSIONS.add(self.session)

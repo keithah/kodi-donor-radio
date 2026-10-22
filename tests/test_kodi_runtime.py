@@ -421,3 +421,125 @@ def test_adapter_recognizes_safe_suffix_playback_routes(kodi, suffix):
     assert runtime._relay_path(url + suffix, 32123) == 'a' * 48
     assert runtime._relay_path(url + '.exe', 32123) is None
     assert runtime._relay_path(url + suffix + '?upstream=secret', 32123) is None
+
+
+def test_ad_settings_default_off_and_require_exact_fixture_origin(kodi):
+    runtime, state, _ = kodi
+    assert runtime.ad_settings().enabled is False
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
+                          ad_enabled=True, ad_preroll=True,
+                          ad_vast_url='http://127.0.0.1:8765/vast.xml')
+    config = runtime.ad_settings()
+    assert config.enabled and config.preroll and not config.midroll
+    assert config.fixture_origin == 'http://127.0.0.1:8765'
+    for url in ('http://127.0.0.1:8766/vast.xml', 'http://127.0.0.1:8765/',
+                'http://127.0.0.1:8765/vast.xml#fragment', 'garbage'):
+        state.settings['ad_vast_url'] = url
+        with pytest.raises(ValueError): runtime.ad_settings()
+    state.settings['test_mode'] = False
+    assert runtime.ad_settings().enabled is False
+
+
+def test_ad_only_setting_change_updates_next_session_without_service_restart(kodi):
+    runtime, state, _ = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
+    monitor = runtime.ServiceMonitor()
+    state.settings.update(ad_enabled=True, ad_preroll=True,
+                          ad_vast_url='http://127.0.0.1:8765/vast.xml')
+    monitor.onSettingsChanged()
+    assert monitor.ad_changed and not monitor.settings_changed
+    state.settings['diagnostics'] = True
+    monitor.onSettingsChanged()
+    assert monitor.settings_changed
+
+
+def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
+                          ad_enabled=True, ad_preroll=True,
+                          ad_vast_url='http://127.0.0.1:8765/vast.xml')
+    descriptor = ServiceDescriptor(32123, 'a'*48, 'b'*64)
+    runtime.publish_descriptor(profile, descriptor)
+    timeouts = []
+    class Client:
+        def __init__(self, descriptor, timeout=10):
+            self.descriptor = descriptor
+            timeouts.append(timeout)
+        def health(self): return {'status': 'ok', 'instance_id': descriptor.instance_id}
+        def create(self, station):
+            return {'id':'c'*48, 'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,
+                    'mime_type':'audio/aac'}
+        def stop(self, session_id): pass
+    monkeypatch.setattr(runtime, 'ControlClient', Client)
+    monkeypatch.setattr(runtime.RadioBrowser, 'click', lambda *args: None)
+    station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
+    route(runtime, action='play', station=json.dumps(station.__dict__))
+    assert timeouts[-1] == 30
+    assert state.resolved[0][0]
+
+
+def test_ad_change_keeps_service_and_active_config_snapshot(kodi):
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
+    seen = []
+    def action(monitor):
+        descriptor = runtime.read_descriptor(profile)
+        if not seen:
+            seen.append((descriptor, monitor.settings_changed))
+            state.settings.update(ad_enabled=True, ad_preroll=True,
+                                  ad_vast_url='http://127.0.0.1:8765/vast.xml')
+            monitor.onSettingsChanged()
+        else:
+            seen.append((descriptor, monitor.settings_changed))
+            state.abort = True
+    state.action = action
+    runtime.run_service()
+    assert len(seen) == 2
+    assert seen[0][0] == seen[1][0]
+    assert not seen[1][1]
+
+
+def test_startup_removes_only_abandoned_ad_cache_directories(kodi):
+    runtime, state, profile = kodi
+    namespace = profile / 'controlled-ad-creative-cache'
+    abandoned = namespace / 'old-session'
+    abandoned.mkdir(parents=True)
+    (abandoned / 'media.ts').write_bytes(b'old')
+    neighbor = profile / 'unrelated'
+    neighbor.mkdir()
+    state.action = lambda monitor: setattr(state, 'abort', True)
+    runtime.run_service()
+    assert not abandoned.exists()
+    assert neighbor.exists()
+
+
+def test_invalid_ad_only_edit_does_not_restart_running_service(kodi):
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
+    descriptors = []
+    def action(monitor):
+        descriptors.append(runtime.read_descriptor(profile))
+        if len(descriptors) == 1:
+            state.settings.update(ad_enabled=True, ad_preroll=True, ad_vast_url='invalid')
+            monitor.onSettingsChanged()
+        else:
+            state.abort = True
+    state.action = action
+    runtime.run_service()
+    assert len(descriptors) == 2
+    assert descriptors[0] == descriptors[1]
+    assert not state.notifications
+
+
+def test_player_refuses_ad_sample_when_file_has_switched_before_callback(kodi):
+    runtime, _, _ = kodi
+    current = SimpleNamespace(id='a'*48, cancel=threading.Event(), ad_enabled=False)
+    manager = SimpleNamespace(get=lambda identity: current if identity == current.id else None,
+                              stop=lambda identity: None)
+    player = runtime.RelayPlayer(manager, 32123)
+    player.owned = current.id
+    player.file = 'http://127.0.0.1:32123/media/' + 'c'*48 + '/' + 'd'*48
+    sampled = []
+    player.ads.sample = lambda: sampled.append(True)
+    player.sample_ads()
+    assert sampled == []
