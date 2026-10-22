@@ -87,3 +87,14 @@ class Presentation:
     segments: Tuple[OutputSegment, ...]
     placements: Tuple[Placement, ...]
     ended: bool
+
+
+@dataclass(frozen=True)
+class PlaybackSample:
+    session_id: str
+    position_seconds: float
+    monotonic_seconds: float
+    playing: bool
+    paused: bool
+    seeking: bool
+    mapped: bool

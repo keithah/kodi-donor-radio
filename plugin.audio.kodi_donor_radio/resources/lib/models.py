@@ -7,6 +7,7 @@ from typing import Any, Dict, Mapping, Protocol
 _DETAIL_FIELDS = frozenset({
     "cue_id", "duration", "media_sequence", "discontinuity", "rendition_id",
     "epoch", "media_position", "classification", "reason",
+    "placement_id", "creative_id",
 })
 
 
