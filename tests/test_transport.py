@@ -47,6 +47,32 @@ def server():
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
+            if self.path == '/deadline-redirect':
+                time.sleep(.08)
+                self.send_response(302)
+                self.send_header('Location', '/deadline-trickle')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            if self.path == '/oversized-ad-redirect':
+                self.send_response(302)
+                self.send_header('Location', '/' + 'x' * 9000)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            if self.path == '/deadline-trickle':
+                self.send_response(200)
+                self.send_header('Content-Length', '100')
+                self.end_headers()
+                for _ in range(100):
+                    try:
+                        self.wfile.write(b'x')
+                        self.wfile.flush()
+                    except OSError:
+                        self.close_connection = True
+                        break
+                    time.sleep(.02)
+                return
             self.send_response(200)
             if self.path != '/close-delimited':
                 self.send_header('Content-Length', '100' if self.path == '/slow' else '5')
@@ -186,6 +212,22 @@ def test_private_redirect_is_revalidated(server):
     assert len(server[1]) == 1
 
 
+def test_ad_origin_redirect_escape_rejected_before_follow(server):
+    from http_client import HttpError
+    client, base = local_client(server[0])
+    with pytest.raises(HttpError, match='Advertising origin rejected'):
+        client.open(base + '/redirect-host', {}, threading.Event(), allowed_origin=base)
+    assert [request[0] for request in server[1]] == ['/redirect-host']
+
+
+def test_ad_redirect_url_length_rejected(server):
+    from http_client import HttpError
+    client, base = local_client(server[0])
+    with pytest.raises(HttpError):
+        client.open(base + '/oversized-ad-redirect', {}, threading.Event(), allowed_origin=base)
+    assert [request[0] for request in server[1]] == ['/oversized-ad-redirect']
+
+
 def test_socket_uses_validated_address_without_dns_rebinding(server):
     from http_client import HttpClient
     from url_policy import UrlPolicy
@@ -263,6 +305,18 @@ def test_read_timeout(server):
     with client.open(origin + '/slow', {}, threading.Event()) as response:
         with pytest.raises(TimeoutError):
             response.read(10)
+
+
+def test_total_deadline_survives_redirects_and_trickle(server):
+    from http_client import read_bounded
+    client, base = local_client(server[0], read_timeout=1)
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        with client.open(base + '/deadline-redirect', {}, threading.Event(),
+                         deadline=started + .25) as response:
+            read_bounded(response, 256)
+    assert time.monotonic() - started < .7
+    assert [request[0] for request in server[1]] == ['/deadline-redirect', '/deadline-trickle']
 
 
 def test_cancellation_interrupts_read_and_closes(server):

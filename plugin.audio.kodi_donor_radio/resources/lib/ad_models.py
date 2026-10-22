@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
+class AdError(Exception):
+    """Safe, typed VAST failure; URLs are data for a later beacon dispatcher."""
+    def __init__(self, code: int, reason: str, error_urls: tuple = ()):
+        self.code, self.reason, self.error_urls = code, reason, tuple(error_urls)
+        super().__init__(reason)
+
+
 @dataclass(frozen=True)
 class TrackingUrl:
     event: str
