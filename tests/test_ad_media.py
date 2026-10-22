@@ -1,6 +1,7 @@
 from pathlib import Path
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -165,6 +166,7 @@ def test_complete_cache_is_private_and_pinned(tmp_path):
     prepared = cache.prepare(ad(duration=99), threading.Event())
     assert all(0 < deadline - time.monotonic() <= 10 for _, deadline, _ in client.calls)
     assert prepared.samples == 192512  # Measured duration is authoritative.
+    assert cache.total_bytes == len(segment()) * 2 and cache.reserved_bytes == 0
     assert len(prepared.segments) == 2
     assert all(s.path.is_file() and s.path.parent != tmp_path for s in prepared.segments)
     assert cache.read(prepared.segments[0].id) == segment()
@@ -184,6 +186,7 @@ def test_invalid_manifest_never_returns_creative(tmp_path, manifest):
     cache = CreativeCache(tmp_path, Client(manifest), 'http://127.0.0.1:8766')
     with pytest.raises(AdError):
         cache.prepare(ad(), threading.Event())
+    assert cache.reserved_bytes == 0
     cache.close()
 
 
@@ -210,6 +213,7 @@ def test_segment_and_cache_limits(tmp_path, monkeypatch):
     with pytest.raises(AdError):
         cache.prepare(ad(), threading.Event())
     assert not list(cache.session.glob('*.ts'))
+    assert cache.reserved_bytes == 0
     cache.close()
 
     monkeypatch.setattr(ad_media, 'MAX_BYTES', 32 * 1024 * 1024)
@@ -226,11 +230,126 @@ def test_pinned_entry_survives_cache_eviction(tmp_path, monkeypatch):
     monkeypatch.setattr(ad_media, 'MAX_BYTES', len(segment()) * 3)
     cache = CreativeCache(tmp_path, Client(), 'http://127.0.0.1:8766')
     first = cache.prepare(ad(), threading.Event())
-    cache.pin(first.segments[0].id)
+    cache.unpin(first.segments[1].id)
     cache.prepare(ad(), threading.Event())
     assert cache.read(first.segments[0].id) == segment()
     assert not first.segments[1].path.exists()
     cache.unpin(first.segments[0].id)
+    cache.close()
+
+
+def test_prepare_handoff_is_pinned_before_return(tmp_path, monkeypatch):
+    import ad_media
+    monkeypatch.setattr(ad_media, 'MAX_BYTES', len(segment()) * 3)
+    cache = CreativeCache(tmp_path, Client(), 'http://127.0.0.1:8766')
+    prepared = cache.prepare(ad(), threading.Event())
+    errors = []
+    def compete():
+        try:
+            cache.prepare(ad(), threading.Event())
+        except Exception as error:
+            errors.append(error)
+    competitor = threading.Thread(target=compete)
+    competitor.start()
+    competitor.join(2)
+    assert not competitor.is_alive() and len(errors) == 1 and isinstance(errors[0], AdError)
+    assert all(cache.read(item.id) == segment('replacement%03d.ts' % i)
+               for i, item in enumerate(prepared.segments))
+    for item in prepared.segments:
+        cache.unpin(item.id)
+    cache.prepare(ad(), threading.Event())
+    cache.close()
+
+
+def test_concurrent_downloads_share_cache_reservation(tmp_path, monkeypatch):
+    import ad_media
+    monkeypatch.setattr(ad_media, 'MAX_BYTES', len(segment()) + 100)
+    manifest = '#EXTM3U\n#EXTINF:2.005333,\nreplacement000.ts\n#EXT-X-ENDLIST\n'
+    cache = CreativeCache(tmp_path, Client(manifest), 'http://127.0.0.1:8766')
+    entered, release = threading.Event(), threading.Event()
+    real_inspect = ad_media.inspect_ts
+    calls = []
+
+    def waiting_inspect(data, *args):
+        calls.append(1)
+        entered.set()
+        assert release.wait(2)
+        return real_inspect(data, *args)
+
+    monkeypatch.setattr(ad_media, 'inspect_ts', waiting_inspect)
+    results = []
+    def run():
+        try:
+            results.append(cache.prepare(ad(), threading.Event()))
+        except Exception as error:
+            results.append(error)
+    first = threading.Thread(target=run)
+    first.start()
+    assert entered.wait(1)
+    assert cache.reserved_bytes == len(segment())
+    second = threading.Thread(target=run)
+    second.start()
+    second.join(1)
+    assert not second.is_alive()
+    assert len(calls) == 1
+    assert cache.total_bytes + cache.reserved_bytes <= ad_media.MAX_BYTES
+    release.set()
+    first.join(2)
+    assert len(results) == 2 and sum(not isinstance(r, Exception) for r in results) == 1
+    cache.close()
+
+
+def test_real_http_deadline_expires_without_publication(tmp_path, monkeypatch):
+    import ad_media
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    monkeypatch.setattr(ad_media, 'PREPARATION_SECONDS', .1)
+    class Slow(BaseHTTPRequestHandler):
+        def do_GET(self):
+            time.sleep(.3)
+            try:
+                self.send_response(200)
+                self.send_header('Content-Length', '8')
+                self.end_headers()
+                self.wfile.write(b'#EXTM3U\n')
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Slow)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = 'http://127.0.0.1:%d' % server.server_port
+    try:
+        cache = CreativeCache(tmp_path, HttpClient(policy=UrlPolicy(test_origins={url})), url)
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            cache.prepare(ad(url + '/slow.m3u8'), threading.Event())
+        assert time.monotonic() - started < .8
+        assert not list(cache.session.glob('*.ts'))
+        assert cache.total_bytes + cache.reserved_bytes == 0
+        cache.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(1)
+
+
+def test_validation_time_is_inside_preparation_deadline(tmp_path, monkeypatch):
+    import ad_media
+    monkeypatch.setattr(ad_media, 'PREPARATION_SECONDS', .01)
+    original = ad_media.inspect_ts
+
+    def slow_parse(data, check):
+        time.sleep(.03)
+        return original(data, check)
+
+    monkeypatch.setattr(ad_media, 'inspect_ts', slow_parse)
+    cache = CreativeCache(tmp_path, Client(), 'http://127.0.0.1:8766')
+    with pytest.raises(TimeoutError):
+        cache.prepare(ad(), threading.Event())
+    assert cache.total_bytes == cache.reserved_bytes == 0
+    assert not list(cache.session.glob('*.ts'))
     cache.close()
 
 

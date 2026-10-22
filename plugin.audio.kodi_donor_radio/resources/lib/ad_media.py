@@ -19,6 +19,7 @@ MAX_BYTES = 32 * 1024 * 1024
 MAX_SEGMENTS = 128
 MAX_SAMPLES = 60 * 48000
 MAX_MANIFEST = 256 * 1024
+PREPARATION_SECONDS = 10
 PTS_MOD = 1 << 33
 FRAME_PTS = 1920
 _PREPARATION_SLOTS = threading.BoundedSemaphore(2)
@@ -200,7 +201,12 @@ def inspect_ts(data: bytes, _check=None) -> MediaInfo:
 
 
 class CreativeCache:
-    """Session-owned, private cache. Only opaque IDs escape to the HLS router."""
+    """Session-owned cache. Prepared IDs carry one pin until caller unpins them.
+
+    A publisher may add pins for further references. It must release the
+    prepare-owned pin for every segment once the presentation no longer needs
+    the creative. Only opaque IDs should be used as HLS resource URLs.
+    """
     def __init__(self, profile: Path, client, fixture_origin):
         self.client, self.fixture_origin = client, fixture_origin
         self.root = Path(profile) / 'controlled-ad-creative-cache'
@@ -218,6 +224,7 @@ class CreativeCache:
             _ACTIVE_SESSIONS.add(self.session)
         self.entries = {}
         self.total_bytes = 0
+        self.reserved_bytes = 0
         self.lock = threading.RLock()
         self.closed = False
 
@@ -227,7 +234,7 @@ class CreativeCache:
         if time.monotonic() >= deadline:
             raise TimeoutError('Creative preparation timed out')
 
-    def _fetch(self, url, cancel, deadline, limit):
+    def _fetch(self, url, cancel, deadline, limit, reserve=None):
         self._check(cancel, deadline)
         if origin(url) != origin(self.fixture_origin):
             _bad('Advertising origin rejected')
@@ -242,6 +249,8 @@ class CreativeCache:
                 self._check(cancel, deadline)
                 if not block:
                     return bytes(body)
+                if reserve is not None:
+                    reserve(len(block))
                 body.extend(block)
                 if len(body) > limit:
                     _bad('Creative exceeds byte limit')
@@ -283,12 +292,32 @@ class CreativeCache:
             _bad('Invalid creative segment count')
         return items
 
+    def _reserve(self, size):
+        with self.lock:
+            if self.closed:
+                _bad('Creative cache is closed')
+            for key, entry in list(self.entries.items()):
+                if self.total_bytes + self.reserved_bytes + size <= MAX_BYTES:
+                    break
+                if entry[2] == 0:
+                    entry[0].unlink(missing_ok=True)
+                    self.total_bytes -= entry[1]
+                    del self.entries[key]
+            if self.total_bytes + self.reserved_bytes + size > MAX_BYTES:
+                _bad('Creative cache is full or pinned')
+            self.reserved_bytes += size
+
     def prepare(self, ad, cancel) -> PreparedAd:
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + PREPARATION_SECONDS
         while not _PREPARATION_SLOTS.acquire(blocking=False):
             self._check(cancel, deadline)
             cancel.wait(.02)
         created = []
+        reserved = 0
+        def reserve(size):
+            nonlocal reserved
+            self._reserve(size)
+            reserved += size
         try:
             manifest = self._fetch(ad.media_url, cancel, deadline, MAX_MANIFEST)
             items = self._manifest(manifest, ad.media_url)
@@ -298,7 +327,7 @@ class CreativeCache:
             previous = None
             remaining = MAX_BYTES
             for url, advertised in items:
-                body = self._fetch(url, cancel, deadline, remaining)
+                body = self._fetch(url, cancel, deadline, remaining, reserve)
                 info = inspect_ts(body, lambda: self._check(cancel, deadline))
                 self._check(cancel, deadline)
                 if abs(info.samples / 48000 - advertised) > 1024 / 48000:
@@ -334,27 +363,23 @@ class CreativeCache:
             self._check(cancel, deadline)
             with self.lock:
                 incoming = sum(p.stat().st_size for p in created)
-                if self.closed or incoming > MAX_BYTES:
+                if self.closed or incoming != reserved:
                     _bad('Creative cache is full or closed')
-                for key, entry in list(self.entries.items()):
-                    if self.total_bytes + incoming <= MAX_BYTES:
-                        break
-                    if entry[2] == 0:
-                        entry[0].unlink(missing_ok=True)
-                        self.total_bytes -= entry[1]
-                        del self.entries[key]
-                if self.total_bytes + incoming > MAX_BYTES:
-                    _bad('Creative cache is full or pinned')
                 for item in segments:
                     size = item.path.stat().st_size
-                    self.entries[item.id] = [item.path, size, 0]
+                    # A successful prepare transfers one pin to its caller.
+                    self.entries[item.id] = [item.path, size, 1]
                     self.total_bytes += size
+                self.reserved_bytes -= reserved
+                reserved = 0
             return PreparedAd(ad, tuple(segments), total_samples)
         except Exception:
             for path in created:
                 path.unlink(missing_ok=True)
             raise
         finally:
+            with self.lock:
+                self.reserved_bytes -= reserved
             _PREPARATION_SLOTS.release()
 
     def pin(self, resource_id):

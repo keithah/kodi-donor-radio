@@ -25,4 +25,12 @@ Implemented a session-owned `CreativeCache` with same-origin HTTP opens carrying
 
 ## Self-review and concerns
 
-The inspector intentionally accepts only the controlled single-program AAC-LC TS shape. It does not support encrypted, variant, discontinuous, or alternate-rendition HLS. Cache entries must be pinned by the publishing layer while output references them; unpinned entries may be evicted to honor the session byte cap. Runtime code uses only Python standard-library parsing and does not invoke FFmpeg.
+The inspector intentionally accepts only the controlled single-program AAC-LC TS shape. It does not support encrypted, variant, discontinuous, or alternate-rendition HLS. The publishing layer must retain and eventually release the pin transferred by `prepare()` for every output reference; unpinned entries may be evicted to honor the session byte cap. Runtime code uses only Python standard-library parsing and does not invoke FFmpeg.
+
+## Review follow-up (round 1)
+
+The review found a handoff race and missing admission accounting. A successful `prepare()` now registers all of its resource IDs with one pin each inside the same cache lock that publishes them. The caller owns that pin and must call `unpin()` once per segment after its presentation lifetime; additional `pin()` calls remain reference counted. This is the contract for the publishing layer in Task 5. The caller must also release these pins if it decides not to publish the prepared ad.
+
+Creative bytes are reserved under the same lock before entering the staging buffer or being written to private files. Admission counts published bytes plus all active preparations' reservations, evicting only unpinned published entries. Successful publication transfers the reservation to published bytes without double counting; cancellation and every failure path release it.
+
+The new RED run had three failures: the handoff test observed unexpected eviction, the concurrent admission test let both downloads reach inspection, and the real HTTP deadline test found no configurable preparation-duration constant. The GREEN focused run passed 21 tests. A local slow HTTP server now verifies that the absolute shared deadline aborts a response without publication, and a slow validation test verifies parsing stays in that budget. The final full suite passed 444 tests in 68.00 seconds.
