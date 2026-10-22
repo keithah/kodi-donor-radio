@@ -88,6 +88,22 @@ msgctxt "#30027"
 msgid "Test: HLS malformed cue"
 msgstr ""
 
+msgctxt "#30045"
+msgid "Test ad: controlled break"
+msgstr ""
+
+msgctxt "#30046"
+msgid "Test ad: mutated source break"
+msgstr ""
+
+msgctxt "#30047"
+msgid "Test ad: advanced live window"
+msgstr ""
+
+msgctxt "#30048"
+msgid "Test ad: delayed source segment"
+msgstr ""
+
 msgctxt "#30030"
 msgid "Local diagnostics"
 msgstr ""

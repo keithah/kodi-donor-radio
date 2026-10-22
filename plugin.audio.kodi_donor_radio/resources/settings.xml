@@ -27,6 +27,7 @@
           <level>0</level><default>false</default><control type="toggle"/>
         </setting>
         <setting id="ad_vast_url" type="string" label="30043" help="30044">
+          <constraints><allowempty>true</allowempty></constraints>
           <level>0</level><default></default><control type="edit" format="string"/>
         </setting>
       </group>

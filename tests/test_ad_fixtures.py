@@ -89,11 +89,46 @@ def test_reset_clears_collector_and_rolling_window(assets):
     with fixture_origin(assets) as origin:
         first = get(origin, '/source/normal/index.m3u8')
         second = get(origin, '/source/normal/index.m3u8')
-        assert first != second
+        assert first == second  # polling cannot advance the live media clock
         get(origin, '/track/placement-1/start')
         get(origin, '/reset')
         assert json.loads(get(origin, '/stats'))['beacons'] == {}
         assert get(origin, '/source/normal/index.m3u8') == first
+
+
+def test_live_manifest_has_new_media_after_window_advances(assets):
+    from tools.ad_fixture_server import source_manifest
+    before = source_manifest('normal', 0)
+    later = source_manifest('normal', 18)
+    assert '/ads/source000.ts' in before
+    assert '/ads/source023.ts' in later
+    assert '#EXT-X-MEDIA-SEQUENCE:18' in later
+    assert '#EXT-X-ENDLIST' not in later
+    metadata = json.loads((assets / 'metadata.json').read_text())['assets']
+    assert metadata['source023.ts']['first_pts'] > metadata['source005.ts']['last_pts']
+    for index in range(23):
+        before = metadata['source%03d.ts' % index]
+        after = metadata['source%03d.ts' % (index + 1)]
+        assert after['first_pts'] - before['last_pts'] == 1920
+
+
+def test_stall_source_delays_only_new_segment_six(assets):
+    from tools.ad_fixture_server import source_manifest
+    first = source_manifest('stall', 0)
+    next_window = source_manifest('stall', 1)
+    assert '/stall/source006.ts' not in first
+    assert '/stall/source006.ts' in next_window
+    assert '/ads/source005.ts' in first
+
+
+def test_finite_source_is_static_with_complete_marked_break(assets):
+    with fixture_origin(assets) as origin:
+        first = get(origin, '/source/finite/index.m3u8')
+        second = get(origin, '/source/finite/index.m3u8')
+        assert first == second
+        assert '#EXT-X-ENDLIST' in first
+        assert first.count('#EXTINF:') == 6
+        assert '#EXT-X-CUE-OUT:' in first and '#EXT-X-CUE-IN' in first
 
 
 def test_source_sections_and_replacement_have_matching_aac_frames(assets):
@@ -154,7 +189,7 @@ def test_failed_media_depth_and_expired_window(assets):
 
 def test_generated_tones_are_independently_decoded(assets):
     metadata = json.loads((assets / 'metadata.json').read_text())
-    assert len(metadata['assets']) == 11
+    assert len(metadata['assets']) == 29
     assert {item['aac_frames'] for item in metadata['assets'].values()} == {94}
     assert all(item['decoded_tone_hz'] == item['expected_tone_hz']
                for item in metadata['assets'].values())

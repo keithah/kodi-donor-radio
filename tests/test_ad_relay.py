@@ -103,7 +103,7 @@ def test_async_midroll_preserves_first_break_for_later_replacement(tmp_path, mon
     try:
         session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
         first = get(session.playback_url)[2].decode()
-        assert len([line for line in first.splitlines() if line and not line.startswith('#')]) == 1
+        assert len([line for line in first.splitlines() if line and not line.startswith('#')]) == 2
         assert '#EXT-X-ENDLIST' not in first
         gate.set()
         deadline = time.monotonic() + 5
@@ -118,7 +118,7 @@ def test_async_midroll_preserves_first_break_for_later_replacement(tmp_path, mon
         routes = [line for line in later.splitlines() if line and not line.startswith('#')]
         assert len(routes) >= 5
         base = 'http://127.0.0.1:%d' % relay.descriptor.port
-        replacement = get(base + routes[1])[2]
+        replacement = get(base + routes[2])[2]
         assert replacement == (ASSETS / 'replacement000.ts').read_bytes()
         assert decode_tone(replacement) != decode_tone((ASSETS / 'source002.ts').read_bytes())
         assert '#EXT-X-DISCONTINUITY' in later
@@ -164,7 +164,7 @@ def test_preroll_anchors_to_window_after_source_expiry(tmp_path):
         session = manager.create(Station('id', 'Fixture', origin + '/source/expired-window/index.m3u8', '', True))
         manifest = get(session.playback_url)[2].decode()
         routes = [line for line in manifest.splitlines() if line and not line.startswith('#')]
-        assert len(routes) == 4
+        assert len(routes) == 8
         base = 'http://127.0.0.1:%d' % relay.descriptor.port
         assert get(base + routes[0])[2] == (ASSETS / 'preroll000.ts').read_bytes()
         assert get(base + routes[2])[2] == (ASSETS / 'source004.ts').read_bytes()
@@ -199,7 +199,7 @@ def test_small_source_retention_omits_preroll_without_losing_programme(tmp_path)
     origin = 'http://127.0.0.1:%d' % fixture.server_port
     manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
                              ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
-                             cache_root=tmp_path, resource_limit=6)
+                             cache_root=tmp_path, resource_limit=7)
     relay = RelayServer(manager); relay.start()
     try:
         session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
@@ -207,8 +207,8 @@ def test_small_source_retention_omits_preroll_without_losing_programme(tmp_path)
         assert '#EXT-X-START:TIME-OFFSET=0' not in manifest
         routes = [line for line in manifest.splitlines() if line and not line.startswith('#')]
         base = 'http://127.0.0.1:%d' % relay.descriptor.port
-        assert get(base + routes[0])[2] == (ASSETS / 'source001.ts').read_bytes()
-        assert session.resource_count <= 6
+        assert get(base + routes[0])[2] == (ASSETS / 'source000.ts').read_bytes()
+        assert session.resource_count <= 7
     finally:
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 

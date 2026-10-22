@@ -353,7 +353,11 @@ def run_plugin(argv):
                 fixtures = [(30020,'continuous.mp3','MP3',False),(30021,'continuous.aac','AAC',False),
                             (30022,'icy.mp3','MP3',False),(30023,'hls/normal/index.m3u8','AAC',True),
                             (30024,'hls/mid-break/index.m3u8','AAC',True),(30025,'hls/missing-end/index.m3u8','AAC',True),
-                            (30026,'hls/no-cue/index.m3u8','AAC',True),(30027,'hls/malformed-cue/index.m3u8','AAC',True)]
+                            (30026,'hls/no-cue/index.m3u8','AAC',True),(30027,'hls/malformed-cue/index.m3u8','AAC',True),
+                            (30045,'source/normal/index.m3u8','AAC',True),
+                            (30046,'source/mutation/index.m3u8','AAC',True),
+                            (30047,'source/expired-window/index.m3u8','AAC',True),
+                            (30048,'source/stall/index.m3u8','AAC',True)]
                 for label,path,codec,hls in fixtures:
                     station_item(Station('fixture-%d'%label,text(label),origin+'/'+path,codec,hls))
         else:

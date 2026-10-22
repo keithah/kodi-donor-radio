@@ -22,8 +22,9 @@ else:
     from fixture_server import send_fixture_response
 
 
-SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window')
+SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window', 'finite', 'stall')
 AD_ASSETS = ('replacement', 'preroll')
+LIVE_SEGMENT_SECONDS = 94 * 1024 / 48000
 EVENTS = ('impression', 'start', 'firstQuartile', 'midpoint',
           'thirdQuartile', 'complete', 'error')
 
@@ -40,10 +41,15 @@ def media_manifest(asset):
 def source_manifest(scenario, window):
     if scenario not in SOURCE_SCENARIOS:
         raise ValueError('Unknown source scenario')
-    first = min(window, 2) if scenario != 'expired-window' else (0 if window == 0 else 4)
+    if scenario == 'finite':
+        first = 0
+    elif scenario == 'expired-window':
+        first = 0 if window == 0 else max(4, min(window, 18))
+    else:
+        first = min(window, 18)
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:3',
              '#EXT-X-MEDIA-SEQUENCE:%d' % first]
-    for index in range(first, 6):
+    for index in range(first, min(first + 6, 24)):
         if index == 2:
             lines.append('#EXT-X-CUE-OUT:4.010667')
         if index == 4:
@@ -51,7 +57,10 @@ def source_manifest(scenario, window):
         filename = 'source%03d.ts' % index
         if scenario == 'mutation' and window > 0 and index == 3:
             filename = 'source003-mutated.ts'
-        lines.extend(('#EXTINF:2.005333,', '/ads/' + filename))
+        prefix = '/stall/' if scenario == 'stall' and index == 6 else '/ads/'
+        lines.extend(('#EXTINF:2.005333,', prefix + filename))
+    if scenario == 'finite':
+        lines.append('#EXT-X-ENDLIST')
     return '\n'.join(lines) + '\n'
 
 
@@ -115,6 +124,7 @@ def make_server(assets, host='127.0.0.1', port=8766):
         raise ValueError('Advertising fixtures must bind numeric 127.0.0.1')
     assets = Path(assets)
     requests, beacons, windows = Counter(), Counter(), Counter()
+    starts = {}
     lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -127,6 +137,7 @@ def make_server(assets, host='127.0.0.1', port=8766):
                     requests.clear()
                     beacons.clear()
                     windows.clear()
+                    starts.clear()
                 return self.respond(b'{}', 'application/json')
             if route == '/stats':
                 with lock:
@@ -155,7 +166,12 @@ def make_server(assets, host='127.0.0.1', port=8766):
             if match and match.group(1) in SOURCE_SCENARIOS:
                 scenario = match.group(1)
                 with lock:
-                    window = windows[scenario]
+                    now = time.monotonic()
+                    started = starts.setdefault(scenario, now)
+                    # Mutation and expiry deliberately accelerate by request
+                    # so the error is reproducible without a wall-clock wait.
+                    window = (windows[scenario] if scenario in ('mutation', 'expired-window')
+                              else int((now - started) / LIVE_SEGMENT_SECONDS))
                     windows[scenario] += 1
                 return self.respond(source_manifest(scenario, window).encode(),
                                     'application/vnd.apple.mpegurl')
@@ -166,6 +182,11 @@ def make_server(assets, host='127.0.0.1', port=8766):
             match = re.fullmatch(r'/ads/([a-z0-9-]+\.ts)', route)
             if match:
                 path = assets / match.group(1)
+                if path.is_file():
+                    return self.respond(path.read_bytes(), 'video/mp2t')
+            if route == '/stall/source006.ts':
+                time.sleep(6)
+                path = assets / 'source006.ts'
                 if path.is_file():
                     return self.respond(path.read_bytes(), 'video/mp2t')
             if route == '/ads/unsupported.mp4':

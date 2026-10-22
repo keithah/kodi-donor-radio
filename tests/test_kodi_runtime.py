@@ -105,6 +105,23 @@ def test_home_hides_test_streams_and_uses_localized_labels(kodi):
     assert state.ended == [{'cacheToDisc': False}]
 
 
+def test_controlled_ad_sources_appear_in_test_menu(kodi):
+    runtime, state, _ = kodi
+    state.settings.update({'test_mode': True, 'test_origin': 'http://127.0.0.1:58416'})
+    route(runtime, action='tests')
+    stations = [runtime._station(parse_qs(urlsplit(url).query)['station'][0])
+                for url, _, _ in state.items if 'station=' in url]
+    paths = {urlsplit(station.url).path for station in stations}
+    assert {'/source/normal/index.m3u8', '/source/mutation/index.m3u8',
+            '/source/expired-window/index.m3u8', '/source/stall/index.m3u8'} <= paths
+    assert all(station.hls and station.codec == 'AAC' for station in stations
+               if '/source/' in station.url)
+    translations = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
+    import re
+    ids = re.findall(r'^msgctxt "#(\d+)"$', translations, re.MULTILINE)
+    assert len(ids) == len(set(ids))
+
+
 @pytest.mark.parametrize('params,expected', [
     ({'action':'search'},('jazz','','',0,50)),
     ({'action':'stations','country':'France','offset':'50'},('','France','',50,50)),
@@ -263,7 +280,7 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==8
+    assert len(state.items)==12
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(parse_qs(urlsplit(state.items[0][0]).query)['station'][0])
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
@@ -427,6 +444,8 @@ def test_adapter_recognizes_safe_suffix_playback_routes(kodi, suffix):
 
 def test_ad_settings_default_off_and_require_exact_fixture_origin(kodi):
     runtime, state, _ = kodi
+    settings = ET.parse(ADDON / 'resources/settings.xml')
+    assert settings.find(".//setting[@id='ad_vast_url']/constraints/allowempty").text == 'true'
     assert runtime.ad_settings().enabled is False
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
                           ad_enabled=True, ad_preroll=True,
