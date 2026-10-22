@@ -4,7 +4,7 @@
 Published output records are immutable. Cache pin and release belong to the
 caller; this module makes no network, filesystem, or tracking calls.
 """
-from collections import OrderedDict, deque
+from collections import OrderedDict
 import math
 import threading
 import uuid
@@ -14,6 +14,11 @@ from ad_models import OutputSegment, Placement, Presentation
 
 FRAME = 1024
 RATE = 48000
+MAX_EPOCH_ANCHORS = 16
+
+
+class TimelineEpochLimit(ValueError):
+    """A new source epoch cannot be distinguished within bounded history."""
 
 
 def _supported(item):
@@ -38,8 +43,9 @@ class AdTimeline:
     """Compose a bounded session window while retaining monotonic output IDs.
 
     The first observed source segment is the session's sample-zero programme
-    anchor, regardless of its upstream media sequence. A reset to sequence zero
-    begins a new source epoch; output sequence/sample positions never reset.
+    anchor, regardless of its upstream media sequence. A sequence-zero window
+    with a new source URI begins a new epoch until the bounded URI history is
+    full; output sequence/sample positions never reset.
     """
     def __init__(self, preroll, resource_limit):
         if not isinstance(resource_limit, int) or resource_limit < 1:
@@ -54,8 +60,7 @@ class AdTimeline:
         self._source = OrderedDict()
         self._epoch = 0
         self._highwater = None
-        self._zero_anchor = None
-        self._retired_anchors = deque(maxlen=16)
+        self._zero_anchors = set()
         self._last_source_disc = None
         self._next_sequence = 0
         self._next_sample = 0
@@ -142,7 +147,8 @@ class AdTimeline:
         cumulative = self._sample_delta
         selected = []
         for start, end, disc, declared in intervals:
-            if (start not in by_sequence or end not in by_sequence
+            if (start not in by_sequence or
+                    (end not in by_sequence and end != playlist.segments[-1].sequence + 1)
                     or any(n not in by_sequence or n in published or n not in unseen_sequences
                            for n in range(start, end))):
                 continue
@@ -174,28 +180,26 @@ class AdTimeline:
             overlap = any((self._epoch, s.sequence, s.discontinuity) in self._source
                           for s in incoming)
             zero = incoming[0].sequence == 0
-            zero_item = source_segments.get(incoming[0].uri) if zero else None
-            anchor = (incoming[0].uri, zero_item.id) if zero_item is not None else None
+            zero_uri = incoming[0].uri if zero else None
             reset = (self._highwater is not None and not overlap and zero
-                     and self._highwater > 0 and anchor is not None
-                     and anchor != self._zero_anchor
-                     and anchor not in self._retired_anchors)
+                     and self._highwater > 0 and zero_uri not in self._zero_anchors)
             if reset:
-                if self._zero_anchor is not None:
-                    self._retired_anchors.append(self._zero_anchor)
+                if len(self._zero_anchors) >= MAX_EPOCH_ANCHORS:
+                    raise TimelineEpochLimit('source_epoch_history_exhausted')
                 self._epoch += 1
                 self._highwater = None
                 self._last_source_disc = None
                 self._output_disc += 1
                 self._source.clear()
-                self._zero_anchor = anchor
-            if zero and self._zero_anchor is None:
-                self._zero_anchor = anchor
             # Avoid a partial publication when a referenced source file is absent.
             unseen = [s for s in incoming if (self._epoch, s.sequence, s.discontinuity) not in self._source
                       and (self._highwater is None or s.sequence > self._highwater)]
             if any(s.uri not in source_segments or not _supported(source_segments[s.uri]) for s in unseen):
                 return self.snapshot()
+            if zero and zero_uri not in self._zero_anchors:
+                if len(self._zero_anchors) >= MAX_EPOCH_ANCHORS:
+                    raise TimelineEpochLimit('source_epoch_history_exhausted')
+                self._zero_anchors.add(zero_uri)
             if not self._started:
                 self._started = True
                 pre = self._preroll

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from ad_models import CachedSegment, MediaInfo, PreparedAd, ResolvedAd
-from ad_timeline import AdTimeline
+from ad_timeline import AdTimeline, TimelineEpochLimit
 from hls import parse_playlist
 
 URL = 'http://radio.test/live.m3u8'
@@ -28,6 +28,7 @@ def playlist(names, cues=None, sequence=0, ended=False, disc=0):
     for i, name in enumerate(names):
         lines.extend(cues.get(i, ()))
         lines.extend(('#EXTINF:2.005333,', name + '.ts'))
+    lines.extend(cues.get(len(names), ()))
     if ended:
         lines.append('#EXT-X-ENDLIST')
     return parse_playlist('\n'.join(lines) + '\n', URL)
@@ -202,3 +203,63 @@ def test_conflicting_continuation_duration_rejects_replacement():
                            3: ['#EXT-X-CUE-IN']}),
                  sources('a', 'x0', 'x1', 'b'))
     assert ids(p) == ['a', 'x0', 'x1', 'b']
+
+
+def test_terminal_cue_in_replaces_full_available_interval_and_preserves_next_programme():
+    t = AdTimeline(None, 8)
+    t.offer(creative())
+    whole = playlist(['a', 'x0', 'x1'],
+                     {1: ['#EXT-X-CUE-OUT:4.010666'], 3: ['#EXT-X-CUE-IN']})
+    published = t.update(whole, sources('a', 'x0', 'x1'))
+    assert ids(published) == ['a', 'ad0', 'ad1']
+    assert len(published.placements) == 1
+    later = t.update(playlist(['x1', 'b'], sequence=2), sources('x1', 'b'))
+    assert ids(later) == ['a', 'ad0', 'ad1', 'b']
+    assert later.segments[-1].start_sample == 3 * 94 * FRAME
+    assert later.segments[-1].discontinuity == published.segments[-1].discontinuity + 1
+    assert published.segments == later.segments[:-1]
+
+
+def test_replayed_old_zero_window_with_new_cache_id_never_republishes():
+    t = AdTimeline(None, 2)
+    old = playlist(['old0', 'old1'])
+    t.update(old, sources('old0', 'old1'))
+    t.update(playlist(['old1', 'old2', 'old3'], sequence=1), sources('old1', 'old2', 'old3'))
+    t.update(playlist(['new0', 'new1']), sources('new0', 'new1'))
+    t.update(playlist(['new1', 'new2', 'new3'], sequence=1), sources('new1', 'new2', 'new3'))
+    current = t.snapshot()
+    refetched = sources('old0', 'old1')
+    refetched['http://radio.test/old0.ts'] = media('old0-new-cache-id')
+    assert t.update(old, refetched) == current
+
+
+def test_epoch_history_exhaustion_rejects_new_reset_without_mutation():
+    t = AdTimeline(None, 2)
+    for epoch in range(16):
+        names = ['epoch%d-start' % epoch, 'epoch%d-next' % epoch]
+        t.update(playlist(names), sources(*names))
+        later = ['epoch%d-next' % epoch, 'epoch%d-tail' % epoch]
+        t.update(playlist(later, sequence=1), sources(*later))
+    current = t.snapshot()
+    next_names = ['epoch16-start', 'epoch16-next']
+    with pytest.raises(TimelineEpochLimit, match='source_epoch_history_exhausted'):
+        t.update(playlist(next_names), sources(*next_names))
+    assert t.snapshot() == current
+    assert t.update(playlist(['epoch0-start', 'epoch0-next']),
+                    sources('epoch0-start', 'epoch0-next')) == current
+
+
+def test_terminal_interval_requires_every_source_segment_and_keeps_committed_bytes():
+    t = AdTimeline(None, 8)
+    t.offer(creative())
+    whole = playlist(['a', 'x0', 'x1'],
+                     {1: ['#EXT-X-CUE-OUT:4.010666'], 3: ['#EXT-X-CUE-IN']})
+    incomplete = sources('a', 'x0')
+    assert not t.update(whole, incomplete).segments
+    complete = sources('a', 'x0', 'x1')
+    committed = t.update(whole, complete)
+    assert ids(committed) == ['a', 'ad0', 'ad1']
+    changed = sources('a', 'x0', 'x1')
+    for key in changed:
+        changed[key] = media('mutated-' + changed[key].id)
+    assert t.update(whole, changed) == committed
