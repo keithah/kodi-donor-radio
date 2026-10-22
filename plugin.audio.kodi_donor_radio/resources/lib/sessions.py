@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 import secrets
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
+from url_policy import origin
 
 from cues import CueTracker
 from http_client import HttpClient
@@ -43,7 +45,8 @@ class Resource:
 
 
 class PlaybackSession:
-    def __init__(self, station, source, cancel, base_url, sink, resource_limit):
+    def __init__(self, station, source, cancel, base_url, sink, resource_limit,
+                 ad_config=None, ad_client=None, cache_root=None):
         if resource_limit < 1:
             raise ValueError('Resource limit must be positive')
         self.id = secrets.token_hex(24)
@@ -60,6 +63,53 @@ class PlaybackSession:
         self._claimed = False
         self.tracker = CueTracker(self.id, station.uuid, sink,
                                   lambda: datetime.now(timezone.utc), time.monotonic)
+        self.ad = None
+        self._cache_routes = {}
+        if (ad_config is not None and ad_config.enabled and source.protocol == 'hls'
+                and ad_config.fixture_origin and ad_config.vast_url
+                and origin(ad_config.fixture_origin) in getattr(
+                    getattr(ad_client, 'policy', None), 'test_origins', frozenset())
+                and ad_config.fixture_origin.startswith('http://127.0.0.1:')
+                and (ad_config.preroll or ad_config.midroll)):
+            from ad_session import AdSession
+            self.ad = AdSession(ad_config, ad_client, cache_root or Path.cwd(), cancel,
+                                resource_limit)
+            self.ad.active_ids = self.active_cached_ids
+            if ad_config.preroll and not ad_config.midroll and not self.ad.preroll_available:
+                self.ad.close()
+                self.ad = None
+
+    def presentation(self):
+        return self.ad.presentation() if self.ad is not None else None
+
+    def active_cached_ids(self):
+        with self._lock:
+            return {resource.cache_id for resource in self._cache_routes.values()
+                    if resource.active}
+
+    def cached_route(self, cache_id):
+        with self._lock:
+            resource = self._cache_routes.get(cache_id)
+            if resource is None:
+                if len(self._resources) >= self.resource_limit:
+                    self.retire_cached()
+                if len(self._resources) >= self.resource_limit:
+                    raise ResourceLimit('Session resource limit')
+                resource = Resource(secrets.token_hex(24), 'cache:///%s.ts' % cache_id, 'cached')
+                resource.cache_id = cache_id
+                self._resources[resource.id] = resource
+                self._cache_routes[cache_id] = resource
+            return self.route(resource.id)
+
+    def retire_cached(self):
+        if self.ad is None:
+            return
+        retained = {s.resource_id for s in self.ad.presentation().segments}
+        with self._lock:
+            for cache_id, resource in list(self._cache_routes.items()):
+                if cache_id not in retained and not resource.active:
+                    self._resources.pop(resource.id, None)
+                    del self._cache_routes[cache_id]
 
     def route(self, resource_id):
         resource = self._resources[resource_id]
@@ -147,15 +197,18 @@ class PlaybackSession:
         self.cancel.set()
         if self.source.response is not None:
             self.source.response.close()
+        if self.ad is not None:
+            self.ad.close()
         self.tracker.finish(reason)
 
 
 class SessionManager:
     def __init__(self, client=None, sink=None, resolver=resolve_station,
-                 resource_limit=2048, idle_timeout=120):
+                 resource_limit=2048, idle_timeout=120, ad_config=None, cache_root=None):
         self.client = client or HttpClient()
         self.sink = SafeSink(sink)
         self.resolver, self.resource_limit, self.idle_timeout = resolver, resource_limit, idle_timeout
+        self.ad_config, self.cache_root = ad_config, cache_root
         self.base_url = ''
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
@@ -183,7 +236,8 @@ class SessionManager:
                     if self._closed or self._pending is not cancel or cancel.is_set():
                         raise RuntimeError('Station selection cancelled')
                     session = PlaybackSession(station, source, cancel, self.base_url,
-                                              self.sink, self.resource_limit)
+                                              self.sink, self.resource_limit,
+                                              self.ad_config, self.client, self.cache_root)
                     self._session = session
                     return session
             except Exception:

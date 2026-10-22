@@ -18,6 +18,7 @@ from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse,
 from icy import IcyDecoder
 from models import Event, Station
 from sessions import ResourceLimit, SessionManager
+from ad_session import CompositionFailure
 
 
 _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-control',
@@ -130,6 +131,10 @@ class _Handler(BaseHTTPRequestHandler):
                 headers = session.source.response.headers
             elif resource.kind in ('hls', 'playlist'):
                 headers = {'content-type': 'application/vnd.apple.mpegurl'}
+            elif resource.kind == 'cached' and session.ad is not None:
+                data = session.ad.read(resource.cache_id)
+                self._headers(200, {'content-type': 'video/mp2t'}, len(data))
+                return
             else:
                 return self._reply(405)  # Segment/map metadata is not retained.
             # HEAD ignores Range; no transformed body length is known here.
@@ -209,6 +214,8 @@ class _Handler(BaseHTTPRequestHandler):
                         if session.cancel.is_set():
                             return
                         self._resource(session, resource)
+                elif resource.kind == 'cached':
+                    self._cached(session, resource)
                 else:
                     self._resource(session, resource)
         except KeyError:
@@ -279,6 +286,33 @@ class _Handler(BaseHTTPRequestHandler):
             if decoder is not None:
                 decoder.finish()
 
+    def _cached(self, session, resource):
+        if session.ad is None:
+            return self._reply(404)
+        data = session.ad.read(resource.cache_id)
+        size = len(data)
+        value = self.headers.get('Range')
+        status, start, end = 200, 0, size - 1
+        if value is not None:
+            match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', value)
+            suffix = re.fullmatch(r'bytes=-([0-9]+)', value)
+            if match:
+                start = int(match.group(1))
+                end = min(size - 1, int(match.group(2))) if match.group(2) else size - 1
+            elif suffix and int(suffix.group(1)) > 0:
+                start = max(0, size - int(suffix.group(1)))
+            else:
+                start = size
+            if start > end or start >= size:
+                self._headers(416, {'content-range': 'bytes */%d' % size}, 0)
+                return
+            status = 206
+        headers = {'content-type': 'video/mp2t', 'accept-ranges': 'bytes'}
+        if status == 206:
+            headers['content-range'] = 'bytes %d-%d/%d' % (start, end, size)
+        self._headers(status, headers, end - start + 1)
+        self.wfile.write(data[start:end + 1])
+
     def _resource(self, session, resource):
         headers = {'User-Agent': USER_AGENT}
         value = self.headers.get('Range')
@@ -310,6 +344,26 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError('Partial playlist unsupported')
                 body = read_bounded(response, BODY_BYTES)
                 playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
+                if session.ad is not None and resource.kind == 'hls' and not playlist.is_master:
+                    if playlist.segments:
+                        if (resource.first_sequence is not None and
+                                playlist.segments[-1].sequence < resource.first_sequence):
+                            resource.epoch += 1
+                        resource.first_sequence = playlist.segments[0].sequence
+                    session.tracker.observe(playlist, resource.id, resource.epoch)
+                    try:
+                        rendered = session.ad.render(playlist, session.cached_route)
+                    except Exception:
+                        if session.ad.committed:
+                            self.server.relay.manager.stop(session.id)
+                            return self._reply(502)
+                        session.ad.close()
+                        session.ad = None
+                    else:
+                        session.retire_cached()
+                        self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rendered))
+                        self.wfile.write(rendered)
+                        return
                 routes = session.register_many([ref.url for ref in playlist.uri_references],
                                                [ref.kind for ref in playlist.uri_references])
                 registered = dict(zip([ref.url for ref in playlist.uri_references], routes))

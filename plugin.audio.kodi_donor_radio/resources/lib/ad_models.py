@@ -17,6 +17,15 @@ class AdError(Exception):
 
 
 @dataclass(frozen=True)
+class AdConfig:
+    enabled: bool
+    preroll: bool
+    midroll: bool
+    vast_url: str
+    fixture_origin: str
+
+
+@dataclass(frozen=True)
 class TrackingUrl:
     event: str
     url: str

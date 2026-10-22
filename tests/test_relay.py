@@ -179,6 +179,9 @@ def test_control_auth_health_forgery_and_switch(relay, origin):
     payload = json.dumps({'uuid': 'id', 'name': 'Radio', 'url': origin[0] + '/audio', 'codec': '', 'hls': False})
     assert request(base + '/sessions', 'POST', payload)[0] == 401
     auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    untrusted = json.dumps({'uuid': 'id', 'name': 'Radio', 'url': origin[0] + '/list',
+                            'codec': '', 'hls': True, 'ads': {'enabled': True}})
+    assert request(base + '/sessions', 'POST', untrusted, auth)[0] == 400
     status, _, body = request(base + '/sessions', 'POST', payload, auth)
     assert status == 201
     first = json.loads(body)
