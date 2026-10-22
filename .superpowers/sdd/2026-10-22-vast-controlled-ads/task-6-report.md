@@ -41,3 +41,10 @@ The resolver also uses 301 for a direct initial VAST request failure, but it has
 - `emit` receives one mapping for each confirmed milestone: `{kind: "ad_tracking", session_id, event, placement_id, creative_id, reason}`. The IDs are 16-character opaque SHA-256 prefixes, and reason is fixed (`queued` or `no_endpoint`). An adapter may map `event` to the `Event` evidence/source fields and the IDs/reason to details. No URL or raw VAST identifier enters this mapping.
 - Use `finish("ad_end")` only for a callback known to mean creative end. A Kodi source end callback should use `finish("source_end")`; stop/cancel should use `finish("cancelled")`. The tracker cannot infer a creative end from a source end callback.
 - A resolver failure must be surfaced by the calling layer to `enqueue_ad_error`; Task 5 currently catches preparation exceptions internally and returns no ad. That path needs a callback or equivalent handoff if production error beacons are desired. No production tracking requests were wired in this task.
+
+## Review fix round 1
+
+The review found that two stationary mapped samples near the creative end could set the final callback interval after a seek. `finish("ad_end")` could then emit `complete` despite no forward playback. A continuous pair now requires positive position advance, so a stationary pair cannot corroborate completion.
+
+- RED: `python3 -m pytest tests/test_ad_tracking.py::test_seek_near_end_then_stationary_samples_cannot_complete_on_callback -q` — 1 failed, with unexpected `complete` in the queued events.
+- GREEN: `python3 -m pytest tests/test_ad_tracking.py -q` — 19 passed in 0.63 seconds.

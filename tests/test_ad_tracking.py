@@ -102,6 +102,17 @@ def test_end_callback_requires_ad_end_position_and_source_end_does_not_complete(
     assert [event for _, event, _ in queued].count("complete") == 1
 
 
+def test_seek_near_end_then_stationary_samples_cannot_complete_on_callback():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(0, 0))
+    instance.observe(view, sample(3.9, 1, seeking=True))
+    instance.observe(view, sample(3.9, 1.25))
+    instance.observe(view, sample(3.9, 1.5))
+    instance.finish("ad_end")
+    assert "complete" not in [event for _, event, _ in queued]
+
+
 def test_cancel_before_end_never_completes():
     instance, _, queued = tracker()
     view = presentation()

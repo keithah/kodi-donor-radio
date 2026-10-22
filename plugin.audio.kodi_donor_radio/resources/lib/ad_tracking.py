@@ -85,7 +85,7 @@ class AdTracker:
             advance = sample.position_seconds - previous.position_seconds
             continuous = (previous.mapped and previous.playing and not previous.paused and
                           not previous.seeking and 0 < interval <= MAX_GAP and
-                          0 <= advance <= interval + START_TOLERANCE)
+                          0 < advance <= interval + START_TOLERANCE)
         for placement in presentation.placements:
             start = placement.start_sample / 48000
             end = placement.end_sample / 48000
