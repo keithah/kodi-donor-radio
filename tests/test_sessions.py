@@ -161,3 +161,46 @@ def test_newest_selection_cancels_running_and_queued_creates(selections,close_ma
         m.close()
         for worker in workers: worker.join(3)
     assert all(probe.closed for probe in probes)
+
+
+def test_ad_cache_setup_failure_falls_back_before_publication(monkeypatch, tmp_path):
+    from ad_models import AdConfig
+    from ad_session import AdSession
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    origin = 'http://127.0.0.1:8766'
+    def fail_setup(*args, **kwargs):
+        raise OSError('profile unavailable')
+    monkeypatch.setattr(AdSession, '__init__', fail_setup)
+    probe = Probe()
+    from sessions import SessionManager
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
+                             resolver=lambda *args: ResolvedSource(origin + '/index.m3u8', 'hls', probe, b''),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path)
+    try:
+        session = manager.create(station())
+        assert session.presentation() is None
+        assert manager.get(session.id) is session
+        assert not probe.closed
+    finally:
+        manager.close()
+
+
+def test_ad_config_does_not_activate_on_non_test_origin_hls(tmp_path):
+    from ad_models import AdConfig
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    fixture = 'http://127.0.0.1:8766'
+    from sessions import SessionManager
+    probe = Probe()
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={fixture})),
+                             resolver=lambda *args: ResolvedSource('https://radio.example/index.m3u8', 'hls', probe, b''),
+                             ad_config=AdConfig(True, True, False, fixture + '/vast/preroll', fixture),
+                             cache_root=tmp_path)
+    try:
+        session = manager.create(station())
+        assert session.presentation() is None
+        assert not (tmp_path / 'controlled-ad-creative-cache').exists()
+    finally:
+        manager.close()

@@ -213,6 +213,8 @@ class _Handler(BaseHTTPRequestHandler):
                     with resource.playlist_lock:
                         if session.cancel.is_set():
                             return
+                        if session.ad is not None and session.ad.terminal:
+                            return self._reply(503)
                         self._resource(session, resource)
                 elif resource.kind == 'cached':
                     self._cached(session, resource)
@@ -355,8 +357,8 @@ class _Handler(BaseHTTPRequestHandler):
                         rendered = session.ad.render(playlist, session.cached_route)
                     except Exception:
                         if session.ad.committed:
-                            self.server.relay.manager.stop(session.id)
-                            return self._reply(502)
+                            session.ad.terminate()
+                            return self._reply(503)
                         session.ad.close()
                         session.ad = None
                     else:

@@ -236,3 +236,83 @@ def test_stop_during_retained_source_invalidates_routes_and_removes_cache(tmp_pa
         assert session.cancel.is_set()
     finally:
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
+
+
+def test_old_published_routes_survive_reloads_until_bounded_capacity(tmp_path, monkeypatch):
+    from ad_models import AdConfig
+    import ad_session
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    monkeypatch.setattr(ad_session, 'SOURCE_SEGMENTS', 8)
+    counter = {'manifest': 0}
+    class Source(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/index.m3u8':
+                sequence = counter['manifest']; counter['manifest'] += 1
+                body = ('#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:%d\n'
+                        '#EXTINF:2.005333,\n/s%d.ts\n#EXTINF:2.005333,\n/s%d.ts\n'
+                        % (sequence, sequence, sequence + 1)).encode()
+                mime = 'application/vnd.apple.mpegurl'
+            else:
+                body = (ASSETS / 'source000.ts').read_bytes()
+                mime = 'video/mp2t'
+            self.send_response(200)
+            self.send_header('Content-Type', mime)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers(); self.wfile.write(body)
+        def log_message(self, *args): pass
+    source = ThreadingHTTPServer(('127.0.0.1', 0), Source)
+    source.daemon_threads = True
+    source_thread = threading.Thread(target=source.serve_forever, daemon=True); source_thread.start()
+    fixture = make_server(ASSETS, port=0)
+    fixture_thread = threading.Thread(target=fixture.serve_forever, daemon=True); fixture_thread.start()
+    source_origin = 'http://127.0.0.1:%d' % source.server_port
+    origin = 'http://127.0.0.1:%d' % fixture.server_port
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin, source_origin})),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path, resource_limit=20)
+    relay = RelayServer(manager); relay.start()
+    try:
+        session = manager.create(Station('id', 'Sliding', source_origin + '/index.m3u8', '', True))
+        first = get(session.playback_url)[2].decode()
+        first_routes = [line for line in first.splitlines() if line and not line.startswith('#')]
+        base = 'http://127.0.0.1:%d' % relay.descriptor.port
+        old_route = base + first_routes[2]
+        for _ in range(3):
+            assert get(session.playback_url)[0] == 200
+        # The old playlist can still be in a player's hands after new publication.
+        assert get(old_route)[2] == (ASSETS / 'source000.ts').read_bytes()
+        for _ in range(10):
+            if get(session.playback_url)[0] != 200:
+                break
+        assert get(session.playback_url)[0] in (410, 503)
+        assert get(old_route)[2] == (ASSETS / 'source000.ts').read_bytes()
+    finally:
+        relay.close(); source.shutdown(); source.server_close(); source_thread.join(2)
+        fixture.shutdown(); fixture.server_close(); fixture_thread.join(2)
+
+
+def test_abrupt_playlist_socket_loss_keeps_published_media_until_stop(tmp_path):
+    from ad_models import AdConfig
+    import socket, struct
+    fixture = make_server(ASSETS, port=0)
+    thread = threading.Thread(target=fixture.serve_forever, daemon=True); thread.start()
+    origin = 'http://127.0.0.1:%d' % fixture.server_port
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path)
+    relay = RelayServer(manager); relay.start()
+    try:
+        session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
+        body = get(session.playback_url)[2].decode()
+        route = next(line for line in body.splitlines() if line and not line.startswith('#'))
+        base = 'http://127.0.0.1:%d' % relay.descriptor.port
+        client = socket.create_connection(('127.0.0.1', relay.descriptor.port))
+        client.sendall(('GET %s HTTP/1.1\r\nHost: localhost\r\n\r\n' % urlsplit(session.playback_url).path).encode())
+        client.recv(64)
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+        client.close()
+        assert get(base + route)[0] == 200
+        manager.stop(session.id)
+        assert get(base + route)[0] == 404
+    finally:
+        relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)

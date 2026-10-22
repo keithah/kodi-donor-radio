@@ -8,6 +8,7 @@ from dataclasses import replace
 from ad_media import CreativeCache, inspect_ts
 from ad_timeline import AdTimeline, TimelineEpochLimit
 from http_client import read_bounded
+from url_policy import origin
 from vast import VastResolver
 
 SOURCE_BYTES = 32 * 1024 * 1024
@@ -19,8 +20,9 @@ class CompositionFailure(ValueError):
 
 
 class AdSession:
-    def __init__(self, config, client, cache_root, cancel, resource_limit):
+    def __init__(self, config, client, cache_root, cancel, resource_limit, source_origin):
         self.config, self.client, self.cancel = config, client, cancel
+        self.source_origin = origin(source_origin)
         self.creative = CreativeCache(cache_root, client, config.fixture_origin)
         self.resolver = VastResolver(client, config.fixture_origin)
         self.timeline = None
@@ -31,6 +33,7 @@ class AdSession:
         self._prepared = []
         self._initial = True
         self._committed = False
+        self._terminal = False
         self._closed = False
         self.active_ids = lambda: set()
         self._limit = min(SOURCE_SEGMENTS // 2, max(1, resource_limit - 1))
@@ -72,6 +75,20 @@ class AdSession:
         with self._lock:
             return self._committed
 
+    @property
+    def terminal(self):
+        with self._lock:
+            return self._terminal
+
+    @property
+    def published_ids(self):
+        with self._lock:
+            return frozenset(self._published)
+
+    def terminate(self):
+        with self._lock:
+            self._terminal = True
+
     def presentation(self):
         return self.timeline.snapshot()
 
@@ -93,7 +110,8 @@ class AdSession:
         for segment in playlist.segments:
             if segment.uri in self._source:
                 continue
-            with self.client.open(segment.uri, {}, self.cancel) as response:
+            with self.client.open(segment.uri, {}, self.cancel,
+                                  allowed_origin=playlist.final_url) as response:
                 if response.status != 200:
                     raise CompositionFailure('source_unavailable')
                 data = read_bounded(response, SOURCE_BYTES)
@@ -109,8 +127,10 @@ class AdSession:
 
     def render(self, playlist, route):
         with self._lock:
-            if self._closed:
+            if self._closed or self._terminal:
                 raise CompositionFailure('session_closed')
+            if origin(playlist.final_url) != self.source_origin:
+                raise CompositionFailure('source_origin_changed')
             # A complete break may appear in the first source window before
             # asynchronous midroll preparation finishes. Publish the safe
             # programme prefix, then expose the interval on a later reload.
@@ -133,26 +153,27 @@ class AdSession:
                 raise CompositionFailure('empty_composition')
             self._committed = True
             current = {s.resource_id for s in presentation.segments}
-            self._published = current
+            self._published.update(current)
             if self._midroll is not None:
                 for placement in presentation.placements:
                     if placement.ad is self._midroll.ad:
                         self._midroll_placement_id = placement.id
                 if (self._midroll_placement_id is not None
                         and all(p.id != self._midroll_placement_id for p in presentation.placements)
-                        and all(item.id not in self.active_ids() for item in self._midroll.segments)):
+                        and all(item.id not in self._published and item.id not in self.active_ids()
+                                for item in self._midroll.segments)):
                     for item in self._midroll.segments:
                         self.creative.unpin(item.id)
                     self._prepared.remove(self._midroll)
                     self._midroll = None
             # The timeline has retired old output. Release its cache handoff pins.
             for url, (item, data) in list(self._source.items()):
-                if (item.id not in current and item.id not in self.active_ids()
+                if (item.id not in self._published and item.id not in self.active_ids()
                         and url not in {s.uri for s in playlist.segments}):
                     del self._source[url]
                     del self._source_by_id[item.id]
             for ad in list(self._prepared):
-                if (all(item.id not in current and item.id not in self.active_ids()
+                if (all(item.id not in self._published and item.id not in self.active_ids()
                         for item in ad.segments) and ad is not self._midroll):
                     for item in ad.segments:
                         self.creative.unpin(item.id)

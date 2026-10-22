@@ -67,16 +67,22 @@ class PlaybackSession:
         self._cache_routes = {}
         if (ad_config is not None and ad_config.enabled and source.protocol == 'hls'
                 and ad_config.fixture_origin and ad_config.vast_url
+                and origin(source.final_url) in getattr(
+                    getattr(ad_client, 'policy', None), 'test_origins', frozenset())
                 and origin(ad_config.fixture_origin) in getattr(
                     getattr(ad_client, 'policy', None), 'test_origins', frozenset())
                 and ad_config.fixture_origin.startswith('http://127.0.0.1:')
                 and (ad_config.preroll or ad_config.midroll)):
             from ad_session import AdSession
-            self.ad = AdSession(ad_config, ad_client, cache_root or Path.cwd(), cancel,
-                                resource_limit)
-            self.ad.active_ids = self.active_cached_ids
-            if ad_config.preroll and not ad_config.midroll and not self.ad.preroll_available:
-                self.ad.close()
+            try:
+                self.ad = AdSession(ad_config, ad_client, cache_root or Path.cwd(), cancel,
+                                    resource_limit, source.final_url)
+                self.ad.active_ids = self.active_cached_ids
+                if ad_config.preroll and not ad_config.midroll and not self.ad.preroll_available:
+                    self.ad.close()
+                    self.ad = None
+            except Exception:
+                # No composed manifest has been published. Keep station playback.
                 self.ad = None
 
     def presentation(self):
@@ -104,7 +110,7 @@ class PlaybackSession:
     def retire_cached(self):
         if self.ad is None:
             return
-        retained = {s.resource_id for s in self.ad.presentation().segments}
+        retained = self.ad.published_ids
         with self._lock:
             for cache_id, resource in list(self._cache_routes.items()):
                 if cache_id not in retained and not resource.active:
