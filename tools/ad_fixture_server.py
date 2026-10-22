@@ -78,8 +78,11 @@ def vast_xml(scenario, origin):
         ET.SubElement(wrapper, 'VASTAdTagURI').text = origin + '/vast/' + target
         ET.SubElement(wrapper, 'Impression').text = origin + '/track/placement-1/impression'
         ET.SubElement(wrapper, 'Error').text = origin + '/track/placement-1/error?[ERRORCODE]'
-        events = ET.SubElement(wrapper, 'TrackingEvents')
+        creatives = ET.SubElement(wrapper, 'Creatives')
+        linear = ET.SubElement(ET.SubElement(creatives, 'Creative'), 'Linear')
+        events = ET.SubElement(linear, 'TrackingEvents')
         ET.SubElement(events, 'Tracking', {'event': 'start'}).text = origin + '/track/placement-1/start'
+        ET.SubElement(events, 'Tracking', {'event': 'firstQuartile'}).text = origin + '/track/placement-1/firstQuartile?layer=wrapper'
         return ET.tostring(root, encoding='utf-8', xml_declaration=True)
     if scenario not in ('direct', 'unsupported-media', 'wrong-duration', 'failed-media', 'preroll'):
         raise ValueError('Unknown VAST scenario')

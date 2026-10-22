@@ -106,6 +106,11 @@ class VastResolver:
                     value = self._url(_text(item), base, tracking=True)
                     if value:
                         records.append(TrackingUrl(event, value))
+        if _tag(container) == 'Wrapper':
+            for creatives in _children(container, 'Creatives'):
+                for creative in _children(creatives, 'Creative'):
+                    for linear in _children(creative, 'Linear'):
+                        records.extend(self._tracking(linear, base))
         return records
 
     def _errors(self, container, base):

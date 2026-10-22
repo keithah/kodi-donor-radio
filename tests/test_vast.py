@@ -32,6 +32,7 @@ def beacons(base):
 
 def test_wrapper_tracking_inherited_once(tmp_path):
     from vast import VastResolver
+    from ad_models import TrackingUrl
     with origin_server(tmp_path) as (base, client):
         ad = VastResolver(client, base).resolve(base + '/vast/wrapped', threading.Event())
         assert ad.id == 'placement-1'
@@ -40,6 +41,7 @@ def test_wrapper_tracking_inherited_once(tmp_path):
         assert [item.event for item in ad.tracking].count('start') == 1
         assert [item.event for item in ad.tracking].count('impression') == 1
         assert len(ad.error_urls) == 1
+        assert TrackingUrl('firstQuartile', base + '/track/placement-1/firstQuartile?layer=wrapper') in ad.tracking
         assert beacons(base) == {}
 
 

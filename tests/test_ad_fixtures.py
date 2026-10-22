@@ -53,6 +53,8 @@ def test_direct_and_wrapped_vast_resolve_to_local_hls_without_beacons(assets):
         wrapped = ET.fromstring(get(origin, '/vast/wrapped'))
         assert direct.findtext('.//MediaFile') == origin + '/ads/replacement.m3u8'
         assert wrapped.findtext('.//VASTAdTagURI') == origin + '/vast/direct'
+        assert wrapped.findtext('./Ad/Wrapper/Creatives/Creative/Linear/TrackingEvents/Tracking[@event="firstQuartile"]') == origin + '/track/placement-1/firstQuartile?layer=wrapper'
+        assert wrapped.find('./Ad/Wrapper/TrackingEvents') is None
         with urlopen(wrapped.findtext('.//VASTAdTagURI'), timeout=3) as response:
             unwrapped = ET.fromstring(response.read())
         assert unwrapped.findtext('.//MediaFile') == origin + '/ads/replacement.m3u8'
