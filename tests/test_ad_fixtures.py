@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 from urllib.request import urlopen
 from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
@@ -52,6 +53,9 @@ def test_direct_and_wrapped_vast_resolve_to_local_hls_without_beacons(assets):
         wrapped = ET.fromstring(get(origin, '/vast/wrapped'))
         assert direct.findtext('.//MediaFile') == origin + '/ads/replacement.m3u8'
         assert wrapped.findtext('.//VASTAdTagURI') == origin + '/vast/direct'
+        with urlopen(wrapped.findtext('.//VASTAdTagURI'), timeout=3) as response:
+            unwrapped = ET.fromstring(response.read())
+        assert unwrapped.findtext('.//MediaFile') == origin + '/ads/replacement.m3u8'
         assert direct.findtext('.//Duration') == '00:00:04.000'
         assert '#EXTM3U' in get(origin, '/ads/replacement.m3u8')
         assert get(origin, '/stats')
@@ -59,6 +63,24 @@ def test_direct_and_wrapped_vast_resolve_to_local_hls_without_beacons(assets):
         assert stats['beacons'] == {}
         get(origin, '/track/placement-1/impression')
         assert json.loads(get(origin, '/stats'))['beacons'] == {'placement-1/impression': 1}
+
+
+def test_server_rejects_other_numeric_loopback_hosts(tmp_path):
+    from tools.ad_fixture_server import make_server
+
+    with pytest.raises(ValueError, match='127\\.0\\.0\\.1'):
+        make_server(tmp_path, host='127.0.0.2', port=0)
+
+
+def test_slow_vast_exceeds_resolver_deadline_but_is_bounded(assets):
+    with fixture_origin(assets) as origin:
+        started = time.monotonic()
+        with urlopen(origin + '/vast/slow', timeout=8) as response:
+            parsed = ET.fromstring(response.read())
+        elapsed = time.monotonic() - started
+        assert 5 <= elapsed < 8
+        assert parsed.findtext('.//MediaFile') == origin + '/ads/replacement.m3u8'
+        assert json.loads(get(origin, '/stats'))['beacons'] == {}
 
 
 def test_reset_clears_collector_and_rolling_window(assets):

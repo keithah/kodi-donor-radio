@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Developer-only VAST, beacon, and controlled HLS origin on numeric loopback.
+"""Developer-only VAST, beacon, and controlled HLS origin on 127.0.0.1.
 
 Generate assets with generate_ad_audio.py first. GET /reset clears request and
 beacon counts plus all per-scenario rolling windows. No request except /track
@@ -9,7 +9,6 @@ records a beacon. This origin is never packaged in the Kodi addon.
 import argparse
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import ipaddress
 import json
 from pathlib import Path
 import re
@@ -109,9 +108,8 @@ def vast_xml(scenario, origin):
 
 
 def make_server(assets, host='127.0.0.1', port=8766):
-    address = ipaddress.ip_address(host)
-    if address.version != 4 or not address.is_loopback:
-        raise ValueError('Advertising fixtures must bind numeric IPv4 loopback')
+    if host != '127.0.0.1':
+        raise ValueError('Advertising fixtures must bind numeric 127.0.0.1')
     assets = Path(assets)
     requests, beacons, windows = Counter(), Counter(), Counter()
     lock = threading.Lock()
