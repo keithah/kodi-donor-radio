@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import subprocess
 import tempfile
 import time
 from urllib.request import urlopen
@@ -100,13 +101,25 @@ def observe(origin, scenario, vast, preroll, midroll,
             routes = _routes(manifest)
             base = 'http://127.0.0.1:%d' % relay.descriptor.port
             sections, samples, first_pts, pts_steps_valid = [], [], [], []
+            decode_failures = []
             for index, route in enumerate(routes):
-                body = _bytes(base + route)
-                path = Path(temp) / ('observed-%03d.ts' % index)
-                path.write_bytes(body)
-                info = probe(path, ffprobe)
-                tone = decoded_tone(path, ffmpeg, CHOICES)
-                sections.append(TONE_SECTION[tone])
+                try:
+                    body = _bytes(base + route)
+                    path = Path(temp) / ('observed-%03d.ts' % index)
+                    path.write_bytes(body)
+                    info = probe(path, ffprobe)
+                    tone = decoded_tone(path, ffmpeg, CHOICES)
+                    section = TONE_SECTION[tone]
+                except (OSError, ValueError, KeyError, IndexError,
+                        subprocess.CalledProcessError) as error:
+                    decode_failures.append('segment %d decode failed: %s' %
+                                           (index, type(error).__name__))
+                    sections.append(None)
+                    samples.append(None)
+                    first_pts.append(None)
+                    pts_steps_valid.append(False)
+                    continue
+                sections.append(section)
                 samples.append(info['samples'])
                 first_pts.append(info['first_pts'])
                 pts_steps_valid.append(info['pts_steps_ok'])
@@ -126,7 +139,7 @@ def observe(origin, scenario, vast, preroll, midroll,
                      'events': events, 'stopped_at': None,
                      'manifest_discontinuities': manifest.count('#EXT-X-DISCONTINUITY\n'),
                      'requests': stats['requests'], 'beacons': stats['beacons']}
-            trace['failures'] = check_trace(trace)
+            trace['failures'] = check_trace(trace) + decode_failures
             return trace
         finally:
             try:

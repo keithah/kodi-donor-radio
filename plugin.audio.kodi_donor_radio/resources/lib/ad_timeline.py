@@ -65,6 +65,7 @@ class AdTimeline:
         self._next_sequence = 0
         self._next_sample = 0
         self._output_disc = 0
+        self._boundary_pending = False
         self._ended = False
         self._started = False
 
@@ -78,10 +79,11 @@ class AdTimeline:
             return Presentation(tuple(self._segments), tuple(self._placements), self._ended)
 
     def _publish(self, item, placement_id=None, discontinuity=False, source_disc=None):
-        if discontinuity:
-            self._output_disc += 1
-        elif source_disc is not None and self._last_source_disc is not None:
-            self._output_disc += max(0, source_disc - self._last_source_disc)
+        source_delta = (max(0, source_disc - self._last_source_disc)
+                        if source_disc is not None and self._last_source_disc is not None
+                        else 0)
+        self._output_disc += max(source_delta, int(discontinuity or self._boundary_pending))
+        self._boundary_pending = False
         if source_disc is not None:
             self._last_source_disc = source_disc
         record = OutputSegment(self._next_sequence, self._output_disc, item.id,
@@ -191,7 +193,7 @@ class AdTimeline:
                 self._epoch += 1
                 self._highwater = None
                 self._last_source_disc = None
-                self._output_disc += 1
+                self._boundary_pending = True
                 self._source.clear()
             # Avoid a partial publication when a referenced source file is absent.
             unseen = [s for s in incoming if (self._epoch, s.sequence, s.discontinuity) not in self._source
@@ -215,7 +217,7 @@ class AdTimeline:
                     for item in pre.segments:
                         self._publish(item, ident)
                     self._placements.append(Placement(ident, pre.ad, beginning, self._next_sample))
-                    self._output_disc += 1  # boundary to first programme segment
+                    self._boundary_pending = True  # boundary to first programme segment
             published = {seq for (epoch, seq, _), _ in self._source.items() if epoch == self._epoch}
             candidates = (self._candidates(playlist, source_segments, published, unseen)
                           if unseen else [])
@@ -238,12 +240,14 @@ class AdTimeline:
                         ident = 'replacement-' + uuid.uuid4().hex
                         beginning = self._next_sample
                         for i, item in enumerate(ad.segments):
-                            self._publish(item, ident, discontinuity=(i == 0))
+                            self._publish(item, ident, discontinuity=(i == 0),
+                                          source_disc=s.discontinuity if i == 0 else None)
                         self._placements.append(Placement(ident, ad.ad, beginning, self._next_sample))
                         used.add(replacement[0])
                     self._source[key] = None
+                    self._last_source_disc = s.discontinuity
                     if s.sequence == replacement[1] - 1:
-                        self._output_disc += 1  # boundary to resumed programme
+                        self._boundary_pending = True  # boundary to resumed programme
                 else:
                     self._source[key] = self._publish(source_segments[s.uri], source_disc=s.discontinuity)
                 self._highwater = s.sequence

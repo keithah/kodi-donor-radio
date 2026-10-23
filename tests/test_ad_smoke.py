@@ -77,7 +77,7 @@ def test_claimed_mapping_cannot_make_relay_only_success_pass():
     assert any('playback evidence' in item for item in check_trace(trace))
 
 
-def test_relay_smoke_stops_session_when_segment_validation_fails(monkeypatch):
+def test_relay_smoke_reports_segment_validation_failure_and_continues(monkeypatch):
     from types import SimpleNamespace
     from tools import smoke_ad_relay
 
@@ -106,15 +106,27 @@ def test_relay_smoke_stops_session_when_segment_validation_fails(monkeypatch):
         return b'transport-stream'
 
     monkeypatch.setattr(smoke_ad_relay, '_bytes', fetch)
+    monkeypatch.setattr(smoke_ad_relay, '_json', lambda _url: {
+        'beacons': {}, 'requests': []})
+    calls = []
     def fail_probe(_path, executable):
         assert executable == 'custom-ffprobe'
-        raise AssertionError('bad segment')
+        calls.append(True)
+        if len(calls) == 1:
+            raise ValueError('bad segment')
+        return {'samples': 96256, 'first_pts': 0, 'pts_steps_ok': True}
     monkeypatch.setattr(smoke_ad_relay, 'probe', fail_probe)
-    with pytest.raises(AssertionError, match='bad segment'):
-        smoke_ad_relay.observe('http://fixture.test', 'normal', 'direct', False, False,
-                               ffmpeg='custom-ffmpeg', ffprobe='custom-ffprobe')
+    monkeypatch.setattr(smoke_ad_relay, 'decoded_tone',
+                        lambda *_args: smoke_ad_relay.CHOICES[0])
+    trace = smoke_ad_relay.observe('http://fixture.test', 'normal', 'direct', False, False,
+                                   ffmpeg='custom-ffmpeg', ffprobe='custom-ffprobe')
     assert stopped == [session.id]
     assert closed == [True]
+    assert len(calls) == 6
+    assert trace['sections'][0] is None
+    assert trace['samples'][0] is None
+    assert any('segment 0 decode failed: ValueError' in failure
+               for failure in trace['failures'])
 
 
 def test_kodi_smoke_rejects_unrelated_item_even_with_advancing_clock():

@@ -56,6 +56,21 @@ def test_preroll_replacement_order_and_exact_programme_boundaries():
     assert p.ended
 
 
+def test_replacement_merges_synthetic_and_source_discontinuity_boundaries():
+    t = AdTimeline(None, 16)
+    t.offer(creative())
+    text = ('#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n'
+            '#EXT-X-DISCONTINUITY-SEQUENCE:0\n'
+            '#EXTINF:2.005333,\na.ts\n#EXT-X-DISCONTINUITY\n'
+            '#EXT-X-CUE-OUT:4.010666\n#EXTINF:2.005333,\nbreak0.ts\n'
+            '#EXTINF:2.005333,\nbreak1.ts\n#EXT-X-DISCONTINUITY\n'
+            '#EXT-X-CUE-IN\n#EXTINF:2.005333,\nb.ts\n')
+    cached = sources('a', 'break0', 'break1', 'b')
+    p = t.update(parse_playlist(text, URL), cached)
+    assert ids(p) == ['a', 'ad0', 'ad1', 'b']
+    assert [s.discontinuity for s in p.segments] == [0, 1, 1, 2]
+
+
 def test_complete_break_remains_replaceable_before_a_later_open_break():
     t = AdTimeline(None, 16)
     t.offer(creative())
