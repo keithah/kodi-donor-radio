@@ -163,3 +163,39 @@ msgstr ""
 msgctxt "#30044"
 msgid "Enter a VAST document URL on the exact configured fixture origin."
 msgstr ""
+
+msgctxt "#30050"
+msgid "Label latest ICY marker"
+msgstr ""
+
+msgctxt "#30051"
+msgid "Latest ICY marker:"
+msgstr ""
+
+msgctxt "#30052"
+msgid "Start of ad break"
+msgstr ""
+
+msgctxt "#30053"
+msgid "End of ad break"
+msgstr ""
+
+msgctxt "#30054"
+msgid "Cancel"
+msgstr ""
+
+msgctxt "#30055"
+msgid "Remember this exact marker for this station? Choose No to apply the label only to the current listening session."
+msgstr ""
+
+msgctxt "#30056"
+msgid "No current ICY marker is available. Keep listening and try again when a marker appears."
+msgstr ""
+
+msgctxt "#30057"
+msgid "The marker could not be labeled. The station or marker may have changed, or the service could not save it. Open Label latest ICY marker to try again."
+msgstr ""
+
+msgctxt "#30058"
+msgid "ICY marker labeled."
+msgstr ""

@@ -26,7 +26,8 @@ STATION = Station('station-1', 'Station One', 'https://radio.example/live', 'MP3
 def kodi(monkeypatch, tmp_path):
     state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
                             input='jazz', cancel=False, abort=False, waits=0, players=[], action=None,
-                            player_paused=False, player_caching=False)
+                            player_paused=False, player_caching=False, selections=[], confirmations=[],
+                            selection=-1, remember=False, on_select=None, on_confirm=None)
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
@@ -36,6 +37,14 @@ def kodi(monkeypatch, tmp_path):
     class Dialog:
         def input(self, heading): state.messages.append(heading); return state.input
         def ok(self, heading, message): state.messages.append(message)
+        def select(self, heading, options):
+            state.selections.append((heading, options))
+            if state.on_select: state.on_select()
+            return state.selection
+        def yesno(self, heading, message):
+            state.confirmations.append((heading, message))
+            if state.on_confirm: state.on_confirm()
+            return state.remember
         def notification(self, heading, message, icon, time):
             state.notifications.append((heading, message, icon, time))
     class Progress:
@@ -100,7 +109,7 @@ def directory(monkeypatch, runtime):
 def test_home_hides_test_streams_and_uses_localized_labels(kodi):
     runtime,state,_=kodi
     route(runtime)
-    assert [item.label for _,item,_ in state.items] == ['localized-30001','localized-30002','localized-30003','localized-30004']
+    assert [item.label for _,item,_ in state.items] == ['localized-30001','localized-30002','localized-30003','localized-30004','localized-30050']
     assert all('tests' not in url for url,_,_ in state.items)
     assert state.ended == [{'cacheToDisc': False}]
 
@@ -683,3 +692,116 @@ def test_service_loads_station_labels_from_its_private_profile(kodi, monkeypatch
         state.abort = True
     state.action = action
     runtime.run_service()
+
+
+@pytest.fixture
+def icy_label_service(kodi):
+    """Exercise UI writes through the real authenticated control and station store."""
+    from icy_marker_store import IcyMarkerStore
+    from station_resolver import ResolvedSource
+    runtime, state, profile = kodi
+    events = []
+    manager = SessionManager(
+        resolver=lambda *args: ResolvedSource(STATION.url, 'icy', None, b''),
+        sink=SimpleNamespace(emit=events.append), icy_marker_store=IcyMarkerStore(profile))
+    server = RelayServer(manager)
+    runtime.publish_descriptor(profile, server.start())
+    session = manager.create(STATION)
+    def observe(marker):
+        session.observe_icy_metadata({'StreamTitle': marker}, '2026-10-23T00:00:00Z', time.monotonic())
+    try:
+        yield SimpleNamespace(manager=manager, session=session, events=events, observe=observe,
+                              store=manager.icy_marker_store, profile=profile)
+    finally:
+        server.close()
+
+
+def test_icy_label_home_action_remains_reachable_during_audio(kodi):
+    runtime, state, _ = kodi
+    player = runtime.xbmc.Player()
+    player.playing = True
+    player.file = STATION.url
+    route(runtime)
+    action = [entry for entry in state.items
+              if parse_qs(urlsplit(entry[0]).query).get('action') == ['label_icy_marker']]
+    assert len(action) == 1
+    assert action[0][1].label == 'localized-30050'
+    assert 'IsPlayable' not in action[0][1].props
+    assert player.playing and player.file == STATION.url
+    assert not state.resolved
+
+
+@pytest.mark.parametrize('selection,action', [(0, 'start'), (1, 'end')])
+@pytest.mark.parametrize('remember', [False, True])
+def test_icy_label_displays_exact_candidate_applies_choice_and_optional_memory(
+        kodi, icy_label_service, selection, action, remember):
+    runtime, state, _ = kodi
+    service = icy_label_service
+    service.observe('#')
+    state.selection, state.remember = selection, remember
+    player = runtime.xbmc.Player()
+    player.playing, player.file = True, STATION.url
+    route(runtime, action='label_icy_marker')
+    assert len(state.selections) == 1
+    heading, options = state.selections[0]
+    assert '#' in heading and 'localized-30051' in heading
+    assert options == ['localized-30052', 'localized-30053', 'localized-30054']
+    assert len(state.confirmations) == 1
+    assert 'localized-30055' in state.confirmations[0][1]
+    labeled = [event for event in service.events if event.kind == 'icy_marker_labeled']
+    assert len(labeled) == 1 and labeled[0].details['reason'] == action
+    assert labeled[0].station_uuid == 'station-1'
+    assert labeled[0].session_id == service.session.id
+    assert service.store.lookup('station-1', '#') == (action if remember else None)
+    assert (service.profile / 'icy-markers.json').exists() is remember
+    assert service.store.lookup('another-station', '#') is None
+    assert state.messages[-1] == 'localized-30058'
+    assert service.manager.get(service.session.id) is service.session
+    assert player.playing and player.file == STATION.url and not state.resolved
+    assert state.ended == [{'cacheToDisc': False}]
+
+
+@pytest.mark.parametrize('selection', [-1, 2])
+def test_icy_label_cancel_or_dismiss_does_not_apply_or_remember(kodi, icy_label_service, selection):
+    runtime, state, _ = kodi
+    service = icy_label_service
+    service.observe('-')
+    state.selection, state.remember = selection, True
+    route(runtime, action='label_icy_marker')
+    assert state.selections and not state.confirmations
+    assert not [event for event in service.events if event.kind == 'icy_marker_labeled']
+    assert not (service.profile / 'icy-markers.json').exists()
+    assert 'localized-30058' not in state.messages
+
+
+def test_icy_label_without_candidate_reports_noop(kodi, icy_label_service):
+    runtime, state, _ = kodi
+    state.selection, state.remember = 0, True
+    route(runtime, action='label_icy_marker')
+    assert state.messages[-1] == 'localized-30056'
+    assert not state.selections and not state.confirmations
+    assert not (icy_label_service.profile / 'icy-markers.json').exists()
+    assert not [event for event in icy_label_service.events if event.kind == 'icy_marker_labeled']
+
+
+@pytest.mark.parametrize('change', ['candidate', 'session', 'stop'])
+def test_icy_label_rejects_candidate_or_session_changed_during_dialog(kodi, icy_label_service, change):
+    runtime, state, _ = kodi
+    service = icy_label_service
+    service.observe('-')
+    state.selection, state.remember = 0, True
+    def change_candidate():
+        if change == 'candidate':
+            service.observe('#')
+        elif change == 'session':
+            replacement = service.manager.create(Station('station-2', 'Second', STATION.url, 'MP3', False))
+            replacement.observe_icy_metadata({'StreamTitle': '-'}, '2026-10-23T00:00:00Z', time.monotonic())
+        else:
+            service.manager.stop(service.session.id)
+    state.on_confirm = change_candidate
+    route(runtime, action='label_icy_marker')
+    assert state.messages[-1] == 'localized-30057'
+    assert 'localized-30058' not in state.messages
+    assert not [event for event in service.events if event.kind == 'icy_marker_labeled']
+    assert not (service.profile / 'icy-markers.json').exists()
+    assert not state.resolved

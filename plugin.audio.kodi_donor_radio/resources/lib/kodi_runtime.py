@@ -254,6 +254,29 @@ def _station(value):
     return Station(**record)
 
 
+def _label_icy_marker(monitor, cancel):
+    """Keep the displayed candidate identity through both listener decisions."""
+    try:
+        client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
+        candidate = _operation(client.current_icy_candidate, monitor, cancel)
+        if candidate is None:
+            _error(30056)
+            return
+        dialog = xbmcgui.Dialog()
+        choice = dialog.select(text(30051) + ' ' + candidate['marker'],
+                               [text(30052), text(30053), text(30054)])
+        if choice not in (0, 1):
+            return
+        remember = dialog.yesno(text(30050), text(30055))
+        _operation(lambda: client.label_icy_marker(candidate['session_id'], candidate['marker'],
+                                                   ('start', 'end')[choice], remember), monitor, cancel)
+        dialog.ok(text(30000), text(30058))
+    except Cancelled:
+        pass
+    except (OSError, ValueError, KeyError, TypeError):
+        _error(30057)
+
+
 def run_plugin(argv):
     base, handle = argv[0], int(argv[1])
     params = {key: values[0] for key, values in parse_qs(argv[2].lstrip('?') if len(argv)>2 else '').items()}
@@ -325,10 +348,13 @@ def run_plugin(argv):
         offset = int(params.get('offset', '0'))
         if offset < 0: raise ValueError('Invalid page')
         if action == 'home':
-            for label, target in ((30001,'search'),(30002,'countries'),(30003,'tags'),(30004,'settings')):
+            for label, target in ((30001,'search'),(30002,'countries'),(30003,'tags'),(30004,'settings'),
+                                  (30050,'label_icy_marker')):
                 item(text(label), action=target)
             if xbmcaddon.Addon().getSettingBool('test_mode'):
                 item(text(30007), action='tests')
+        elif action == 'label_icy_marker':
+            _label_icy_marker(monitor, cancel)
         elif action == 'settings':
             xbmcaddon.Addon().openSettings()
         elif action in ('search','stations'):
