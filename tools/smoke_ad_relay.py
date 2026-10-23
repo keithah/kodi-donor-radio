@@ -21,9 +21,9 @@ from sessions import SessionManager
 from url_policy import UrlPolicy
 from tools.generate_ad_audio import decoded_tone, probe
 
-CHOICES = (440, 550, 660, 720, 880, 990)
-TONE_SECTION = {440: 'programme_a', 550: 'programme_b', 660: 'original_break',
-                720: 'source_mutation', 880: 'replacement', 990: 'preroll'}
+_SEGMENTS = json.loads((ROOT / 'tools' / 'ad_audio_sources.json').read_text())['segments']
+TONE_SECTION = {item['tone_hz']: item['section'] for item in _SEGMENTS.values()}
+CHOICES = tuple(sorted(TONE_SECTION))
 SUCCESS_EVENTS = {'impression', 'start', 'firstQuartile', 'midpoint',
                   'thirdQuartile', 'complete'}
 

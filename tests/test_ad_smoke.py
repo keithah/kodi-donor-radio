@@ -23,6 +23,18 @@ def test_valid_unmapped_trace_has_no_success_beacons():
     assert check_trace(valid()) == []
 
 
+def test_relay_smoke_tone_map_covers_every_described_segment():
+    import json
+    from pathlib import Path
+    from tools import smoke_ad_relay
+
+    source_file = Path(__file__).parents[1] / 'tools' / 'ad_audio_sources.json'
+    segments = json.loads(source_file.read_text())['segments']
+    expected = {item['tone_hz']: item['section'] for item in segments.values()}
+    assert smoke_ad_relay.TONE_SECTION == expected
+    assert smoke_ad_relay.CHOICES == tuple(sorted(expected))
+
+
 def test_original_break_leakage_fails():
     trace = valid(); trace['sections'][3] = 'original_break'
     assert any('section' in item for item in check_trace(trace))
