@@ -48,7 +48,7 @@ service and retires existing playback sessions.
 | Input | POC behavior |
 | --- | --- |
 | Public HTTP/HTTPS continuous MP3/AAC | Bounded streaming relay; codec/demux playback needs Kodi validation |
-| ICY metadata | Remove framing without changing audio; observe metadata on the same upstream connection |
+| ICY metadata | Remove framing without changing audio; classify explicit and cautious inferred markers on the same connection; never replace ICY audio or send VAST beacons |
 | M3U/PLS station indirection | Follow at most three indirections, with loop/size/redirect limits |
 | Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state |
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |
@@ -106,6 +106,16 @@ the fixture server between scenarios so its three manifest windows begin fresh.
 Compare events with `/expected/{scenario}.json`, and record heard tone audio,
 stop/switch/restart behavior and cleanup timings in [docs/testing.md](docs/testing.md).
 See [fixture routes and timelines](tools/README-fixtures.md).
+
+Controlled ICY marker streams are available at `/icy/{scenario}.mp3`, with
+expected ordered observations at `/expected/icy/{scenario}.json`. They cover
+AD commands, TildeATS category 4/category 0 and `##` end forms, wrapped
+commands, punctuation candidates, inferred endings and unresolved timeout.
+Unknown values remain bounded evidence: at most 64 observations within 300
+seconds. Listener labels apply to the active station session; remembering a
+label stores that exact marker for that station. ICY remains observation-only,
+and its framing is removed without changing audio bytes. See the fixture guide
+for the supported conventions and limitations.
 
 For a bounded live read without synthetic click counts:
 

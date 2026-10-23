@@ -113,7 +113,12 @@ def test_session_latest_candidate_is_bounded_and_isolated(marker_session, length
     assert session.latest_icy_candidate() == expected
     assert events[0].kind == 'metadata_observed'
     assert events[0].evidence['StreamTitle'] == '*' * length
-    assert events[1].evidence == {'StreamTitle': '*' * 256}
+    marker_events = [event for event in events if event.source == 'icy_marker']
+    if length == 256:
+        assert marker_events[0].kind == 'icy_marker_candidate'
+        assert marker_events[0].evidence == {'StreamTitle': '*' * 256}
+    else:
+        assert marker_events == []
     replacement = manager.create(session.station)
     assert replacement.latest_icy_candidate() is None
     replacement.observe_icy_metadata({'StreamTitle': ' ad break '}, 'now', 11)

@@ -512,3 +512,29 @@ suite passed 79 tests; the no-DNS bind regression first failed on an unexpected
 loopback health request. Package creation and `check_package.py` passed.
 ZIP SHA-256:
 `9db622bc949ff42df6a28b2e6d526dcf329d0d3db036ff3c6b035d1e336964b2`.
+
+## Controlled ICY marker scenarios — 2026-10-23
+
+The fixture server now provides finite, paced streams at
+`/icy/{scenario}.mp3` and expected ordered marker events at
+`/expected/icy/{scenario}.json`. Scenarios cover explicit AD commands,
+TildeATS category 4/category 0 and `##` end-break forms, wrapped commands,
+bare punctuation candidates, inferred return-to-track and paired-marker ends,
+and an unresolved break after 300 seconds. Tests drive the last timeout with a
+synthetic monotonic timestamp, so they do not sleep five minutes.
+
+Automated fixture validation decodes the framed stream through `IcyDecoder`,
+checks each event kind and classification against the fixture schedule, and
+compares every output audio byte with the original generated interval bytes.
+It also confirms that marker observations produce no replacement, VAST, or
+beacon event. Tracker history is limited to 64 observations in 300 seconds;
+unknown marker candidates are bounded and direction-neutral until inference or
+a listener's exact label provides context. A remembered label is scoped to the
+station and its exact ICY title. ICY remains observation-only: preroll and
+midroll replacement/beacon behavior apply only to eligible HLS sessions.
+
+Run the fixture-focused suite with
+`python3 -m pytest tests/test_fixtures.py tests/test_icy_markers.py tests/test_relay.py tests/test_kodi_runtime.py -q`.
+This validation is not a Kodi UI playback run; the controlled sequences are
+verified as bounded stream/decoder/tracker fixtures, and any separate Kodi
+menu or audible-playback check must be recorded independently.

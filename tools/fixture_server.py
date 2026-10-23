@@ -18,6 +18,77 @@ import time
 
 
 SCENARIOS = ('normal', 'mid-break', 'missing-end', 'malformed-cue', 'no-cue')
+ICY_METAINT = 4096
+ICY_SCENARIOS = ('explicit', 'tildeats', 'wrapped', 'return-to-track',
+                 'paired-marker', 'punctuation', 'unresolved')
+ICY_TITLES = {
+    'explicit': ('AD_START_30', 'AD_STOP'),
+    'tildeats': ('Station ~ Track ~ 30 ~ 4 ~ I ~ 30 ^',
+                 'Station ~ Track ~ 30 ~ 0 ^',
+                 'Station ~ Track ~ 30 ~ 4 ^', '##Station ~ Track ~ 30 ~ 4 ^'),
+    'wrapped': ('#AD_START#', '#AD_END#'),
+    'return-to-track': ('-', 'Artist - Track'),
+    'paired-marker': ('#', '*', '#'),
+    'punctuation': ('-', '#', '*', 'Artist - Track'),
+    'unresolved': ('#',),
+}
+ICY_EXPECTED = {
+    'explicit': [('break_start', 'explicit'), ('break_end', 'explicit')],
+    'tildeats': [('break_start', 'explicit'), ('break_end', 'explicit'),
+                 ('break_start', 'explicit'), ('break_end', 'explicit')],
+    'wrapped': [('break_start', 'explicit'), ('break_end', 'explicit')],
+    'return-to-track': [('icy_marker_candidate', 'candidate'),
+                        ('break_start', 'inferred'), ('break_end', 'inferred')],
+    'paired-marker': [('icy_marker_candidate', 'candidate'),
+                      ('break_start', 'inferred'),
+                      ('icy_marker_candidate', 'candidate'),
+                      ('icy_marker_candidate', 'candidate'),
+                      ('break_end', 'inferred')],
+    'punctuation': [('icy_marker_candidate', 'candidate'),
+                    ('break_start', 'inferred'),
+                    ('icy_marker_candidate', 'candidate'),
+                    ('icy_marker_candidate', 'candidate'),
+                    ('break_end', 'inferred')],
+    'unresolved': [('icy_marker_candidate', 'candidate'),
+                   ('break_start', 'inferred'), ('break_unresolved', 'inferred')],
+}
+
+
+def icy_metadata(scenario):
+    if scenario not in ICY_SCENARIOS:
+        raise ValueError('Unknown ICY fixture scenario')
+    return ICY_TITLES[scenario]
+
+
+def icy_observation_times(scenario):
+    return tuple(index * 0.25 for index, _ in enumerate(icy_metadata(scenario)))
+
+
+def icy_audio_bytes(scenario):
+    return b''.join(bytes([65 + index]) * ICY_METAINT
+                    for index, _ in enumerate(icy_metadata(scenario)))
+
+
+def icy_stream_bytes(scenario, audio=None):
+    """Frame a finite controlled ICY stream; only metadata framing is added."""
+    titles = icy_metadata(scenario)
+    audio = icy_audio_bytes(scenario) if audio is None else audio
+    if len(audio) != len(titles) * ICY_METAINT:
+        raise ValueError('ICY fixture audio must contain one interval per title')
+    framed = bytearray()
+    for index, title in enumerate(titles):
+        framed.extend(audio[index * ICY_METAINT:(index + 1) * ICY_METAINT])
+        metadata = ("StreamTitle='%s';" % title).encode('utf-8')
+        padded = metadata.ljust(((len(metadata) + 15) // 16) * 16, b'\0')
+        framed.append(len(padded) // 16)
+        framed.extend(padded)
+    return bytes(framed)
+
+
+def expected_icy(scenario):
+    if scenario not in ICY_SCENARIOS:
+        raise ValueError('Unknown ICY fixture scenario')
+    return ICY_EXPECTED[scenario]
 
 
 def send_fixture_response(handler, body, mime, status=200, ranges=False):
@@ -97,6 +168,32 @@ def make_server(assets, host='127.0.0.1', port=8765):
             match = re.fullmatch('/expected/([^/]+).json', self.path)
             if match and match.group(1) in SCENARIOS:
                 return self.respond(json.dumps(expected(match.group(1))).encode(), 'application/json')
+            match = re.fullmatch(r'/expected/icy/([^/]+)\.json', self.path)
+            if match and match.group(1) in ICY_SCENARIOS:
+                rows = [{'kind': kind, 'classification': classification}
+                        for kind, classification in expected_icy(match.group(1))]
+                return self.respond(json.dumps(rows).encode(), 'application/json')
+            match = re.fullmatch(r'/icy/([^/]+)\.mp3', self.path)
+            if match and match.group(1) in ICY_SCENARIOS:
+                scenario = match.group(1)
+                framed = icy_stream_bytes(scenario)
+                self.send_response(200)
+                self.send_header('Content-Type', 'audio/mpeg')
+                self.send_header('icy-metaint', str(ICY_METAINT))
+                self.send_header('Content-Length', str(len(framed)))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.close_connection = True
+                try:
+                    # Deliver one complete interval at a time like a live station.
+                    interval = ICY_METAINT + 1
+                    for offset in range(0, len(framed), interval):
+                        self.wfile.write(framed[offset:offset + interval])
+                        self.wfile.flush()
+                        time.sleep(.25)
+                except OSError:
+                    pass
+                return
             match = re.fullmatch('/hls/([^/]+)/index.m3u8', self.path)
             if match and match.group(1) in SCENARIOS:
                 scenario = match.group(1)
