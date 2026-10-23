@@ -367,8 +367,7 @@ def test_expired_break_cannot_end_after_terminal_boundary(boundary):
         t.observe(playlist('#EXT-X-CUE-IN\n', 12), 'a', 0)
         assert [e.details['cue_id'] for e in events(sink, 'break_end')] == ['11']
     else:
-        t.observe(playlist('#EXT-X-CUE-IN\n', 20 if boundary == 'gap' else 11,
-                           disc=1 if boundary == 'discontinuity' else 0),
+        t.observe(playlist('#EXT-X-CUE-IN\n', 20 if boundary == 'gap' else 11),
                   'a', 1 if boundary == 'epoch' else 0)
         assert not events(sink, 'break_end')
     t.finish('closed')

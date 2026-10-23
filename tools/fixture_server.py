@@ -290,7 +290,7 @@ def make_server(assets, host='127.0.0.1', port=8765):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--assets', type=Path, default=Path('tests/generated-audio'), help='Generated fixture assets directory')
-    parser.add_argument('--host', default='127.0.0.1', help='Bind address; use an explicitly reachable public test host for addon playback')
+    parser.add_argument('--host', default='127.0.0.1', help='Bind address; addon test mode accepts only numeric 127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
     server = make_server(args.assets, args.host, args.port)
