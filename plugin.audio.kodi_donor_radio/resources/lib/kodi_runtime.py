@@ -494,14 +494,14 @@ def run_plugin(argv):
                 if not re.fullmatch(r'[A-Z]{2}', code):
                     raise ValueError('Invalid country code')
                 retry = {'mode': action, 'code': code, 'offset': offset}
-                fetch = lambda: browser.search_country(code, offset, PAGE_SIZE)
+                fetch = lambda: browser.search_country_page(code, offset, PAGE_SIZE)
             else:
                 retry = {'mode': action, 'name': name, 'country': country, 'tag': tag, 'offset': offset}
-                fetch = lambda: browser.search(name, country, tag, offset, PAGE_SIZE)
-            stations = _operation(fetch, monitor, cancel)
+                fetch = lambda: browser.search_page(name, country, tag, offset, PAGE_SIZE)
+            stations, has_more = _operation(fetch, monitor, cancel)
             for station in stations:
                 station_item(station)
-            if len(stations) == PAGE_SIZE and offset + PAGE_SIZE <= MAX_OFFSET:
+            if has_more and offset + PAGE_SIZE <= MAX_OFFSET:
                 item(text(30005), **dict(retry, offset=offset + PAGE_SIZE))
             if not stations:
                 _error(30113)
@@ -532,6 +532,8 @@ def run_plugin(argv):
         listing_succeeded = False
         _error(30012)
         item(text(30006), **retry)
+        # A rendered Retry directory completed successfully; action routes return to their caller.
+        listing_succeeded = action not in ('setup', 'map', 'station_info', 'settings', 'label_icy_marker')
     finally:
         xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
 

@@ -88,6 +88,9 @@ class RadioBrowser:
         return {'offset': offset, 'limit': limit}
 
     def search(self, name, country, tag, offset, limit=50):
+        return self.search_page(name, country, tag, offset, limit)[0]
+
+    def search_page(self, name, country, tag, offset, limit=50):
         params = {'name': name, 'country': country, 'tag': tag}
         if country:
             params['countryExact'] = 'true'
@@ -96,7 +99,7 @@ class RadioBrowser:
         params.update(self._page(offset, limit))
         params['hidebroken'] = 'true'
         rows = self._json('/json/stations/search', params)
-        return self._stations(rows)
+        return self._stations(rows), len(rows) >= limit
 
     @staticmethod
     def _country_code(code, optional=False):
@@ -105,10 +108,14 @@ class RadioBrowser:
         return code
 
     def search_country(self, code, offset, limit=50):
+        return self.search_country_page(code, offset, limit)[0]
+
+    def search_country_page(self, code, offset, limit=50):
         params = {'countrycode': self._country_code(code), 'hidebroken': 'true',
                   'order': 'clickcount', 'reverse': 'true'}
         params.update(self._page(offset, limit))
-        return self._stations(self._json('/json/stations/search', params))
+        rows = self._json('/json/stations/search', params)
+        return self._stations(rows), len(rows) >= limit
 
     def geographic(self, code, offset, limit=50):
         """One directory page, not a radius query; retain the raw cursor on malformed rows."""

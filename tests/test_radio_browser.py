@@ -305,3 +305,18 @@ def test_invalid_country_queries_never_reach_network(code):
     rb, transport = browser([])
     with pytest.raises(ValueError): rb.geographic(code, 0, 50)
     assert transport.calls == []
+
+
+@pytest.mark.parametrize('country_search', [False, True])
+def test_station_search_pages_keep_raw_continuation_after_malformed_rows(country_search):
+    row = {'stationuuid': 'station-1', 'name': 'Radio', 'url': 'https://radio.example/live'}
+    rb, transport = browser([Reply(json.dumps([None] + [row] * 49).encode()), Reply(b'[]')])
+    if country_search:
+        stations, has_more = rb.search_country_page('FR', 0)
+        next_stations, next_has_more = rb.search_country_page('FR', 50)
+    else:
+        stations, has_more = rb.search_page('', '', 'jazz', 0)
+        next_stations, next_has_more = rb.search_page('', '', 'jazz', 50)
+    assert len(stations) == 49 and has_more is True
+    assert next_stations == [] and next_has_more is False
+    assert parse_qs(urlsplit(transport.calls[-1][0]).query)['offset'] == ['50']

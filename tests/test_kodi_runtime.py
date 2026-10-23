@@ -113,6 +113,9 @@ class Directory:
     def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]
     def search(self, name, country, tag, offset, limit=50):
         self.searches.append((name,country,tag,offset,limit)); return [STATION] * 50
+    def search_page(self, name, country, tag, offset, limit=50):
+        stations = self.search(name, country, tag, offset, limit)
+        return stations, len(stations) == limit
     def countries(self): return ['Canada', 'France']
     def tags(self, offset, limit=50): self.tag_page=(offset,limit); return ['jazz'] * 50
     def click(self, uuid): self.clicks.append(uuid)
@@ -120,6 +123,9 @@ class Directory:
     def country_entries(self): return [('Canada', 'CA'), ('France', 'FR')]
     def search_country(self, code, offset, limit=50):
         self.country_page=(code,offset,limit); return [STATION] * 50
+    def search_country_page(self, code, offset, limit=50):
+        stations = self.search_country(code, offset, limit)
+        return stations, len(stations) == limit
 
 
 def directory(monkeypatch, runtime):
@@ -280,6 +286,7 @@ def test_directory_error_offers_localized_retry(kodi,monkeypatch):
     assert state.messages[-1]=='localized-30012'
     assert state.items[-1][1].label=='localized-30006'
     assert 'mode=countries' in state.items[-1][0]
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
 
 
 def test_startup_wait_is_abortable(kodi,monkeypatch):
@@ -1196,3 +1203,23 @@ def test_mode_precedes_legacy_action_and_cancellation_closes_listing(kodi, monke
     assert state.items == [] and browser.clicks == []
     assert state.ended[-1] == {'succeeded':False,'cacheToDisc':False}
     assert 'localized-30013' in state.messages
+
+
+@pytest.mark.parametrize('params', [dict(mode='tag', tag='jazz'), dict(mode='country', code='FR')])
+def test_full_raw_page_with_malformed_station_retains_next_page(kodi, monkeypatch, params):
+    from radio_browser import RadioBrowser
+    runtime, state, _ = kodi
+    browser = RadioBrowser()
+    rows = [None] + [{'stationuuid': 'station-%d' % i, 'name': 'Radio %d' % i,
+                      'url': 'https://radio.example/live'} for i in range(49)]
+    monkeypatch.setattr(browser, '_json', lambda path, query: rows)
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: browser)
+    route(runtime, **params)
+    assert len([entry for entry in state.items if not entry[2]]) == 49
+    assert state.items[-1][1].label == 'localized-30005'
+    continuation = parse_qs(urlsplit(state.items[-1][0]).query)
+    assert continuation['offset'] == ['50'] and continuation['mode'] == [params['mode']]
+    if params['mode'] == 'country':
+        assert continuation['code'] == ['FR']
+    else:
+        assert continuation['tag'] == ['jazz']
