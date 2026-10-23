@@ -412,6 +412,62 @@ def test_xml_and_all_localized_references_have_translations(kodi):
     assert references <= ids
 
 
+@pytest.mark.parametrize('setting_id,default', [
+    ('guided_setup', 'false'),
+    ('offer_setup_row', 'true'),
+    ('preview_on_browse', 'true'),
+])
+def test_radio_interface_settings_are_visible_boolean_toggles(setting_id, default):
+    settings = ET.parse(ADDON / 'resources/settings.xml')
+    setting = settings.find(".//setting[@id='%s']" % setting_id)
+    assert setting is not None, 'Missing radio setting: ' + setting_id
+    assert setting.get('type') == 'boolean'
+    assert setting.findtext('default') == default
+    assert setting.findtext('level') == '0'
+    assert setting.find('control').get('type') == 'toggle'
+    assert setting.find('visible') is None
+    assert setting.find('enable') is None
+    assert setting.find('dependencies') is None
+
+
+def test_radio_settings_preserve_fixture_controls_and_defer_theme_selectors():
+    settings = ET.parse(ADDON / 'resources/settings.xml')
+    controls = {node.get('id'): node for node in settings.findall('.//setting')}
+    expected = {
+        'diagnostics': ('boolean', 'false', 'toggle'),
+        'test_mode': ('boolean', 'false', 'toggle'),
+        'test_origin': ('string', 'http://127.0.0.1:8765', 'edit'),
+        'ad_enabled': ('boolean', 'false', 'toggle'),
+        'ad_preroll': ('boolean', 'false', 'toggle'),
+        'ad_midroll': ('boolean', 'false', 'toggle'),
+        'ad_vast_url': ('string', '', 'edit'),
+    }
+    assert set(controls) == set(expected) | {
+        'guided_setup', 'offer_setup_row', 'preview_on_browse'}
+    for setting_id, (kind, default, control) in expected.items():
+        setting = controls[setting_id]
+        assert setting.get('type') == kind
+        assert setting.findtext('default') == default
+        assert setting.find('control').get('type') == control
+    assert controls['ad_vast_url'].findtext('constraints/allowempty') == 'true'
+    assert not settings.findall('.//options')  # No interface/theme enums yet.
+
+
+def test_radio_settings_labels_and_help_have_unique_nonempty_translations():
+    settings = ET.parse(ADDON / 'resources/settings.xml')
+    strings = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
+    entries = re.findall(r'^msgctxt "#(\d+)"\nmsgid (".*")(?:\n|$)', strings, re.MULTILINE)
+    ids = [int(context) for context, _ in entries]
+    assert len(ids) == len(set(ids)), 'Duplicate localization IDs'
+    translations = {int(context): json.loads(message) for context, message in entries}
+    references = {int(node.get(attribute)) for node in settings.iter()
+                  for attribute in ('label', 'help')
+                  if node.get(attribute, '').isdigit()}
+    assert references <= translations.keys()
+    assert all(translations[context].strip() for context in references)
+    assert set(range(30100, 30107)) <= translations.keys()
+
+
 def test_early_player_error_releases_session_before_av_started(kodi):
     runtime,_,_=kodi; stopped=[]
     player=runtime.RelayPlayer(SimpleNamespace(stop=stopped.append),32123)

@@ -239,3 +239,31 @@ msgstr ""
 msgctxt "#30068"
 msgid "Controlled ad settings are invalid; ads are disabled."
 msgstr ""
+
+msgctxt "#30100"
+msgid "Radio interface"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Guided setup"
+msgstr ""
+
+msgctxt "#30102"
+msgid "Pick the cities you care about before you start. You can run setup again from Settings. Listings use your Kodi skin; themed screens and their settings will be added later."
+msgstr ""
+
+msgctxt "#30103"
+msgid "Offer setup at the top of the list"
+msgstr ""
+
+msgctxt "#30104"
+msgid "Show a Set up Donor Radio row above your places. Turn off once you are set up."
+msgstr ""
+
+msgctxt "#30105"
+msgid "Preview stations while browsing"
+msgstr ""
+
+msgctxt "#30106"
+msgid "Preview a station when you focus it on the map. Turn off on slow connections. This applies to the shared map while listings use your Kodi skin."
+msgstr ""
