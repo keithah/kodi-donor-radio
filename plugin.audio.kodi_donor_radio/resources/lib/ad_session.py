@@ -7,7 +7,7 @@ from dataclasses import replace
 
 from ad_media import CreativeCache, inspect_ts
 from ad_timeline import AdTimeline, TimelineEpochLimit
-from http_client import read_bounded
+from http_client import Cancelled, read_bounded
 from url_policy import origin
 from vast import VastResolver
 
@@ -16,6 +16,11 @@ SOURCE_SEGMENTS = 128
 
 
 class CompositionFailure(ValueError):
+    pass
+
+
+class SourceUnavailable(CompositionFailure):
+    """A temporary source fetch failure that can succeed on the next reload."""
     pass
 
 
@@ -115,11 +120,20 @@ class AdSession:
         for segment in playlist.segments:
             if segment.uri in self._source:
                 continue
-            with self.client.open(segment.uri, {}, self.cancel,
-                                  allowed_origin=playlist.final_url) as response:
-                if response.status != 200:
-                    raise CompositionFailure('source_unavailable')
-                data = read_bounded(response, SOURCE_BYTES)
+            try:
+                with self.client.open(segment.uri, {}, self.cancel,
+                                      allowed_origin=playlist.final_url) as response:
+                    if response.status != 200:
+                        raise SourceUnavailable('source_unavailable')
+                    data = read_bounded(response, SOURCE_BYTES)
+            except Cancelled:
+                raise
+            except SourceUnavailable:
+                raise
+            except OSError as error:
+                if self.cancel.is_set():
+                    raise Cancelled('Request cancelled') from error
+                raise SourceUnavailable('source_unavailable') from error
             info = inspect_ts(data)
             if abs(info.samples / 48000 - segment.duration) > 1024 / 48000:
                 raise CompositionFailure('source_duration_mismatch')

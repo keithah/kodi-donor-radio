@@ -203,6 +203,58 @@ def test_unsupported_creative_falls_back_without_publishing_ad(tmp_path):
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
+def test_temporary_source_segment_failure_keeps_committed_ad_for_retry(tmp_path, monkeypatch):
+    from ad_models import AdConfig
+    from ad_session import SourceUnavailable
+    fixture = make_server(ASSETS, port=0)
+    thread = threading.Thread(target=fixture.serve_forever, daemon=True); thread.start()
+    origin = 'http://127.0.0.1:%d' % fixture.server_port
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path)
+    relay = RelayServer(manager); relay.start()
+    try:
+        session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
+        assert get(session.playback_url)[0] == 200
+        ad = session.ad
+        assert ad.committed and not ad.terminal
+        render = ad.render
+        calls = {'count': 0}
+
+        def fail_once(playlist, route):
+            calls['count'] += 1
+            if calls['count'] == 1:
+                raise SourceUnavailable('source_unavailable')
+            return render(playlist, route)
+
+        monkeypatch.setattr(ad, 'render', fail_once)
+        assert get(session.playback_url)[0] == 503
+        assert session.ad is ad and ad.committed and not ad.terminal
+        assert get(session.playback_url)[0] == 200
+        assert calls['count'] == 2 and not ad.terminal
+    finally:
+        relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
+
+
+def test_source_transport_error_is_classified_as_retryable(tmp_path):
+    from ad_session import AdSession, SourceUnavailable
+    from hls import Playlist, Segment
+    cancel = threading.Event()
+
+    class Client:
+        def open(self, *args, **kwargs):
+            raise OSError('temporary source transport failure')
+
+    session = AdSession.__new__(AdSession)
+    session.client, session.cancel = Client(), cancel
+    session._source, session._source_by_id, session._published = {}, {}, set()
+    session._limit, session.active_ids = 4, lambda: set()
+    playlist = Playlist('http://fixture.test/index.m3u8', (), (), 0, 0, 6,
+                        (Segment(0, 0, 6, 0, 'http://fixture.test/segment.ts'),), (), False)
+    with pytest.raises(SourceUnavailable):
+        session._cache_window(playlist)
+
+
 def test_small_source_retention_omits_preroll_without_losing_programme(tmp_path):
     from ad_models import AdConfig
     fixture = make_server(ASSETS, port=0)

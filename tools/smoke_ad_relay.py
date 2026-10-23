@@ -75,8 +75,10 @@ def observe(origin, scenario, vast, preroll, midroll):
     with tempfile.TemporaryDirectory(prefix='ad-relay-smoke-') as temp:
         manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
                                  ad_config=config, cache_root=Path(temp))
-        relay = RelayServer(manager); relay.start()
+        relay = RelayServer(manager)
+        session = None
         try:
+            relay.start()
             session = manager.create(Station('fixture-smoke', 'Controlled',
                 origin + '/source/' + scenario + '/index.m3u8', 'AAC', True))
             if midroll and session.ad is not None:
@@ -119,10 +121,13 @@ def observe(origin, scenario, vast, preroll, midroll):
                      'manifest_discontinuities': manifest.count('#EXT-X-DISCONTINUITY\n'),
                      'requests': stats['requests'], 'beacons': stats['beacons']}
             trace['failures'] = check_trace(trace)
-            manager.stop(session.id)
             return trace
         finally:
-            relay.close()
+            try:
+                if session is not None:
+                    manager.stop(session.id)
+            finally:
+                relay.close()
 
 
 def main():

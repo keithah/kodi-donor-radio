@@ -58,6 +58,42 @@ def test_claimed_mapping_cannot_make_relay_only_success_pass():
     assert any('playback evidence' in item for item in check_trace(trace))
 
 
+def test_relay_smoke_stops_session_when_segment_validation_fails(monkeypatch):
+    from types import SimpleNamespace
+    from tools import smoke_ad_relay
+
+    session = SimpleNamespace(id='session', playback_url='http://fixture.test/play', ad=None)
+    stopped, closed = [], []
+
+    class Manager:
+        def __init__(self, *args, **kwargs): pass
+        def create(self, station): return session
+        def stop(self, session_id): stopped.append(session_id)
+
+    class Relay:
+        def __init__(self, manager):
+            self.descriptor = SimpleNamespace(port=8766)
+        def start(self): pass
+        def close(self): closed.append(True)
+
+    monkeypatch.setattr(smoke_ad_relay, 'SessionManager', Manager)
+    monkeypatch.setattr(smoke_ad_relay, 'RelayServer', Relay)
+
+    def fetch(url):
+        if url.endswith('/reset'):
+            return b''
+        if url == session.playback_url:
+            return ('#EXTM3U\n' + ''.join('/segment%d.ts\n' % i for i in range(6))).encode()
+        return b'transport-stream'
+
+    monkeypatch.setattr(smoke_ad_relay, '_bytes', fetch)
+    monkeypatch.setattr(smoke_ad_relay, 'probe', lambda *args: (_ for _ in ()).throw(AssertionError('bad segment')))
+    with pytest.raises(AssertionError, match='bad segment'):
+        smoke_ad_relay.observe('http://fixture.test', 'normal', 'direct', False, False)
+    assert stopped == [session.id]
+    assert closed == [True]
+
+
 def test_kodi_smoke_rejects_unrelated_item_even_with_advancing_clock():
     result = {'source': 'normal', 'timeline': [
         {'playing': True, 'item_matches_expected': False, 'time_seconds': 1.0},

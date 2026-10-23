@@ -18,7 +18,7 @@ from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse,
 from icy import IcyDecoder
 from models import Event, Station
 from sessions import ResourceLimit, SessionManager
-from ad_session import CompositionFailure
+from ad_session import CompositionFailure, SourceUnavailable
 
 
 _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-control',
@@ -393,6 +393,10 @@ class _Handler(BaseHTTPRequestHandler):
                     session.tracker.observe(playlist, resource.id, resource.epoch)
                     try:
                         rendered = ad.render(playlist, session.cached_route)
+                    except SourceUnavailable:
+                        # A transient upstream media fetch must not destroy an
+                        # already committed ad presentation; Kodi can reload.
+                        return self._reply(503)
                     except Exception:
                         if ad.committed:
                             ad.terminate()

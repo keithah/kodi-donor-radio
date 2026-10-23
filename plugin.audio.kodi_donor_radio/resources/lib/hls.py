@@ -80,14 +80,16 @@ _ATTR_TAGS = frozenset({'EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-STREAM-INF',
                          'EXT-X-I-FRAME-STREAM-INF', 'EXT-X-DATERANGE',
                          'EXT-X-KEY', 'EXT-X-START', 'EXT-X-SESSION-DATA'})
 _ATTR_NAME = re.compile(r'([A-Za-z0-9-]+)=')
-_URI_KEY = re.compile(r'(?:URI|URL)', re.I)
+# Treat URI/URL as a reference token when separated from descriptive words.
+_URI_TOKEN_KEY = re.compile(r'(?:^|[-_.])(?:URI|URL)(?:$|[-_.])', re.I)
+_URI_ANY_KEY = re.compile(r'(?:URI|URL)', re.I)
 # Skip quoted values; inspect only unquoted tokens followed by an assignment.
 _URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
 _URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*://|\{\$)', re.I)
 
 
 def _has_uri_assignment(value):
-    return any(match.group('equals') and _URI_KEY.search(match.group('key'))
+    return any(match.group('equals') and _URI_TOKEN_KEY.search(match.group('key'))
                for match in _URI_TOKENS.finditer(value))
 
 
@@ -264,8 +266,11 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 attrs = {'RAW': value}
         allowed_uri = 'URI' if tag in ('EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-I-FRAME-STREAM-INF') else None
         if attrs:
-            for key in attrs:
-                if key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or (_URI_KEY.search(key) and key != allowed_uri):
+            for key, attr_value in attrs.items():
+                if (key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or
+                        (key != allowed_uri and _URI_TOKEN_KEY.search(key)) or
+                        (key != allowed_uri and _URI_ANY_KEY.search(key) and
+                         _URI_VALUE.search(attr_value))):
                     raise UnsupportedPlaylist('Unsupported URI-bearing attribute')
         elif tag not in _MEDIA and tag not in ('EXT-X-VERSION', 'EXT-X-INDEPENDENT-SEGMENTS'):
             if _has_uri_assignment(value) or _URI_VALUE.search(value):
