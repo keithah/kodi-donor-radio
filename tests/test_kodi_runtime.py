@@ -657,6 +657,7 @@ def test_startup_recovers_after_invalid_ad_setting_is_corrected(kodi):
     state.action = action
     runtime.run_service()
     assert len(descriptors) == 1
+    assert descriptors[0] is not None
     assert not (profile / 'service.json').exists()
     assert state.notifications == [('localized-30000', 'localized-30068', 'error', 5000)]
 
