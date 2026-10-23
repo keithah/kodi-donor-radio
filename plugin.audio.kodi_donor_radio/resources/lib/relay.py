@@ -131,10 +131,13 @@ class _Handler(BaseHTTPRequestHandler):
                 headers = session.source.response.headers
             elif resource.kind in ('hls', 'playlist'):
                 headers = {'content-type': 'application/vnd.apple.mpegurl'}
-            elif resource.kind == 'cached' and session.ad is not None:
-                data = session.ad.read(resource.cache_id)
-                self._headers(200, {'content-type': 'video/mp2t'}, len(data))
-                return
+            elif resource.kind == 'cached':
+                ad = session.ad
+                if ad is not None:
+                    data = ad.read(resource.cache_id)
+                    self._headers(200, {'content-type': 'video/mp2t'}, len(data))
+                    return
+                return self._reply(405)  # Segment/map metadata is not retained.
             else:
                 return self._reply(405)  # Segment/map metadata is not retained.
             # HEAD ignores Range; no transformed body length is known here.
@@ -245,7 +248,8 @@ class _Handler(BaseHTTPRequestHandler):
                     with resource.playlist_lock:
                         if session.cancel.is_set():
                             return
-                        if session.ad is not None and session.ad.terminal:
+                        ad = session.ad
+                        if ad is not None and ad.terminal:
                             return self._reply(503)
                         self._resource(session, resource)
                 elif resource.kind == 'cached':
@@ -321,9 +325,10 @@ class _Handler(BaseHTTPRequestHandler):
                 decoder.finish()
 
     def _cached(self, session, resource):
-        if session.ad is None:
+        ad = session.ad
+        if ad is None:
             return self._reply(404)
-        data = session.ad.read(resource.cache_id)
+        data = ad.read(resource.cache_id)
         size = len(data)
         value = self.headers.get('Range')
         status, start, end = 200, 0, size - 1
@@ -378,7 +383,8 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError('Partial playlist unsupported')
                 body = read_bounded(response, BODY_BYTES)
                 playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
-                if session.ad is not None and resource.kind == 'hls' and not playlist.is_master:
+                ad = session.ad
+                if ad is not None and resource.kind == 'hls' and not playlist.is_master:
                     if playlist.segments:
                         if (resource.first_sequence is not None and
                                 playlist.segments[-1].sequence < resource.first_sequence):
@@ -386,13 +392,14 @@ class _Handler(BaseHTTPRequestHandler):
                         resource.first_sequence = playlist.segments[0].sequence
                     session.tracker.observe(playlist, resource.id, resource.epoch)
                     try:
-                        rendered = session.ad.render(playlist, session.cached_route)
+                        rendered = ad.render(playlist, session.cached_route)
                     except Exception:
-                        if session.ad.committed:
-                            session.ad.terminate()
+                        if ad.committed:
+                            ad.terminate()
                             return self._reply(503)
-                        session.ad.close()
-                        session.ad = None
+                        ad.close()
+                        if session.ad is ad:
+                            session.ad = None
                     else:
                         session.retire_cached()
                         self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rendered))

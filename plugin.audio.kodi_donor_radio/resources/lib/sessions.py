@@ -128,7 +128,8 @@ class PlaybackSession:
             return errors
 
     def presentation(self):
-        return self.ad.presentation() if self.ad is not None else None
+        ad = self.ad
+        return ad.presentation() if ad is not None else None
 
     def active_cached_ids(self):
         with self._lock:

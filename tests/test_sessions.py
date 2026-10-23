@@ -55,6 +55,24 @@ def test_ad_config_is_snapshotted_per_session_and_errors_survive_preparation(mon
     manager.close()
 
 
+def test_presentation_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+
+    ad = type('Ad', (), {'presentation': lambda self: 'current'})()
+
+    class Session:
+        reads = 0
+
+        @property
+        def ad(self):
+            self.reads += 1
+            return ad if self.reads == 1 else None
+
+    session = Session()
+    assert PlaybackSession.presentation(session) == 'current'
+    assert session.reads == 1
+
+
 def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_path):
     from types import SimpleNamespace
     from ad_models import AdConfig

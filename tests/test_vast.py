@@ -52,6 +52,8 @@ def test_five_wrapper_hops_allowed_six_rejected(tmp_path):
         resolver = VastResolver(client, base)
         assert resolver.resolve(base + '/vast/wrapper-depth-2', threading.Event()).id == 'placement-1'
         with pytest.raises(AdError):
+            resolver.resolve(base + '/vast/wrapper-depth-1', threading.Event())
+        with pytest.raises(AdError):
             resolver.resolve(base + '/vast/wrapper-depth', threading.Event())
         assert beacons(base) == {}
 
