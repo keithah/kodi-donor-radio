@@ -383,3 +383,27 @@ msgstr ""
 msgctxt "#30140"
 msgid "The saved place limit has been reached."
 msgstr ""
+
+msgctxt "#30145"
+msgid "Preview station"
+msgstr ""
+
+msgctxt "#30146"
+msgid "Back to stations"
+msgstr ""
+
+msgctxt "#30147"
+msgid "No mapped stations are available. Check your connection or browse the directory."
+msgstr ""
+
+msgctxt "#30148"
+msgid "Schematic map. Pins use station coordinates reported by Radio Browser."
+msgstr ""
+
+msgctxt "#30149"
+msgid "Radio map"
+msgstr ""
+
+msgctxt "#30150"
+msgid "Selected"
+msgstr ""

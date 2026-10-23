@@ -1,0 +1,274 @@
+"""Kodi boundary tests for the shared station map window."""
+import importlib
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from models import Station
+from radio_map import MapView
+
+
+class Action:
+    def __init__(self, action_id): self._id = action_id
+    def getId(self): return self._id
+
+
+class Control:
+    def __init__(self, control_id):
+        self.control_id = control_id
+        self.visible, self.position, self.label = True, (0, 0), ''
+        self.enabled = True
+        self.items, self.selected = [], 0
+    def setVisible(self, value): self.visible = value
+    def setPosition(self, x, y): self.position = (x, y)
+    def setLabel(self, value): self.label = value
+    def setEnabled(self, value): self.enabled = value
+    def reset(self): self.items, self.selected = [], 0
+    def addItems(self, values): self.items.extend(values)
+    def selectItem(self, value): self.selected = value
+    def getSelectedPosition(self): return self.selected
+    def getSelectedItem(self): return self.items[self.selected] if self.items else None
+    def getListItem(self, position): return self.items[position]
+    def size(self): return len(self.items)
+
+
+class Item:
+    def __init__(self, label='', path=''): self.label, self.path, self.props = label, path, {}
+    def setProperty(self, key, value): self.props[key] = value
+    def getProperty(self, key): return self.props.get(key, '')
+    def setLabel2(self, value): self.label2 = value
+    def setArt(self, value): self.art = value
+    def setInfo(self, kind, value): self.info = value
+    def setMimeType(self, value): self.mime = value
+    def setContentLookup(self, value): self.lookup = value
+
+
+class WindowXML:
+    def __init__(self, *args):
+        self.xml_args = args
+        self.controls = {control_id: Control(control_id) for control_id in range(1000, 1060)}
+        self.controls.update({key: Control(key) for key in (10, 11, 12, 13, 2000, 3000, 3001, 3002)})
+        self.focus_id = 1000
+        self.closed = False
+    def getControl(self, control_id): return self.controls[control_id]
+    def getFocusId(self): return self.focus_id
+    def setFocusId(self, control_id): self.focus_id = control_id
+    def close(self): self.closed = True
+    def doModal(self): self.onInit()
+
+
+def load_window(monkeypatch):
+    gui = SimpleNamespace(WindowXML=WindowXML, ListItem=Item,
+                          ACTION_MOVE_LEFT=1, ACTION_MOVE_RIGHT=2,
+                          ACTION_MOVE_UP=3, ACTION_MOVE_DOWN=4,
+                          ACTION_SELECT_ITEM=7, ACTION_PREVIOUS_MENU=10,
+                          ACTION_NAV_BACK=92)
+    monkeypatch.setitem(sys.modules, 'xbmcgui', gui)
+    monkeypatch.setitem(sys.modules, 'xbmc', SimpleNamespace(
+        executebuiltin=lambda value: None,
+        Player=lambda: SimpleNamespace(isPlaying=lambda: False, getPlayingFile=lambda: '',
+                                       play=lambda *args: None, stop=lambda: None)))
+    monkeypatch.setitem(sys.modules, 'xbmcaddon', SimpleNamespace(
+        Addon=lambda: SimpleNamespace(getLocalizedString=lambda identifier: 'localized-%d' % identifier)))
+    sys.modules.pop('kodi_radio_map', None)
+    return importlib.import_module('kodi_radio_map')
+
+
+def station(uuid, name, latitude, longitude, city='Town', country='Canada', country_code='CA'):
+    return Station(uuid, name, 'https://stream.invalid/live', 'MP3', False,
+                   city=city, country=country, country_code=country_code,
+                   latitude=latitude, longitude=longitude)
+
+
+def make_window(module, **kwargs):
+    defaults = dict(origin_route='plugin://plugin.audio.kodi_donor_radio?mode=home',
+                    selected_uuid='', stations=[station('one', 'One', 0, 0),
+                                                station('two', 'Two', 0, 0.1),
+                                                station('three', 'Three', 0.1, 0)],
+                    view=MapView(1, -1, -1, 1, 1000, 650), preview_enabled=False,
+                    addon_path='/addon', plugin_base='plugin://plugin.audio.kodi_donor_radio')
+    defaults.update(kwargs)
+    return module.RadioMapWindow(**defaults)
+
+
+def test_window_populates_bounded_pin_pool_and_station_rail(monkeypatch):
+    module = load_window(monkeypatch)
+    stations = [station('station-%02d' % i, 'Station %02d' % i, 0, 0)
+                for i in range(65)]
+    window = make_window(module, stations=stations, selected_uuid='station-00')
+    window.onInit()
+    assert sum(window.controls[1000 + i].visible for i in range(60)) == len(window.pins)
+    assert len(window.pins) <= 60
+    window.onClick(window._pin_control(window.selected_city_id))
+    rail = window.controls[2000]
+    assert [item.label for item in rail.items] == ['Station %02d' % i for i in range(50)]
+    assert rail.items[0].getProperty('station_uuid') == 'station-00'
+
+
+def test_directional_city_navigation_uses_radio_map_and_does_not_wrap(monkeypatch):
+    module = load_window(monkeypatch)
+    window = make_window(module)
+    window.onInit()
+    selected = window.selected_city_id
+    window.focus_city(selected)
+    window.onAction(Action(2))
+    assert window.selected_city_id != selected
+    last = window.selected_city_id
+    window.onAction(Action(2))
+    assert window.selected_city_id == last
+
+
+def test_station_rail_play_uses_uuid_route_and_never_reports_click(monkeypatch):
+    module = load_window(monkeypatch)
+    calls = []
+    stations = [station(uuid, label, 0, 0) for uuid, label in
+                (('one', 'One'), ('two', 'Two'), ('three', 'Three'))]
+    window = make_window(module, stations=stations, selected_uuid='one',
+                         execute=lambda value: calls.append(value))
+    window.onInit()
+    window.onClick(window._pin_control(window.selected_city_id))
+    window.controls[2000].selectItem(1)
+    window.onClick(2000)
+    assert calls == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=play&uuid=three)']
+
+
+def test_station_rail_keeps_dpad_navigation_inside_rows_until_edge(monkeypatch):
+    module = load_window(monkeypatch)
+    stations = [station(uuid, label, 0, 0) for uuid, label in
+                (('one', 'One'), ('two', 'Two'), ('three', 'Three'))]
+    window = make_window(module, stations=stations, selected_uuid='one', preview_enabled=True)
+    window.onInit()
+    window.setFocusId(2000)
+    window.onAction(Action(4))
+    assert window.getFocusId() == 2000
+    window.controls[2000].selectItem(2)
+    window.onAction(Action(4))
+    assert window.getFocusId() == 3000
+
+
+def test_window_rejects_invalid_selected_uuid(monkeypatch):
+    module = load_window(monkeypatch)
+    with pytest.raises(ValueError):
+        make_window(module, selected_uuid='https://stream.invalid/live')
+
+
+def test_window_rejects_untrusted_origin_route(monkeypatch):
+    module = load_window(monkeypatch)
+    with pytest.raises(ValueError):
+        make_window(module, origin_route='plugin://plugin.audio.kodi_donor_radio?url=https://stream.invalid')
+
+
+def test_empty_map_has_localized_status_and_hides_disabled_preview(monkeypatch):
+    module = load_window(monkeypatch)
+    window = make_window(module, stations=[], preview_enabled=False)
+    window.onInit()
+    assert window.controls[3002].label == 'localized-30147'
+    assert not window.controls[3000].visible
+    assert window.getFocusId() == 3001
+
+
+def test_preview_waits_for_stable_focus_and_cancels_stale_result(monkeypatch):
+    module = load_window(monkeypatch)
+    timers, workers, started, stopped = [], [], [], []
+    class Timer:
+        def __init__(self, delay, callback): self.delay, self.callback, self.cancelled = delay, callback, False
+        def start(self): timers.append(self)
+        def cancel(self): self.cancelled = True
+        def fire(self):
+            if not self.cancelled: self.callback()
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+    requests = []
+    def start_preview(uuid, cancel):
+        requests.append((uuid, cancel))
+        if uuid == 'one':
+            return {'session_id': 'late-one', 'playback_url': 'http://127.0.0.1:1/media/one'}
+        return {'session_id': 'owned-two', 'playback_url': 'http://127.0.0.1:1/media/two'}
+    window = make_window(module, selected_uuid='one', preview_enabled=True, timer_factory=Timer,
+                         thread_factory=thread, preview_start=start_preview,
+                         preview_stop=lambda session: stopped.append(session),
+                         player_factory=lambda: SimpleNamespace(
+                             isPlaying=lambda: not started or started[-1] is not None,
+                             getPlayingFile=lambda: started[-1][1] if started and started[-1] else '',
+                                 play=lambda url, item: started.append(('play', url)),
+                             stop=lambda: started.append(None)))
+    window.onInit()
+    window.onFocus(2000)
+    assert timers[-1].delay == 0.4
+    timers[-1].fire()
+    assert len(workers) == 1
+    # A newer focus generation invalidates the late result before its worker runs.
+    window._preview.focus_station('two')
+    workers[0].target()
+    assert requests[0][1].is_set()
+    workers[-1].target()  # Session cleanup is also kept off the Kodi UI thread.
+    assert not any(entry[0] == 'play' for entry in started if entry)
+    assert stopped
+
+
+def test_preview_starts_after_debounce_and_closes_only_its_session(monkeypatch):
+    module = load_window(monkeypatch)
+    timers, workers, plays, stops = [], [], [], []
+    class Timer:
+        def __init__(self, delay, callback): self.delay, self.callback, self.cancelled = delay, callback, False
+        def start(self): timers.append(self)
+        def cancel(self): self.cancelled = True
+        def fire(self):
+            if not self.cancelled: self.callback()
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+    player_state = {'url': '', 'playing': False}
+    player = SimpleNamespace(
+        isPlaying=lambda: player_state['playing'], getPlayingFile=lambda: player_state['url'],
+        play=lambda url, item: (plays.append(url), player_state.update(url=url, playing=True)),
+        stop=lambda: player_state.update(url='', playing=False))
+    window = make_window(
+        module, selected_uuid='one', preview_enabled=True, timer_factory=Timer,
+        thread_factory=thread, preview_start=lambda uuid, cancel: {
+            'session_id': 'owned-preview', 'playback_url': 'http://127.0.0.1:1234/media/preview'},
+        preview_stop=lambda session: stops.append(session), player_factory=lambda: player)
+    window.onInit()
+    window.onFocus(2000)
+    assert timers[-1].delay == 0.4 and not plays
+    timers[-1].fire()
+    assert not plays
+    workers[0].target()
+    assert plays == ['http://127.0.0.1:1234/media/preview']
+    window.close()
+    workers[-1].target()
+    assert stops == ['owned-preview'] and not player_state['playing']
+
+
+def test_close_stops_only_preview_owned_by_window(monkeypatch):
+    module = load_window(monkeypatch)
+    stopped, played = [], []
+    player = SimpleNamespace(isPlaying=lambda: True,
+                              getPlayingFile=lambda: 'http://127.0.0.1:1/media/preview',
+                              stop=lambda: played.append('stop'))
+    window = make_window(module, preview_enabled=False,
+                         preview_stop=lambda session: stopped.append(session),
+                         player_factory=lambda: player)
+    window._preview = module.PreviewController(
+        lambda *_: None, lambda _: True, lambda _: None, player.getPlayingFile,
+        player.isPlaying, player.stop, lambda session: stopped.append(session))
+    window._preview.owned = {'session_id': 'owned', 'playback_url': 'http://127.0.0.1:1/media/preview'}
+    window.close()
+    assert played == ['stop'] and stopped == ['owned']
+
+
+def test_window_does_not_interrupt_separately_selected_playback(monkeypatch):
+    module = load_window(monkeypatch)
+    calls = []
+    player = SimpleNamespace(isPlaying=lambda: True,
+                              getPlayingFile=lambda: 'https://external.example/live',
+                              stop=lambda: calls.append('stop'))
+    window = make_window(module, player_factory=lambda: player)
+    window._preview = module.PreviewController(
+        lambda *_: None, window._can_start_preview, lambda _: calls.append('play'),
+        player.getPlayingFile, player.isPlaying, player.stop,
+        lambda session: calls.append(('session-stop', session)))
+    assert not window._can_start_preview({'session_id': 'candidate'})
+    assert calls == []

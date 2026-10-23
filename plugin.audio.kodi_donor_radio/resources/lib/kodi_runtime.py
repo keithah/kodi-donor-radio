@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -497,14 +498,135 @@ def _profile_action(mode, params, browser, monitor, cancel):
     xbmc.executebuiltin('Container.Refresh')
 
 
-def _ui_transition(mode, params, monitor, cancel):
+def _map_view(place=None, station=None):
+    from radio_map import MapView
+    center_lat = getattr(station, 'latitude', None) if station is not None else None
+    center_lon = getattr(station, 'longitude', None) if station is not None else None
+    if center_lat is None and place is not None:
+        center_lat, center_lon = place.latitude, place.longitude
+    if center_lat is None:
+        return MapView(90, -90, -180, 180, 1000, 650)
+    radius_km = getattr(place, 'radius_km', 120) if place is not None else 120
+    lat_span = max(0.5, min(45, radius_km / 80.0))
+    lon_span = max(0.5, min(90, lat_span /
+                            max(.2, abs(math.cos(math.radians(center_lat))))))
+    north, south = min(90, center_lat + lat_span), max(-90, center_lat - lat_span)
+    west, east = center_lon - lon_span, center_lon + lon_span
+    while west < -180: west += 360
+    while west > 180: west -= 360
+    while east < -180: east += 360
+    while east > 180: east -= 360
+    if west == east:
+        east = west + 1
+        if east > 180: east = -180
+    return MapView(north, south, west, east, 1000, 650)
+
+
+def _map_stations(browser, country_code, selected_station, cancel):
+    stations, offset = [], 0
+    for _ in range(GEO_SCAN_PAGES):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        page, more = browser.geographic(country_code, offset, PAGE_SIZE)
+        stations.extend(page[:PAGE_SIZE])
+        offset += PAGE_SIZE
+        if not more:
+            break
+    if selected_station is not None and all(s.uuid != selected_station.uuid for s in stations):
+        stations.append(selected_station)
+    return stations[:GEO_SCAN_PAGES * PAGE_SIZE + 1]
+
+
+def _open_map(params, monitor, cancel, base):
+    selected_uuid = _real_station_uuid(params['uuid']) if params.get('uuid') else ''
+    from kodi_radio_map import RadioMapWindow
+    from radio_map import MapView
+    browser = RadioBrowser(cancel=cancel)
+    unavailable = ''
+    selected = None
+    if selected_uuid:
+        try:
+            selected = _operation(lambda: browser.by_uuid(selected_uuid), monitor, cancel)
+        except Cancelled:
+            raise
+        except (OSError, ValueError):
+            unavailable = xbmcaddon.Addon().getLocalizedString(30147)
+    places = PlaceStore(profile_path()).list()
+    place = next((candidate for candidate in places if candidate.is_default),
+                 places[0] if places else None)
+    country_code = (selected.country_code if selected is not None else
+                    place.country_code if place is not None else '')
+    try:
+        stations = _operation(lambda: _map_stations(browser, country_code, selected, cancel),
+                              monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError):
+        stations, unavailable = [], xbmcaddon.Addon().getLocalizedString(30147)
+    if selected is not None and selected.latitude is not None:
+        view = _map_view(station=selected)
+    elif place is not None:
+        view = _map_view(place=place)
+    else:
+        view = MapView(90, -90, -180, 180, 1000, 650)
+
+    clients, clients_lock = {}, threading.Lock()
+    def start_preview(station_uuid, request_cancel):
+        if cancel.is_set() or request_cancel.is_set():
+            raise Cancelled('Request cancelled')
+        preview_browser = RadioBrowser(cancel=request_cancel)
+        station = preview_browser.by_uuid(_real_station_uuid(station_uuid))
+        if request_cancel.is_set():
+            raise Cancelled('Request cancelled')
+        descriptor = read_descriptor(profile_path())
+        client = ControlClient(descriptor, timeout=10)
+        session = client.create(station)
+        if not isinstance(session, dict):
+            raise ValueError('Invalid preview response')
+        session_id = _relay_path(session.get('playback_url', ''), descriptor.port)
+        if not session_id or session.get('id') != session_id:
+            raise ValueError('Invalid preview response')
+        mime_type = session.get('mime_type', 'application/octet-stream')
+        if (not isinstance(mime_type, str) or len(mime_type) > 128
+                or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime_type)):
+            try: client.stop(session_id)
+            except (OSError, ValueError): pass
+            raise ValueError('Invalid preview MIME type')
+        if request_cancel.is_set():
+            try: client.stop(session_id)
+            except (OSError, ValueError): pass
+            raise Cancelled('Request cancelled')
+        with clients_lock:
+            clients[session_id] = client
+        return {'session_id': session_id, 'playback_url': session['playback_url'],
+                'mime_type': mime_type}
+
+    def stop_preview(session_id):
+        with clients_lock:
+            client = clients.pop(session_id, None)
+        if client is not None:
+            try: client.stop(session_id)
+            except (OSError, ValueError): pass
+
+    window = RadioMapWindow(
+        origin_route=params.get('origin', base + '?' + urlencode({'mode': 'home'})),
+        selected_uuid=selected_uuid, stations=stations, view=view,
+        preview_enabled=xbmcaddon.Addon().getSettingBool('preview_on_browse'),
+        addon_path=xbmcaddon.Addon().getAddonInfo('path'), plugin_base=base,
+        preview_start=start_preview, preview_stop=stop_preview,
+        status_message=unavailable,
+    )
+    window.doModal()
+
+
+def _ui_transition(mode, params, monitor, cancel, base='plugin://plugin.audio.kodi_donor_radio'):
     """Native action routes and the seam used by the shared map window."""
     if mode == 'setup':
         _guided_setup(RadioBrowser(cancel=cancel), monitor, cancel)
     elif mode == 'station_info':
         _station_info(RadioBrowser(cancel=cancel), params, monitor, cancel)
-    elif mode == 'map' and 'uuid' in params:
-        _real_station_uuid(params['uuid'])
+    elif mode == 'map':
+        _open_map(params, monitor, cancel, base)
 
 
 def run_plugin(argv):
@@ -522,6 +644,21 @@ def run_plugin(argv):
         if playable:
             entry.setProperty('IsPlayable', 'true')
         xbmcplugin.addDirectoryItem(handle, url(**values), entry, isFolder=folder)
+
+    def originating_route():
+        fields = {
+            'place': ('id', 'offset'), 'favorites': ('offset',),
+            'tag': ('tag', 'offset'), 'country': ('code', 'offset'),
+            'search': ('name', 'country', 'tag', 'offset'),
+            'stations': ('name', 'country', 'tag', 'offset'),
+        }
+        route_mode = action if action in fields else 'home'
+        values = {'mode': route_mode}
+        for key in fields.get(route_mode, ()):
+            if key in params:
+                values[key] = params[key]
+        return url(**values)
+
     favorite_ids = None
     def station_item(station):
         nonlocal favorite_ids
@@ -540,7 +677,9 @@ def run_plugin(argv):
         if favorite_ids is None:
             favorite_ids = {s.station_uuid for s in FavoriteStore(profile_path()).list()}
         favorite = summary.station_uuid in favorite_ids
-        entry.addContextMenuItems([(text(label), 'RunPlugin(%s)' % url(mode=target, uuid=summary.station_uuid))
+        entry.addContextMenuItems([(text(label), 'RunPlugin(%s)' % url(
+            mode=target, uuid=summary.station_uuid,
+            **({'origin': originating_route()} if target == 'map' else {})))
             for label, target in ((30120, 'play'),
                 (30122 if favorite else 30121, 'favorite_remove' if favorite else 'favorite_add'),
                 (30123, 'map'), (30124, 'station_info'))])
@@ -623,7 +762,7 @@ def run_plugin(argv):
         if action == 'home':
             if xbmcaddon.Addon().getSettingBool('guided_setup') and not PlaceStore(profile_path()).list():
                 listing_succeeded = False
-                _ui_transition('setup', {}, monitor, cancel)
+                _ui_transition('setup', {}, monitor, cancel, base)
                 return
             if xbmcaddon.Addon().getSettingBool('offer_setup_row'):
                 item(text(30110), folder=False, mode='setup')
@@ -644,7 +783,7 @@ def run_plugin(argv):
             xbmcaddon.Addon().openSettings()
             listing_succeeded = False
         elif action in ('setup', 'map', 'station_info'):
-            _ui_transition(action, params, monitor, cancel)
+            _ui_transition(action, params, monitor, cancel, base)
             listing_succeeded = False
         elif action in ('favorite_add', 'favorite_remove', 'place_default', 'place_radius', 'place_remove'):
             listing_succeeded = False

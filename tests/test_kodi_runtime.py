@@ -118,6 +118,15 @@ def route(runtime, **params):
     runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '7', '?' + urlencode(params)])
 
 
+def install_map_window(monkeypatch):
+    opened = []
+    class MapWindow:
+        def __init__(self, **kwargs): self.kwargs = kwargs; opened.append(self)
+        def doModal(self): self.modal = True
+    monkeypatch.setitem(sys.modules, 'kodi_radio_map', SimpleNamespace(RadioMapWindow=MapWindow))
+    return opened
+
+
 class Directory:
     def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]
     def search(self, name, country, tag, offset, limit=50):
@@ -135,6 +144,7 @@ class Directory:
     def search_country_page(self, code, offset, limit=50):
         stations = self.search_country(code, offset, limit)
         return stations, len(stations) == limit
+    def geographic(self, code, offset, limit=50): return [], False
 
 
 def directory(monkeypatch, runtime):
@@ -229,6 +239,47 @@ def test_country_and_tag_navigation(kodi,monkeypatch):
     state.items.clear(); route(runtime,action='tags',offset=50)
     assert browser.tag_page==(50,50)
     assert parse_qs(urlsplit(state.items[-1][0]).query)['offset']==['100']
+
+
+def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.geographic = lambda code, offset, limit: ([STATION], False)
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map')
+    assert opened[-1].kwargs['selected_uuid'] == '' and opened[-1].modal
+    source = 'plugin://plugin.audio.kodi_donor_radio?mode=tag&tag=jazz'
+    route(runtime, mode='map', uuid=STATION.uuid, origin=source)
+    assert opened[-1].kwargs['selected_uuid'] == STATION.uuid and opened[-1].modal
+    assert opened[-1].kwargs['stations'] == [STATION]
+    assert opened[-1].kwargs['origin_route'] == source
+    assert browser.clicks == []
+
+
+def test_map_scan_is_bounded_and_keeps_a_selected_station(kodi):
+    runtime, _, _ = kodi
+    requests = []
+    class Browser:
+        def geographic(self, code, offset, limit):
+            requests.append((code, offset, limit))
+            return [STATION] * limit, True
+    result = runtime._map_stations(Browser(), 'CA', None, threading.Event())
+    assert len(result) == 200
+    assert requests == [('CA', 0, 50), ('CA', 50, 50), ('CA', 100, 50), ('CA', 150, 50)]
+    selected = Station('selected', 'Selected', 'https://radio.example/live', 'MP3', False)
+    result = runtime._map_stations(type('Browser', (), {'geographic': lambda *args: ([], False)})(),
+                                   '', selected, threading.Event())
+    assert result == [selected]
+
+
+def test_map_view_centers_station_and_handles_antimeridian(kodi):
+    runtime, _, _ = kodi
+    from radio_map import project
+    station = Station('geo', 'Geo station', 'https://radio.example/live', 'MP3', False,
+                      latitude=0, longitude=179.8)
+    view = runtime._map_view(station=station)
+    assert view.west > view.east
+    assert project(0, 179.8, view) == (500, 325)
 
 
 def test_cancelled_search_does_not_fetch(kodi,monkeypatch):
@@ -1135,9 +1186,11 @@ def test_empty_listings_have_localized_message(kodi, monkeypatch, mode):
 def test_future_ui_routes_return_to_listing_without_playback(kodi, monkeypatch, mode):
     runtime, state, _ = kodi
     browser = directory(monkeypatch, runtime)
+    if mode == 'map': install_map_window(monkeypatch)
     route(runtime, mode=mode, uuid='station-1')
     assert state.ended == [{'succeeded': False, 'cacheToDisc': False}]
-    assert state.items == state.resolved == browser.clicks == browser.lookups == []
+    assert state.items == state.resolved == browser.clicks == []
+    assert browser.lookups == (['station-1'] if mode == 'map' else [])
 
 
 def test_new_country_routes_use_iso_codes_and_page(kodi, monkeypatch):
@@ -1246,9 +1299,11 @@ def test_station_context_actions_are_uuid_only_and_favorite_state_is_current(kod
     browser.search = lambda *args: [STATION]
     route(runtime, mode='tag', tag='jazz')
     menus = state.items[0][1].context
+    map_origin = 'plugin://plugin.audio.kodi_donor_radio?mode=tag&tag=jazz'
     assert [context_params(command) for _, command in menus] == [
         {'mode': 'play', 'uuid': 'station-1'}, {'mode': 'favorite_add', 'uuid': 'station-1'},
-        {'mode': 'map', 'uuid': 'station-1'}, {'mode': 'station_info', 'uuid': 'station-1'}]
+        {'mode': 'map', 'uuid': 'station-1', 'origin': map_origin},
+        {'mode': 'station_info', 'uuid': 'station-1'}]
     assert all(STATION.url not in command for _, command in menus)
     assert [label for label, _ in menus] == ['localized-30120', 'localized-30121', 'localized-30123', 'localized-30124']
     FavoriteStore(profile).add(StationSummary.from_station(STATION))
@@ -1496,6 +1551,7 @@ def test_failed_play_and_map_selection_do_not_mark_favorite_played(kodi, monkeyp
     from radio_ui import FavoriteStore, StationSummary
     runtime, state, profile = kodi
     browser = directory(monkeypatch, runtime)
+    install_map_window(monkeypatch)
     store = FavoriteStore(profile)
     store.add(StationSummary.from_station(STATION))
     route(runtime, mode='map', uuid='station-1')
