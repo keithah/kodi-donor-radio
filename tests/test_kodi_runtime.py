@@ -521,6 +521,11 @@ def test_ad_only_setting_change_updates_next_session_without_service_restart(kod
     state.settings['diagnostics'] = True
     monitor.onSettingsChanged()
     assert monitor.settings_changed
+    monitor.settings_changed = False  # The service consumed the restart request.
+    monitor.ad_changed = False
+    state.settings['ad_midroll'] = True
+    monitor.onSettingsChanged()
+    assert monitor.ad_changed and not monitor.settings_changed
 
 
 def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
@@ -545,6 +550,31 @@ def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
     station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
     route(runtime, action='play', station=json.dumps(station.__dict__))
     assert timeouts[-1] == 30
+    assert state.resolved[0][0]
+
+
+def test_invalid_ad_url_uses_regular_fixture_create_timeout(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
+                          ad_enabled=True, ad_preroll=True, ad_vast_url='invalid')
+    descriptor = ServiceDescriptor(32123, 'a'*48, 'b'*64)
+    runtime.publish_descriptor(profile, descriptor)
+    timeouts = []
+
+    class Client:
+        def __init__(self, descriptor, timeout=10):
+            self.descriptor = descriptor
+            timeouts.append(timeout)
+        def health(self): return {'status': 'ok', 'instance_id': descriptor.instance_id}
+        def create(self, station):
+            return {'id':'c'*48, 'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,
+                    'mime_type':'audio/aac'}
+        def stop(self, session_id): pass
+
+    monkeypatch.setattr(runtime, 'ControlClient', Client)
+    station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
+    route(runtime, action='play', station=json.dumps(station.__dict__))
+    assert timeouts[-1] == 10
     assert state.resolved[0][0]
 
 

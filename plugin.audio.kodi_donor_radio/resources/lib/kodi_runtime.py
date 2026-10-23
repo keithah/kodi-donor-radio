@@ -308,8 +308,12 @@ def run_plugin(argv):
                 if origin is None or not station.url.startswith(origin + '/'):
                     raise ValueError('Test mode disabled')
             try:
-                ad_create = (station.uuid.startswith('fixture-') and station.hls
-                             and ad_settings().enabled)
+                try:
+                    ad_create = (station.uuid.startswith('fixture-') and station.hls
+                                 and ad_settings().enabled)
+                except ValueError:
+                    # Invalid ad-only settings use ordinary service behavior.
+                    ad_create = False
                 client = _operation(lambda: _service(profile_path(), monitor, cancel,
                     AD_CREATE_TIMEOUT if ad_create else 10), monitor, cancel)
             except OSError as error:
@@ -516,7 +520,9 @@ class ServiceMonitor(xbmc.Monitor):
                 addon.getSetting('test_origin'))
 
     def onSettingsChanged(self):
-        if self._base_snapshot() != self._base_settings:
+        current = self._base_snapshot()
+        if current != self._base_settings:
+            self._base_settings = current
             self.settings_changed = True
         else:
             self.ad_changed = True

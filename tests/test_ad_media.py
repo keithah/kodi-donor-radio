@@ -179,6 +179,25 @@ def test_complete_cache_is_private_and_pinned(tmp_path):
     assert all(not s.path.exists() for s in prepared.segments)
 
 
+def test_cache_close_releases_session_when_directory_removal_fails(tmp_path, monkeypatch):
+    import ad_media
+
+    cache = CreativeCache(tmp_path, Client(), 'http://127.0.0.1:8766')
+    session = cache.session
+    assert session in ad_media._ACTIVE_SESSIONS
+    calls = []
+
+    def remove(path, ignore_errors=False):
+        calls.append(ignore_errors)
+        if not ignore_errors:
+            raise OSError('directory changed during cleanup')
+
+    monkeypatch.setattr(ad_media.shutil, 'rmtree', remove)
+    cache.close()
+    assert calls == [True]
+    assert session not in ad_media._ACTIVE_SESSIONS
+
+
 @pytest.mark.parametrize('manifest', [
     '#EXTM3U\n#EXTINF:nan,\nreplacement000.ts\n#EXT-X-ENDLIST\n',
     '#EXTM3U\n#EXTINF:inf,\nreplacement000.ts\n#EXT-X-ENDLIST\n',

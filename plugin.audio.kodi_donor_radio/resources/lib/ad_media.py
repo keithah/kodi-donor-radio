@@ -415,7 +415,8 @@ class CreativeCache:
             self.closed = True
             self.entries.clear()
             self.total_bytes = 0
-            if self.session.exists():
-                shutil.rmtree(self.session)
-            with _SESSION_LOCK:
-                _ACTIVE_SESSIONS.discard(self.session)
+            try:
+                shutil.rmtree(self.session, ignore_errors=True)
+            finally:
+                with _SESSION_LOCK:
+                    _ACTIVE_SESSIONS.discard(self.session)

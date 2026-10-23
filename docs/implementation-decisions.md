@@ -40,4 +40,4 @@ remains absent. Real Kodi playback remains unverified.
 
 ## Remaining validation
 
-Actual Kodi playback is pending because Kodi is not installed. Unit/integration tests, real FFmpeg relay decoding, bounded live discovery checks and package/checker results are recorded in [testing.md](testing.md). The checker environment emits a urllib3/LibreSSL compatibility warning; the addon checker itself reports no addon problems or warnings.
+Kodi 21.3 and Kodi master runtime results, unit/integration tests, real FFmpeg relay decoding, bounded live discovery checks and package/checker results are recorded in [testing.md](testing.md). Audible output, the candidate clock anchor, and missing/early-end playback remain unverified on the target Kodi build. The checker environment emits a urllib3/LibreSSL compatibility warning; the addon checker itself reports no addon problems or warnings.
