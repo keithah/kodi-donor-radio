@@ -261,28 +261,6 @@ def test_source_failure_before_first_composition_falls_back_to_programme(tmp_pat
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
-def test_source_transport_error_is_classified_as_retryable(tmp_path):
-    from ad_session import AdSession, SourceUnavailable
-    from hls import Playlist, Segment
-    from threading import RLock
-    cancel = threading.Event()
-
-    class Client:
-        def open(self, *args, **kwargs):
-            raise OSError('temporary source transport failure')
-
-    session = AdSession.__new__(AdSession)
-    session._lock = RLock()
-    session.client, session.cancel = Client(), cancel
-    session._source, session._source_by_id, session._published = {}, {}, set()
-    session._limit, session.active_ids = 4, lambda: set()
-    session._closed = session._terminal = False
-    playlist = Playlist('http://fixture.test/index.m3u8', (), (), 0, 0, 6,
-                        (Segment(0, 0, 6, 0, 'http://fixture.test/segment.ts'),), (), False)
-    with pytest.raises(SourceUnavailable):
-        session._cache_window(playlist)
-
-
 def test_small_source_retention_omits_preroll_without_losing_programme(tmp_path):
     from ad_models import AdConfig
     fixture = make_server(ASSETS, port=0)

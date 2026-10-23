@@ -3,6 +3,8 @@
 from threading import Event, Lock, RLock, Thread
 from types import SimpleNamespace
 
+import pytest
+
 from ad_session import AdSession
 
 
@@ -69,6 +71,26 @@ def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):
         worker.join(2)
     assert not worker.is_alive() and not error
     assert len(result[0]) == 1
+
+
+def test_source_transport_error_is_classified_as_retryable():
+    from ad_session import SourceUnavailable
+    from hls import Playlist, Segment
+
+    class Client:
+        def open(self, *args, **kwargs):
+            raise OSError('temporary source transport failure')
+
+    session = AdSession.__new__(AdSession)
+    session._lock = RLock()
+    session.client, session.cancel = Client(), Event()
+    session._source, session._source_by_id, session._published = {}, {}, set()
+    session._limit, session.active_ids = 4, lambda: set()
+    session._closed = session._terminal = False
+    playlist = Playlist('http://fixture.test/index.m3u8', (), (), 0, 0, 6,
+                        (Segment(0, 0, 6, 0, 'http://fixture.test/segment.ts'),), (), False)
+    with pytest.raises(SourceUnavailable):
+        session._cache_window(playlist)
 
 
 def test_midroll_completion_after_close_tolerates_cleared_cache_and_signals_done():
