@@ -680,3 +680,53 @@ def test_icy_learning_rejects_truncated_json_body_even_when_json_is_complete(rel
         assert relay[1].icy_marker_store.lookup('id', '-') is None
     finally:
         client.close()
+
+
+@pytest.mark.parametrize('remember', [False, True])
+def test_icy_label_applies_now_and_only_persists_when_requested(relay, origin, tmp_path, remember):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    client = ControlClient(relay[3])
+    client.label_icy_marker(session.id, '-', 'end', remember)
+    events = relay[2].events
+    assert [event.kind for event in events][-2:] == ['icy_marker_labeled', 'break_end']
+    assert events[-1].details['classification'] == 'learned'
+    assert (tmp_path / 'icy-markers.json').exists() == remember
+    assert IcyMarkerStore(tmp_path).lookup('id', '-') == ('end' if remember else None)
+    count = len([event for event in events if event.source == 'icy_marker'])
+    observe_marker(session, '-')
+    assert len([event for event in events if event.source == 'icy_marker']) == count
+    replacement = create(relay, origin, '/icy')
+    observe_marker(replacement, '-')
+    assert events[-1].details['classification'] == ('learned' if remember else 'inferred')
+
+
+def test_icy_transient_label_needs_no_store_and_rejects_stale_values(relay, origin):
+    from control import ControlClient
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    client.label_icy_marker(session.id, '-', 'start', False)
+    assert relay[2].events[-1].kind == 'icy_marker_labeled'
+    observe_marker(session, '#')
+    for session_id, marker in ((session.id, '-'), (session.id, ' # '), ('a' * 48, '#')):
+        with pytest.raises(OSError):
+            client.label_icy_marker(session_id, marker, 'end', False)
+    assert relay[2].events[-1].kind != 'icy_marker_labeled'
+
+
+def test_icy_label_route_preserves_auth_origins_body_bounds_and_boolean_type(relay, origin):
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    data = {'session_id': session.id, 'marker': '-', 'action': 'end', 'remember': False}
+    for headers in ({}, dict(auth, Origin=''), dict(auth, Origin='https://evil.example')):
+        assert request(base + '/icy-marker/label', 'POST', json.dumps(data), headers)[0] == 401
+    assert request(base + '/icy-marker/label', 'POST', ' ' * 4097, auth)[0] == 400
+    for value in (0, 1, None, 'false'):
+        assert request(base + '/icy-marker/label', 'POST', json.dumps(dict(data, remember=value)), auth)[0] == 400
+    assert not any(event.kind == 'icy_marker_labeled' for event in relay[2].events)

@@ -177,3 +177,67 @@ def test_duplicate_suppression_title_expires_with_history():
     assert instance._last_title is None
     observe(instance, 'An ordinary title', 303)
     assert len(instance.records) == 1
+
+
+@pytest.mark.parametrize('action,expected', [('start', ['icy_marker_labeled']),
+                                            ('end', ['icy_marker_labeled', 'break_end'])])
+def test_manual_label_updates_immediately_without_duplicate_boundary(action, expected):
+    instance, events = tracker()
+    observe(instance, '-', 1)
+    before = len(events)
+    assert instance.label('-', action, '2026-10-23T00:00:00Z', 2)
+    assert [event.kind for event in events[before:]] == expected
+    assert events[before].details['reason'] == action
+    observe(instance, '-', 3)
+    instance.expire(305)
+    assert [event.kind for event in events[before:]] == expected
+    assert events[before].details['classification'] == 'learned'
+
+
+def test_transient_label_overrides_persisted_lookup_and_is_exact():
+    instance, events = tracker()
+    observe(instance, '-', 1)
+    assert instance.label('-', 'end', 'now', 2)
+    instance.learned_lookup = lambda marker: 'start' if marker == '-' else None
+    observe(instance, '#', 3)
+    observe(instance, '-', 4)
+    assert events[-1].kind == 'break_end'
+    assert events[-1].details['classification'] == 'learned'
+    replacement, replacement_events = tracker()
+    observe(replacement, '-', 5)
+    assert replacement_events[-1].details['classification'] == 'inferred'
+
+
+def test_manual_label_rejects_stale_and_nonexact_candidate():
+    instance, events = tracker()
+    observe(instance, '-', 1)
+    observe(instance, '#', 2)
+    before = len(events)
+    assert not instance.label('-', 'end', 'now', 3)
+    assert not instance.label(' # ', 'end', 'now', 3)
+    assert not instance.label('#', 'end', 'now', 303)
+    assert not any(event.kind == 'icy_marker_labeled' for event in events[before:])
+
+
+def test_relabeling_same_direction_emits_label_but_no_duplicate_transition():
+    instance, events = tracker()
+    observe(instance, '-', 1)
+    assert instance.label('-', 'end', 'now', 2)
+    assert instance.label('-', 'end', 'now', 3)
+    assert [event.kind for event in events] == [
+        'icy_marker_candidate', 'break_start', 'icy_marker_labeled', 'break_end',
+        'icy_marker_labeled']
+
+
+def test_session_override_count_is_bounded_and_recent_labels_survive():
+    instance, events = tracker()
+    for index in range(65):
+        marker = '-' * (index + 1)
+        observe(instance, marker, index * 2)
+        assert instance.label(marker, 'end', 'now', index * 2 + 1)
+    observe(instance, '-', 132)
+    assert events[-1].kind == 'break_start'
+    assert events[-1].details['classification'] == 'inferred'
+    observe(instance, '--', 133)
+    assert events[-1].kind == 'break_end'
+    assert events[-1].details['classification'] == 'learned'

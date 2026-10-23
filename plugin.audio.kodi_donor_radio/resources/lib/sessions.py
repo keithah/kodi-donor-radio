@@ -109,6 +109,11 @@ class PlaybackSession:
                 return None
             return candidate
 
+    def label_icy_marker(self, marker, action):
+        with self._lock:
+            return self.icy_tracker.label(marker, action,
+                                          datetime.now(timezone.utc).isoformat(), time.monotonic())
+
     def expire_icy_markers(self, monotonic_at):
         with self._lock:
             self.icy_tracker.expire(monotonic_at)
@@ -314,9 +319,12 @@ class SessionManager:
                     'marker': marker}
 
     def learn_icy_marker(self, session_id, marker, action):
+        return self.label_icy_marker(session_id, marker, action, True)
+
+    def label_icy_marker(self, session_id, marker, action, remember):
         normalize_marker(marker)
-        if action not in ('start', 'end'):
-            raise ValueError('Invalid marker action')
+        if action not in ('start', 'end') or type(remember) is not bool:
+            raise ValueError('Invalid marker label')
         self.expire()
         # Selection and observation cannot change ownership/candidate while writing.
         with self._lock:
@@ -326,9 +334,12 @@ class SessionManager:
             with session._lock:
                 if marker != session.latest_icy_candidate():
                     return False
-                if self.icy_marker_store is None:
-                    raise ValueError('Marker store unavailable')
-                self.icy_marker_store.learn(session.station.uuid, marker, action)
+                if not session.label_icy_marker(marker, action):
+                    return False
+                if remember:
+                    if self.icy_marker_store is None:
+                        raise ValueError('Marker store unavailable')
+                    self.icy_marker_store.learn(session.station.uuid, marker, action)
                 return True
 
     def get(self, session_id):

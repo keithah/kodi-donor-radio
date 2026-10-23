@@ -145,11 +145,11 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/icy-marker/learn'):
+        if not self._valid_target() or self.path not in ('/sessions', '/icy-marker/learn', '/icy-marker/label'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
-        if self.path == '/icy-marker/learn':
+        if self.path in ('/icy-marker/learn', '/icy-marker/label'):
             return self._learn_icy_marker()
         try:
             lengths = self.headers.get_all('Content-Length', [])
@@ -184,11 +184,17 @@ class _Handler(BaseHTTPRequestHandler):
             if len(body) != int(lengths[0]):
                 return self._reply(400)
             data = json.loads(body)
-            if (not isinstance(data, dict) or set(data) != {'session_id', 'marker', 'action'}
-                    or not all(isinstance(value, str) for value in data.values())
+            labeling = self.path == '/icy-marker/label'
+            expected = {'session_id', 'marker', 'action'} | ({'remember'} if labeling else set())
+            if (not isinstance(data, dict) or set(data) != expected
+                    or not all(isinstance(data[key], str) for key in ('session_id', 'marker', 'action'))
+                    or (labeling and type(data['remember']) is not bool)
                     or not re.fullmatch(r'[a-f0-9]{48}', data['session_id'])):
                 return self._reply(400)
-            learned = self.server.relay.manager.learn_icy_marker(**data)
+            if labeling:
+                learned = self.server.relay.manager.label_icy_marker(**data)
+            else:
+                learned = self.server.relay.manager.learn_icy_marker(**data)
         except (ValueError, UnicodeError, RecursionError):
             return self._reply(400)
         except OSError:

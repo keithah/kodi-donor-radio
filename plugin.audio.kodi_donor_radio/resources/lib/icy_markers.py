@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Pure ICY marker classification; metadata remains untrusted observation data."""
 from dataclasses import dataclass
-from collections import deque
+from collections import OrderedDict, deque
 import re
 import unicodedata
 from typing import Optional
 
 from models import Event
+from icy_marker_store import normalize_marker
 
 
 _COMMAND = re.compile(r'AD_START(?:_([0-9]{1,3}))?|AD_STOP|AD_END', re.ASCII)
@@ -76,6 +77,7 @@ class IcyMarkerTracker:
         self._open_inferred = None
         self._last_title = None
         self._last_boundary = None
+        self._session_overrides = OrderedDict()
 
     def _event(self, kind, metadata, observed_at, monotonic_at, signal,
                reason=None):
@@ -106,6 +108,29 @@ class IcyMarkerTracker:
     def latest_candidate(self):
         return self._candidate[1] if self._candidate else None
 
+    def label(self, marker, action, observed_at, monotonic_at):
+        normalized = normalize_marker(marker)
+        if action not in ('start', 'end'):
+            raise ValueError('Invalid marker action')
+        self.expire(monotonic_at)
+        if marker != self.latest_candidate():
+            return False
+        self._session_overrides[normalized] = action
+        self._session_overrides.move_to_end(normalized)
+        if len(self._session_overrides) > 64:
+            self._session_overrides.popitem(last=False)
+        signal = MarkerSignal(action, normalized, 'learned', 'learned', None)
+        metadata = {'StreamTitle': marker}
+        self._event('icy_marker_labeled', metadata, observed_at, monotonic_at,
+                    signal, reason=action)
+        if self._last_boundary != action:
+            self._event('break_' + action, metadata, observed_at, monotonic_at, signal)
+            self._last_boundary = action
+        self._open_inferred = None
+        if self._last_title is not None and self._last_title[1] == normalized:
+            self._last_title = (monotonic_at, normalized, (action, 'learned', 'learned'))
+        return True
+
     def observe(self, metadata, observed_at, monotonic_at):
         self.expire(monotonic_at)
         title = metadata.get('StreamTitle') if isinstance(metadata, dict) else None
@@ -113,7 +138,8 @@ class IcyMarkerTracker:
             return
         marker = title.strip()
         normalized = marker.upper()
-        learned = self.learned_lookup(normalized) if marker else None
+        learned = ((self._session_overrides.get(normalized) or self.learned_lookup(normalized))
+                   if marker else None)
         if learned in ('start', 'end'):
             signal = MarkerSignal(learned, normalized, 'learned', 'learned', None)
         else:
