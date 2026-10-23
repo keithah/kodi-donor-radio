@@ -34,6 +34,7 @@ class AdSession:
         self.resolver = VastResolver(client, config.fixture_origin)
         self.timeline = None
         self._lock = threading.RLock()
+        self._render_lock = threading.Lock()
         self._source = {}  # URL -> (CachedSegment, immutable bytes)
         self._source_by_id = {}
         self._published = set()
@@ -112,14 +113,21 @@ class AdSession:
                 len(playlist.segments) > self._limit):
             raise CompositionFailure('unsupported_source_playlist')
         needed = {segment.uri for segment in playlist.segments}
-        # Current published resources stay pinned. Old, unpublished entries can go.
-        for url, (item, data) in list(self._source.items()):
-            if url not in needed and item.id not in self._published and item.id not in self.active_ids():
-                del self._source[url]
-                del self._source_by_id[item.id]
+        with self._lock:
+            if self._closed or self._terminal:
+                raise CompositionFailure('session_closed')
+            active = self.active_ids()
+            # Current published resources stay pinned. Old, unpublished entries can go.
+            for url, (item, data) in list(self._source.items()):
+                if url not in needed and item.id not in self._published and item.id not in active:
+                    del self._source[url]
+                    del self._source_by_id[item.id]
         for segment in playlist.segments:
-            if segment.uri in self._source:
-                continue
+            with self._lock:
+                if self._closed or self._terminal:
+                    raise CompositionFailure('session_closed')
+                if segment.uri in self._source:
+                    continue
             try:
                 with self.client.open(segment.uri, {}, self.cancel,
                                       allowed_origin=playlist.final_url) as response:
@@ -137,94 +145,114 @@ class AdSession:
             info = inspect_ts(data)
             if abs(info.samples / 48000 - segment.duration) > 1024 / 48000:
                 raise CompositionFailure('source_duration_mismatch')
-            if len(self._source) >= SOURCE_SEGMENTS or sum(len(x[1]) for x in self._source.values()) + len(data) > SOURCE_BYTES:
-                raise CompositionFailure('source_cache_full')
             item = CachedSegment(uuid.uuid4().hex, Path(''), info)
-            self._source[segment.uri] = (item, data)
-            self._source_by_id[item.id] = data
-        return {url: value[0] for url, value in self._source.items()}
-
-    def render(self, playlist, route):
+            with self._lock:
+                if self._closed or self._terminal:
+                    raise CompositionFailure('session_closed')
+                if segment.uri in self._source:
+                    continue
+                if (len(self._source) >= SOURCE_SEGMENTS or
+                        sum(len(x[1]) for x in self._source.values()) + len(data) > SOURCE_BYTES):
+                    raise CompositionFailure('source_cache_full')
+                self._source[segment.uri] = (item, data)
+                self._source_by_id[item.id] = data
         with self._lock:
             if self._closed or self._terminal:
                 raise CompositionFailure('session_closed')
-            if origin(playlist.final_url) != self.source_origin:
-                raise CompositionFailure('source_origin_changed')
-            # A complete break may appear in the first source window before
-            # asynchronous midroll preparation finishes. Publish the safe
-            # programme prefix, then expose the interval on a later reload.
-            if self.config.midroll and not self._midroll_done.is_set():
-                starts = [cue.sequence for cue in playlist.cues if cue.source == 'EXT-X-CUE-OUT']
-                if starts:
-                    boundary = min(starts)
-                    prefix = tuple(s for s in playlist.segments if s.sequence < boundary)
-                    if prefix:
-                        playlist = replace(playlist, segments=prefix,
-                                           cues=tuple(c for c in playlist.cues if c.sequence < boundary),
-                                           lines=tuple(line for line in playlist.lines
-                                                       if not line.startswith('#EXT-X-ENDLIST')))
+            return {url: value[0] for url, value in self._source.items()}
+
+    def render(self, playlist, route):
+        with self._render_lock:
+            with self._lock:
+                if self._closed or self._terminal:
+                    raise CompositionFailure('session_closed')
+                if origin(playlist.final_url) != self.source_origin:
+                    raise CompositionFailure('source_origin_changed')
+                # A complete break may appear in the first source window before
+                # asynchronous midroll preparation finishes. Publish the safe
+                # programme prefix, then expose the interval on a later reload.
+                if self.config.midroll and not self._midroll_done.is_set():
+                    starts = [cue.sequence for cue in playlist.cues if cue.source == 'EXT-X-CUE-OUT']
+                    if starts:
+                        boundary = min(starts)
+                        prefix = tuple(s for s in playlist.segments if s.sequence < boundary)
+                        if prefix:
+                            playlist = replace(playlist, segments=prefix,
+                                               cues=tuple(c for c in playlist.cues if c.sequence < boundary),
+                                               lines=tuple(line for line in playlist.lines
+                                                           if not line.startswith('#EXT-X-ENDLIST')))
+            # Keep network I/O outside the state lock. Media reads for already
+            # published immutable segments can continue while this window loads.
             sources = self._cache_window(playlist)
-            try:
-                presentation = self.timeline.update(playlist, sources)
-            except TimelineEpochLimit as error:
-                raise CompositionFailure(str(error)) from error
-            if not presentation.segments:
-                raise CompositionFailure('empty_composition')
-            self._committed = True
-            current = {s.resource_id for s in presentation.segments}
-            self._published.update(current)
-            if self._midroll is not None:
-                for placement in presentation.placements:
-                    if placement.ad is self._midroll.ad:
-                        self._midroll_placement_id = placement.id
-                if (self._midroll_placement_id is not None
-                        and all(p.id != self._midroll_placement_id for p in presentation.placements)
-                        and all(item.id not in self._published and item.id not in self.active_ids()
-                                for item in self._midroll.segments)):
-                    for item in self._midroll.segments:
-                        self.creative.unpin(item.id)
-                    self._prepared.remove(self._midroll)
-                    self._midroll = None
-            # The timeline has retired old output. Release its cache handoff pins.
-            for url, (item, data) in list(self._source.items()):
-                if (item.id not in self._published and item.id not in self.active_ids()
-                        and url not in {s.uri for s in playlist.segments}):
-                    del self._source[url]
-                    del self._source_by_id[item.id]
-            for ad in list(self._prepared):
-                if (all(item.id not in self._published and item.id not in self.active_ids()
-                        for item in ad.segments) and ad is not self._midroll):
-                    for item in ad.segments:
-                        self.creative.unpin(item.id)
-                    self._prepared.remove(ad)
-            first = presentation.segments[0]
-            longest = max(s.samples for s in presentation.segments)
-            lines = ['#EXTM3U', '#EXT-X-VERSION:3',
-                     '#EXT-X-TARGETDURATION:%d' % math.ceil(longest / 48000),
-                     '#EXT-X-MEDIA-SEQUENCE:%d' % first.sequence,
-                     '#EXT-X-DISCONTINUITY-SEQUENCE:%d' % first.discontinuity]
-            if self._initial:
-                # The Kodi adapter maps media-relative getTime() from the
-                # first output segment. Request an explicit sample-zero start
-                # for this fixture-only composed presentation.
-                lines.append('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES')
-            last_disc = first.discontinuity
-            for index, segment in enumerate(presentation.segments):
-                if index and segment.discontinuity != last_disc:
-                    lines.append('#EXT-X-DISCONTINUITY')
-                lines.append('#EXTINF:%.6f,' % (segment.samples / 48000))
-                lines.append(route(segment.resource_id))
-                last_disc = segment.discontinuity
-            if presentation.ended:
-                lines.append('#EXT-X-ENDLIST')
-            self._initial = False
-            return ('\n'.join(lines) + '\n').encode()
+            with self._lock:
+                if self._closed or self._terminal:
+                    raise CompositionFailure('session_closed')
+                return self._compose_locked(playlist, route, sources)
+
+    def _compose_locked(self, playlist, route, sources):
+        try:
+            presentation = self.timeline.update(playlist, sources)
+        except TimelineEpochLimit as error:
+            raise CompositionFailure(str(error)) from error
+        if not presentation.segments:
+            raise CompositionFailure('empty_composition')
+        self._committed = True
+        current = {s.resource_id for s in presentation.segments}
+        self._published.update(current)
+        if self._midroll is not None:
+            for placement in presentation.placements:
+                if placement.ad is self._midroll.ad:
+                    self._midroll_placement_id = placement.id
+            if (self._midroll_placement_id is not None
+                    and all(p.id != self._midroll_placement_id for p in presentation.placements)
+                    and all(item.id not in self._published and item.id not in self.active_ids()
+                            for item in self._midroll.segments)):
+                for item in self._midroll.segments:
+                    self.creative.unpin(item.id)
+                self._prepared.remove(self._midroll)
+                self._midroll = None
+        # The timeline has retired old output. Release its cache handoff pins.
+        for url, (item, data) in list(self._source.items()):
+            if (item.id not in self._published and item.id not in self.active_ids()
+                    and url not in {s.uri for s in playlist.segments}):
+                del self._source[url]
+                del self._source_by_id[item.id]
+        for ad in list(self._prepared):
+            if (all(item.id not in self._published and item.id not in self.active_ids()
+                    for item in ad.segments) and ad is not self._midroll):
+                for item in ad.segments:
+                    self.creative.unpin(item.id)
+                self._prepared.remove(ad)
+        first = presentation.segments[0]
+        longest = max(s.samples for s in presentation.segments)
+        lines = ['#EXTM3U', '#EXT-X-VERSION:3',
+                 '#EXT-X-TARGETDURATION:%d' % math.ceil(longest / 48000),
+                 '#EXT-X-MEDIA-SEQUENCE:%d' % first.sequence,
+                 '#EXT-X-DISCONTINUITY-SEQUENCE:%d' % first.discontinuity]
+        if self._initial:
+            # The Kodi adapter maps media-relative getTime() from the
+            # first output segment. Request an explicit sample-zero start
+            # for this fixture-only composed presentation.
+            lines.append('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES')
+        last_disc = first.discontinuity
+        for index, segment in enumerate(presentation.segments):
+            if index and segment.discontinuity != last_disc:
+                lines.append('#EXT-X-DISCONTINUITY')
+            lines.append('#EXTINF:%.6f,' % (segment.samples / 48000))
+            lines.append(route(segment.resource_id))
+            last_disc = segment.discontinuity
+        if presentation.ended:
+            lines.append('#EXT-X-ENDLIST')
+        self._initial = False
+        return ('\n'.join(lines) + '\n').encode()
 
     def read(self, resource_id):
-        with self._lock:
-            if resource_id in self._source_by_id:
-                return self._source_by_id[resource_id]
-            return self.creative.read(resource_id)
+        # Source bytes are immutable after publication. Avoid making playback
+        # segment requests wait while a playlist reload fetches its next window.
+        data = self._source_by_id.get(resource_id)
+        if data is not None:
+            return data
+        return self.creative.read(resource_id)
 
     def close(self):
         with self._lock:

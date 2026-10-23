@@ -651,6 +651,7 @@ def test_startup_recovers_after_invalid_ad_setting_is_corrected(kodi):
     runtime.run_service()
     assert len(descriptors) == 1
     assert not (profile / 'service.json').exists()
+    assert state.notifications == [('localized-30000', 'localized-30068', 'error', 5000)]
 
 
 def test_player_refuses_ad_sample_when_file_has_switched_before_callback(kodi):

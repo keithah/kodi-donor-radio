@@ -235,3 +235,7 @@ msgstr ""
 msgctxt "#30067"
 msgid "Test ICY: unresolved break"
 msgstr ""
+
+msgctxt "#30068"
+msgid "Controlled ad settings are invalid; ads are disabled."
+msgstr ""

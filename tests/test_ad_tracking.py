@@ -236,7 +236,7 @@ def test_worker_allows_same_url_for_later_placement():
 def test_worker_rejects_credentials_even_on_fixture_origin():
     client = FakeClient()
     worker = BeaconWorker(client, threading.Event(), "http://fixture.test")
-    assert not worker.enqueue("p1", "start", "http://user:pass@fixture.test/track")
+    assert not worker.enqueue("p1", "start", "http://userinfo@fixture.test/track")
     worker.close()
     assert client.calls == []
 

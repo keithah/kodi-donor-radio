@@ -541,7 +541,7 @@ def run_service():
                 config = ad_settings()
             except ValueError:
                 # A bad ad-only value must not prevent ordinary radio playback.
-                xbmcgui.Dialog().notification(text(30000), text(30014), xbmcgui.NOTIFICATION_ERROR, 5000)
+                xbmcgui.Dialog().notification(text(30000), text(30068), xbmcgui.NOTIFICATION_ERROR, 5000)
                 config = AdConfig(False, False, False, '', '')
             manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
                                      ad_config=config, cache_root=profile,

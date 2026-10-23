@@ -42,8 +42,9 @@ Copy the ZIP to the Kodi device. In Kodi, enable **Settings → System → Add-o
 Unknown sources**, then choose **Add-ons → Install from zip file** and select
 `plugin.audio.kodi_donor_radio-0.1.0.zip`. Find **Kodi Donor Radio** under music
 add-ons. Search or browse, select a station, and use Kodi's normal playback stop
-controls. Keep the bundled service enabled. Changing addon settings restarts the
-service and retires existing playback sessions.
+controls. Keep the bundled service enabled. Changing diagnostics, test mode, or
+the fixture origin restarts the service and retires existing playback sessions.
+Advertising settings apply to the next station selection without a restart.
 
 ## Stream scope
 

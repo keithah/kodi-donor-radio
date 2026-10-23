@@ -128,13 +128,15 @@ def test_session_latest_candidate_is_bounded_and_isolated(marker_session, length
 
 def test_service_tick_expires_markers_during_active_audio(marker_session, monkeypatch):
     import sessions
+    from types import SimpleNamespace
     manager, session, events = marker_session
     session.observe_icy_metadata({'StreamTitle': '-'}, 'start', 10)
+    clock = SimpleNamespace(monotonic=lambda: 310)
+    monkeypatch.setattr(sessions, 'time', clock)
     with session.acquire(session.playback_url):
-        monkeypatch.setattr(sessions.time, 'monotonic', lambda: 310)
         manager.expire()
         assert not any(event.kind == 'break_unresolved' for event in events)
-        monkeypatch.setattr(sessions.time, 'monotonic', lambda: 311)
+        clock.monotonic = lambda: 311
         manager.expire()
         manager.expire()
         assert not session.cancel.is_set()

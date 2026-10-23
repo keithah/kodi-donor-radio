@@ -132,7 +132,7 @@ def observe(origin, scenario, vast, preroll, midroll):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--origin', default='http://127.0.0.1:58416')
+    parser.add_argument('--origin', default='http://127.0.0.1:8766')
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()
     results = [observe(args.origin, *case) for case in (
