@@ -308,12 +308,10 @@ def run_plugin(argv):
                 if origin is None or not station.url.startswith(origin + '/'):
                     raise ValueError('Test mode disabled')
             try:
-                try:
-                    ad_create = (station.uuid.startswith('fixture-') and station.hls
-                                 and ad_settings().enabled)
-                except ValueError:
-                    # Invalid ad-only settings use ordinary service behavior.
-                    ad_create = False
+                # The service can still hold its previous valid ad config while
+                # Kodi settings are being edited, so use the longer bound for all
+                # controlled HLS fixtures regardless of the plugin's snapshot.
+                ad_create = station.uuid.startswith('fixture-') and station.hls
                 client = _operation(lambda: _service(profile_path(), monitor, cancel,
                     AD_CREATE_TIMEOUT if ad_create else 10), monitor, cancel)
             except OSError as error:

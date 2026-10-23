@@ -553,7 +553,7 @@ def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
     assert state.resolved[0][0]
 
 
-def test_invalid_ad_url_uses_regular_fixture_create_timeout(kodi, monkeypatch):
+def test_invalid_ad_url_keeps_extended_fixture_create_timeout(kodi, monkeypatch):
     runtime, state, profile = kodi
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
                           ad_enabled=True, ad_preroll=True, ad_vast_url='invalid')
@@ -574,7 +574,7 @@ def test_invalid_ad_url_uses_regular_fixture_create_timeout(kodi, monkeypatch):
     monkeypatch.setattr(runtime, 'ControlClient', Client)
     station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
     route(runtime, action='play', station=json.dumps(station.__dict__))
-    assert timeouts[-1] == 10
+    assert timeouts[-1] == 30
     assert state.resolved[0][0]
 
 
