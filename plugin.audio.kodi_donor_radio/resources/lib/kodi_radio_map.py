@@ -78,7 +78,8 @@ class PreviewController:
 
     def __init__(self, start, can_play, play, current_file, is_playing,
                  stop_playback, stop_session, timer_factory=None, thread_factory=None,
-                 delay=0.4, pending_start_timeout=PENDING_PLAY_HANDOFF_SECONDS):
+                 delay=0.4, pending_start_timeout=PENDING_PLAY_HANDOFF_SECONDS,
+                 clock=None, sleep=None):
         self._start, self._can_play, self._play = start, can_play, play
         self._current_file, self._is_playing = current_file, is_playing
         self._stop_playback, self._stop_session = stop_playback, stop_session
@@ -86,6 +87,8 @@ class PreviewController:
         self._thread_factory = thread_factory or threading.Thread
         self._delay = delay
         self._pending_start_timeout = pending_start_timeout
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
         self._lock = threading.RLock()
         # Serialize lifecycle changes with the final player handoff. A stale
         # resolution must not call Player.play after cancel/close has returned.
@@ -209,7 +212,7 @@ class PreviewController:
     def _defer_pending_stop(self, result):
         """Give Kodi a bounded window to acknowledge an asynchronous Player.play."""
         def finish_handoff():
-            deadline = time.monotonic() + self._pending_start_timeout
+            deadline = self._clock() + self._pending_start_timeout
             while True:
                 try:
                     playing = self._is_playing()
@@ -222,12 +225,12 @@ class PreviewController:
                     except Exception:
                         pass
                     break
-                if playing and current and current != result.get('playback_url'):
-                    break
-                remaining = deadline - time.monotonic()
+                # A different URL is not an acknowledgment that Kodi dropped
+                # this queued request; wait for our URL or the bounded timeout.
+                remaining = deadline - self._clock()
                 if remaining <= 0:
                     break
-                time.sleep(min(PENDING_PLAY_POLL_SECONDS, remaining))
+                self._sleep(min(PENDING_PLAY_POLL_SECONDS, remaining))
             self._retire(result['session_id'])
 
         worker = self._thread_factory or threading.Thread

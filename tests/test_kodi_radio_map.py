@@ -375,6 +375,85 @@ def test_preview_keeps_session_when_player_play_is_still_pending(monkeypatch, tm
     assert stops == ['stop-playback', 'preview-session']
 
 
+def test_pending_preview_survives_other_url_until_preview_is_acknowledged(monkeypatch, tmp_path):
+    module = load_window(monkeypatch)
+    workers, stops = [], []
+    state = {'url': 'https://old.example/live', 'playing': False}
+    sleep_entered, release_sleep = threading.Event(), threading.Event()
+    player = SimpleNamespace(
+        isPlaying=lambda: state['playing'], getPlayingFile=lambda: state['url'],
+        play=lambda *_: None,
+        stop=lambda: (stops.append('stop-playback'), state.update(playing=False, url='')))
+
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+
+    def injected_sleep(_seconds):
+        sleep_entered.set()
+        assert release_sleep.wait(2)
+
+    window = make_window(module, player_factory=lambda: player,
+                         playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'))
+    result = {'session_id': 'pending-preview',
+              'playback_url': 'http://127.0.0.1:1/pending-preview'}
+    controller = module.PreviewController(
+        lambda *_: result, lambda _: True, window._play_preview,
+        player.getPlayingFile, player.isPlaying, player.stop,
+        lambda session: stops.append(session), thread_factory=thread,
+        clock=lambda: 0.0, sleep=injected_sleep)
+    window._preview = controller
+    controller._resolve(0, 'station', threading.Event())
+    assert state['url'] == 'https://old.example/live'
+
+    # A different Kodi action wins temporarily while this preview is still queued.
+    state.update(url='https://external.example/live', playing=True)
+    controller.close()
+    watcher = threading.Thread(target=workers[0].target)
+    watcher.start()
+    assert sleep_entered.wait(2)
+    assert stops == []
+
+    # Kodi later acknowledges the previously queued preview; cleanup owns only it.
+    state.update(url=result['playback_url'], playing=True)
+    release_sleep.set()
+    watcher.join(2)
+    assert not watcher.is_alive()
+    assert stops == ['stop-playback', 'pending-preview']
+
+
+def test_pending_preview_timeout_retires_session_without_stopping_other_url(monkeypatch, tmp_path):
+    module = load_window(monkeypatch)
+    workers, stops = [], []
+    clock = [0.0]
+    state = {'url': 'https://external.example/live', 'playing': True}
+    player = SimpleNamespace(isPlaying=lambda: state['playing'],
+                              getPlayingFile=lambda: state['url'], play=lambda *_: None,
+                              stop=lambda: stops.append('stop-playback'))
+
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+
+    window = make_window(module, player_factory=lambda: player,
+                         playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'))
+    result = {'session_id': 'timed-out-preview',
+              'playback_url': 'http://127.0.0.1:1/timed-out-preview'}
+    controller = module.PreviewController(
+        lambda *_: result, lambda _: True, lambda _: None,
+        player.getPlayingFile, player.isPlaying, player.stop,
+        lambda session: stops.append(session), thread_factory=thread,
+        pending_start_timeout=0.1, clock=lambda: clock[0],
+        sleep=lambda duration: clock.__setitem__(0, clock[0] + duration))
+    controller.owned = result
+    controller._pending_playback_url = result['playback_url']
+    controller.close()
+    workers[0].target()
+    assert clock[0] >= 0.1
+    assert stops == ['timed-out-preview']
+    assert state['url'] == 'https://external.example/live'
+
+
 def test_station_rail_cancels_preview_before_queuing_direct_play(monkeypatch):
     module = load_window(monkeypatch)
     events = []

@@ -59,3 +59,11 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - External Kodi UI actions and other add-ons still cannot participate in the shared start lock; the five-second pending handoff cannot make those sources atomic with `Player.play`. No zero-race claim. Live Kodi UI behavior remains unverified.
 
 - Fix commit: `1275ccd` (`fix: track pending Kodi preview handoff`).
+
+## Review fix round 4: retain pending session across competing URLs
+
+- Changed the pending-start watcher so a different current URL does not count as proof that Kodi dropped the queued preview. It keeps the relay session alive until Kodi reports the exact preview URL as playing or the five-second handoff expires.
+- Injected clock and sleep functions for deterministic handoff tests. The ordering test holds the watcher after a different stream becomes current, verifies no player/session cleanup occurs, then acknowledges the queued preview URL and verifies only that preview is stopped before session retirement. A separate timeout test verifies the other stream is never stopped when no acknowledgment arrives.
+- TDD RED: temporarily restoring the early-retire branch made the ordering test fail because the watcher skipped its wait when another URL was current. Removing that branch made the ordering test pass. GREEN: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 188 passed.
+- Full verification: `pytest -q` — 908 passed in 98.11s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
+- The handoff remains bounded at five seconds. Kodi UI actions and other add-ons remain outside our lock; a preview acknowledged after the timeout can fail. No zero-race claim.
