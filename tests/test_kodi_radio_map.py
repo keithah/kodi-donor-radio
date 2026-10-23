@@ -334,30 +334,65 @@ def test_preview_rechecks_kodi_state_under_shared_start_arbiter(monkeypatch, tmp
     assert state['url'] == 'https://external.example/live'
 
 
-def test_preview_retires_session_if_kodi_changes_during_player_play(monkeypatch, tmp_path):
+def test_preview_keeps_session_when_player_play_is_still_pending(monkeypatch, tmp_path):
     module = load_window(monkeypatch)
-    calls, stops = [], []
-    state = {'url': '', 'playing': False}
+    calls, stops, workers = [], [], []
+    state = {'url': 'https://previous.example/live', 'playing': False}
 
     def play(url, item):
         calls.append(url)
-        # Simulate an uncoordinated Kodi action winning immediately afterward.
-        state.update(url='https://external.example/live', playing=True)
+        # Kodi accepted the request but has not switched getPlayingFile yet.
+        state['playing'] = True
 
     player = SimpleNamespace(isPlaying=lambda: state['playing'],
                               getPlayingFile=lambda: state['url'], play=play,
-                              stop=lambda: stops.append('stop-playback'))
+                              stop=lambda: (stops.append('stop-playback'),
+                                            state.update(url='', playing=False)))
+
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+
     window = make_window(module, player_factory=lambda: player,
                          playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'),
-                         preview_stop=lambda session: stops.append(session))
+                         thread_factory=thread, preview_stop=lambda session: stops.append(session))
     result = {'session_id': 'preview-session',
               'playback_url': 'http://127.0.0.1:1/preview'}
     controller = module.PreviewController(
         lambda *_: result, lambda _: True, window._play_preview,
         player.getPlayingFile, player.isPlaying, player.stop,
-        lambda session: stops.append(session))
+        lambda session: stops.append(session), thread_factory=thread)
     window._preview = controller
     controller._resolve(0, 'station', threading.Event())
     assert calls == [result['playback_url']]
-    assert state['url'] == 'https://external.example/live'
-    assert stops == ['preview-session']  # Cleanup retires only our relay session.
+    assert state['url'] == 'https://previous.example/live'
+    assert controller.owned is result
+    assert stops == []
+    window.close()
+    assert stops == [] and len(workers) == 1
+    state.update(url=result['playback_url'], playing=True)
+    workers[0].target()
+    assert stops == ['stop-playback', 'preview-session']
+
+
+def test_station_rail_cancels_preview_before_queuing_direct_play(monkeypatch):
+    module = load_window(monkeypatch)
+    events = []
+    state = {'url': 'http://127.0.0.1:1/preview', 'playing': True}
+    player = SimpleNamespace(isPlaying=lambda: state['playing'],
+                              getPlayingFile=lambda: state['url'],
+                              stop=lambda: (events.append('stop-preview'),
+                                            state.update(url='', playing=False)))
+    window = make_window(module, player_factory=lambda: player,
+                         execute=lambda command: events.append(('run-plugin', command)))
+    window.onInit()
+    result = {'session_id': 'owned-preview', 'playback_url': state['url']}
+    window._preview = module.PreviewController(
+        lambda *_: None, lambda _: True, lambda _: None,
+        player.getPlayingFile, player.isPlaying, player.stop,
+        lambda session: events.append(('stop-session', session)))
+    window._preview.owned = result
+    window.onClick(module.RAIL_ID)
+    assert events[0] == 'stop-preview'
+    assert events[1] == ('stop-session', 'owned-preview')
+    assert events[2][0] == 'run-plugin'

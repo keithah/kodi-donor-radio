@@ -47,3 +47,13 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Boundary: Kodi has no atomic compare-and-play operation, and UI actions, other add-ons, and plugin resolutions handled by Kodi's `setResolvedUrl` do not participate in this add-on's lock. A nonparticipating start can still race between the final Kodi state read and `Player.play`; the post-start check limits the damage by retiring only our session and preserving any different current playback. This does not establish a zero-race guarantee. Live Kodi behavior remains for Task 7 acceptance.
 
 - Fix commit: `d26f0e3` (`fix: arbitrate Kodi addon playback starts`).
+
+## Review fix round 3: queued preview start and deliberate play
+
+- Removed the assumption that `Player.play` returning means `getPlayingFile()` already changed. A successful call now remains owned and pending; it is not retired because Kodi still reports the prior file immediately afterward.
+- If focus changes or the window closes before Kodi reports the preview URL, a worker performs an ownership-safe handoff for up to five seconds. It stops playback only after Kodi reports this exact preview URL as playing; a different current stream is left alone. At timeout it retires the relay session. A start delayed beyond that bound may fail, so this remains a bounded mitigation rather than a Kodi-level guarantee.
+- The station rail now cancels/clears the owned preview before issuing its direct `RunPlugin` play action. Added a callback-order test proving playback/session cleanup precedes the direct request, and a deterministic queued-play test proving the relay is retained until Kodi acknowledges the preview URL and later cleanup stops only that URL.
+- TDD RED: both new tests failed first: the pending preview was retired on an old current URL, and station `RunPlugin` was queued before preview cleanup.
+- Focused verification: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 186 passed.
+- Full verification: `pytest -q` — 906 passed in 97.41s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
+- External Kodi UI actions and other add-ons still cannot participate in the shared start lock; the five-second pending handoff cannot make those sources atomic with `Player.play`. No zero-race claim. Live Kodi UI behavior remains unverified.

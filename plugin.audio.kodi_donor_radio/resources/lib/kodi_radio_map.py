@@ -3,6 +3,7 @@
 from urllib.parse import parse_qs, urlencode, urlsplit
 import threading
 import re
+import time
 
 import xbmc
 import xbmcaddon
@@ -24,6 +25,8 @@ MAP_LEFT, MAP_TOP, MAP_WIDTH, MAP_HEIGHT = 75, 145, 1030, 590
 RAIL_LIMIT = 50
 ACTION_IDS = {'left': 1, 'right': 2, 'up': 3, 'down': 4}
 BACK_ACTIONS = (10, 92)
+PENDING_PLAY_HANDOFF_SECONDS = 5.0
+PENDING_PLAY_POLL_SECONDS = 0.05
 
 
 def _valid_origin(route, plugin_base):
@@ -75,13 +78,14 @@ class PreviewController:
 
     def __init__(self, start, can_play, play, current_file, is_playing,
                  stop_playback, stop_session, timer_factory=None, thread_factory=None,
-                 delay=0.4):
+                 delay=0.4, pending_start_timeout=PENDING_PLAY_HANDOFF_SECONDS):
         self._start, self._can_play, self._play = start, can_play, play
         self._current_file, self._is_playing = current_file, is_playing
         self._stop_playback, self._stop_session = stop_playback, stop_session
         self._timer_factory = timer_factory or threading.Timer
         self._thread_factory = thread_factory or threading.Thread
         self._delay = delay
+        self._pending_start_timeout = pending_start_timeout
         self._lock = threading.RLock()
         # Serialize lifecycle changes with the final player handoff. A stale
         # resolution must not call Player.play after cancel/close has returned.
@@ -91,6 +95,7 @@ class PreviewController:
         self._request_cancel = None
         self._closed = False
         self.owned = None
+        self._pending_playback_url = ''
 
     def focus_station(self, station_uuid):
         station_uuid = station_identifier(station_uuid)
@@ -101,11 +106,13 @@ class PreviewController:
                 timer, self._timer = self._timer, None
                 request_cancel, self._request_cancel = self._request_cancel, None
                 owned, self.owned = self.owned, None
+                pending = bool(owned and self._pending_playback_url == owned.get('playback_url'))
+                self._pending_playback_url = ''
             if timer is not None:
                 timer.cancel()
             if request_cancel is not None:
                 request_cancel.set()
-            self._stop_owned(owned)
+            self._stop_owned(owned, pending=pending)
             with self._lock:
                 if self._closed:
                     return
@@ -124,11 +131,13 @@ class PreviewController:
                 timer, self._timer = self._timer, None
                 request_cancel, self._request_cancel = self._request_cancel, None
                 owned, self.owned = self.owned, None
+                pending = bool(owned and self._pending_playback_url == owned.get('playback_url'))
+                self._pending_playback_url = ''
             if timer is not None:
                 timer.cancel()
             if request_cancel is not None:
                 request_cancel.set()
-            self._stop_owned(owned)
+            self._stop_owned(owned, pending=pending)
 
     def _launch(self, generation, station_uuid, request_cancel):
         with self._lock:
@@ -162,6 +171,7 @@ class PreviewController:
                         stale = True
                     else:
                         self.owned = result
+                        self._pending_playback_url = result['playback_url']
                         stale = False
                 if not stale:
                     try:
@@ -170,6 +180,7 @@ class PreviewController:
                         with self._lock:
                             if self.owned is result:
                                 self.owned = None
+                                self._pending_playback_url = ''
                         stale = True
         if stale:
             self._retire(result['session_id'])
@@ -180,18 +191,47 @@ class PreviewController:
         except Exception:
             pass
 
-    def _stop_owned(self, result):
+    def _stop_owned(self, result, pending=False):
         if result is None:
             return
+        stopped_playback = False
         try:
             if self._is_playing() and self._current_file() == result.get('playback_url'):
                 self._stop_playback()
+                stopped_playback = True
         except Exception:
             pass
-        try:
-            self._stop_session(result['session_id'])
-        except Exception:
-            pass
+        if pending and not stopped_playback:
+            self._defer_pending_stop(result)
+            return
+        self._retire(result['session_id'])
+
+    def _defer_pending_stop(self, result):
+        """Give Kodi a bounded window to acknowledge an asynchronous Player.play."""
+        def finish_handoff():
+            deadline = time.monotonic() + self._pending_start_timeout
+            while True:
+                try:
+                    playing = self._is_playing()
+                    current = self._current_file()
+                except Exception:
+                    playing, current = False, ''
+                if playing and current == result.get('playback_url'):
+                    try:
+                        self._stop_playback()
+                    except Exception:
+                        pass
+                    break
+                if playing and current and current != result.get('playback_url'):
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(PENDING_PLAY_POLL_SECONDS, remaining))
+            self._retire(result['session_id'])
+
+        worker = self._thread_factory or threading.Thread
+        worker(target=finish_handoff, daemon=True).start()
 
     def close(self):
         with self._handoff_lock:
@@ -201,11 +241,13 @@ class PreviewController:
                 timer, self._timer = self._timer, None
                 request_cancel, self._request_cancel = self._request_cancel, None
                 owned, self.owned = self.owned, None
+                pending = bool(owned and self._pending_playback_url == owned.get('playback_url'))
+                self._pending_playback_url = ''
             if timer is not None:
                 timer.cancel()
             if request_cancel is not None:
                 request_cancel.set()
-            self._stop_owned(owned)
+            self._stop_owned(owned, pending=pending)
 
 
 class RadioMapWindow(xbmcgui.WindowXML):
@@ -464,6 +506,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
         elif control_id == RAIL_ID:
             station_uuid = self._focused_station_uuid()
             if station_uuid:
+                if self._preview:
+                    self._preview.cancel()
                 self.execute('RunPlugin(%s)' % (self.plugin_base + '?' + urlencode({'mode': 'play', 'uuid': station_uuid})))
         elif control_id == PREVIEW_ID:
             station_uuid = self._focused_station_uuid()
@@ -504,11 +548,6 @@ class RadioMapWindow(xbmcgui.WindowXML):
 
         def start_preview():
             player.play(result['playback_url'], entry)
-            # Kodi and unrelated addons cannot acquire our arbiter. Detect a
-            # competing start that wins immediately after the preflight, then
-            # retire only this session; never stop the now-current player.
-            if player.isPlaying() and player.getPlayingFile() != result['playback_url']:
-                raise RuntimeError('Kodi playback changed during preview start')
 
         started = self._playback_arbiter.start_if_available(can_start, start_preview)
         if not started:
