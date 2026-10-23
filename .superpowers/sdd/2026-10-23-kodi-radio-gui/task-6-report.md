@@ -80,3 +80,11 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Limitation: external Kodi UI actions, other add-ons, and native `setResolvedUrl` playback do not record our intent token. They can still race. A preview is only protected from cleanup stops by the add-on's direct start intents; no atomic Kodi-level compare-and-play guarantee exists.
 
 - Fix commit: `c1f721c` (`fix: guard preview stop with playback intent`).
+
+## Review fix round 6: fail-closed intent-lock errors
+
+- Reproduced both findings with injected `OSError` from the intent arbiter: synchronous `close()` escaped before retiring its relay session / closing the map, and the deferred worker escaped before session retirement.
+- Intent lookup failures now fail closed for player stopping and retire only the preview-owned relay session. Deferred cleanup wraps its wait/stop logic in `finally`, so the owned relay is retired even when clock, player, or arbiter operations fail.
+- Added deterministic synchronous-close and pending-worker lock-failure tests; both confirm no `Player.stop` occurs when the intent cannot be verified and only the owned session is retired.
+- Focused verification: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 191 passed. `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` and `git diff --check` passed.
+- Fix commit: `02d31d4` (`fix: retire preview when intent lock fails`).
