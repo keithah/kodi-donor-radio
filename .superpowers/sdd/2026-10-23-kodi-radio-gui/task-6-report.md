@@ -69,3 +69,12 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - The handoff remains bounded at five seconds. Kodi UI actions and other add-ons remain outside our lock; a preview acknowledged after the timeout can fail. No zero-race claim.
 
 - Fix commit: `713e331` (`fix: retain pending preview through competing playback`).
+
+## Review fix round 5: intent-aware cleanup stop
+
+- `PlaybackStartArbiter.start` and `start_if_available` now persist a UUID start-intent token under the shared profile file lock. The map preview retains its token. Deferred cleanup checks that token under the same lock as the current-URL read and `Player.stop` call.
+- If a newer deliberate add-on start has recorded a token, cleanup retires only the old preview relay session and does not call `Player.stop`, even if Kodi still reports the old preview URL while the newer `Player.play` is queued. If the token is still current, cleanup stops only when the exact owned preview URL is current. The cross-process intent record is a mode-0600 sibling of the arbiter lock and is read/written while holding that OS lock.
+- Added deterministic queued-start interleaving coverage: preview `Player.play` returns while the old URL remains, close defers cleanup, a distinct arbiter records the newer direct-start token, and the preview URL is acknowledged afterward. The test proves the preview session is retired without stopping the current player. Existing event-gated tests still prove an external different URL does not retire a preview before acknowledgment or timeout.
+- Focused verification: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 189 passed.
+- Full verification: `pytest -q` — 909 passed in 98.02s; compileall, package creation/check, and `git diff --check` passed.
+- Limitation: external Kodi UI actions, other add-ons, and native `setResolvedUrl` playback do not record our intent token. They can still race. A preview is only protected from cleanup stops by the add-on's direct start intents; no atomic Kodi-level compare-and-play guarantee exists.
