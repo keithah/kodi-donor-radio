@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 import time
@@ -134,6 +135,40 @@ def test_controlled_ad_sources_appear_in_test_menu(kodi):
     import re
     ids = re.findall(r'^msgctxt "#(\d+)"$', translations, re.MULTILINE)
     assert len(ids) == len(set(ids))
+
+
+def test_icy_marker_scenarios_are_selectable_with_localized_labels_and_exact_origin(kodi):
+    runtime, state, _ = kodi
+    state.settings.update({'test_mode': True, 'test_origin': 'http://127.0.0.1:58416'})
+    route(runtime, action='tests')
+    expected = {
+        'explicit': 30061, 'tildeats': 30062, 'wrapped': 30063,
+        'return-to-track': 30064, 'paired-marker': 30065,
+        'punctuation': 30066, 'unresolved': 30067,
+    }
+    stations = []
+    for url, item, _ in state.items:
+        params = parse_qs(urlsplit(url).query)
+        if 'station' in params:
+            station = json.loads(params['station'][0])
+            if '/icy/' in station['url']:
+                stations.append((item.label, station))
+    assert [(label, urlsplit(station['url']).path.rsplit('/', 1)[-1])
+            for label, station in stations] == [
+        ('localized-%d' % label, scenario + '.mp3')
+        for scenario, label in expected.items()]
+    assert all(urlsplit(station['url']).scheme == 'http'
+               and urlsplit(station['url']).netloc == '127.0.0.1:58416'
+               and station['codec'] == 'MP3' and station['hls'] is False
+               and station['uuid'].startswith('fixture-')
+               for _, station in stations)
+    translations = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
+    ids = {int(value) for value in re.findall(r'^msgctxt "#(\d+)"$', translations, re.MULTILINE)}
+    assert set(expected.values()) <= ids
+    state.items.clear()
+    state.settings['test_origin'] = 'http://127.0.0.2:58416'
+    route(runtime, action='tests')
+    assert not any('station=' in url for url, _, _ in state.items)
 
 
 @pytest.mark.parametrize('params,expected', [
@@ -294,7 +329,7 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==12
+    assert len(state.items)==19
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(parse_qs(urlsplit(state.items[0][0]).query)['station'][0])
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'

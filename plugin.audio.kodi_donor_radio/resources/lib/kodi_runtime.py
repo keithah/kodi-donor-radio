@@ -389,6 +389,12 @@ def run_plugin(argv):
                             (30046,'source/mutation/index.m3u8','AAC',True),
                             (30047,'source/expired-window/index.m3u8','AAC',True),
                             (30048,'source/stall/index.m3u8','AAC',True)]
+                fixtures.extend((label, 'icy/%s.mp3' % scenario, 'MP3', False)
+                                for label, scenario in (
+                                    (30061, 'explicit'), (30062, 'tildeats'),
+                                    (30063, 'wrapped'), (30064, 'return-to-track'),
+                                    (30065, 'paired-marker'), (30066, 'punctuation'),
+                                    (30067, 'unresolved')))
                 for label,path,codec,hls in fixtures:
                     station_item(Station('fixture-%d'%label,text(label),origin+'/'+path,codec,hls))
         else:

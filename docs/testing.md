@@ -538,3 +538,9 @@ Run the fixture-focused suite with
 This validation is not a Kodi UI playback run; the controlled sequences are
 verified as bounded stream/decoder/tracker fixtures, and any separate Kodi
 menu or audible-playback check must be recorded independently.
+Each finite HTTP stream now uses generated MP3 frame payloads and paces complete
+audio-plus-metadata frames. In test mode with the exact configured loopback
+origin, the Kodi controlled-stream menu exposes a localized entry for each
+scenario. Automated RelayServer coverage exercises the paired-marker stream
+through the actual session path and verifies the stripped audio bytes and
+observation-only events.

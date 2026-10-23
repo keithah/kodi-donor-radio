@@ -207,3 +207,31 @@ msgstr ""
 msgctxt "#30060"
 msgid "This listening session only"
 msgstr ""
+
+msgctxt "#30061"
+msgid "Test ICY: explicit AD commands"
+msgstr ""
+
+msgctxt "#30062"
+msgid "Test ICY: TildeATS markers"
+msgstr ""
+
+msgctxt "#30063"
+msgid "Test ICY: wrapped AD commands"
+msgstr ""
+
+msgctxt "#30064"
+msgid "Test ICY: return to track"
+msgstr ""
+
+msgctxt "#30065"
+msgid "Test ICY: paired marker"
+msgstr ""
+
+msgctxt "#30066"
+msgid "Test ICY: punctuation markers"
+msgstr ""
+
+msgctxt "#30067"
+msgid "Test ICY: unresolved break"
+msgstr ""

@@ -145,3 +145,6 @@ exception assumption. This assumption is not independently verified repository
 approval. [The staged roadmap](docs/monetization-roadmap.md) retains VAST/preroll,
 HLS replacement, continuous-stream investigation, and listener ad budgets with
 explicit decisions and acceptance evidence before each implementation phase.
+With test mode enabled and the exact loopback origin configured, Kodi's
+controlled-stream menu includes one playable entry per ICY scenario, backed by
+the generated MP3 tone.
