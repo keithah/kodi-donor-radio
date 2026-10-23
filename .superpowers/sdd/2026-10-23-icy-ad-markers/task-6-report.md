@@ -1,6 +1,6 @@
 # Task 6 report: controlled ICY fixtures, documentation, and package verification
 
-Status: implementation complete; awaiting independent review. Implementation commit: `79908df` — `test: add controlled ICY marker fixtures`. The commit includes the controlled fixture server, fixture tests, ICY documentation, and the stale oversized-marker test correction. The pre-existing Kodi clock-anchor edits remain outside this commit.
+Status: fix round 1 implementation complete; awaiting scoped independent re-review. Initial implementation commit: `79908df` — `test: add controlled ICY marker fixtures`. Fix round 1 commit: `c968572` — `fix: make ICY marker fixtures playable`. The commits include the controlled fixture server, fixture tests, ICY documentation, localized menu entries, and the stale oversized-marker test correction. The pre-existing Kodi clock-anchor edits remain outside these commits.
 
 ## Implementation
 
@@ -73,4 +73,55 @@ Package SHA-256: `8bec111f5ec5daaa2cdc3b56e9b2ab8910f207fe67c11e527898bc8932d87c
 
 ## Kodi target
 
-Kodi is installed at `/Applications/Kodi.app` and a Kodi process was present on host `mbpdev.local`. That is the remote test host, not the user's local Mac. I did not interact with Kodi or claim UI/playback verification. The new finite scenarios are not entries in the add-on's controlled-stream menu, which continues to use the existing repeating `/icy.mp3`; manual playback of the new scenario streams remains pending on the user's local Mac.
+At the initial Task 6 review, Kodi was installed at `/Applications/Kodi.app` and a process was present on host `mbpdev.local`, the remote test host rather than the user's local Mac. I did not interact with Kodi or claim UI/playback verification. At that point, the finite scenarios were not entries in the add-on's controlled-stream menu; the fix round below adds the menu entries. Manual playback remains pending on the user's local Mac.
+
+## Fix round 1: selectable MP3-backed scenarios and relay-path proof
+
+Addressed all three review findings:
+
+1. Added seven localized entries to the test-mode **Controlled test streams** menu. Their serialized station URLs use only the exact configured `http://127.0.0.1:<port>` origin, and runtime tests verify every scenario label/path and that an invalid `127.0.0.2` origin creates no station entries. Existing production-origin restrictions are unchanged.
+2. Scenario responses now use 4,096-byte intervals filled by looping the ID3-stripped MP3 frame payload from the generated `tone.mp3`. Each complete audio interval plus its variable-length ICY metadata block is serialized and written as one frame, followed by a 250 ms wait. Tests read the complete frames and require tolerant 120 ms–1.5 s inter-frame timing.
+3. Added a test through a real loopback `RelayServer` and `SessionManager` using the paired-marker route. It verifies exact stripped MP3 bytes, ordered ICY observations, no ad session/eligibility, and no replacement/VAST/beacon event.
+
+TDD RED: the new Kodi-menu test first failed because no scenario URLs were present. The HTTP timing and relay integration tests both first failed because the audio builder did not accept the generated MP3 source. These failures preceded the implementation changes.
+
+Focused verification command:
+
+```text
+python3 -m pytest tests/test_fixtures.py tests/test_kodi_runtime.py tests/test_relay.py tests/test_icy.py tests/test_icy_markers.py -q
+```
+
+```text
+........................................................................ [ 30%]
+........................................................................ [ 61%]
+........................................................................ [ 92%]
+.................                                                        [100%]
+233 passed in 33.78s
+exit status: 0
+```
+
+Full-suite command: `python3 -m pytest -q`
+
+```text
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+......................................... [ 30%]
+........................................................................ [ 41%]
+........................................................................ [ 51%]
+........................................................................ [ 61%]
+........................................................................ [ 72%]
+........................................................................ [ 82%]
+.................... [ 92%]
+....................................................
+....                      [100%]
+699 passed in 98.12s (0:01:38)
+exit status: 0
+```
+
+`python3 -m compileall -q plugin.audio.kodi_donor_radio tests && git diff --check` completed with exit status 0.
+
+Packaging command: `python3 tools/package_addon.py --output /tmp/kodi-donor-radio-task6-fix1-package` → `/private/tmp/kodi-donor-radio-task6-fix1-package/plugin.audio.kodi_donor_radio-0.1.0.zip` (exit 0). Checker command: `python3 tools/check_package.py /tmp/kodi-donor-radio-task6-fix1-package/plugin.audio.kodi_donor_radio-0.1.0.zip` → `Package OK` (exit 0). Updated ZIP SHA-256: `1b8c18af079336c531bcbcafee44a492cee2ba056140e5f30e5b414311ca03a4`.
+
+Independent media probe: the generated paired-marker MP3 payload, looped to fill its fixture intervals, was accepted by `ffprobe`; command output was `12.000000`, exit status 0.
+
+Kodi target distinction: the current shell host is `mbpdev.local`, where `/Applications/Kodi.app` is installed/running. The user asked to use the local Mac rather than mbpdev; therefore I did not run or inspect Kodi's GUI on this host. The runtime UI test validates menu data only; actual UI playback remains pending on the user's local Mac.

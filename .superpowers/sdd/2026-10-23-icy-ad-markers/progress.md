@@ -49,6 +49,7 @@
 - Task 2: fix round 1/5 (1 addressed, 0 open — reject oversized candidates to preserve exact learnable identity; commits b681abf..3a0cc1c; re-review approved)
 
 - Task 6: implementation complete; awaiting independent review (commit `79908df`; report `task-6-report.md`; 697-test full suite and package gates pass; manual Kodi UI check remains pending on the user's local Mac)
+- Task 6: fix round 1/5 (3 addressed, 0 open — add localized playable scenario entries using generated MP3, pace complete ICY frames, and verify observation-only behavior through RelayServer/SessionManager; commits `79908df..c968572`; scoped independent re-review pending)
 - Ruling: listener labels must act on the current session even when persistence is declined; the first Task 3 API only stored permanent rules, which made the approved optional-remember UI inert. Extend the tracker/control path with a session-only exact override and a label observation, while storing a station mapping only when requested — this makes the UI promise true without polluting the profile; if session labels affect timing too strongly, they still remain observation-only and expire with the session.
 - Task 3: fix round 1/5 (1 addressed, 1 open — optional persistence works, but failed remembered persistence was reported after applying the session label; commits d80d40b..eedc0a0)
 - Task 3: fix round 2/5 (2 addressed, 0 open — persist remembered labels before applying, so failed saves have no session effect; commits eedc0a0..818bd13; re-review approved)
