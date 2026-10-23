@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Acceptance checks must reject a plausible but incorrect playback transcript."""
+import json
 import pytest
 
 from tools.smoke_ad_relay import check_trace
@@ -43,6 +44,12 @@ def test_original_break_leakage_fails():
 def test_missing_programme_fails():
     trace = valid(); trace['sections'].pop()
     assert any('segment count' in item for item in check_trace(trace))
+
+
+def test_invalid_pts_measurement_is_reported_instead_of_aborting_trace():
+    trace = valid()
+    trace['pts_steps_valid'] = [True, False]
+    assert any('PTS' in item for item in check_trace(trace))
 
 
 def test_duplicate_event_fails():
@@ -130,6 +137,33 @@ def test_kodi_smoke_accepts_expected_item_with_advancing_clock():
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.4},
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.8}]}
     assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_uses_wall_time_for_slow_json_rpc_samples():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.2, 'at': 1.2},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 2.4, 'at': 2.4}]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_decoder_probe_reports_counts_before_fixture_validation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from tools import generate_ad_audio
+
+    results = iter((
+        SimpleNamespace(stdout=json.dumps({
+            'streams': [{'codec_name': 'aac', 'sample_rate': '48000', 'channels': 2}],
+            'packets': [{'pts': '0'}, {'pts': '200'}]})),
+        SimpleNamespace(stdout=json.dumps({'frames': [{'nb_samples': '1024'}]})),
+    ))
+    monkeypatch.setattr(generate_ad_audio, 'run', lambda *_args, **_kwargs: next(results))
+    info = generate_ad_audio.probe(tmp_path / 'short.ts', 'fake-ffprobe')
+    assert info['aac_frames'] == 2
+    assert info['decoded_frames'] == 1
+    assert not info['pts_steps_ok']
+    with pytest.raises(ValueError, match='94'):
+        generate_ad_audio.validate_probe(info, tmp_path / 'short.ts')
 
 
 def test_kodi_smoke_accepts_only_loopback_relay_media_item():

@@ -8,6 +8,7 @@ opaque relay URLs, fixture origins, and addon secrets.
 import argparse
 import codecs
 import json
+import math
 from pathlib import Path
 import platform
 import re
@@ -113,11 +114,17 @@ def validate_observation(result):
     failures = []
     if not active or any(sample.get('item_matches_expected') is not True for sample in active):
         failures.append('active Kodi item did not consistently match requested fixture')
-    matched = [sample['time_seconds'] for sample in active
+    matched = [(sample.get('at'), sample['time_seconds']) for sample in active
                if sample.get('item_matches_expected') is True
                and sample.get('time_seconds') is not None]
-    bounded_progress = sum(delta for earlier, later in zip(matched, matched[1:])
-                           if 0 < (delta := later - earlier) <= .75)
+    bounded_progress = 0
+    for earlier, later in zip(matched, matched[1:]):
+        elapsed = (later[0] - earlier[0]
+                   if all(isinstance(value, (int, float)) and math.isfinite(value)
+                          for value in (earlier[0], later[0])) else .25)
+        delta = later[1] - earlier[1]
+        if 0 < delta <= max(0, elapsed) + .5:
+            bounded_progress += delta
     if bounded_progress < .5:
         failures.append('requested Kodi item did not show 0.5s of bounded clock advance')
     return failures

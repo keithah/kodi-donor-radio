@@ -35,17 +35,29 @@ def probe(path, ffprobe):
                    '-show_entries', 'frame=nb_samples', '-show_frames', '-of', 'json', str(path)],
                   capture_output=True, text=True)
     frames = json.loads(decoded.stdout)['frames']
-    assert stream['codec_name'] == 'aac'
-    assert int(stream['sample_rate']) == 48000 and int(stream['channels']) == 2
-    assert len(packets) == 94 and len(frames) == 94, (path, len(packets), len(frames))
-    # AAC-LC carries 1024 decoded samples per access unit. MPEG-TS timestamps
-    # advance by 1920 ticks at 48 kHz. Record both counts for later auditing.
-    pts = [int(packet['pts']) for packet in packets]
-    assert all(b - a == 1920 for a, b in zip(pts, pts[1:]))
+    pts = [int(packet['pts']) for packet in packets if 'pts' in packet]
+    pts_steps_ok = (len(pts) == len(packets) and
+                    all(b - a == 1920 for a, b in zip(pts, pts[1:])))
+    # AAC-LC carries 1024 decoded samples per access unit. Return measured
+    # values so the relay smoke can report deviations instead of aborting.
     return {'codec': stream['codec_name'], 'sample_rate': int(stream['sample_rate']),
             'channels': int(stream['channels']), 'aac_frames': len(packets),
+            'decoded_frames': len(frames), 'pts_steps_ok': pts_steps_ok,
             'samples': sum(int(frame['nb_samples']) for frame in frames),
-            'first_pts': pts[0], 'last_pts': pts[-1]}
+            'first_pts': pts[0] if pts else None,
+            'last_pts': pts[-1] if pts else None}
+
+
+def validate_probe(info, path):
+    """Raise when generated fixtures violate the declared AAC-TS contract."""
+    if info['codec'] != 'aac':
+        raise ValueError('%s: expected AAC audio' % path)
+    if info['sample_rate'] != 48000 or info['channels'] != 2:
+        raise ValueError('%s: expected 48 kHz stereo audio' % path)
+    if info['aac_frames'] != 94 or info['decoded_frames'] != 94:
+        raise ValueError('%s: expected 94 AAC frames' % path)
+    if not info['pts_steps_ok']:
+        raise ValueError('%s: expected contiguous 1920-tick PTS steps' % path)
 
 
 def decoded_tone(path, ffmpeg, choices):
@@ -90,10 +102,12 @@ def generate(assets, ffmpeg, ffprobe, espeak):
                  '-frames:a', '93', '-f', 'mpegts',
                  '-output_ts_offset', '%.9f' % offset_seconds, str(path)])
             info = probe(path, ffprobe)
+            validate_probe(info, path)
             info['section'] = item['section']
             info['expected_tone_hz'] = item['tone_hz']
             info['decoded_tone_hz'] = decoded_tone(path, ffmpeg, choices)
-            assert info['decoded_tone_hz'] == item['tone_hz'], (filename, info)
+            if info['decoded_tone_hz'] != item['tone_hz']:
+                raise ValueError('%s: decoded tone did not match source description' % filename)
             metadata['assets'][filename] = info
             metadata['tone_intervals_hz'][item['section']] = item['tone_hz']
     run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',

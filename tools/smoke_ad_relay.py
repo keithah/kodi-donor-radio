@@ -53,6 +53,8 @@ def check_trace(trace):
         stopped_at = trace['stopped_at']
         if stopped_at is not None and event['event'] == 'complete' and event['at'] > stopped_at:
             failures.append('completion after stop')
+    if any(valid is not True for valid in trace.get('pts_steps_valid', [])):
+        failures.append('invalid AAC PTS steps')
     return failures
 
 
@@ -97,7 +99,7 @@ def observe(origin, scenario, vast, preroll, midroll,
                 time.sleep(.2)
             routes = _routes(manifest)
             base = 'http://127.0.0.1:%d' % relay.descriptor.port
-            sections, samples, first_pts = [], [], []
+            sections, samples, first_pts, pts_steps_valid = [], [], [], []
             for index, route in enumerate(routes):
                 body = _bytes(base + route)
                 path = Path(temp) / ('observed-%03d.ts' % index)
@@ -107,6 +109,7 @@ def observe(origin, scenario, vast, preroll, midroll,
                 sections.append(TONE_SECTION[tone])
                 samples.append(info['samples'])
                 first_pts.append(info['first_pts'])
+                pts_steps_valid.append(info['pts_steps_ok'])
             available = vast not in ('no-fill', 'unsupported-media', 'failed-media')
             # VAST's duration declaration is advisory. The validated AAC
             # frame count is authoritative, including wrong-duration VAST.
@@ -119,6 +122,7 @@ def observe(origin, scenario, vast, preroll, midroll,
             trace = {'scenario': scenario, 'vast': vast, 'sections': sections,
                      'expected_sections': expected, 'samples': samples,
                      'expected_samples': [96256] * len(expected), 'first_pts': first_pts,
+                     'pts_steps_valid': pts_steps_valid,
                      'events': events, 'stopped_at': None,
                      'manifest_discontinuities': manifest.count('#EXT-X-DISCONTINUITY\n'),
                      'requests': stats['requests'], 'beacons': stats['beacons']}

@@ -183,20 +183,20 @@ def make_server(assets, host='127.0.0.1', port=8766):
             if match:
                 path = assets / match.group(1)
                 if path.is_file():
-                    return self.respond(path.read_bytes(), 'video/mp2t')
+                    return self.respond(path.read_bytes(), 'video/mp2t', ranges=True)
             if route == '/stall/source006.ts':
                 time.sleep(6)
                 path = assets / 'source006.ts'
                 if path.is_file():
-                    return self.respond(path.read_bytes(), 'video/mp2t')
+                    return self.respond(path.read_bytes(), 'video/mp2t', ranges=True)
             if route == '/ads/unsupported.mp4':
                 path = assets / 'unsupported.mp4'
                 if path.is_file():
                     return self.respond(path.read_bytes(), 'video/mp4')
             return self.respond(b'', 'text/plain', 404)
 
-        def respond(self, body, mime, status=200):
-            send_fixture_response(self, body, mime, status)
+        def respond(self, body, mime, status=200, ranges=False):
+            send_fixture_response(self, body, mime, status, ranges)
 
         def log_message(self, *args):
             pass

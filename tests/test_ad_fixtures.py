@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 import json
 import threading
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
 
@@ -53,6 +53,17 @@ def test_direct_and_wrapped_vast_resolve_to_local_hls_without_beacons(assets):
         assert get(origin, '/stats')
         stats = json.loads(get(origin, '/stats'))
         assert stats['beacons'] == {}
+
+
+def test_controlled_ad_segment_supports_byte_ranges(assets):
+    with fixture_origin(assets) as origin:
+        source = assets / 'replacement000.ts'
+        request = Request(origin + '/ads/replacement000.ts',
+                          headers={'Range': 'bytes=0-15'})
+        with urlopen(request, timeout=3) as response:
+            assert response.status == 206
+            assert response.headers['Content-Range'] == 'bytes 0-15/%d' % source.stat().st_size
+            assert len(response.read()) == 16
         get(origin, '/track/placement-1/impression')
         assert json.loads(get(origin, '/stats'))['beacons'] == {'placement-1/impression': 1}
 
