@@ -175,6 +175,15 @@ class _CancelOrStop:
     def is_set(self):
         return self.cancel.is_set() or self.stop.is_set()
 
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            self.stop.wait(.02 if remaining is None else min(.02, remaining))
+        return True
+
 
 class BeaconWorker:
     """One bounded worker; ambiguous transport failure is never retried."""

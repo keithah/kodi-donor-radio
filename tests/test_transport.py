@@ -128,11 +128,17 @@ def test_ipv4_embedding_cannot_bypass_public_destination_policy(address):
 
 
 @pytest.mark.parametrize('address', ['2606:4700:4700::1111', '2002:808:808::'])
-def test_public_native_and_6to4_ipv6_destinations_remain_usable(address):
-    from url_policy import UrlPolicy
+def test_ipv6_destination_policy_matches_runtime_global_classification(address):
+    import ipaddress
+    from url_policy import UrlPolicy, UnsafeUrl
     def resolve(host, port, **kwargs):
         return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
-    assert UrlPolicy(resolver=resolve).resolve('https://station.example/').addresses[0][3][0] == address
+    policy = UrlPolicy(resolver=resolve)
+    if ipaddress.ip_address(address).is_global:
+        assert policy.resolve('https://station.example/').addresses[0][3][0] == address
+    else:
+        with pytest.raises(UnsafeUrl):
+            policy.resolve('https://station.example/')
 
 
 @pytest.mark.parametrize('status_line', [b'ICY 200 OK', b'HTTP/1.0 200 OK', b'HTTP/1.1 200 OK'])

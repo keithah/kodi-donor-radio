@@ -10,4 +10,5 @@ dev = ["pytest>=7,<9"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "--strict-markers"

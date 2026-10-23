@@ -4,11 +4,22 @@ import threading
 import time
 
 from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
-from ad_tracking import AdTracker, BeaconWorker, PlaybackSample, enqueue_ad_error
+from ad_tracking import AdTracker, BeaconWorker, PlaybackSample, _CancelOrStop, enqueue_ad_error
 
 
 URL = "http://fixture.test/track"
 EVENTS = ("impression", "start", "firstQuartile", "midpoint", "thirdQuartile", "complete")
+
+
+def test_beacon_cancel_adapter_waits_for_either_event_or_times_out():
+    cancel, stop = threading.Event(), threading.Event()
+    combined = _CancelOrStop(cancel, stop)
+    assert not combined.wait(.001)
+    cancel.set()
+    assert combined.wait(0)
+    cancel.clear()
+    stop.set()
+    assert combined.wait(0)
 
 
 def presentation(start=0, duration=4, placement_id="p1", url=URL, ended=False):

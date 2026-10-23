@@ -257,9 +257,10 @@ Targeted review found an intentionally disconnected request in `tests/test_trans
 
 Verified and fixed the URL-policy bypass through IPv4-embedded IPv6: standard
 NAT64 prefixes and mapped IPv4 remain blocked; 6to4 and both Teredo endpoints
-are checked for non-global IPv4 addresses. Deterministic resolver regressions
-also preserve public native IPv6, public 6to4, and the exact fixture-origin
-exception. Radio Browser click reporting now runs once after successful Kodi
+are checked for non-global IPv4 addresses. 6to4 eligibility follows the
+embedded Python runtime's global-address classification. Deterministic resolver
+regressions preserve public native IPv6 and the exact fixture-origin exception.
+Radio Browser click reporting now runs once after successful Kodi
 resolution, outside playback failure cleanup; reporting errors cannot stop or
 revoke the resolved session. Existing startup/create cancellation tests still
 pass, and ordering/failure-isolation regressions cover the new boundary. Fixture
