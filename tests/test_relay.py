@@ -639,7 +639,8 @@ def test_icy_learning_body_boundary_and_invalid_framing(relay, origin, tmp_path)
             client.close()
 
 
-def test_icy_candidate_expires_and_disk_failure_does_not_apply_label(relay, origin, tmp_path, monkeypatch):
+@pytest.mark.parametrize('legacy', [False, True])
+def test_icy_candidate_expires_and_disk_failure_does_not_apply_label(relay, origin, tmp_path, monkeypatch, legacy):
     from control import ControlClient
     from icy_marker_store import IcyMarkerStore
     import os
@@ -650,9 +651,23 @@ def test_icy_candidate_expires_and_disk_failure_does_not_apply_label(relay, orig
     def fail(*args):
         raise OSError('private filesystem failure')
     monkeypatch.setattr(os, 'replace', fail)
+    previous_events = list(relay[2].events)
     with pytest.raises(OSError):
-        client.learn_icy_marker(session.id, '-', 'end')
+        if legacy:
+            client.learn_icy_marker(session.id, '-', 'end')
+        else:
+            client.label_icy_marker(session.id, '-', 'end', True)
     assert relay[1].icy_marker_store.lookup('id', '-') is None
+    assert relay[2].events == previous_events
+    assert not (tmp_path / 'icy-markers.json').exists()
+    observe_marker(session, '#')
+    observe_marker(session, '-')
+    assert relay[2].events[-1].kind == 'break_end'
+    assert relay[2].events[-1].details['classification'] == 'inferred'
+    client.label_icy_marker(session.id, '-', 'end', False)
+    assert relay[2].events[-1].kind == 'icy_marker_labeled'
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+    assert not (tmp_path / 'icy-markers.json').exists()
     with session._lock:
         session.icy_tracker._candidate = (time.monotonic() - 301, '-')
     assert client.current_icy_candidate() is None

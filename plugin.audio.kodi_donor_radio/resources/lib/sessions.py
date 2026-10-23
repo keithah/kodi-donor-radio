@@ -109,10 +109,9 @@ class PlaybackSession:
                 return None
             return candidate
 
-    def label_icy_marker(self, marker, action):
+    def label_icy_marker(self, marker, action, observed_at, monotonic_at):
         with self._lock:
-            return self.icy_tracker.label(marker, action,
-                                          datetime.now(timezone.utc).isoformat(), time.monotonic())
+            return self.icy_tracker.label(marker, action, observed_at, monotonic_at)
 
     def expire_icy_markers(self, monotonic_at):
         with self._lock:
@@ -332,15 +331,18 @@ class SessionManager:
             if session is None or session.id != session_id or session.cancel.is_set():
                 return False
             with session._lock:
+                monotonic_at = time.monotonic()
+                observed_at = datetime.now(timezone.utc).isoformat()
+                session.expire_icy_markers(monotonic_at)
                 if marker != session.latest_icy_candidate():
-                    return False
-                if not session.label_icy_marker(marker, action):
                     return False
                 if remember:
                     if self.icy_marker_store is None:
                         raise ValueError('Marker store unavailable')
                     self.icy_marker_store.learn(session.station.uuid, marker, action)
-                return True
+                # Use the acceptance instant: a slow write cannot expire a label
+                # after it has already been persisted while ownership is locked.
+                return session.label_icy_marker(marker, action, observed_at, monotonic_at)
 
     def get(self, session_id):
         self.expire()
