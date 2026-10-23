@@ -45,3 +45,5 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Focused verification: `pytest -q tests/test_playback_arbiter.py tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_package.py` — 185 passed.
 - Full verification: `pytest -q` — 905 passed in 99.09s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
 - Boundary: Kodi has no atomic compare-and-play operation, and UI actions, other add-ons, and plugin resolutions handled by Kodi's `setResolvedUrl` do not participate in this add-on's lock. A nonparticipating start can still race between the final Kodi state read and `Player.play`; the post-start check limits the damage by retiring only our session and preserving any different current playback. This does not establish a zero-race guarantee. Live Kodi behavior remains for Task 7 acceptance.
+
+- Fix commit: `d26f0e3` (`fix: arbitrate Kodi addon playback starts`).
