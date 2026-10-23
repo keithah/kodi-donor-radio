@@ -104,7 +104,9 @@ class PlaybackSession:
     def latest_icy_candidate(self):
         with self._lock:
             candidate = self.icy_tracker.latest_candidate()
-            return candidate[:256] if candidate is not None else None
+            if candidate is None or len(candidate) > 256:
+                return None
+            return candidate
 
     def expire_icy_markers(self, monotonic_at):
         with self._lock:

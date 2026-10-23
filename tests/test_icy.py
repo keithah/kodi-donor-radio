@@ -106,12 +106,13 @@ def marker_session():
     manager.close()
 
 
-def test_session_latest_candidate_is_bounded_and_isolated(marker_session):
+@pytest.mark.parametrize('length,expected', [(256, '*' * 256), (257, None), (4000, None)])
+def test_session_latest_candidate_is_bounded_and_isolated(marker_session, length, expected):
     manager, session, events = marker_session
-    session.observe_icy_metadata({'StreamTitle': '*' * 4000}, '2026-10-23T00:00:00Z', 10)
-    assert session.latest_icy_candidate() == '*' * 256
+    session.observe_icy_metadata({'StreamTitle': '*' * length}, '2026-10-23T00:00:00Z', 10)
+    assert session.latest_icy_candidate() == expected
     assert events[0].kind == 'metadata_observed'
-    assert events[0].evidence['StreamTitle'] == '*' * 4000
+    assert events[0].evidence['StreamTitle'] == '*' * length
     assert events[1].evidence == {'StreamTitle': '*' * 256}
     replacement = manager.create(session.station)
     assert replacement.latest_icy_candidate() is None
