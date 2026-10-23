@@ -78,7 +78,7 @@ Interface and guided setup are **two independent switches**, not one list of com
 
 Enum values: `interface` is `skin` or `theme`; `theme_open_on` is `home`, `map` or `favorites`.
 
-The last two settings only apply in themed mode. Group them under a `category`/`group` heading in `settings.xml` so they read as conditional rather than ignored — or gate them with `visible="eq(-N,1)"` on the interface setting if you would rather hide them outright.
+`theme_open_on` applies only in themed mode. `preview_on_browse` applies to the Map window in both modes because the map is a custom window even when the surrounding listings use the active Kodi skin. Keep the theme-only setting visibly grouped or conditionally shown; do not hide the preview setting when `interface=skin`.
 
 The mode choice cannot live inside the guided setup, since setup is downstream of it. Settings is the only honest home for it. `offer_setup_row` is the softer path: a dismissable row at the top of the listing rather than a forced wizard on first launch.
 
@@ -215,9 +215,19 @@ Secondary actions belong in the context menu, not on screen. Kodi users already 
 
 ### Reachability
 
-Every control must be reachable by D-pad, with no hover state anywhere and no action available only by pointer. Set `onup` / `ondown` / `onleft` / `onright` explicitly on every focusable control; Kodi's geometric fallback guesses badly across a gap as wide as the nav rail.
+Every control must be reachable by D-pad, with no hover state anywhere and no action available only by pointer. Set explicit directional neighbors for standalone controls and transitions between regions. Within a `list`, `fixedlist`, `wraplist`, `panel`, or `grouplist`, use Kodi's container navigation and test its boundary exits; do not override internal D-pad behavior with blanket directional targets. Hidden or disabled controls must not receive focus, and returning from a child view should restore the previous selection when that item still exists.
 
 Touch targets stay at or above 44px, and no text falls below 20px — both already hold across the artboards.
+
+Build and verify against the minimum supported Kodi 21.3 API, not only current Kodi master documentation. The target version's [`Window.h`](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/Window.h) and [`WindowXML.h`](https://github.com/xbmc/xbmc/blob/21.3-Omega/xbmc/interfaces/legacy/WindowXML.h) define the window and focus boundary; Kodi's [skinning manual](https://kodi.wiki/view/Skinning_Manual) describes the list, panel, wraplist, and grouplist navigation contract.
+
+### GUI acceptance
+
+Every view must define loading, populated, empty, offline-with-cache, and unrecoverable-error states. A failed request must not look like a successful empty result. Network work must leave the Kodi UI responsive, and closing a view or cancelling setup must stop its pending UI operation without stopping unrelated playback.
+
+The skin-mode and themed-mode listings must be built from the same station records and action handlers. The custom map must be reachable from both modes and must return to the previous listing on Back. Preview playback must be cancellable, must not send a Radio Browser click, and must stop when focus leaves a station after the debounce window. Repeated map movement must debounce or cancel stale station requests so a slow result cannot replace the currently focused city's rail.
+
+Acceptance on the target Kodi version must cover root and nested navigation; D-pad reachability; list and panel entry/exit; map movement without wrapping when there is no candidate; focus restoration after Back; setup cancellation; opening Settings; playback continuing when leaving Now playing; and one Radio Browser click per deliberate station selection. Test plugin-directory mode with Estuary and at least one alternate skin, and test the built-in theme independently of the active Kodi skin. Record the Kodi version, display resolution, remote/input device, and focus defects. Projection, clustering, and nearest-direction behavior remain pure functions that can be tested without Kodi.
 
 ## Data — Radio Browser
 
@@ -424,20 +434,20 @@ without Kodi imports, and have plugin listings and themed windows share station,
 favorite, and action data. The proposed UI additions belong under the existing addon
 package, with all user-facing strings localized under `resources/language/`.
 
-## Open decisions
+## Decisions and proposed implementation order
 
-Six things this spec deliberately does not settle.
+The target is two modes, with skin mode as the default and the map available from both. The calls below follow that target. The two rollout recommendations remain proposals until implementation work is approved.
 
-| Decision | Options | Tradeoff |
+| Decision | Current spec call | Implementation note |
 | --- | --- | --- |
-| What guided setup looks like in skin mode | A run of `Dialog().select()` calls, or borrow the themed setup window just for the walkthrough | The dialog version cannot show a map and feels unrelated to the themed one. Borrowing the window means shipping theme assets even for users who never turn the theme on |
-| Whether the map stays top-level | Keep it as a root row, or move it under Browse | Top-level makes it discoverable; under Browse keeps the location-first path unambiguous |
-| Pin pool size | \~60, or scale with the zoom level | A fixed pool is simple and bounded; a variable one shows more at continental zoom |
-| Whether skin mode gets artwork at all | Ship monograms as generated PNGs, or let the skin show its own default icon | Monograms need generating and caching per station; the skin default costs nothing and looks native |
-| Preview-on-browse default | On, as drawn, or off | On makes the map feel alive and is the whole point of the station rail. It is also a lot of stream starts on a weak connection |
-| First release scope | Skin mode only, theme later; or both together | Shipping skin mode first gets real feedback on the IA before any texture work |
+| Map placement | Keep **Open the map** at the root | The location-first path is a primary entry point, and the same map is available from station context actions. |
+| Pin controls | Start with a fixed pool of about 60 | Stable IDs make focus behavior easy to test and the cap is explicit. Prototype dynamic controls only if focus and removal are equally reliable. |
+| Station artwork | Use a valid favicon, otherwise a shared monogram tile | Keep the fallback consistent across plugin listings and built-in windows; do not stretch low-resolution favicons. |
+| Preview default | On, as listed in Settings | The setting applies to the map in both modes and can be disabled for slow connections. Preview never counts as a deliberate click. |
+| Guided setup in skin mode | Proposed: sequential native dialogs | This avoids loading theme assets for the default mode. Revisit if testing shows that dialogs cannot explain location selection clearly. |
+| Delivery order | Proposed: skin listings plus shared map first; themed windows after that path passes Kodi acceptance | This validates the information architecture before the larger custom-theme investment. Both modes remain in the product target; this is a rollout proposal, not a scope reduction. |
 
-The last one is worth deciding early. Skin mode is a small fraction of the work, and whether the root listing is good enough on its own is the question the themed mode's value rests on.
+Before GUI implementation begins, confirm the two proposals that affect user-visible behavior: guided-setup presentation and delivery order. The other calls are already implied by the current tables or are bounded implementation choices.
 
 ### Source for the designs
 
