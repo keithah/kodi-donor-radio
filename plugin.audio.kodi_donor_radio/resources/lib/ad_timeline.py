@@ -139,8 +139,10 @@ class AdTimeline:
                 else:
                     intervals.append((active[0], cue.sequence, active[1], active[2]))
                 active = None
-        if malformed or active is not None:
+        if malformed:
             return []
+        # A trailing open CUE-OUT is not eligible yet; it does not invalidate
+        # complete intervals observed earlier in this same playlist window.
         by_sequence = {s.sequence: s for s in playlist.segments}
         unseen_sequences = {s.sequence for s in unseen}
         used_offers = set()

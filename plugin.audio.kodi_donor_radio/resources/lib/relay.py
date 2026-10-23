@@ -394,9 +394,13 @@ class _Handler(BaseHTTPRequestHandler):
                     try:
                         rendered = ad.render(playlist, session.cached_route)
                     except SourceUnavailable:
-                        # A transient upstream media fetch must not destroy an
-                        # already committed ad presentation; Kodi can reload.
-                        return self._reply(503)
+                        if ad.committed:
+                            # A transient fetch must not destroy an already
+                            # published ad timeline; Kodi can reload it.
+                            return self._reply(503)
+                        ad.close()
+                        if session.ad is ad:
+                            session.ad = None
                     except Exception:
                         if ad.committed:
                             ad.terminate()

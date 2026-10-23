@@ -56,6 +56,19 @@ def test_preroll_replacement_order_and_exact_programme_boundaries():
     assert p.ended
 
 
+def test_complete_break_remains_replaceable_before_a_later_open_break():
+    t = AdTimeline(None, 16)
+    t.offer(creative())
+    p = t.update(playlist(['a', 'break0', 'break1', 'b', 'c', 'open0', 'open1'],
+                          {1: ['#EXT-X-CUE-OUT:4.010666'],
+                           3: ['#EXT-X-CUE-IN'],
+                           5: ['#EXT-X-CUE-OUT:4.010666']}),
+                 sources('a', 'break0', 'break1', 'b', 'c', 'open0', 'open1'))
+    assert ids(p) == ['a', 'ad0', 'ad1', 'b', 'c', 'open0', 'open1']
+    assert [(item.start_sample, item.end_sample) for item in p.placements] == [
+        (94 * FRAME, 282 * FRAME)]
+
+
 def test_published_resources_and_positions_survive_reloads_sliding_and_late_offer():
     t = AdTimeline(None, 3)
     first = t.update(playlist(['a', 'break0']), sources('a', 'break0'))

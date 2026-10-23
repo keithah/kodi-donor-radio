@@ -47,9 +47,16 @@ def tracker():
 def test_prefetch_and_first_late_sample_do_not_count_as_playback():
     instance, _, queued = tracker()
     view = presentation()
-    assert queued == []
     instance.observe(view, sample(1.0, 10))
     assert queued == []
+
+
+def test_continuous_sample_slightly_late_across_ad_start_records_impression():
+    instance, _, queued = tracker()
+    view = presentation(start=1.0)
+    instance.observe(view, sample(.98, 10.0))
+    instance.observe(view, sample(1.28, 10.3))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
 
 
 def test_250ms_observations_emit_once_at_each_played_milestone():

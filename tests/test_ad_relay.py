@@ -236,6 +236,29 @@ def test_temporary_source_segment_failure_keeps_committed_ad_for_retry(tmp_path,
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
+def test_source_failure_before_first_composition_falls_back_to_programme(tmp_path, monkeypatch):
+    from ad_models import AdConfig
+    from ad_session import SourceUnavailable
+    fixture = make_server(ASSETS, port=0)
+    thread = threading.Thread(target=fixture.serve_forever, daemon=True); thread.start()
+    origin = 'http://127.0.0.1:%d' % fixture.server_port
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path)
+    relay = RelayServer(manager); relay.start()
+    try:
+        session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
+        ad = session.ad
+        monkeypatch.setattr(ad, 'render', lambda *_args: (_ for _ in ()).throw(
+            SourceUnavailable('source_unavailable')))
+        status, _, manifest = get(session.playback_url)
+        assert status == 200
+        assert b'#EXT-X-CUE-OUT' in manifest
+        assert session.ad is None and not ad.committed
+    finally:
+        relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
+
+
 def test_source_transport_error_is_classified_as_retryable(tmp_path):
     from ad_session import AdSession, SourceUnavailable
     from hls import Playlist, Segment

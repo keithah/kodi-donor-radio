@@ -138,8 +138,7 @@ class AdTracker:
             position = sample.position_seconds
             near_start = (start <= position <= min(end, start + START_TOLERANCE) and
                           first_sample)
-            crossed_start = (continuous and previous.position_seconds <= start <= position and
-                             position <= start + START_TOLERANCE)
+            crossed_start = continuous and previous.position_seconds <= start <= position
             if not state.started and (near_start or crossed_start):
                 state.started = True
                 self._report(placement, "impression")
