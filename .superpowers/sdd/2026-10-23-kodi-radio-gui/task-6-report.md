@@ -34,3 +34,4 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - GREEN: `pytest -q tests/test_kodi_radio_map.py::test_cancel_or_close_serializes_with_preview_play_handoff tests/test_kodi_runtime.py::test_map_scan_reserves_one_of_200_slots_for_absent_context_station` — 3 passed.
 - Full verification: `pytest -q` — 901 passed in 97.72s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
 - Live Kodi playback/skin behavior remains unverified; Task 7 acceptance is still required.
+- Fix commit: `8fbb487` (`fix: serialize map preview cancellation and selection`).
