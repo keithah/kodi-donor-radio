@@ -145,7 +145,8 @@ class IcyMarkerTracker:
         if self._last_boundary != action:
             self._event('break_' + action, metadata, observed_at, monotonic_at, signal)
             self._last_boundary = action
-        self._open_inferred = None
+        self._open_inferred = ((monotonic_at, metadata, observed_at, signal)
+                               if action == 'start' else None)
         if self._last_title is not None and self._last_title[1] == normalized:
             self._last_title = (monotonic_at, normalized, (action, 'learned', 'learned'))
         return True
@@ -183,7 +184,9 @@ class IcyMarkerTracker:
                 self._event('break_' + signal.kind, metadata, observed_at,
                             monotonic_at, signal)
                 self._last_boundary = signal.kind
-            self._open_inferred = None
+            self._open_inferred = ((monotonic_at, metadata, observed_at, signal)
+                                   if signal.confidence == 'learned'
+                                   and signal.kind == 'start' else None)
             return
 
         if candidate:

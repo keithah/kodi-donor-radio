@@ -157,7 +157,7 @@ def observe(origin, port, source, duration, actions):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--origin', default='http://127.0.0.1:58416')
+    parser.add_argument('--origin', default='http://127.0.0.1:8766')
     parser.add_argument('--rpc-port', type=int, default=9090)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--duration', type=float, default=17)

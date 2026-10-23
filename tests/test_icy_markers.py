@@ -160,6 +160,25 @@ def test_learned_exact_marker_overrides_inference():
     assert instance.latest_candidate() is None
 
 
+def test_learned_start_closes_on_return_to_track():
+    instance, events = tracker({'-': 'start'})
+    observe(instance, '-', 1)
+    observe(instance, 'Artist - Song', 2)
+    observe(instance, '-', 3)
+    assert [event.kind for event in events] == [
+        'break_start', 'break_end', 'break_start']
+    assert [event.details['classification'] for event in events] == [
+        'learned', 'inferred', 'learned']
+
+
+def test_learned_start_expires_as_unresolved_after_five_minutes():
+    instance, events = tracker({'-': 'start'})
+    observe(instance, '-', 1)
+    instance.expire(302)
+    assert [event.kind for event in events] == ['break_start', 'break_unresolved']
+    assert events[-1].details['reason'] == 'timeout'
+
+
 def test_new_learned_label_applies_to_next_identical_metadata_block():
     learned = {}
     instance, events = tracker(learned)
@@ -260,8 +279,13 @@ def test_manual_label_updates_immediately_without_duplicate_boundary(action, exp
     assert [event.kind for event in events[before:]] == expected
     assert events[before].details['reason'] == action
     observe(instance, '-', 3)
-    instance.expire(305)
-    assert [event.kind for event in events[before:]] == expected
+    if action == 'start':
+        observe(instance, 'Artist - Song', 4)
+        assert [event.kind for event in events[before:]] == [
+            'icy_marker_labeled', 'break_end']
+    else:
+        instance.expire(305)
+        assert [event.kind for event in events[before:]] == expected
     assert events[before].details['classification'] == 'learned'
 
 
