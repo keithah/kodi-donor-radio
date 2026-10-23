@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Local control records and an authenticated bounded stdlib client."""
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import http.client
 import json
 
@@ -31,7 +31,8 @@ class ControlClient:
             conn.close()
 
     def create(self, station):
-        return self._request('POST', '/sessions', asdict(station))
+        return self._request('POST', '/sessions', {
+            key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
 
     def stop(self, session_id):
         self._request('DELETE', '/sessions/' + session_id)

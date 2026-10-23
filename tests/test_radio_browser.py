@@ -223,3 +223,48 @@ def test_selected_categories_are_exact_but_name_search_remains_partial(country,t
     query = parse_qs(urlsplit(transport.calls[0][0]).query, keep_blank_values=True)
     assert query == dict({'name':['Radio'], 'country':[country], 'tag':[tag],
                           'offset':['50'], 'limit':['25'], 'hidebroken':['true']}, **exact)
+
+
+def test_station_optional_metadata_is_parsed_and_bounded():
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live',
+           'country': 'France', 'countrycode': 'fr', 'state': 'State', 'city': 'City',
+           'language': 'French', 'tags': 'jazz,news', 'favicon': 'https://radio.example/icon.png',
+           'bitrate': 128, 'geo_lat': 48.5, 'geo_long': 2.5, 'clickcount': 12, 'votes': 3}
+    rb, _ = browser([Reply(json.dumps([row, dict(row, country='X'*1000, geo_lat=91,
+                             bitrate=-1, votes=True, favicon='file:///secret')]).encode())])
+    good, bad = rb.search('', '', '', 0)
+    assert (good.country, good.country_code, good.city, good.language, good.tags) == ('France', 'FR', 'City', 'French', 'jazz,news')
+    assert (good.latitude, good.longitude, good.bitrate, good.click_count, good.votes) == (48.5, 2.5, 128, 12, 3)
+    assert len(bad.country) <= 256
+    assert bad.latitude is None and bad.longitude is None
+    assert bad.bitrate == 0 and bad.votes == 0 and bad.favicon == ''
+
+
+def test_by_uuid_validated_lookup():
+    row = {'stationuuid': 'abc-123', 'name': 'Radio', 'url': 'https://radio.example/live', 'country': 'France'}
+    rb, transport = browser([Reply(json.dumps([row]).encode())])
+    assert rb.by_uuid('abc-123').country == 'France'
+    assert transport.calls[0][0] == 'https://one.example/json/stations/byuuid?uuids=abc-123'
+
+
+@pytest.mark.parametrize('body', [b'[]', b'{}', b'[null]', b'[{"stationuuid":"other","name":"Radio","url":"https://radio.example"}]'])
+def test_by_uuid_rejects_missing_or_malformed_station(body):
+    rb, _ = browser([Reply(body)])
+    with pytest.raises(ValueError):
+        rb.by_uuid('abc-123')
+
+
+@pytest.mark.parametrize('uuid', ['', 'a'*129, '../bad', 'bad,other', None])
+def test_by_uuid_rejects_invalid_identifiers_without_network(uuid):
+    rb, transport = browser([])
+    with pytest.raises(ValueError):
+        rb.by_uuid(uuid)
+    assert transport.calls == []
+
+
+def test_invalid_country_code_and_empty_normalized_name_are_not_persisted():
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live', 'countrycode': 'ßß'}
+    rb, _ = browser([Reply(json.dumps([row, dict(row, name='\n')]).encode())])
+    results = rb.search('', '', '', 0)
+    assert len(results) == 1
+    assert results[0].country_code == ''

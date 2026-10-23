@@ -18,6 +18,18 @@ class Station:
     url: str
     codec: str
     hls: bool
+    country: str = ''
+    country_code: str = ''
+    state: str = ''
+    city: str = ''
+    language: str = ''
+    tags: str = ''
+    favicon: str = ''
+    bitrate: int = 0
+    latitude: Any = None
+    longitude: Any = None
+    click_count: int = 0
+    votes: int = 0
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi-only UI and service boundary; all media passes through the embedded relay."""
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, fields
 import json
 import os
 from pathlib import Path
@@ -247,11 +247,13 @@ def _relay_path(value, port):
 
 def _station(value):
     record = json.loads(value)
-    if (not isinstance(record, dict) or set(record) != {'uuid','name','url','codec','hls'}
+    required = {'uuid', 'name', 'url', 'codec', 'hls'}
+    if (not isinstance(record, dict) or not required <= set(record)
+            or set(record) - {field.name for field in fields(Station)}
             or any(not isinstance(record[key], str) or not record[key] for key in ('uuid','name','url'))
             or not isinstance(record['codec'], str) or type(record['hls']) is not bool):
         raise ValueError('Invalid station')
-    return Station(**record)
+    return Station(**{key: record[key] for key in required})
 
 
 def _label_icy_marker(monitor, cancel):

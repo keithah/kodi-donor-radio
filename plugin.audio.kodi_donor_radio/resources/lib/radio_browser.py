@@ -9,6 +9,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from http_client import Cancelled, HttpClient, HttpError, USER_AGENT, bounded_lookup, read_bounded
 from models import Station
+from radio_ui import bounded_text, coordinates, safe_favicon, station_identifier
 
 
 def discover_mirrors(cancel=None, timeout=5):
@@ -93,6 +94,10 @@ class RadioBrowser:
         params.update(self._page(offset, limit))
         params['hidebroken'] = 'true'
         rows = self._json('/json/stations/search', params)
+        return self._stations(rows)
+
+    @staticmethod
+    def _stations(rows):
         if not isinstance(rows, list):
             raise ValueError('Invalid station list')
         stations = []
@@ -110,8 +115,42 @@ class RadioBrowser:
                     continue
             except ValueError:
                 continue
-            stations.append(Station(uuid, title, url, codec, bool(hls)))
+            try:
+                station_identifier(uuid)
+            except ValueError:
+                continue
+            latitude, longitude = row.get('geo_lat'), row.get('geo_long')
+            try:
+                coordinates(latitude, longitude)
+            except ValueError:
+                latitude = longitude = None
+            metadata = {name: bounded_text(row.get(source), limit) for name, source, limit in (
+                ('country', 'country', 256), ('country_code', 'countrycode', 2),
+                ('state', 'state', 256), ('city', 'city', 256), ('language', 'language', 256),
+                ('tags', 'tags', 1024))}
+            code = metadata['country_code'].upper()
+            metadata['country_code'] = code if len(code) == 2 and code.isascii() and code.isalpha() else ''
+            title = bounded_text(title, 512)
+            if not title.strip():
+                continue
+            for name, source, maximum in (('bitrate', 'bitrate', 100000),
+                                          ('click_count', 'clickcount', 2147483647),
+                                          ('votes', 'votes', 2147483647)):
+                value = row.get(source, 0)
+                metadata[name] = value if type(value) is int and 0 <= value <= maximum else 0
+            stations.append(Station(uuid, bounded_text(title, 512), url,
+                                    bounded_text(codec, 64), bool(hls),
+                                    favicon=safe_favicon(row.get('favicon', '')),
+                                    latitude=latitude, longitude=longitude, **metadata))
         return stations
+
+    def by_uuid(self, station_uuid):
+        station_identifier(station_uuid)
+        stations = self._stations(self._json('/json/stations/byuuid', {'uuids': station_uuid}))
+        for station in stations:
+            if station.uuid == station_uuid:
+                return station
+        raise ValueError('Station not found')
 
     def _names(self, path, params):
         rows = self._json(path, params)
