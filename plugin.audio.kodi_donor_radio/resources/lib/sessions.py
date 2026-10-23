@@ -13,6 +13,8 @@ from url_policy import origin
 
 from cues import CueTracker
 from http_client import HttpClient
+from icy_markers import IcyMarkerTracker
+from models import Event
 from station_resolver import resolve_station
 
 
@@ -63,6 +65,8 @@ class PlaybackSession:
         self._claimed = False
         self.tracker = CueTracker(self.id, station.uuid, sink,
                                   lambda: datetime.now(timezone.utc), time.monotonic)
+        self.icy_tracker = IcyMarkerTracker(self.id, station.uuid, self.sink.emit,
+                                            lambda marker: None)
         self.ad = None
         self.ad_enabled = False
         self._ad_errors = []
@@ -90,6 +94,21 @@ class PlaybackSession:
                 if isinstance(error, AdError):
                     self._record_ad_error(error)
                 self.ad = None
+
+    def observe_icy_metadata(self, metadata, observed_at, monotonic_at):
+        with self._lock:
+            self.sink.emit(Event('metadata_observed', self.id, self.station.uuid,
+                                 'icy', 'icy', metadata, observed_at, monotonic_at))
+            self.icy_tracker.observe(metadata, observed_at, monotonic_at)
+
+    def latest_icy_candidate(self):
+        with self._lock:
+            candidate = self.icy_tracker.latest_candidate()
+            return candidate[:256] if candidate is not None else None
+
+    def expire_icy_markers(self, monotonic_at):
+        with self._lock:
+            self.icy_tracker.expire(monotonic_at)
 
     def _record_ad_error(self, error):
         with self._lock:
@@ -290,7 +309,11 @@ class SessionManager:
     def expire(self):
         with self._lock:
             session = self._session
-            if session is None or session.active or time.monotonic() - session.last_used < self.idle_timeout:
+            if session is None:
+                return
+            monotonic_at = time.monotonic()
+            session.expire_icy_markers(monotonic_at)
+            if session.active or monotonic_at - session.last_used < self.idle_timeout:
                 return
             self._session = None
         session.close('idle_timeout')

@@ -270,8 +270,8 @@ class _Handler(BaseHTTPRequestHandler):
             if not re.fullmatch('[0-9]{1,10}', metaint):
                 raise ValueError('Invalid ICY interval')
             def metadata(value):
-                session.sink.emit(Event('metadata_observed', session.id, session.station.uuid,
-                                        'icy', 'icy', value, datetime.now(timezone.utc).isoformat(), time.monotonic()))
+                session.observe_icy_metadata(value, datetime.now(timezone.utc).isoformat(),
+                                             time.monotonic())
             decoder = IcyDecoder(int(metaint), metadata)
         self._headers(response.status, response.headers)
         block = session.source.initial_bytes

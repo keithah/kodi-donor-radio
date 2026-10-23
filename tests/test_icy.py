@@ -89,3 +89,61 @@ def test_advertisement_title_only_emits_metadata_observation():
     decoder.finish()
     assert [event.kind for event in events] == ['metadata_observed']
     assert events[0].evidence == {'StreamTitle': 'advertisement'}
+
+
+@pytest.fixture
+def marker_session():
+    from types import SimpleNamespace
+    from models import Station
+    from sessions import SessionManager
+    from station_resolver import ResolvedSource
+    events = []
+    manager = SessionManager(
+        sink=SimpleNamespace(emit=events.append), idle_timeout=1000,
+        resolver=lambda *args: ResolvedSource('http://radio.example/live', 'continuous'))
+    session = manager.create(Station('station', 'Radio', 'http://radio.example/live', '', False))
+    yield manager, session, events
+    manager.close()
+
+
+def test_session_latest_candidate_is_bounded_and_isolated(marker_session):
+    manager, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '*' * 4000}, '2026-10-23T00:00:00Z', 10)
+    assert session.latest_icy_candidate() == '*' * 256
+    assert events[0].kind == 'metadata_observed'
+    assert events[0].evidence['StreamTitle'] == '*' * 4000
+    assert events[1].evidence == {'StreamTitle': '*' * 256}
+    replacement = manager.create(session.station)
+    assert replacement.latest_icy_candidate() is None
+    replacement.observe_icy_metadata({'StreamTitle': ' ad break '}, 'now', 11)
+    assert replacement.latest_icy_candidate() == 'AD BREAK'
+    assert events[-1].session_id == replacement.id
+
+
+def test_service_tick_expires_markers_during_active_audio(marker_session, monkeypatch):
+    import sessions
+    manager, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '-'}, 'start', 10)
+    with session.acquire(session.playback_url):
+        monkeypatch.setattr(sessions.time, 'monotonic', lambda: 310)
+        manager.expire()
+        assert not any(event.kind == 'break_unresolved' for event in events)
+        monkeypatch.setattr(sessions.time, 'monotonic', lambda: 311)
+        manager.expire()
+        manager.expire()
+        assert not session.cancel.is_set()
+        assert session.latest_icy_candidate() is None
+    unresolved = [event for event in events if event.kind == 'break_unresolved']
+    assert len(unresolved) == 1
+    assert unresolved[0].details['reason'] == 'timeout'
+    assert unresolved[0].monotonic_at == 311
+    assert not any(event.kind == 'break_end' for event in events)
+
+
+def test_session_expire_markers_prunes_candidate_without_inventing_end(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '#'}, 'start', 10)
+    session.expire_icy_markers(311)
+    assert session.latest_icy_candidate() is None
+    assert [event.kind for event in events] == [
+        'metadata_observed', 'icy_marker_candidate', 'break_start', 'break_unresolved']

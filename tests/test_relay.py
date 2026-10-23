@@ -49,6 +49,19 @@ def origin():
             elif self.path == '/master':
                 body = b'#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\n/variant-a\n#EXT-X-STREAM-INF:BANDWIDTH=128000\n/variant-b\n'
                 headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            elif self.path.startswith('/icy-markers/'):
+                titles = {
+                    'explicit': ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
+                    'inferred': ['-', '-', 'Artist - Track', 'Artist - Track'],
+                    'tracks': ['Artist - One', 'Artist - Two'],
+                }[self.path.rsplit('/', 1)[-1]]
+                chunks = []
+                for index, title in enumerate(titles):
+                    metadata = ("StreamTitle='%s';" % title).encode()
+                    metadata += b'\0' * (-len(metadata) % 16)
+                    chunks.append(bytes([65 + index]) * 4 + bytes([len(metadata) // 16]) + metadata)
+                body = b''.join(chunks)
+                headers.update({'Content-Type': 'audio/mpeg', 'icy-metaint': '4'})
             elif self.path == '/icy':
                 metadata = b"StreamTitle='token=secret';".ljust(32, b'\0')
                 body = b'abcd' + b'\2' + metadata + b'efgh' + b'\0'
@@ -486,3 +499,35 @@ def test_loopback_relay_start_does_not_resolve_hostname(monkeypatch):
         assert request('http://127.0.0.1:%s/health' % descriptor.port)[0] == 200
     finally:
         server.close()
+
+
+@pytest.mark.parametrize('scenario,titles,audio,boundaries', [
+    ('explicit', ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
+     b'AAAABBBBCCCCDDDD', [('break_start', 'explicit'), ('break_end', 'explicit')]),
+    ('inferred', ['-', '-', 'Artist - Track', 'Artist - Track'],
+     b'AAAABBBBCCCCDDDD', [('break_start', 'inferred'), ('break_end', 'inferred')]),
+    ('tracks', ['Artist - One', 'Artist - Two'], b'AAAABBBB', []),
+])
+def test_icy_marker_observations_keep_metadata_and_exact_audio(
+        relay, origin, scenario, titles, audio, boundaries):
+    session = create(relay, origin, '/icy-markers/' + scenario)
+    status, headers, body = request(session.playback_url)
+    assert status == 200 and body == audio
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    events = relay[2].events
+    metadata = [event for event in events if event.kind == 'metadata_observed']
+    assert [event.evidence['StreamTitle'] for event in metadata] == titles
+    assert all(event.source == 'icy' for event in metadata)
+    markers = [event for event in events if event.source == 'icy_marker']
+    assert [(event.kind, event.details['classification']) for event in markers
+            if event.kind.startswith('break_')] == boundaries
+    assert all(event.session_id == session.id and event.station_uuid == 'id'
+               and event.protocol == 'icy' for event in markers)
+    assert session.ad is None and not session.ad_enabled
+    candidates = [event for event in markers if event.kind == 'icy_marker_candidate']
+    assert [event.evidence['StreamTitle'] for event in candidates] == (
+        ['-'] if scenario == 'inferred' else [])
+    if scenario == 'explicit':
+        assert markers[0].to_dict()['details'] == {
+            'classification': 'explicit', 'marker_format': 'ad_command',
+            'confidence': 'explicit', 'duration': 30}
