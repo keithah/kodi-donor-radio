@@ -532,9 +532,12 @@ def _map_stations(browser, country_code, selected_station, cancel):
         offset += PAGE_SIZE
         if not more:
             break
+    limit = GEO_SCAN_PAGES * PAGE_SIZE
     if selected_station is not None and all(s.uuid != selected_station.uuid for s in stations):
-        stations.append(selected_station)
-    return stations[:GEO_SCAN_PAGES * PAGE_SIZE + 1]
+        # The context action must remain visible even when the bounded scan is
+        # full, so reserve one slot for it and keep the earliest scan results.
+        stations = [selected_station] + stations[:limit - 1]
+    return stations[:limit]
 
 
 def _open_map(params, monitor, cancel, base):

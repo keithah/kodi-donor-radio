@@ -82,6 +82,9 @@ class PreviewController:
         self._thread_factory = thread_factory or threading.Thread
         self._delay = delay
         self._lock = threading.RLock()
+        # Serialize lifecycle changes with the final player handoff. A stale
+        # resolution must not call Player.play after cancel/close has returned.
+        self._handoff_lock = threading.RLock()
         self._generation = 0
         self._timer = None
         self._request_cancel = None
@@ -90,39 +93,41 @@ class PreviewController:
 
     def focus_station(self, station_uuid):
         station_uuid = station_identifier(station_uuid)
-        with self._lock:
-            self._generation += 1
-            generation = self._generation
-            timer, self._timer = self._timer, None
-            request_cancel, self._request_cancel = self._request_cancel, None
-            owned, self.owned = self.owned, None
-        if timer is not None:
-            timer.cancel()
-        if request_cancel is not None:
-            request_cancel.set()
-        self._stop_owned(owned)
-        with self._lock:
-            if self._closed:
-                return
-            request_cancel = threading.Event()
-            self._request_cancel = request_cancel
-            timer = self._timer_factory(
-                self._delay, lambda: self._launch(generation, station_uuid, request_cancel))
-            self._timer = timer
-            timer.daemon = True
-            timer.start()
+        with self._handoff_lock:
+            with self._lock:
+                self._generation += 1
+                generation = self._generation
+                timer, self._timer = self._timer, None
+                request_cancel, self._request_cancel = self._request_cancel, None
+                owned, self.owned = self.owned, None
+            if timer is not None:
+                timer.cancel()
+            if request_cancel is not None:
+                request_cancel.set()
+            self._stop_owned(owned)
+            with self._lock:
+                if self._closed:
+                    return
+                request_cancel = threading.Event()
+                self._request_cancel = request_cancel
+                timer = self._timer_factory(
+                    self._delay, lambda: self._launch(generation, station_uuid, request_cancel))
+                self._timer = timer
+                timer.daemon = True
+                timer.start()
 
     def cancel(self):
-        with self._lock:
-            self._generation += 1
-            timer, self._timer = self._timer, None
-            request_cancel, self._request_cancel = self._request_cancel, None
-            owned, self.owned = self.owned, None
-        if timer is not None:
-            timer.cancel()
-        if request_cancel is not None:
-            request_cancel.set()
-        self._stop_owned(owned)
+        with self._handoff_lock:
+            with self._lock:
+                self._generation += 1
+                timer, self._timer = self._timer, None
+                request_cancel, self._request_cancel = self._request_cancel, None
+                owned, self.owned = self.owned, None
+            if timer is not None:
+                timer.cancel()
+            if request_cancel is not None:
+                request_cancel.set()
+            self._stop_owned(owned)
 
     def _launch(self, generation, station_uuid, request_cancel):
         with self._lock:
@@ -144,27 +149,28 @@ class PreviewController:
                 return
         except Exception:
             return
-        with self._lock:
-            current = (not self._closed and generation == self._generation
-                       and not request_cancel.is_set())
-        if not current or not self._can_play(result):
-            self._retire(result['session_id'])
-            return
-        with self._lock:
-            if self._closed or generation != self._generation or request_cancel.is_set():
+        with self._handoff_lock:
+            with self._lock:
+                current = (not self._closed and generation == self._generation
+                           and not request_cancel.is_set())
+            if not current or not self._can_play(result):
                 stale = True
             else:
-                self.owned = result
-                stale = False
+                with self._lock:
+                    if self._closed or generation != self._generation or request_cancel.is_set():
+                        stale = True
+                    else:
+                        self.owned = result
+                        stale = False
+                if not stale:
+                    try:
+                        self._play(result)
+                    except Exception:
+                        with self._lock:
+                            if self.owned is result:
+                                self.owned = None
+                        stale = True
         if stale:
-            self._retire(result['session_id'])
-            return
-        try:
-            self._play(result)
-        except Exception:
-            with self._lock:
-                if self.owned is result:
-                    self.owned = None
             self._retire(result['session_id'])
 
     def _retire(self, session_id):
@@ -187,17 +193,18 @@ class PreviewController:
             pass
 
     def close(self):
-        with self._lock:
-            self._closed = True
-            self._generation += 1
-            timer, self._timer = self._timer, None
-            request_cancel, self._request_cancel = self._request_cancel, None
-            owned, self.owned = self.owned, None
-        if timer is not None:
-            timer.cancel()
-        if request_cancel is not None:
-            request_cancel.set()
-        self._stop_owned(owned)
+        with self._handoff_lock:
+            with self._lock:
+                self._closed = True
+                self._generation += 1
+                timer, self._timer = self._timer, None
+                request_cancel, self._request_cancel = self._request_cancel, None
+                owned, self.owned = self.owned, None
+            if timer is not None:
+                timer.cancel()
+            if request_cancel is not None:
+                request_cancel.set()
+            self._stop_owned(owned)
 
 
 class RadioMapWindow(xbmcgui.WindowXML):

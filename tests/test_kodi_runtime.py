@@ -272,6 +272,25 @@ def test_map_scan_is_bounded_and_keeps_a_selected_station(kodi):
     assert result == [selected]
 
 
+def test_map_scan_reserves_one_of_200_slots_for_absent_context_station(kodi):
+    runtime, _, _ = kodi
+    class Browser:
+        def geographic(self, code, offset, limit):
+            page = [Station('scan-%03d' % index, 'Scanned %03d' % index,
+                            'https://radio.example/live', 'MP3', False)
+                    for index in range(offset, offset + limit)]
+            return page, True
+
+    selected = Station('context-selected', 'Context selected',
+                       'https://radio.example/selected', 'MP3', False)
+    result = runtime._map_stations(Browser(), 'CA', selected, threading.Event())
+    assert len(result) == 200
+    assert result[0] is selected
+    assert selected in result
+    assert result[-1].uuid == 'scan-198'
+    assert all(station.uuid != 'scan-199' for station in result)
+
+
 def test_map_view_centers_station_and_handles_antimeridian(kodi):
     runtime, _, _ = kodi
     from radio_map import project

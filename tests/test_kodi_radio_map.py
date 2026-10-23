@@ -1,6 +1,7 @@
 """Kodi boundary tests for the shared station map window."""
 import importlib
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -240,6 +241,45 @@ def test_preview_starts_after_debounce_and_closes_only_its_session(monkeypatch):
     window.close()
     workers[-1].target()
     assert stops == ['owned-preview'] and not player_state['playing']
+
+
+@pytest.mark.parametrize('lifecycle_method', ['cancel', 'close'])
+def test_cancel_or_close_serializes_with_preview_play_handoff(monkeypatch, lifecycle_method):
+    module = load_window(monkeypatch)
+    entered_play, release_play = threading.Event(), threading.Event()
+    close_started, close_done = threading.Event(), threading.Event()
+    player_state = {'url': '', 'playing': False}
+
+    def play(result):
+        entered_play.set()
+        assert release_play.wait(2)
+        player_state.update(url=result['playback_url'], playing=True)
+
+    controller = module.PreviewController(
+        lambda *_: {'session_id': 'late-preview', 'playback_url': 'http://127.0.0.1:1/preview'},
+        lambda _: True, play, lambda: player_state['url'], lambda: player_state['playing'],
+        lambda: player_state.update(url='', playing=False), lambda _: None)
+    cancel = threading.Event()
+    resolving = threading.Thread(target=controller._resolve, args=(0, 'one', cancel))
+    resolving.start()
+    assert entered_play.wait(2)
+
+    def close():
+        close_started.set()
+        getattr(controller, lifecycle_method)()
+        close_done.set()
+
+    closing = threading.Thread(target=close)
+    closing.start()
+    assert close_started.wait(2)
+    closing.join(0.05)
+    assert not close_done.is_set(), '%s must wait for an in-flight Player.play handoff' % lifecycle_method
+    release_play.set()
+    resolving.join(2)
+    closing.join(2)
+    assert not resolving.is_alive() and not closing.is_alive()
+    assert close_done.is_set()
+    assert player_state == {'url': '', 'playing': False}
 
 
 def test_close_stops_only_preview_owned_by_window(monkeypatch):
