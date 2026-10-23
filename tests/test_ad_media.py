@@ -1,4 +1,3 @@
-from pathlib import Path
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,10 +8,13 @@ from ad_media import CreativeCache, inspect_ts
 from ad_models import AdError, ResolvedAd
 
 
-ASSETS = Path(__file__).parent / 'generated-audio' / 'ad'
-if not (ASSETS / 'replacement000.ts').is_file():
-    pytest.skip('Generate ad fixtures first: python3 tools/generate_ad_audio.py '
-                '--assets tests/generated-audio/ad', allow_module_level=True)
+ASSETS = None
+
+
+@pytest.fixture(scope='module', autouse=True)
+def _use_generated_ad_assets(ad_assets):
+    global ASSETS
+    ASSETS = ad_assets
 
 
 def segment(name='replacement000.ts'):

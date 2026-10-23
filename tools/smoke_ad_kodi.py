@@ -10,6 +10,7 @@ import codecs
 import json
 from pathlib import Path
 import platform
+import re
 import socket
 import time
 from urllib.parse import parse_qs, urlsplit
@@ -54,6 +55,22 @@ def _time(value):
             value.get('seconds', 0) + value.get('milliseconds', 0) / 1000)
 
 
+_RELAY_MEDIA_PATH = re.compile(r'/media/[0-9a-f]{48}/[0-9a-f]{48}(?:\.[a-z0-9]+)?')
+
+
+def _item_matches_expected(item_file, expected_file):
+    if item_file == expected_file:
+        return True
+    parts = urlsplit(item_file or '')
+    try:
+        port = parts.port
+    except ValueError:
+        return False
+    return (parts.scheme == 'http' and parts.hostname == '127.0.0.1'
+            and parts.username is None and port is not None
+            and _RELAY_MEDIA_PATH.fullmatch(parts.path) is not None)
+
+
 def sample(port, expected_file):
     active = rpc('Player.GetActivePlayers', port=port)
     if not active:
@@ -65,7 +82,7 @@ def sample(port, expected_file):
     conditions = rpc('XBMC.GetInfoBooleans',
                      {'booleans': ['Player.Caching', 'Player.Paused']}, port=port)
     return {'playing': True, 'playerid': playerid, 'time_seconds': _time(props.get('time')),
-            'item_matches_expected': item.get('file') == expected_file,
+            'item_matches_expected': _item_matches_expected(item.get('file'), expected_file),
             'total_seconds': _time(props.get('totaltime')), 'speed': props.get('speed'),
             'cachepercentage': props.get('cachepercentage'), 'live': props.get('live'),
             'canseek': props.get('canseek'), 'player_caching': conditions.get('Player.Caching'),

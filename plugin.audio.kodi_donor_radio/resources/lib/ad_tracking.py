@@ -49,6 +49,7 @@ class AdTracker:
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
         self._previous = None
         self._last_good = None
+        self._initial_bad_position = None
         self._stationary_since = None
         self._seen_sample = False
         self._progress = {}
@@ -96,8 +97,13 @@ class AdTracker:
                 not sample.seeking and math.isfinite(sample.position_seconds) and
                 math.isfinite(sample.monotonic_seconds))
         previous = self._previous
-        first_sample = not self._seen_sample
-        self._seen_sample = True
+        first_sample = good and not self._seen_sample
+        if good:
+            self._seen_sample = True
+        elif not self._seen_sample and self._initial_bad_position is None and math.isfinite(sample.position_seconds):
+            # Invalid samples cannot establish playback, but a backward move
+            # from one must not manufacture a preroll start on resumption.
+            self._initial_bad_position = sample.position_seconds
         continuous = False
         interval = 0
         if (good and previous is None and self._last_good is not None and
@@ -138,6 +144,9 @@ class AdTracker:
             position = sample.position_seconds
             near_start = (start <= position <= min(end, start + START_TOLERANCE) and
                           first_sample)
+            if (near_start and self._initial_bad_position is not None
+                    and self._initial_bad_position > start + START_TOLERANCE):
+                near_start = False
             crossed_start = continuous and previous.position_seconds <= start <= position
             if not state.started and (near_start or crossed_start):
                 state.started = True

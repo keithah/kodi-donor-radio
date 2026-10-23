@@ -81,4 +81,4 @@ Repository-policy exception and rights to replace/distribute particular station 
 
 ## Review status
 
-User approved this design on 2026-10-21 and selected subagent-driven execution. The POC implementation is committed on feat/radio-poc. Actual Kodi playback validation remains pending; see the implementation plan and docs/testing.md.
+User approved this design on 2026-10-21 and selected subagent-driven execution. The POC implementation is committed on feat/radio-poc. Partial Kodi 21.3 playback activity with the process-local USB workaround is recorded in docs/testing.md; ZIP installation, settings-dialog restart and audible output remain unverified.

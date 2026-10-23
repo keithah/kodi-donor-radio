@@ -59,6 +59,14 @@ def test_continuous_sample_slightly_late_across_ad_start_records_impression():
     assert [event for _, event, _ in queued] == ['impression', 'start']
 
 
+def test_first_good_sample_near_preroll_start_counts_after_unmapped_sample():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(0, 0, mapped=False))
+    instance.observe(view, sample(.1, .1))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+
+
 def test_250ms_observations_emit_once_at_each_played_milestone():
     instance, diagnostics, queued = tracker()
     view = presentation()

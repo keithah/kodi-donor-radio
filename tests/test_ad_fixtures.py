@@ -3,10 +3,6 @@
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 import json
-from pathlib import Path
-import shutil
-import subprocess
-import sys
 import threading
 import time
 from urllib.request import urlopen
@@ -14,10 +10,6 @@ from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
 
 import pytest
-
-
-ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ROOT / 'tools'
 
 
 @contextmanager
@@ -41,14 +33,8 @@ def get(origin, path):
 
 
 @pytest.fixture(scope='module')
-def assets(tmp_path_factory):
-    missing = [name for name in ('ffmpeg', 'ffprobe', 'espeak') if shutil.which(name) is None]
-    if missing:
-        pytest.skip('Ad fixture generation requires: ' + ', '.join(missing))
-    target = tmp_path_factory.mktemp('ad-audio')
-    assert (TOOLS / 'generate_ad_audio.py').is_file(), 'ad audio generator is missing'
-    subprocess.run([sys.executable, str(TOOLS / 'generate_ad_audio.py'), '--assets', str(target)], check=True)
-    return target
+def assets(ad_assets):
+    return ad_assets
 
 
 def test_direct_and_wrapped_vast_resolve_to_local_hls_without_beacons(assets):

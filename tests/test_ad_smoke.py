@@ -128,6 +128,16 @@ def test_kodi_smoke_accepts_expected_item_with_advancing_clock():
     assert smoke_ad_kodi.validate_observation(result) == []
 
 
+def test_kodi_smoke_accepts_only_loopback_relay_media_item():
+    from tools.smoke_ad_kodi import _item_matches_expected
+
+    expected = 'plugin://plugin.audio.kodi_donor_radio/?action=play'
+    route = 'http://127.0.0.1:8767/media/' + 'a' * 48 + '/' + 'b' * 48 + '.ts'
+    assert _item_matches_expected(route, expected)
+    assert not _item_matches_expected(route.replace('127.0.0.1', 'example.com'), expected)
+    assert not _item_matches_expected('http://127.0.0.1:8767/media/not-an-id', expected)
+
+
 def test_kodi_rpc_ignores_async_notification_before_matching_response(monkeypatch):
     class Socket:
         def __init__(self):
