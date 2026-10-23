@@ -95,6 +95,19 @@ def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():
     assert [event for _, event, _ in queued] == ["impression", "start"]
 
 
+def test_unmapped_clock_jump_taints_ad_before_tracking_resumes():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(0, 0))
+    instance.observe(view, sample(1, 1, mapped=False))
+    instance.observe(view, sample(2, 2, playing=False, mapped=False))
+    instance.observe(view, sample(3, 3, mapped=False))
+    for tick in range(1, 5):
+        position = 3 + tick * .25
+        instance.observe(view, sample(position, 3 + tick * .25))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+
+
 def test_gap_seek_backwards_and_jump_over_ad_do_not_backfill():
     for interruption in (sample(1.5, 1.5), sample(1.5, .5, seeking=True),
                          sample(0, .5), sample(4.25, .5)):

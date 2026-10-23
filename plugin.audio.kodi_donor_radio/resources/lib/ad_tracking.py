@@ -48,6 +48,7 @@ class AdTracker:
     def __init__(self, session_id, emit, enqueue):
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
         self._previous = None
+        self._last_good = None
         self._stationary_since = None
         self._seen_sample = False
         self._progress = {}
@@ -99,6 +100,10 @@ class AdTracker:
         self._seen_sample = True
         continuous = False
         interval = 0
+        if (good and previous is None and self._last_good is not None and
+                abs(sample.position_seconds - self._last_good.position_seconds) > START_TOLERANCE):
+            # A clock move across an unevidenced gap cannot prove this ad played.
+            self._taint_ambiguous(presentation, self._last_good, sample)
         if good and previous is not None:
             interval = sample.monotonic_seconds - previous.monotonic_seconds
             advance = sample.position_seconds - previous.position_seconds
@@ -150,6 +155,8 @@ class AdTracker:
             if previous.position_seconds < end <= position:
                 self._report(placement, "complete")
         self._previous = sample if good else None
+        if good:
+            self._last_good = sample
         if not good:
             self._stationary_since = None
 
