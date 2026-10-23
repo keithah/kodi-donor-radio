@@ -75,11 +75,15 @@ class VastResolver:
         return resolved
 
     def _parse(self, data):
-        if re.search(br'<!\s*(?:DOCTYPE|ENTITY)\b', data, re.I):
+        try:
+            text = data.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            raise AdError(100, 'Invalid VAST XML')
+        if re.search(r'<!\s*(?:DOCTYPE|ENTITY)\b', text, re.I):
             raise AdError(100, 'Invalid VAST XML')
         try:
-            root = ET.fromstring(data)
-        except ET.ParseError:
+            root = ET.fromstring(text)
+        except (ET.ParseError, ValueError):
             raise AdError(100, 'Invalid VAST XML') from None
         count = 0
         stack = [(root, 1)]

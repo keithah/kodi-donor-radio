@@ -78,6 +78,20 @@ def test_cycle_no_fill_bad_xml_and_external_entity(tmp_path, monkeypatch):
         assert beacons(base) == {}
 
 
+@pytest.mark.parametrize('body', [
+    ('<?xml version="1.0" encoding="UTF-16"?>'
+     '<!DOCTYPE VAST [<!ENTITY x "expanded">]>'
+     '<VAST version="4.2"><Ad>&x;</Ad></VAST>').encode('utf-16'),
+    b'\xff\xfe<not-utf8-vast',
+])
+def test_vast_rejects_non_utf8_and_utf16_dtd_entities(body):
+    from vast import VastResolver
+    from ad_models import AdError
+    resolver = VastResolver(None, 'http://127.0.0.1:8766')
+    with pytest.raises(AdError):
+        resolver._parse(body)
+
+
 def test_ad_origin_wrapper_escape_rejected(tmp_path, monkeypatch):
     from vast import VastResolver
     from ad_models import AdError

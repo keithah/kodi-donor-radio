@@ -1,6 +1,7 @@
 # VAST preroll and HLS midroll replacement: controlled streams
 
-Status: proposed implementation design, awaiting review.
+Status: approved by the user; implemented for loopback fixtures. Kodi acceptance
+remains blocked (see the VAST controlled-ads checkpoint and validation record).
 
 ## Intent and baseline
 
