@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi-only UI and service boundary; all media passes through the embedded relay."""
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 import os
 from pathlib import Path
@@ -25,6 +25,8 @@ from events import JsonEventSink
 from http_client import Cancelled, HttpClient
 from models import Station
 from radio_browser import RadioBrowser
+from radio_ui import (FavoriteStore, PlaceStore, StationSummary, safe_favicon,
+                      station_identifier, stations_in_radius)
 from relay import RelayServer
 from sessions import SessionManager
 from icy_marker_store import IcyMarkerStore
@@ -33,6 +35,8 @@ from url_policy import UrlPolicy
 STARTUP_TIMEOUT = 5.0
 AD_CREATE_TIMEOUT = 30.0
 PAGE_SIZE = 50
+GEO_SCAN_PAGES = 4
+MAX_OFFSET = 10000000
 _HEX48 = re.compile(r'^[0-9a-f]{48}$')
 _HEX64 = re.compile(r'^[0-9a-f]{64}$')
 
@@ -281,33 +285,107 @@ def _label_icy_marker(monitor, cancel):
         _error(30057)
 
 
+# Fixture identity and paths are application constants, never navigation payloads.
+_FIXTURES = (
+    (30020, 'continuous.mp3', 'MP3', False), (30021, 'continuous.aac', 'AAC', False),
+    (30022, 'icy.mp3', 'MP3', False), (30023, 'hls/normal/index.m3u8', 'AAC', True),
+    (30024, 'hls/mid-break/index.m3u8', 'AAC', True),
+    (30025, 'hls/missing-end/index.m3u8', 'AAC', True),
+    (30026, 'hls/no-cue/index.m3u8', 'AAC', True),
+    (30027, 'hls/malformed-cue/index.m3u8', 'AAC', True),
+    (30045, 'source/normal/index.m3u8', 'AAC', True),
+    (30046, 'source/mutation/index.m3u8', 'AAC', True),
+    (30047, 'source/expired-window/index.m3u8', 'AAC', True),
+    (30048, 'source/stall/index.m3u8', 'AAC', True),
+    (30061, 'icy/explicit.mp3', 'MP3', False), (30062, 'icy/tildeats.mp3', 'MP3', False),
+    (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
+    (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
+    (30067, 'icy/unresolved.mp3', 'MP3', False),
+)
+
+
+def _fixture_station(identifier):
+    origin = fixture_origin()
+    if origin is None:
+        raise ValueError('Test mode disabled')
+    for label, path, codec, hls in _FIXTURES:
+        if identifier == 'fixture-%d' % label:
+            return Station(identifier, text(label), origin + '/' + path, codec, hls)
+    raise ValueError('Unknown fixture')
+
+
+def _query_text(value):
+    if (not isinstance(value, str) or len(value) > 256 or
+            any(ord(char) < 32 or ord(char) == 127 for char in value)):
+        raise ValueError('Invalid query')
+    return value
+
+
+def _place_stations(browser, place, offset, cancel):
+    """Stop on the first populated page or after four pages; never skip matching rows."""
+    cursor = offset
+    for _ in range(GEO_SCAN_PAGES):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        stations, more = browser.geographic(place.country_code, cursor, PAGE_SIZE)
+        cursor += PAGE_SIZE
+        matches = stations_in_radius(stations, place)
+        matches.sort(key=lambda station: (-station.click_count, station.name.casefold(), station.uuid))
+        if matches or not more:
+            return matches, cursor if more and cursor <= MAX_OFFSET else None
+        if cursor > MAX_OFFSET:
+            break
+    return [], cursor if cursor <= MAX_OFFSET else None
+
+
+def _ui_transition(mode, params, monitor, cancel):
+    """Route seam for setup, station info and the shared map delivered in later tasks."""
+    if mode == 'station_info':
+        station_identifier(params.get('uuid', ''))
+
+
 def run_plugin(argv):
     base, handle = argv[0], int(argv[1])
     params = {key: values[0] for key, values in parse_qs(argv[2].lstrip('?') if len(argv)>2 else '').items()}
-    action = params.get('action', 'home')
+    action = params.get('mode', params.get('action', 'home'))
     monitor, cancel = xbmc.Monitor(), threading.Event()
     browser = RadioBrowser(cancel=cancel)
     def url(**values): return base + '?' + urlencode(values)
-    def item(label, folder=True, **values):
+    def item(label, folder=True, playable=False, **values):
         entry = xbmcgui.ListItem(label=label)
-        if not folder: entry.setProperty('IsPlayable', 'true')
+        if playable:
+            entry.setProperty('IsPlayable', 'true')
         xbmcplugin.addDirectoryItem(handle, url(**values), entry, isFolder=folder)
     def station_item(station):
-        item(station.name, folder=False, action='play', station=json.dumps({
-            key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}))
-    if action == 'play':
+        summary = (StationSummary.from_station(replace(station, favicon=safe_favicon(station.favicon)))
+                   if isinstance(station, Station) else station)
+        entry = xbmcgui.ListItem(label=summary.name)
+        details = ' '.join(value for value in (summary.codec, str(summary.bitrate) if summary.bitrate else '') if value)
+        entry.setLabel2(' · '.join(value for value in (summary.city, details) if value))
+        art = safe_favicon(summary.favicon) or os.path.join(
+            xbmcaddon.Addon().getAddonInfo('path'), 'resources', 'station-monogram.png')
+        entry.setArt({'thumb': art, 'icon': art})
+        entry.setInfo('music', {'title': summary.name, 'genre': summary.tags,
+                              'comment': ' · '.join(value for value in (summary.city, summary.country, summary.tags) if value)})
+        entry.setProperty('IsPlayable', 'true')
+        entry.setIsFolder(False)
+        xbmcplugin.addDirectoryItem(handle, url(mode='play', uuid=summary.station_uuid), entry, isFolder=False)
+    if action in ('play', 'play_fixture'):
         client, session = None, None
         def stop(value):
             if client is not None and isinstance(value, dict) and _HEX48.fullmatch(str(value.get('id',''))):
                 try: client.stop(value['id'])
                 except (OSError, ValueError): pass
         try:
-            station = _station(params.get('station',''))
-            # Fixture selection cannot activate the exception while test mode is disabled.
-            if station.uuid.startswith('fixture-'):
-                origin = fixture_origin()
-                if origin is None or not station.url.startswith(origin + '/'):
-                    raise ValueError('Test mode disabled')
+            if action == 'play_fixture':
+                station = _fixture_station(params.get('id', ''))
+            else:
+                uuid = station_identifier(params.get('uuid', ''))
+                if uuid.startswith('fixture-'):
+                    raise ValueError('Fixture requires explicit fixture route')
+                station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
+                if station.uuid != uuid:
+                    raise ValueError('Invalid station lookup')
             try:
                 # The service can still hold its previous valid ad config while
                 # Kodi settings are being edited, so use the longer bound for all
@@ -352,69 +430,110 @@ def run_plugin(argv):
         return
     xbmcplugin.setContent(handle, 'songs')
     listing_succeeded = True
+    retry = {'mode': 'home'}
     try:
         offset = int(params.get('offset', '0'))
-        if offset < 0: raise ValueError('Invalid page')
+        if not 0 <= offset <= MAX_OFFSET:
+            raise ValueError('Invalid page')
         if action == 'home':
-            for label, target in ((30001,'search'),(30002,'countries'),(30003,'tags'),(30004,'settings'),
-                                  (30050,'label_icy_marker')):
-                item(text(label), action=target)
+            if xbmcaddon.Addon().getSettingBool('offer_setup_row'):
+                item(text(30110), folder=False, mode='setup')
+            for place in PlaceStore(profile_path()).list():
+                item(place.name, mode='place', id=place.place_id)
+            for label, target in ((30111, 'favorites'), (30003, 'tags'), (30002, 'countries'),
+                                  (30001, 'search'), (30112, 'map'), (30004, 'settings'),
+                                  (30050, 'label_icy_marker')):
+                item(text(label), folder=target not in ('map', 'settings', 'label_icy_marker'), mode=target)
             if xbmcaddon.Addon().getSettingBool('test_mode'):
-                item(text(30007), action='tests')
+                item(text(30007), mode='tests')
         elif action == 'label_icy_marker':
             _label_icy_marker(monitor, cancel)
             listing_succeeded = False
         elif action == 'settings':
             xbmcaddon.Addon().openSettings()
             listing_succeeded = False
-        elif action in ('search','stations'):
-            name = params.get('name','')
-            if action == 'search':
+        elif action in ('setup', 'map', 'station_info'):
+            _ui_transition(action, params, monitor, cancel)
+            listing_succeeded = False
+        elif action == 'favorites':
+            favorites = FavoriteStore(profile_path()).list()
+            for station in favorites[offset:offset + PAGE_SIZE]:
+                station_item(station)
+            if offset + PAGE_SIZE < len(favorites):
+                item(text(30005), mode=action, offset=offset + PAGE_SIZE)
+            if not favorites:
+                _error(30113)
+        elif action == 'place':
+            place_id = station_identifier(params.get('id', ''))
+            place = next((place for place in PlaceStore(profile_path()).list() if place.place_id == place_id), None)
+            if place is None:
+                raise ValueError('Unknown place')
+            retry = {'mode': action, 'id': place_id, 'offset': offset}
+            if place.latitude is None or place.longitude is None:
+                _error(30114)
+            else:
+                stations, next_offset = _operation(lambda: _place_stations(browser, place, offset, cancel), monitor, cancel)
+                for station in stations:
+                    station_item(station)
+                if next_offset is not None:
+                    _error(30116)
+                    item(text(30005), mode=action, id=place_id, offset=next_offset)
+                elif not stations:
+                    _error(30113)
+        elif action in ('search', 'stations', 'tag', 'country'):
+            name = _query_text(params.get('name', ''))
+            country, tag = _query_text(params.get('country', '')), _query_text(params.get('tag', ''))
+            if action == 'search' and 'name' not in params:
                 name = xbmcgui.Dialog().input(text(30001))
                 if not name:
                     listing_succeeded = False
                     return
-            country, tag = params.get('country',''), params.get('tag','')
-            stations = _operation(lambda: browser.search(name,country,tag,offset,PAGE_SIZE), monitor,cancel)
-            for station in stations: station_item(station)
-            if len(stations)==PAGE_SIZE:
-                item(text(30005),action='stations',name=name,country=country,tag=tag,offset=offset+PAGE_SIZE)
-        elif action in ('countries','tags'):
-            names = _operation(lambda: browser.countries() if action=='countries' else browser.tags(offset,PAGE_SIZE),monitor,cancel)
-            page = names[offset:offset+PAGE_SIZE] if action=='countries' else names
+                name = _query_text(name)
+            if action == 'country':
+                code = params.get('code', '')
+                if not re.fullmatch(r'[A-Z]{2}', code):
+                    raise ValueError('Invalid country code')
+                retry = {'mode': action, 'code': code, 'offset': offset}
+                fetch = lambda: browser.search_country(code, offset, PAGE_SIZE)
+            else:
+                retry = {'mode': action, 'name': name, 'country': country, 'tag': tag, 'offset': offset}
+                fetch = lambda: browser.search(name, country, tag, offset, PAGE_SIZE)
+            stations = _operation(fetch, monitor, cancel)
+            for station in stations:
+                station_item(station)
+            if len(stations) == PAGE_SIZE and offset + PAGE_SIZE <= MAX_OFFSET:
+                item(text(30005), **dict(retry, offset=offset + PAGE_SIZE))
+            if not stations:
+                _error(30113)
+        elif action in ('countries', 'tags'):
+            retry = {'mode': action, 'offset': offset}
+            names = _operation(lambda: browser.country_entries() if action == 'countries' else browser.tags(offset, PAGE_SIZE), monitor, cancel)
+            page = names[offset:offset+PAGE_SIZE] if action == 'countries' else names
             for name in page:
-                item(name, action='stations', **{'country' if action=='countries' else 'tag': name})
-            if (action=='countries' and offset+PAGE_SIZE<len(names)) or (action=='tags' and len(page)==PAGE_SIZE):
-                item(text(30005),action=action,offset=offset+PAGE_SIZE)
+                if action == 'countries':
+                    label, code = name
+                    item(label, mode='country', code=code)
+                else:
+                    item(_query_text(name), mode='tag', tag=_query_text(name))
+            if ((action == 'countries' and offset + PAGE_SIZE < len(names)) or
+                    (action == 'tags' and len(page) == PAGE_SIZE)) and offset + PAGE_SIZE <= MAX_OFFSET:
+                item(text(30005), mode=action, offset=offset+PAGE_SIZE)
+            if not page:
+                _error(30113)
         elif action == 'tests':
-            origin = fixture_origin()
-            if origin:
-                fixtures = [(30020,'continuous.mp3','MP3',False),(30021,'continuous.aac','AAC',False),
-                            (30022,'icy.mp3','MP3',False),(30023,'hls/normal/index.m3u8','AAC',True),
-                            (30024,'hls/mid-break/index.m3u8','AAC',True),(30025,'hls/missing-end/index.m3u8','AAC',True),
-                            (30026,'hls/no-cue/index.m3u8','AAC',True),(30027,'hls/malformed-cue/index.m3u8','AAC',True),
-                            (30045,'source/normal/index.m3u8','AAC',True),
-                            (30046,'source/mutation/index.m3u8','AAC',True),
-                            (30047,'source/expired-window/index.m3u8','AAC',True),
-                            (30048,'source/stall/index.m3u8','AAC',True)]
-                fixtures.extend((label, 'icy/%s.mp3' % scenario, 'MP3', False)
-                                for label, scenario in (
-                                    (30061, 'explicit'), (30062, 'tildeats'),
-                                    (30063, 'wrapped'), (30064, 'return-to-track'),
-                                    (30065, 'paired-marker'), (30066, 'punctuation'),
-                                    (30067, 'unresolved')))
-                for label,path,codec,hls in fixtures:
-                    station_item(Station('fixture-%d'%label,text(label),origin+'/'+path,codec,hls))
+            if fixture_origin():
+                for label, _, _, _ in _FIXTURES:
+                    item(text(label), folder=False, playable=True, mode='play_fixture', id='fixture-%d' % label)
         else:
             raise ValueError('Unknown navigation action')
     except Cancelled:
-        pass
-    except (OSError,ValueError,TypeError):
+        listing_succeeded = False
+    except (OSError, ValueError, TypeError):
+        listing_succeeded = False
         _error(30012)
-        item(text(30006), **params)
+        item(text(30006), **retry)
     finally:
-        xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded,
-                                  cacheToDisc=False)
+        xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
 
 
 class RelayPlayer(xbmc.Player):

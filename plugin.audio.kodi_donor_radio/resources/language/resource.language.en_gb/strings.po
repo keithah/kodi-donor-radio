@@ -267,3 +267,27 @@ msgstr ""
 msgctxt "#30106"
 msgid "Preview a station when you focus it on the map. Turn off on slow connections. This applies to the shared map while listings use your Kodi skin."
 msgstr ""
+
+msgctxt "#30110"
+msgid "Set up Donor Radio"
+msgstr ""
+
+msgctxt "#30111"
+msgid "Favorites"
+msgstr ""
+
+msgctxt "#30112"
+msgid "Open the map"
+msgstr ""
+
+msgctxt "#30113"
+msgid "No stations or categories found."
+msgstr ""
+
+msgctxt "#30114"
+msgid "This place has no coordinates. Run setup to choose a location."
+msgstr ""
+
+msgctxt "#30116"
+msgid "Showing a bounded directory scan, ranked by popularity. Choose Next page to scan more stations."
+msgstr ""

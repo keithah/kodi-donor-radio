@@ -37,6 +37,11 @@ def kodi(monkeypatch, tmp_path):
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
+            self.label2, self.art, self.info = '', {}, {}
+        def setLabel2(self, value): self.label2 = value
+        def setArt(self, value): self.art = value
+        def setInfo(self, kind, value): self.info[kind] = value
+        def setIsFolder(self, value): self.folder = value
         def setProperty(self, key, value): self.props[key] = value
         def setMimeType(self, value): self.mime = value
         def setContentLookup(self, value): self.lookup = value
@@ -74,7 +79,7 @@ def kodi(monkeypatch, tmp_path):
         def getPlayingFile(self): return self.file
         def isPlaying(self): return self.playing
     class Addon:
-        def getAddonInfo(self, key): return {'profile': str(tmp_path), 'name': 'Kodi Donor Radio'}[key]
+        def getAddonInfo(self, key): return {'profile': str(tmp_path), 'name': 'Kodi Donor Radio', 'path': str(ADDON)}[key]
         def getLocalizedString(self, key): return 'localized-%d' % key
         def getSettingBool(self, key): return state.settings.get(key, False)
         def getSetting(self, key): return state.settings.get(key, '')
@@ -105,12 +110,16 @@ def route(runtime, **params):
 
 
 class Directory:
-    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]
+    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]
     def search(self, name, country, tag, offset, limit=50):
         self.searches.append((name,country,tag,offset,limit)); return [STATION] * 50
     def countries(self): return ['Canada', 'France']
     def tags(self, offset, limit=50): self.tag_page=(offset,limit); return ['jazz'] * 50
     def click(self, uuid): self.clicks.append(uuid)
+    def by_uuid(self, uuid): self.lookups.append(uuid); return STATION
+    def country_entries(self): return [('Canada', 'CA'), ('France', 'FR')]
+    def search_country(self, code, offset, limit=50):
+        self.country_page=(code,offset,limit); return [STATION] * 50
 
 
 def directory(monkeypatch, runtime):
@@ -120,7 +129,7 @@ def directory(monkeypatch, runtime):
 def test_home_hides_test_streams_and_uses_localized_labels(kodi):
     runtime,state,_=kodi
     route(runtime)
-    assert [item.label for _,item,_ in state.items] == ['localized-30001','localized-30002','localized-30003','localized-30004','localized-30050']
+    assert [item.label for _,item,_ in state.items] == ['localized-30111','localized-30003','localized-30002','localized-30001','localized-30112','localized-30004','localized-30050']
     assert all('tests' not in url for url,_,_ in state.items)
     assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
 
@@ -136,8 +145,8 @@ def test_controlled_ad_sources_appear_in_test_menu(kodi):
     runtime, state, _ = kodi
     state.settings.update({'test_mode': True, 'test_origin': 'http://127.0.0.1:58416'})
     route(runtime, action='tests')
-    stations = [runtime._station(parse_qs(urlsplit(url).query)['station'][0])
-                for url, _, _ in state.items if 'station=' in url]
+    stations = [runtime._fixture_station(parse_qs(urlsplit(url).query)['id'][0])
+                for url, _, _ in state.items]
     paths = {urlsplit(station.url).path for station in stations}
     assert {'/source/normal/index.m3u8', '/source/mutation/index.m3u8',
             '/source/expired-window/index.m3u8', '/source/stall/index.m3u8'} <= paths
@@ -161,10 +170,9 @@ def test_icy_marker_scenarios_are_selectable_with_localized_labels_and_exact_ori
     stations = []
     for url, item, _ in state.items:
         params = parse_qs(urlsplit(url).query)
-        if 'station' in params:
-            station = json.loads(params['station'][0])
-            if '/icy/' in station['url']:
-                stations.append((item.label, station))
+        station = runtime._fixture_station(params['id'][0])
+        if '/icy/' in station.url:
+            stations.append((item.label, json.loads(station_payload(station))))
     assert [(label, urlsplit(station['url']).path.rsplit('/', 1)[-1])
             for label, station in stations] == [
         ('localized-%d' % label, scenario + '.mp3')
@@ -231,7 +239,7 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
         def stop(self,session_id): stopped.append(session_id)
         def create(self,station): created.append(station); return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,'mime_type':'audio/aac'}
     monkeypatch.setattr(runtime,'ControlClient',Client)
-    route(runtime,action='play',station=station_payload(STATION))
+    route(runtime,action='play',uuid=STATION.uuid)
     assert created==[STATION] and browser.clicks==['station-1']
     assert len(state.resolved)==1 and state.resolved[0][0]
     assert click_states == [state.resolved]
@@ -259,7 +267,7 @@ def test_unavailable_service_localized_failure_no_direct_fallback(kodi,monkeypat
                 return {'id':'c'*48,'playback_url':STATION.url}
             def stop(self,session_id): pass
         monkeypatch.setattr(runtime,'ControlClient',Client)
-    route(runtime,action='play',station=station_payload(STATION))
+    route(runtime,action='play',uuid=STATION.uuid)
     assert state.resolved and not state.resolved[0][0] and not state.resolved[0][1].path
     assert state.messages[-1] in ('localized-30010','localized-30011')
     assert not state.logs
@@ -267,16 +275,16 @@ def test_unavailable_service_localized_failure_no_direct_fallback(kodi,monkeypat
 
 def test_directory_error_offers_localized_retry(kodi,monkeypatch):
     runtime,state,_=kodi; browser=directory(monkeypatch,runtime)
-    browser.countries=lambda: (_ for _ in ()).throw(OSError('sensitive'))
+    browser.country_entries=lambda: (_ for _ in ()).throw(OSError('sensitive'))
     route(runtime,action='countries')
     assert state.messages[-1]=='localized-30012'
     assert state.items[-1][1].label=='localized-30006'
-    assert 'action=countries' in state.items[-1][0]
+    assert 'mode=countries' in state.items[-1][0]
 
 
 def test_startup_wait_is_abortable(kodi,monkeypatch):
     runtime,state,_=kodi; directory(monkeypatch,runtime); state.abort=True
-    before=time.monotonic(); route(runtime,action='play',station=station_payload(STATION))
+    before=time.monotonic(); route(runtime,action='play',uuid=STATION.uuid)
     assert time.monotonic()-before < .1
     assert not state.resolved[0][0]
 
@@ -295,7 +303,7 @@ def test_cancelled_create_stops_late_session(kodi,monkeypatch):
         def stop(self,session_id): assert session_id=='c'*48; stopped.set()
     monkeypatch.setattr(runtime,'ControlClient',Client)
     state.action=lambda monitor: setattr(state,'cancel',True) if entered.is_set() else None
-    route(runtime,action='play',station=station_payload(STATION))
+    route(runtime,action='play',uuid=STATION.uuid)
     released.set()
     assert stopped.wait(1) and not state.resolved[0][0] and browser.clicks==[]
 
@@ -343,9 +351,9 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests')
     assert len(state.items)==19
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
-    station=json.loads(parse_qs(urlsplit(state.items[0][0]).query)['station'][0])
+    station=json.loads(station_payload(runtime._fixture_station(parse_qs(urlsplit(state.items[0][0]).query)['id'][0])))
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
-    paths=[json.loads(parse_qs(urlsplit(url).query)['station'][0])['url'] for url,_,_ in state.items]
+    paths=[runtime._fixture_station(parse_qs(urlsplit(url).query)['id'][0]).url for url,_,_ in state.items]
     assert paths[5]=='http://127.0.0.1:8765/hls/missing-end/index.m3u8'
 
 
@@ -615,8 +623,7 @@ def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
         def stop(self, session_id): pass
     monkeypatch.setattr(runtime, 'ControlClient', Client)
     monkeypatch.setattr(runtime.RadioBrowser, 'click', lambda *args: None)
-    station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
-    route(runtime, action='play', station=station_payload(station))
+    route(runtime, mode='play_fixture', id='fixture-30023')
     assert timeouts[-1] == 30
     assert state.resolved[0][0]
 
@@ -640,8 +647,7 @@ def test_invalid_ad_url_keeps_extended_fixture_create_timeout(kodi, monkeypatch)
         def stop(self, session_id): pass
 
     monkeypatch.setattr(runtime, 'ControlClient', Client)
-    station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
-    route(runtime, action='play', station=station_payload(station))
+    route(runtime, mode='play_fixture', id='fixture-30023')
     assert timeouts[-1] == 30
     assert state.resolved[0][0]
 
@@ -885,7 +891,7 @@ def test_icy_label_home_action_remains_reachable_during_audio(kodi):
     player.file = STATION.url
     route(runtime)
     action = [entry for entry in state.items
-              if parse_qs(urlsplit(entry[0]).query).get('action') == ['label_icy_marker']]
+              if parse_qs(urlsplit(entry[0]).query).get('mode') == ['label_icy_marker']]
     assert len(action) == 1
     assert action[0][1].label == 'localized-30050'
     assert 'IsPlayable' not in action[0][1].props
@@ -989,13 +995,11 @@ def test_icy_label_dismissing_or_canceling_memory_step_does_not_apply(kodi, icy_
     assert service.manager.get(service.session.id) is service.session
 
 
-def test_legacy_station_route_contains_only_original_five_fields(kodi, monkeypatch):
+def test_legacy_station_listing_emits_uuid_only_play_route(kodi, monkeypatch):
     runtime, state, _ = kodi
     directory(monkeypatch, runtime)
     route(runtime, action='stations')
-    payload = json.loads(parse_qs(urlsplit(state.items[0][0]).query)['station'][0])
-    assert set(payload) == {'uuid', 'name', 'url', 'codec', 'hls'}
-    assert runtime._station(json.dumps(payload)) == STATION
+    assert parse_qs(urlsplit(state.items[0][0]).query) == {'mode': ['play'], 'uuid': ['station-1']}
 
 
 def test_legacy_station_decoder_rejects_extended_metadata(kodi):
@@ -1004,3 +1008,191 @@ def test_legacy_station_decoder_rejects_extended_metadata(kodi):
                'codec': 'MP3', 'hls': False, 'country': 'France'}
     with pytest.raises(ValueError):
         runtime._station(json.dumps(payload))
+
+
+def test_root_order_places_and_action_flags_without_network(kodi, monkeypatch):
+    from radio_ui import PlaceStore, FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    first = PlaceStore(profile).save('Home', 0, 0, 25)
+    second = PlaceStore(profile).save('Work', 1, 1, 25)
+    FavoriteStore(profile).add(StationSummary('saved', 'Offline Radio'))
+    state.settings['offer_setup_row'] = True
+    route(runtime)
+    assert [i.label for _, i, _ in state.items] == [
+        'localized-30110', 'Home', 'Work', 'localized-30111', 'localized-30003',
+        'localized-30002', 'localized-30001', 'localized-30112', 'localized-30004', 'localized-30050']
+    assert [folder for _, _, folder in state.items] == [False, True, True, True, True, True, True, False, False, False]
+    assert parse_qs(urlsplit(state.items[1][0]).query) == {'mode': ['place'], 'id': [first.place_id]}
+    assert parse_qs(urlsplit(state.items[2][0]).query)['id'] == [second.place_id]
+    assert browser.clicks == browser.lookups == browser.searches == []
+    assert all('IsPlayable' not in i.props for _, i, _ in state.items)
+
+
+def test_station_display_metadata_safe_artwork_and_uuid_links(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search = lambda *a: [Station('a', 'FM 88', 'https://secret.example/token', 'AAC', False,
+        city='San Mateo', bitrate=64, tags='jazz,news', favicon='https://art.example/a.png'),
+        Station('b', 'Other', 'https://secret.example/other', '', False, favicon='file:///secret')]
+    route(runtime, mode='tag', tag='jazz')
+    assert len(state.items) == 2
+    link, item, folder = state.items[0]
+    assert parse_qs(urlsplit(link).query) == {'mode': ['play'], 'uuid': ['a']}
+    assert item.label == 'FM 88' and item.label2 == 'San Mateo · AAC 64'
+    assert item.art == {'thumb': 'https://art.example/a.png', 'icon': 'https://art.example/a.png'}
+    assert item.info['music']['genre'] == 'jazz,news'
+    assert item.info['music']['title'] == 'FM 88'
+    assert item.props['IsPlayable'] == 'true' and folder is False and item.folder is False
+    fallback = state.items[1][1].art['thumb']
+    assert fallback.endswith('/resources/station-monogram.png') and Path(fallback).is_file()
+    assert all('secret' not in url for url, _, _ in state.items)
+    assert browser.clicks == browser.lookups == []
+
+
+def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
+    route(runtime, mode='tests')
+    assert len(state.items) == 19
+    for link, item, folder in state.items:
+        params = parse_qs(urlsplit(link).query)
+        assert set(params) == {'mode', 'id'} and params['mode'] == ['play_fixture']
+        assert not folder and item.props['IsPlayable'] == 'true'
+        assert '127.0.0.1' not in link
+    route(runtime, mode='play_fixture', id='not-known')
+    assert state.resolved[-1][0] is False
+    state.settings['test_mode'] = False
+    route(runtime, mode='play_fixture', id='fixture-30020')
+    assert state.resolved[-1][0] is False and browser.clicks == []
+
+
+@pytest.mark.parametrize('uuid', ['', '../bad', 'a'*129, 'a,b', 'fixture-30020'])
+def test_invalid_uuid_selection_never_resolves_or_counts(kodi, monkeypatch, uuid):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='play', uuid=uuid)
+    assert state.resolved == [(False, state.resolved[0][1])]
+    assert browser.lookups == browser.clicks == []
+
+
+def test_uuid_play_resolves_transient_station_before_existing_relay(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    created=[]
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a'*48, 'b'*64),
+        create=lambda station: created.append(station) or {'id':'c'*48,
+            'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48, 'mime_type':'audio/mpeg'})
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    route(runtime, mode='play', uuid='station-1', station=station_payload(Station('evil', 'Evil', 'https://evil', '', False)))
+    assert browser.lookups == ['station-1'] and created == [STATION]
+    assert browser.clicks == ['station-1'] and state.resolved[0][0]
+
+
+def test_favorites_render_cached_order_without_directory_lookup(kodi, monkeypatch):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    FavoriteStore(profile).add(StationSummary('z', 'Cached Z', city='Paris', codec='MP3', bitrate=128))
+    FavoriteStore(profile).add(StationSummary('a', 'Cached A'))
+    browser.by_uuid = lambda *a: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='favorites')
+    assert [i.label for _,i,_ in state.items] == ['Cached Z', 'Cached A']
+    assert state.items[0][1].label2 == 'Paris · MP3 128'
+    assert browser.clicks == browser.searches == []
+
+
+@pytest.mark.parametrize('mode', ['favorites', 'tag', 'countries', 'tags'])
+def test_empty_listings_have_localized_message(kodi, monkeypatch, mode):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search = lambda *a: []
+    browser.tags = lambda *a: []
+    browser.country_entries = lambda: []
+    route(runtime, mode=mode, tag='jazz')
+    assert 'localized-30113' in state.messages
+    assert state.items == [] and state.ended[-1]['succeeded']
+
+
+@pytest.mark.parametrize('mode', ['setup', 'map', 'station_info'])
+def test_future_ui_routes_return_to_listing_without_playback(kodi, monkeypatch, mode):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode=mode, uuid='station-1')
+    assert state.ended == [{'succeeded': False, 'cacheToDisc': False}]
+    assert state.items == state.resolved == browser.clicks == browser.lookups == []
+
+
+def test_new_country_routes_use_iso_codes_and_page(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.country_entries = lambda: [('Country %d'%i, 'US') for i in range(60)]
+    route(runtime, mode='countries', offset=50)
+    assert len(state.items) == 10
+    assert parse_qs(urlsplit(state.items[0][0]).query) == {'mode':['country'], 'code':['US']}
+    state.items.clear()
+    route(runtime, mode='country', code='FR', offset=50)
+    assert browser.country_page == ('FR', 50, 50)
+    assert parse_qs(urlsplit(state.items[-1][0]).query) == {'mode':['country'], 'code':['FR'], 'offset':['100']}
+
+
+@pytest.mark.parametrize('params', [dict(mode='tag',tag='a'*257),dict(mode='tag',tag='bad\n'),
+    dict(mode='countries',offset=-1),dict(mode='countries',offset=10000001),
+    dict(mode='country',code='France'),dict(mode='place',id='../bad')])
+def test_invalid_routes_do_not_copy_untrusted_payload_to_retry(kodi, monkeypatch, params):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, **params)
+    assert 'localized-30012' in state.messages
+    assert browser.searches == []
+    assert all('station=' not in link and len(link)<1024 and '%0A' not in link for link,_,_ in state.items)
+
+
+def test_place_local_radius_ranks_click_count_and_uses_saved_country(kodi, monkeypatch):
+    from radio_ui import PlaceStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    place = PlaceStore(profile).save('Home', 0, 0, 25, country_code='FR')
+    calls=[]
+    stations = [Station(uuid, name, 'https://x.example/live', '', False, latitude=lat, longitude=0, click_count=clicks)
+        for uuid,name,lat,clicks in [('z','Z',0,1),('b','A',0,5),('a','A',.1,5),('far','Far',40,99)]]
+    browser.geographic = lambda code, offset, limit: calls.append((code,offset,limit)) or (stations, False)
+    route(runtime, mode='place', id=place.place_id)
+    assert [parse_qs(urlsplit(link).query)['uuid'][0] for link,_,_ in state.items] == ['a','b','z']
+    assert calls == [('FR',0,50)] and browser.clicks == []
+
+
+def test_place_scan_budget_and_continuation_do_not_claim_complete_empty(kodi, monkeypatch):
+    from radio_ui import PlaceStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    place = PlaceStore(profile).save('Home', 0, 0, 25)
+    calls=[]
+    browser.geographic = lambda code, offset, limit: calls.append((code,offset,limit)) or ([], True)
+    route(runtime, mode='place', id=place.place_id)
+    assert calls == [('',0,50),('',50,50),('',100,50),('',150,50)]
+    assert 'localized-30116' in state.messages and 'localized-30113' not in state.messages
+    assert parse_qs(urlsplit(state.items[-1][0]).query) == {'mode':['place'], 'id':[place.place_id], 'offset':['200']}
+    assert browser.clicks == []
+
+
+def test_place_no_coordinates_reports_clear_message(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    monkeypatch.setattr(runtime, 'PlaceStore', lambda profile: SimpleNamespace(list=lambda:[
+        SimpleNamespace(place_id='old', latitude=None, longitude=None, country_code='')]))
+    route(runtime, mode='place', id='old')
+    assert 'localized-30114' in state.messages and state.items == []
+
+
+def test_mode_precedes_legacy_action_and_cancellation_closes_listing(kodi, monkeypatch):
+    from http_client import Cancelled
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch,runtime)
+    browser.tags=lambda *a: (_ for _ in ()).throw(Cancelled('cancelled'))
+    route(runtime, mode='tags', action='settings')
+    assert not getattr(state, 'settings_opened', False)
+    assert state.items == [] and browser.clicks == []
+    assert state.ended[-1] == {'succeeded':False,'cacheToDisc':False}
+    assert 'localized-30013' in state.messages

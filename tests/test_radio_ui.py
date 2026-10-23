@@ -168,3 +168,24 @@ def test_favorite_actions_validate_positions_timestamps_and_record_type(tmp_path
     store.mark_played('a', '2026-10-23T12:00:00Z')
     store.add(m.StationSummary('a', 'Updated'))
     assert store.list()[0].last_played == '2026-10-23T12:00:00Z'
+
+
+def test_place_country_code_round_trip_and_old_schema_migration(tmp_path):
+    store = ui().PlaceStore(tmp_path)
+    place = store.save('Paris', 48.8, 2.3, 25, country_code='FR')
+    assert store.list()[0].country_code == 'FR'
+    path = tmp_path / 'places.json'
+    data = json.loads(path.read_text())
+    del data['items'][0]['country_code']
+    path.write_text(json.dumps(data))
+    assert store.list()[0].country_code == ''
+    store.set_radius(place.place_id, 50)
+    assert json.loads(path.read_text())['items'][0]['country_code'] == ''
+    assert store.save('Legacy call', 0, 0, 1).country_code == ''
+
+
+@pytest.mark.parametrize('code', ['F', 'FRA', '12', 'ßß', 'fr', None, True])
+def test_place_country_code_validation_never_writes_invalid_values(tmp_path, code):
+    with pytest.raises(ValueError):
+        ui().PlaceStore(tmp_path).save('Bad', 0, 0, 25, country_code=code)
+    assert not (tmp_path / 'places.json').exists()

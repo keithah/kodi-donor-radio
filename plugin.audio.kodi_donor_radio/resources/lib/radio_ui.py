@@ -126,12 +126,16 @@ class SavedPlace:
     longitude: float
     radius_km: float
     is_default: bool = False
+    country_code: str = ''
 
     def __post_init__(self):
         station_identifier(self.place_id)
         _text(self.name, 128, required=True)
         coordinates(self.latitude, self.longitude)
         _number(self.radius_km, 0.001, 20040)
+        if not isinstance(self.country_code, str) or (self.country_code and
+                not re.fullmatch(r'[A-Z]{2}', self.country_code)):
+            raise ValueError('Invalid country code')
         if type(self.is_default) is not bool:
             raise ValueError('Invalid default place flag')
 
@@ -212,12 +216,13 @@ class PlaceStore(_Store):
 
     @staticmethod
     def decode(row):
-        if not isinstance(row, dict) or set(row) != {f.name for f in fields(SavedPlace)}:
+        required = {f.name for f in fields(SavedPlace)} - {'country_code'}
+        if not isinstance(row, dict) or set(row) not in (required, required | {'country_code'}):
             raise ValueError('Invalid place schema')
         return SavedPlace(**row)
 
-    def save(self, name, latitude, longitude, radius_km, make_default=False):
-        place = SavedPlace(str(uuid.uuid4()), name, latitude, longitude, radius_km, make_default)
+    def save(self, name, latitude, longitude, radius_km, make_default=False, country_code=''):
+        place = SavedPlace(str(uuid.uuid4()), name, latitude, longitude, radius_km, make_default, country_code)
         items = self.list()
         if make_default:
             items = [replace(item, is_default=False) for item in items]

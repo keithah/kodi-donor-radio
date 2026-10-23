@@ -2,6 +2,7 @@
 """Bounded Radio Browser reads and deliberately non-retried click counting."""
 import json
 import random
+import re
 import socket
 import threading
 import time
@@ -81,7 +82,8 @@ class RadioBrowser:
 
     @staticmethod
     def _page(offset, limit):
-        if offset < 0 or limit < 1 or limit > 50:
+        if (type(offset) is not int or type(limit) is not int or
+                not 0 <= offset <= 10000000 or not 1 <= limit <= 50):
             raise ValueError('Invalid directory page')
         return {'offset': offset, 'limit': limit}
 
@@ -95,6 +97,48 @@ class RadioBrowser:
         params['hidebroken'] = 'true'
         rows = self._json('/json/stations/search', params)
         return self._stations(rows)
+
+    @staticmethod
+    def _country_code(code, optional=False):
+        if not isinstance(code, str) or not (optional and code == '' or re.fullmatch(r'[A-Z]{2}', code)):
+            raise ValueError('Invalid country code')
+        return code
+
+    def search_country(self, code, offset, limit=50):
+        params = {'countrycode': self._country_code(code), 'hidebroken': 'true',
+                  'order': 'clickcount', 'reverse': 'true'}
+        params.update(self._page(offset, limit))
+        return self._stations(self._json('/json/stations/search', params))
+
+    def geographic(self, code, offset, limit=50):
+        """One directory page, not a radius query; retain the raw cursor on malformed rows."""
+        self._country_code(code, optional=True)
+        params = {'has_geo_info': 'true', 'hidebroken': 'true',
+                  'order': 'clickcount', 'reverse': 'true'}
+        if code:
+            params['countrycode'] = code
+        params.update(self._page(offset, limit))
+        rows = self._json('/json/stations/search', params)
+        stations = self._stations(rows)
+        return stations[:limit], len(rows) >= limit
+
+    def country_entries(self):
+        rows = self._json('/json/countries', {'limit': 300})
+        if not isinstance(rows, list):
+            raise ValueError('Invalid country list')
+        entries = []
+        for row in rows[:300]:
+            if not isinstance(row, dict):
+                continue
+            code = row.get('iso_3166_1')
+            try:
+                self._country_code(code)
+            except ValueError:
+                continue
+            name = bounded_text(row.get('name'), 256)
+            if name.strip():
+                entries.append((name, code))
+        return entries
 
     @staticmethod
     def _stations(rows):

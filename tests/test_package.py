@@ -35,6 +35,8 @@ def test_package_is_installable_source_only(package):
         assert {name.split('/')[0] for name in names} == {ADDON}
         assert ADDON + '/default.py' in names
         assert ADDON + '/service.py' in names
+        assert ADDON + '/resources/station-monogram.png' in names
+        assert ADDON + '/resources/lib/radio_ui.py' in names
         assert {ADDON + '/resources/lib/' + module + '.py' for module in
                 ('ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
                  'vast', 'kodi_ad_player', 'icy_markers', 'icy_marker_store')} <= set(names)

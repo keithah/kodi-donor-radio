@@ -16,11 +16,12 @@ VERSION = '0.1.0'
 FILES = frozenset({
     'addon.xml', 'default.py', 'service.py', 'LICENSE.txt',
     'resources/settings.xml', 'resources/icon.png', 'resources/fanart.jpg',
+    'resources/station-monogram.png',
     'resources/language/resource.language.en_gb/strings.po',
     *('resources/lib/' + name + '.py' for name in (
         'control', 'cues', 'events', 'hls', 'http_client', 'icy', 'kodi_runtime',
         'icy_marker_store', 'icy_markers',
-        'models', 'radio_browser', 'relay', 'sessions', 'station_resolver', 'url_policy',
+        'models', 'radio_browser', 'radio_ui', 'relay', 'sessions', 'station_resolver', 'url_policy',
         'ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
         'vast', 'kodi_ad_player')),
 })

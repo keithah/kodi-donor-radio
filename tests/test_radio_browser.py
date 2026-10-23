@@ -268,3 +268,40 @@ def test_invalid_country_code_and_empty_normalized_name_are_not_persisted():
     results = rb.search('', '', '', 0)
     assert len(results) == 1
     assert results[0].country_code == ''
+
+
+def test_geographic_query_uses_only_documented_filters_and_tracks_raw_page_length():
+    row = {'stationuuid':'a','name':'Radio','url':'https://radio.example/live','geo_lat':0,'geo_long':0}
+    rb, transport = browser([Reply(json.dumps([None]*49+[row]).encode())])
+    stations, more = rb.geographic('FR', 50, 50)
+    assert [s.uuid for s in stations] == ['a'] and more is True
+    assert parse_qs(urlsplit(transport.calls[0][0]).query) == {
+        'countrycode':['FR'], 'has_geo_info':['true'], 'hidebroken':['true'],
+        'order':['clickcount'], 'reverse':['true'], 'offset':['50'], 'limit':['50']}
+
+
+def test_global_geo_fallback_omits_country_and_short_page_is_exhausted():
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.geographic('', 0, 50) == ([], False)
+    query = parse_qs(urlsplit(transport.calls[0][0]).query)
+    assert 'countrycode' not in query and query['has_geo_info'] == ['true']
+    assert not any(k in query for k in ('latitude','longitude','radius','distance'))
+
+
+def test_country_listing_preserves_names_and_codes_for_routes():
+    rb, _ = browser([Reply(b'[{"name":"France","iso_3166_1":"FR"},{"name":"Invalid","iso_3166_1":"123"}]')])
+    assert rb.country_entries() == [('France','FR')]
+
+
+def test_country_search_is_code_scoped_and_popularity_ordered():
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.search_country('FR', 50) == []
+    assert parse_qs(urlsplit(transport.calls[0][0]).query) == {'countrycode':['FR'],
+        'offset':['50'],'limit':['50'],'hidebroken':['true'],'order':['clickcount'],'reverse':['true']}
+
+
+@pytest.mark.parametrize('code', ['FRA','fr','../FR',None])
+def test_invalid_country_queries_never_reach_network(code):
+    rb, transport = browser([])
+    with pytest.raises(ValueError): rb.geographic(code, 0, 50)
+    assert transport.calls == []
