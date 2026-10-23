@@ -69,3 +69,23 @@ def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):
         worker.join(2)
     assert not worker.is_alive() and not error
     assert len(result[0]) == 1
+
+
+def test_midroll_completion_after_close_tolerates_cleared_cache_and_signals_done():
+    from threading import Event, RLock
+
+    session = AdSession.__new__(AdSession)
+    session._prepare = lambda: SimpleNamespace(segments=[SimpleNamespace(id='creative')])
+    session._lock = RLock()
+    session._closed = True
+    session._prepared = []
+    session._midroll = None
+    session._midroll_done = Event()
+
+    def unpin(_resource_id):
+        raise KeyError('cache entry already cleared by close')
+
+    session.creative = SimpleNamespace(unpin=unpin)
+    session._prepare_midroll()
+
+    assert session._midroll_done.is_set()

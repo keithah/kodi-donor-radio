@@ -72,16 +72,22 @@ class AdSession:
             return None
 
     def _prepare_midroll(self):
-        offer = self._prepare()
-        with self._lock:
-            if offer is not None:
-                if self._closed:
-                    for item in offer.segments:
-                        self.creative.unpin(item.id)
-                else:
-                    self._midroll = offer
-                    self._prepared.append(offer)
-                    self.timeline.offer(offer)
+        try:
+            offer = self._prepare()
+            with self._lock:
+                if offer is not None:
+                    if self._closed:
+                        for item in offer.segments:
+                            try:
+                                self.creative.unpin(item.id)
+                            except KeyError:
+                                # close() may already have cleared the cache.
+                                pass
+                    else:
+                        self._midroll = offer
+                        self._prepared.append(offer)
+                        self.timeline.offer(offer)
+        finally:
             self._midroll_done.set()
 
     @property
