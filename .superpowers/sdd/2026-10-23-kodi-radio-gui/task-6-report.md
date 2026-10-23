@@ -78,3 +78,5 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Focused verification: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 189 passed.
 - Full verification: `pytest -q` — 909 passed in 98.02s; compileall, package creation/check, and `git diff --check` passed.
 - Limitation: external Kodi UI actions, other add-ons, and native `setResolvedUrl` playback do not record our intent token. They can still race. A preview is only protected from cleanup stops by the add-on's direct start intents; no atomic Kodi-level compare-and-play guarantee exists.
+
+- Fix commit: `c1f721c` (`fix: guard preview stop with playback intent`).
