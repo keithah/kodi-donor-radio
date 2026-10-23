@@ -99,9 +99,13 @@ def test_relay_smoke_stops_session_when_segment_validation_fails(monkeypatch):
         return b'transport-stream'
 
     monkeypatch.setattr(smoke_ad_relay, '_bytes', fetch)
-    monkeypatch.setattr(smoke_ad_relay, 'probe', lambda *args: (_ for _ in ()).throw(AssertionError('bad segment')))
+    def fail_probe(_path, executable):
+        assert executable == 'custom-ffprobe'
+        raise AssertionError('bad segment')
+    monkeypatch.setattr(smoke_ad_relay, 'probe', fail_probe)
     with pytest.raises(AssertionError, match='bad segment'):
-        smoke_ad_relay.observe('http://fixture.test', 'normal', 'direct', False, False)
+        smoke_ad_relay.observe('http://fixture.test', 'normal', 'direct', False, False,
+                               ffmpeg='custom-ffmpeg', ffprobe='custom-ffprobe')
     assert stopped == [session.id]
     assert closed == [True]
 

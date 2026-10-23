@@ -171,14 +171,6 @@ class AdTracker:
     def finish(self, reason):
         if self._finished:
             return
-        if reason == "ad_end" and self._previous is not None and self._presentation is not None:
-            position = self._previous.position_seconds
-            for placement in self._presentation.placements:
-                state = self._progress.get(placement.id)
-                end = placement.end_sample / 48000
-                if (state is not None and state.started and state.final_interval > 0 and
-                        0 <= end - position <= state.final_interval):
-                    self._report(placement, "complete")
         if reason != "source_end":
             self._finished = True
 

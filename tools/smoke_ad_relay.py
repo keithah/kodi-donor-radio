@@ -4,6 +4,7 @@
 import argparse
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import time
@@ -69,7 +70,8 @@ def _routes(manifest):
     return [line for line in manifest.splitlines() if line and not line.startswith('#')]
 
 
-def observe(origin, scenario, vast, preroll, midroll):
+def observe(origin, scenario, vast, preroll, midroll,
+            ffmpeg='ffmpeg', ffprobe='ffprobe'):
     _bytes(origin + '/reset')
     config = AdConfig(True, preroll, midroll, origin + '/vast/' + vast, origin)
     with tempfile.TemporaryDirectory(prefix='ad-relay-smoke-') as temp:
@@ -100,8 +102,8 @@ def observe(origin, scenario, vast, preroll, midroll):
                 body = _bytes(base + route)
                 path = Path(temp) / ('observed-%03d.ts' % index)
                 path.write_bytes(body)
-                info = probe(path, 'ffprobe')
-                tone = decoded_tone(path, 'ffmpeg', CHOICES)
+                info = probe(path, ffprobe)
+                tone = decoded_tone(path, ffmpeg, CHOICES)
                 sections.append(TONE_SECTION[tone])
                 samples.append(info['samples'])
                 first_pts.append(info['first_pts'])
@@ -134,8 +136,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--origin', default='http://127.0.0.1:8766')
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--ffmpeg', default=shutil.which('ffmpeg') or 'ffmpeg')
+    parser.add_argument('--ffprobe', default=shutil.which('ffprobe') or 'ffprobe')
     args = parser.parse_args()
-    results = [observe(args.origin, *case) for case in (
+    results = [observe(args.origin, *case, ffmpeg=args.ffmpeg, ffprobe=args.ffprobe) for case in (
         ('normal', 'direct', True, True),
         ('normal', 'preroll', True, False),
         ('normal', 'no-fill', False, True),

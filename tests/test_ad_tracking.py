@@ -170,15 +170,13 @@ def test_midroll_uses_placement_relative_start_and_separate_anchors():
     assert [event for _, event, _ in queued] == ["impression", "start"]
 
 
-def test_end_callback_requires_ad_end_position_and_source_end_does_not_complete():
+def test_source_end_does_not_synthesize_ad_completion_without_crossing():
     instance, _, queued = tracker()
     view = presentation()
     for tick in range(16):
         instance.observe(view, sample(tick * .25, tick * .25))
     instance.finish("source_end")
     assert "complete" not in [event for _, event, _ in queued]
-    instance.finish("ad_end")
-    assert [event for _, event, _ in queued].count("complete") == 1
 
 
 def test_seek_near_end_then_stationary_samples_cannot_complete_on_callback():
@@ -188,7 +186,7 @@ def test_seek_near_end_then_stationary_samples_cannot_complete_on_callback():
     instance.observe(view, sample(3.9, 1, seeking=True))
     instance.observe(view, sample(3.9, 1.25))
     instance.observe(view, sample(3.9, 1.5))
-    instance.finish("ad_end")
+    instance.finish("source_end")
     assert "complete" not in [event for _, event, _ in queued]
 
 
@@ -198,7 +196,6 @@ def test_cancel_before_end_never_completes():
     instance.observe(view, sample(0, 0))
     instance.observe(view, sample(3.75, 3.75))
     instance.finish("cancelled")
-    instance.finish("ad_end")
     assert "complete" not in [event for _, event, _ in queued]
 
 

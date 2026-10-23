@@ -52,6 +52,10 @@ The ad origin serves `/vast/direct`, `/vast/wrapped`, `/vast/preroll`, `/vast/no
 
 For the independent ad acceptance run, use `python3 tools/smoke_ad_relay.py --origin http://127.0.0.1:8766 --report /path/outside/addon/relay.json`. It fetches every published relay TS segment, independently probes its AAC frame/sample count with FFprobe, decodes a tone window with FFmpeg, and checks the resulting section order and collector state. The trace validator rejects original-break leakage, missing programme, sample-count differences, duplicate playback events, completion after stop, and any claimed success beacon because this relay-only run has no independent playback evidence. The first live window includes source000 through source005 even after multiple prompt manifest requests. VAST `/vast/wrong-duration` declares nine seconds but carries a valid 4.010667-second AAC creative; measured media duration is authoritative, so the tool expects replacement audio.
 
+The relay acceptance tool discovers `ffmpeg` and `ffprobe` on `PATH`. Pass
+`--ffmpeg /path/to/ffmpeg` or `--ffprobe /path/to/ffprobe` when either executable
+is installed elsewhere.
+
 With a disposable Kodi portable profile and its JSON-RPC listener, run `python3 tools/smoke_ad_kodi.py --origin http://127.0.0.1:8766 --rpc-port 9090 --report /path/outside/addon/kodi.json`. It opens the controlled entries in the addon's test menu and records 250 ms player clock samples, selected actions, and fixture requests. It checks that the active Kodi item is the requested addon item and that its clock advances in bounded adjacent samples. This is a Kodi player observation, not a proof of audible output or a calibrated ad position. Keep success tracking disabled until decoded presentation position can be independently tied to Kodi's clock across both discontinuities and a moving live window. Reports omit session URLs and authentication tokens.
 
 `/track/<placement>/<event>` alone records a beacon. `/stats` reports request, beacon, and window counters without counting itself. `/reset` clears them and restarts all source windows. Fetching VAST, playlists, or media cannot create a beacon.
