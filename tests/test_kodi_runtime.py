@@ -23,6 +23,11 @@ ADDON = Path(__file__).resolve().parents[1] / 'plugin.audio.kodi_donor_radio'
 STATION = Station('station-1', 'Station One', 'https://radio.example/live', 'MP3', False)
 
 
+def station_payload(station):
+    return json.dumps({key: getattr(station, key)
+                       for key in ('uuid', 'name', 'url', 'codec', 'hls')})
+
+
 @pytest.fixture
 def kodi(monkeypatch, tmp_path):
     state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
@@ -226,7 +231,7 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
         def stop(self,session_id): stopped.append(session_id)
         def create(self,station): created.append(station); return {'id':'c'*48,'playback_url':'http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48,'mime_type':'audio/aac'}
     monkeypatch.setattr(runtime,'ControlClient',Client)
-    route(runtime,action='play',station=json.dumps(STATION.__dict__))
+    route(runtime,action='play',station=station_payload(STATION))
     assert created==[STATION] and browser.clicks==['station-1']
     assert len(state.resolved)==1 and state.resolved[0][0]
     assert click_states == [state.resolved]
@@ -254,7 +259,7 @@ def test_unavailable_service_localized_failure_no_direct_fallback(kodi,monkeypat
                 return {'id':'c'*48,'playback_url':STATION.url}
             def stop(self,session_id): pass
         monkeypatch.setattr(runtime,'ControlClient',Client)
-    route(runtime,action='play',station=json.dumps(STATION.__dict__))
+    route(runtime,action='play',station=station_payload(STATION))
     assert state.resolved and not state.resolved[0][0] and not state.resolved[0][1].path
     assert state.messages[-1] in ('localized-30010','localized-30011')
     assert not state.logs
@@ -271,7 +276,7 @@ def test_directory_error_offers_localized_retry(kodi,monkeypatch):
 
 def test_startup_wait_is_abortable(kodi,monkeypatch):
     runtime,state,_=kodi; directory(monkeypatch,runtime); state.abort=True
-    before=time.monotonic(); route(runtime,action='play',station=json.dumps(STATION.__dict__))
+    before=time.monotonic(); route(runtime,action='play',station=station_payload(STATION))
     assert time.monotonic()-before < .1
     assert not state.resolved[0][0]
 
@@ -290,7 +295,7 @@ def test_cancelled_create_stops_late_session(kodi,monkeypatch):
         def stop(self,session_id): assert session_id=='c'*48; stopped.set()
     monkeypatch.setattr(runtime,'ControlClient',Client)
     state.action=lambda monitor: setattr(state,'cancel',True) if entered.is_set() else None
-    route(runtime,action='play',station=json.dumps(STATION.__dict__))
+    route(runtime,action='play',station=station_payload(STATION))
     released.set()
     assert stopped.wait(1) and not state.resolved[0][0] and browser.clicks==[]
 
@@ -555,7 +560,7 @@ def test_ad_create_uses_bounded_extended_control_timeout(kodi, monkeypatch):
     monkeypatch.setattr(runtime, 'ControlClient', Client)
     monkeypatch.setattr(runtime.RadioBrowser, 'click', lambda *args: None)
     station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
-    route(runtime, action='play', station=json.dumps(station.__dict__))
+    route(runtime, action='play', station=station_payload(station))
     assert timeouts[-1] == 30
     assert state.resolved[0][0]
 
@@ -580,7 +585,7 @@ def test_invalid_ad_url_keeps_extended_fixture_create_timeout(kodi, monkeypatch)
 
     monkeypatch.setattr(runtime, 'ControlClient', Client)
     station = Station('fixture-1', 'Fixture', 'http://127.0.0.1:8765/hls/index.m3u8', 'AAC', True)
-    route(runtime, action='play', station=json.dumps(station.__dict__))
+    route(runtime, action='play', station=station_payload(station))
     assert timeouts[-1] == 30
     assert state.resolved[0][0]
 
@@ -926,3 +931,20 @@ def test_icy_label_dismissing_or_canceling_memory_step_does_not_apply(kodi, icy_
     assert service.store.lookup('station-1', '-') is None
     assert 'localized-30058' not in state.messages
     assert service.manager.get(service.session.id) is service.session
+
+
+def test_legacy_station_route_contains_only_original_five_fields(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    route(runtime, action='stations')
+    payload = json.loads(parse_qs(urlsplit(state.items[0][0]).query)['station'][0])
+    assert set(payload) == {'uuid', 'name', 'url', 'codec', 'hls'}
+    assert runtime._station(json.dumps(payload)) == STATION
+
+
+def test_legacy_station_decoder_rejects_extended_metadata(kodi):
+    runtime, _, _ = kodi
+    payload = {'uuid': 'station-1', 'name': 'Station One', 'url': 'https://radio.example/live',
+               'codec': 'MP3', 'hls': False, 'country': 'France'}
+    with pytest.raises(ValueError):
+        runtime._station(json.dumps(payload))

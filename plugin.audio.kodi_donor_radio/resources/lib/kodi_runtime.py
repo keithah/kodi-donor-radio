@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi-only UI and service boundary; all media passes through the embedded relay."""
 from contextlib import contextmanager
-from dataclasses import asdict, fields
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -247,13 +247,11 @@ def _relay_path(value, port):
 
 def _station(value):
     record = json.loads(value)
-    required = {'uuid', 'name', 'url', 'codec', 'hls'}
-    if (not isinstance(record, dict) or not required <= set(record)
-            or set(record) - {field.name for field in fields(Station)}
+    if (not isinstance(record, dict) or set(record) != {'uuid','name','url','codec','hls'}
             or any(not isinstance(record[key], str) or not record[key] for key in ('uuid','name','url'))
             or not isinstance(record['codec'], str) or type(record['hls']) is not bool):
         raise ValueError('Invalid station')
-    return Station(**{key: record[key] for key in required})
+    return Station(**record)
 
 
 def _label_icy_marker(monitor, cancel):
@@ -295,7 +293,8 @@ def run_plugin(argv):
         if not folder: entry.setProperty('IsPlayable', 'true')
         xbmcplugin.addDirectoryItem(handle, url(**values), entry, isFolder=folder)
     def station_item(station):
-        item(station.name, folder=False, action='play', station=json.dumps(asdict(station)))
+        item(station.name, folder=False, action='play', station=json.dumps({
+            key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}))
     if action == 'play':
         client, session = None, None
         def stop(value):
