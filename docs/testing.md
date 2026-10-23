@@ -1,5 +1,98 @@
 # Validation record
 
+## GUI package verification — 2026-10-23
+
+The first GUI slice implements native skin listings, saved places/favorites,
+sequential native setup, station/place actions, and one shared schematic map.
+Themed Home/Now playing/other themed windows and their interface selectors remain
+deferred. This record covers the current GUI package; earlier Kodi playback
+records below predate these changes and do not establish GUI acceptance.
+
+Development verification used macOS ARM64 and Python 3.9.6. The focused GUI and
+package command was:
+
+```sh
+python3 -m pytest tests/test_package.py tests/test_kodi_runtime.py tests/test_kodi_radio_map.py tests/test_radio_map.py tests/test_radio_ui.py tests/test_playback_arbiter.py -q
+```
+
+It passed **249 tests in 9.17s**, with clean output. The full suite passed
+**920 tests in 103.55s**. That full run emitted the previously documented local
+HTTP-handler exception banner (`Exception occurred during processing of request`
+for a loopback client), without a retained traceback; no test failed, but the
+output was not pristine. The exact emitting test was not established in this run.
+
+Archive-level assertions
+check the three GUI toggle defaults and setup action, settings/map localization
+references, all 60 pin IDs and the station rail, profile/map/arbiter modules,
+and the fallback PNG. Eight tampered archives each omit a different required
+GUI resource and are rejected. Unlisted fixture manifests/audio, development
+tools, hidden workflow files, secrets and caches are excluded. No runtime code
+was changed during this verification task.
+
+Build and validate from the repository root:
+
+```sh
+python3 -m pytest -q
+python3 -m compileall -q plugin.audio.kodi_donor_radio tests
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+git diff --check
+python3 -m zipfile -e dist/plugin.audio.kodi_donor_radio-0.1.0.zip dist/checker-gui-task7
+.venv/checker/bin/kodi-addon-checker --branch omega dist/checker-gui-task7/plugin.audio.kodi_donor_radio
+```
+
+The official checker is a development-only installation; it is not required by
+the add-on. Version **0.0.36** exited 0 and reported **no add-on problems and no
+warnings** on the fresh ZIP extraction. Its Python environment separately emitted
+the known `urllib3` warning about host LibreSSL 2.8.3. Compilation, package build,
+and the repository package check exited 0. The inspected ZIP contains **36 files**,
+**427,329 bytes**, one `plugin.audio.kodi_donor_radio/` root, version **0.1.0**,
+both plugin/service entries, and only the `xbmc.python` **3.0.1** dependency.
+SHA-256: `bdc73eaedab1602445b8498df2b5c73de5e57e9fa7ad7c0c4471b3f8d42c8734`.
+
+### Live GUI acceptance remains unavailable
+
+Kodi **21.3 Omega** is installed. A fresh Task 7 `cua.getState()` check returned
+no native apps and reported: “The Mac is locked and automatic unlock could not
+unlock it.” No interactive acceptance was performed for this
+GUI build. Display resolution and input method were not observed; no focus
+behavior was observed. Automated Kodi adapters and geometry tests do not prove
+real rendering, audio, focus, or click delivery.
+
+| Check on this GUI build | Status |
+| --- | --- |
+| ZIP install dialog; Estuary root/nested listings | Unverified |
+| Alternate-skin root/nested listings and shared map rendering | Unverified |
+| Setup cancellation/completion and settings interaction | Unverified |
+| Root/context map launch and return to the originating selection | Unverified |
+| Pin/rail/control D-pad reachability, non-wrapping and focus restoration | Unverified |
+| Real station and controlled-fixture playback; audible output | Unverified |
+| One Radio Browser click per deliberate Play; no preview clicks | Unverified live; adapter tests cover the dispatch boundary |
+| Preview debounce, cancellation, session retirement and competing playback | Unverified live; deterministic adapter tests cover ordering |
+
+When the desktop is accessible, install the ZIP in a backed-up isolated profile
+and record exact Kodi version, display resolution, active skin and input device.
+Exercise root and nested listings in Estuary and one alternate skin; run setup
+from both entry points, cancel at each stage, save multiple places and change
+their radius/default. Open the map from the root and station menu, move through
+pins/rail/Preview/Back, check no directional wrap and record the restored listing
+selection. Test real and loopback fixture playback, deliberate click count,
+400 ms preview debounce, rapid focus changes, Back during pending lookup,
+preview disabled, and competing playback. Capture observed focus defects and
+heard audio separately from player-clock or request evidence.
+
+Setup candidates and map pins come from a bounded four-page station scan,
+not a complete city catalog. Place filtering uses local radius checks against
+bounded country pages. Map limits are 200 seed rows, 60 pins and 50 rail rows.
+Preview direct starts and add-on direct Play starts share a profile file lock
+and start-intent token; ownership-aware cancellation retires only the preview's
+relay. External Kodi UI actions, other add-ons, and native `setResolvedUrl` do not
+participate in that lock and can still race. The pending preview handoff is
+bounded to five seconds; a later Kodi acknowledgment can fail. There is no atomic
+Kodi-wide compare-and-play guarantee. Profile safety, UUID-only routes, live
+Radio Browser discovery, exact loopback fixtures and ICY/ad behavior remain
+covered by the full automated suite.
+
 ## Controlled VAST acceptance, 2026-10-22
 
 Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using an isolated portable profile. The pre-test profile was backed up outside the repository. Reports named `task8-*.json` in the test report directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.

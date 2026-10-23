@@ -2,6 +2,7 @@
 """Exercise the distributable, including rejection of unsafe or incomplete ZIPs."""
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -67,7 +68,9 @@ def test_package_is_installable_source_only(package):
 def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     source = tmp_path / ADDON
     shutil.copytree(ROOT / ADDON, source, ignore=shutil.ignore_patterns('__pycache__'))
-    for filename in ('tests/fixture.mp3', 'resources/lib/secret.py', '.env', 'token.json'):
+    for filename in ('tests/fixture.mp3', 'tests/fixtures/hls/media.m3u8',
+                     'tools/fixture_server.py', '.superpowers/progress.md',
+                     'resources/lib/secret.py', '.env', 'token.json'):
         path = source / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('DO NOT DISTRIBUTE')
@@ -85,6 +88,57 @@ def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     assert (first / filename).read_bytes() == (second / filename).read_bytes()
     with zipfile.ZipFile(first / filename) as archive:
         assert not any(name.endswith(('secret.py', '.env', 'token.json', 'fixture.mp3')) for name in archive.namelist())
+        assert not any(part in ('tests', 'fixtures', 'tools', '.superpowers')
+                       for name in archive.namelist() for part in name.split('/'))
+
+
+def test_packaged_gui_settings_and_map_have_localized_resources(package):
+    """Catch incomplete GUI archives even when source-tree adapter tests pass."""
+    with zipfile.ZipFile(package) as archive:
+        root = ADDON + '/resources/'
+        settings = ET.fromstring(archive.read(root + 'settings.xml'))
+        po = archive.read(root + 'language/resource.language.en_gb/strings.po').decode()
+        translations = dict(re.findall(r'msgctxt "#(\d+)"\nmsgid "([^"\n]+)"', po))
+        for setting_id, default in [('guided_setup', 'false'), ('offer_setup_row', 'true'),
+                                    ('preview_on_browse', 'true')]:
+            setting = settings.find(".//setting[@id='%s']" % setting_id)
+            assert setting is not None
+            assert setting.findtext('default') == default
+        assert settings.findtext(".//setting[@id='run_setup']/data") == (
+            'RunPlugin(plugin://plugin.audio.kodi_donor_radio/?mode=setup)')
+        for node in settings.iter():
+            for attribute in ('label', 'help'):
+                reference = node.get(attribute, '')
+                if reference.isdigit() and int(reference) >= 30000:
+                    assert translations.get(reference), reference
+        map_source = archive.read(root + 'skins/Default/1080i/map.xml').decode()
+        window = ET.fromstring(map_source)
+        pin_ids = {int(node.get('id')) for node in window.findall(".//control[@type='button']")
+                   if 1000 <= int(node.get('id')) < 2000}
+        assert pin_ids == set(range(1000, 1060))
+        assert window.find(".//control[@type='list'][@id='2000']") is not None
+        for reference in re.findall(r'\$LOCALIZE\[(30\d{3})\]', map_source):
+            assert translations.get(reference), reference
+        for module in ('radio_ui', 'radio_map', 'kodi_radio_map', 'playback_arbiter'):
+            assert root + 'lib/' + module + '.py' in archive.namelist()
+        assert archive.read(root + 'station-monogram.png').startswith(b'\x89PNG\r\n\x1a\n')
+
+
+@pytest.mark.parametrize('resource', [
+    'resources/settings.xml', 'resources/language/resource.language.en_gb/strings.po',
+    'resources/skins/Default/1080i/map.xml', 'resources/station-monogram.png',
+    'resources/lib/radio_ui.py', 'resources/lib/radio_map.py',
+    'resources/lib/kodi_radio_map.py', 'resources/lib/playback_arbiter.py',
+])
+def test_checker_rejects_missing_gui_resource(package, tmp_path, resource):
+    path = tmp_path / 'missing-gui-resource.zip'
+    with zipfile.ZipFile(package) as original, zipfile.ZipFile(path, 'w') as changed:
+        for entry in original.infolist():
+            if entry.filename != ADDON + '/' + resource:
+                changed.writestr(entry, original.read(entry))
+    result = run_tool('check_package.py', path)
+    assert result.returncode != 0
+    assert 'Unexpected, missing, or unsafe ZIP paths' in result.stderr
 
 
 @pytest.mark.parametrize('mutation', [

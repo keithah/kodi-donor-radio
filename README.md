@@ -1,9 +1,10 @@
 # Kodi Donor Radio
 
 A GPL-2.0-or-later Kodi radio and controlled monetization POC. Search Radio
-Browser, browse countries and tags, and play supported stations through a Python
-relay embedded in the addon service. Optional diagnostics record ICY metadata
-and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
+Browser, browse countries and tags, save places and favorites, and play supported
+stations through a Python relay embedded in the addon service. Native Kodi
+listings, sequential setup dialogs, and a shared schematic radio map are implemented.
+Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
 restricted to configured loopback HLS fixtures; general Radio Browser stations
 remain ad-free. Fixture success beacons use an experimental Kodi media-clock
 anchor and must not be treated as production-validated tracking.
@@ -45,6 +46,51 @@ add-ons. Search or browse, select a station, and use Kodi's normal playback stop
 controls. Keep the bundled service enabled. Changing diagnostics, test mode, or
 the fixture origin restarts the service and retires existing playback sessions.
 Advertising settings apply to the next station selection without a restart.
+
+## Places, favorites, and map
+
+The root lists setup, saved places, Favorites, genre/country browsing, Search,
+Open the map, Settings, and the existing ICY marker action. Station menus provide
+Play, Add to / Remove from favorites, Show on map, and Station info. Station
+routes contain UUIDs; playback resolves the current stream through the relay.
+Favorites retain safe display metadata and the last deliberate-play time.
+
+Choose **Set up Donor Radio** from the root or Settings. Native dialogs find
+cities represented by a bounded Radio Browser station scan, then offer a radius
+of 10, 25, 60, 100, or 250 miles. Save one or more places at the final confirmation;
+cancelling leaves existing places unchanged. Place menus change the radius,
+choose the default, or remove the place. Nearby results are filtered locally
+from bounded country pages, so they are not a complete nearby-station catalog.
+`places.json` and `favorites.json` live in the add-on's Kodi profile; stream URLs
+and service credentials are excluded.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| Guided setup | Off | Run setup on opening the root when no places exist |
+| Offer setup at the top of the list | On | Show the root setup action |
+| Preview stations while browsing | On | Preview a station after 400 ms of stable focus in the map rail |
+| Set up Donor Radio | Action | Run the same setup dialogs from Settings |
+
+**Open the map** and **Show on map** launch the same custom window. It displays
+up to 60 city pins from a maximum 200-row discovery seed and up to 50 stations in
+the selected city's rail. Directional navigation is intended to move between
+cities without wrapping, with rail, Preview, and Back controls. The map is a
+schematic pin view; the themed Home, Now playing, and other themed screens,
+`interface` selector, and `theme_open_on` setting are deferred.
+
+Map previews do not report Radio Browser clicks. A deliberate Play reports one
+best-effort click after successful resolution. Moving focus or closing the map
+cancels preview work and retires only its owned relay session. Add-on direct
+playback starts share a profile lock and intent token. Kodi UI actions, other
+add-ons, and native `setResolvedUrl` starts remain outside that lock and can
+race; the pending preview handoff is bounded to five seconds.
+
+The new GUI has automated and package coverage, but its Kodi 21.3 visual and
+end-to-end acceptance is **unverified**: the 2026-10-23 desktop check reported this
+Mac locked. Estuary/alternate-skin rendering, setup interaction, D-pad/focus
+restoration, real playback, click count, and preview behavior still require an
+accessible Kodi desktop. Earlier playback evidence above predates this GUI.
+See [the current GUI acceptance record](docs/testing.md#gui-package-verification--2026-10-23).
 
 ## Stream scope
 

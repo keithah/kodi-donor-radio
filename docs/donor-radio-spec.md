@@ -4,13 +4,30 @@ Oct 22, 2026 · @Keith
 
 ## Status and implementation baseline
 
-This is the product target, not a description of the shipped add-on. The current
-repository is a Kodi music plug-in and service POC for Radio Browser search,
-country/tag browsing, station playback through a local Python relay, ICY/HLS cue
-observation, and controlled loopback-only VAST/HLS ad composition. It does not yet
-implement the place/favorites/history stores, the skin-mode information architecture,
-the map, the themed windows, preview-on-browse, or the setup flow below. Treat those
-as proposed work until each has a tested implementation and Kodi package validation.
+This describes the full product target. The 2026-10-23 first slice implements
+skin-native root/nested listings, safe place and favorite stores (including the
+favorite's last deliberate-play timestamp), sequential native setup dialogs,
+station/place actions, and one shared schematic map with debounced preview.
+The existing Radio Browser discovery, local relay, ICY/HLS observation, and
+controlled loopback-only VAST/HLS behavior remain in place. A separate history
+view/store and themed Home, Now playing, and other themed windows are deferred.
+
+The implemented settings are `guided_setup=false`, `offer_setup_row=true`,
+`preview_on_browse=true`, and the `run_setup` action. The target `interface` and
+`theme_open_on` selectors are deferred until their screens exist. Setup uses a
+bounded station-derived city scan and 10/25/60/100/250-mile radius choices,
+converted to kilometers in the store. Place results use bounded country pages
+and local radius filtering; the map uses at most 200 seed rows, 60 city pins,
+and 50 rail stations. It does not yet implement a complete geocoding catalog,
+free map panning/zoom, or all target artwork.
+
+Automated and package verification is recorded in [testing](testing.md#gui-package-verification--2026-10-23).
+New GUI acceptance on Kodi 21.3 remains unverified because the desktop was locked:
+Estuary/alternate-skin rendering, real setup, D-pad/focus, playback, click count,
+and preview behavior have not been observed. External Kodi UI/other-add-on/native
+`setResolvedUrl` starts do not participate in the add-on's playback arbiter;
+no atomic Kodi-wide playback guarantee is claimed. The preview handoff is bounded
+to five seconds. Requirements below that exceed this slice remain product targets.
 
 The concrete timing constraint for ad reporting is narrower: Kodi's Python
 `Player.getTime()` exposes current-media time, not a decoded sample PTS or the current
@@ -47,13 +64,13 @@ outside explicitly enabled loopback fixtures.
   absolute wall clock or proof of audible output. Kodi documents it as fractional
   seconds of the current media ([Player API](https://xbmc.github.io/docs.kodi.tv/master/kodi-dev-kit/group__python___player.html)).
 
-These are review corrections, not a claim that the proposed UI has been implemented.
+These corrections guide the product target; the implementation baseline above records the delivered slice.
 
 ## Scope and the two interface modes
 
 Donor Radio is a Kodi music add-on that plays internet radio from the Radio Browser directory, organised around places the listener cares about rather than around genre alone.
 
-It ships **two interface modes**, chosen by a setting:
+The product target has **two interface modes**, chosen by a setting; this first slice implements skin mode and the shared map:
 
 - **Skin mode** — the default. The add-on returns `plugin://` directory listings and the user's own skin renders them. The add-on controls item labels, `label2`, artwork and the folder structure. Nothing else.
 - **Themed mode** — opt-in. Custom `WindowXML` windows with the world map, place rows and station artwork, in the add-on's own palette.
@@ -399,8 +416,8 @@ Fall back to a **call-letter monogram** drawn on `tile.png`: take the station's 
 ## Repo layout
 
 The current repository is `plugin.audio.kodi_donor_radio/`. This inventory describes
-the existing observation/VAST POC; the place/map/store/window modules in the target
-design above are proposed additions, not files already present.
+the observation/VAST POC and the implemented first GUI slice; themed windows
+beyond the shared map remain proposed.
 
 ```
 plugin.audio.kodi_donor_radio/
@@ -408,10 +425,14 @@ plugin.audio.kodi_donor_radio/
   default.py                        plugin:// entry point
   service.py                        Kodi service entry point
   resources/
-    settings.xml                    diagnostics, test mode, fixture-only ad options
+    settings.xml                    setup, map preview, diagnostics, fixture-only ads
     lib/
       kodi_runtime.py               Kodi routes, service loop, player callbacks
       radio_browser.py              mirror discovery, directory calls, click counter
+      radio_ui.py                   safe place/favorite stores, display/radius helpers
+      radio_map.py                  pure projection, clustering, directional selection
+      kodi_radio_map.py             shared map window and preview lifecycle
+      playback_arbiter.py            profile lock and add-on direct-start intent tokens
       station_resolver.py           bounded M3U/PLS/HTTP resolution
       sessions.py                   session and opaque resource ownership
       relay.py                      local HTTP relay and HLS route rewriting
@@ -423,20 +444,21 @@ plugin.audio.kodi_donor_radio/
       ad_tracking.py                 playback evidence and beacon worker
       kodi_ad_player.py              fixture-only Kodi clock adapter
       events.py, control.py, ...     bounded diagnostics and local service control
+    skins/Default/1080i/map.xml      shared map, 60 pin controls and station rail
+    station-monogram.png            bundled station fallback
     language/resource.language.en_gb/
   tests/                             pure, relay, package, and Kodi-adapter tests
   tools/                             local fixtures, smoke checks, packaging
   docs/                              design, validation, and monetization roadmap
 ```
 
-When the UI target is implemented, keep projection/clustering in pure functions
-without Kodi imports, and have plugin listings and themed windows share station,
-favorite, and action data. The proposed UI additions belong under the existing addon
-package, with all user-facing strings localized under `resources/language/`.
+Projection/clustering and profile stores now remain independent of Kodi. Future
+themed windows should reuse these station, favorite, and action boundaries under
+the existing add-on package and localization directory.
 
 ## Decisions and proposed implementation order
 
-The target is two modes, with skin mode as the default and the map available from both. The calls below follow that target. The two rollout recommendations remain proposals until implementation work is approved.
+The target remains two modes. The approved first slice delivers skin listings, sequential native setup, and the shared map; themed screens follow after Kodi GUI acceptance.
 
 | Decision | Current spec call | Implementation note |
 | --- | --- | --- |
@@ -444,10 +466,10 @@ The target is two modes, with skin mode as the default and the map available fro
 | Pin controls | Start with a fixed pool of about 60 | Stable IDs make focus behavior easy to test and the cap is explicit. Prototype dynamic controls only if focus and removal are equally reliable. |
 | Station artwork | Use a valid favicon, otherwise a shared monogram tile | Keep the fallback consistent across plugin listings and built-in windows; do not stretch low-resolution favicons. |
 | Preview default | On, as listed in Settings | The setting applies to the map in both modes and can be disabled for slow connections. Preview never counts as a deliberate click. |
-| Guided setup in skin mode | Proposed: sequential native dialogs | This avoids loading theme assets for the default mode. Revisit if testing shows that dialogs cannot explain location selection clearly. |
-| Delivery order | Proposed: skin listings plus shared map first; themed windows after that path passes Kodi acceptance | This validates the information architecture before the larger custom-theme investment. Both modes remain in the product target; this is a rollout proposal, not a scope reduction. |
+| Guided setup in skin mode | Implemented: sequential native dialogs | This avoids loading theme assets for the default mode. Revisit if testing shows that dialogs cannot explain location selection clearly. |
+| Delivery order | Approved and implemented: skin listings plus shared map first; themed windows after Kodi acceptance | This validates the information architecture before the larger custom-theme investment. Both modes remain in the product target; the first slice follows the approved delivery order. |
 
-Before GUI implementation begins, confirm the two proposals that affect user-visible behavior: guided-setup presentation and delivery order. The other calls are already implied by the current tables or are bounded implementation choices.
+Guided-setup presentation and delivery order were approved for this slice. Live Kodi acceptance remains outstanding as recorded above; implementation does not establish the target visual/focus behavior.
 
 ### Source for the designs
 
