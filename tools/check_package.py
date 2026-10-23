@@ -22,6 +22,7 @@ FILES = frozenset({
         'control', 'cues', 'events', 'hls', 'http_client', 'icy', 'kodi_runtime',
         'icy_marker_store', 'icy_markers',
         'models', 'radio_browser', 'radio_ui', 'radio_map', 'kodi_radio_map',
+        'playback_arbiter',
         'relay', 'sessions', 'station_resolver', 'url_policy',
         'ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
         'vast', 'kodi_ad_player')),

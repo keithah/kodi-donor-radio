@@ -35,3 +35,13 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Full verification: `pytest -q` — 901 passed in 97.72s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
 - Live Kodi playback/skin behavior remains unverified; Task 7 acceptance is still required.
 - Fix commit: `8fbb487` (`fix: serialize map preview cancellation and selection`).
+
+## Review fix round 2: addon playback start arbitration
+
+- Added `PlaybackStartArbiter`, which combines a per-path in-process lock with an OS file lock in the add-on profile. The normal `mode=play` path that calls `xbmc.Player().play` and the map preview's final Kodi-state check plus `Player.play` use the same lock file, so addon-controlled direct starts serialize across threads and separate add-on invocations.
+- The preview checks Kodi playback again while holding the shared lock immediately before calling `Player.play`. It also checks after the call whether Kodi is now reporting a different current file. If so, the controller retires its relay session and drops ownership; it never stops the currently playing file.
+- Added tests for competing arbiter instances, the preview's last-moment busy-state check, a conflicting Kodi start during `Player.play`, and runtime wiring of the same profile lock. Packager allowlisting includes the new module.
+- RED: `pytest -q tests/test_playback_arbiter.py` failed because `playback_arbiter.py` did not exist.
+- Focused verification: `pytest -q tests/test_playback_arbiter.py tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_package.py` — 185 passed.
+- Full verification: `pytest -q` — 905 passed in 99.09s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
+- Boundary: Kodi has no atomic compare-and-play operation, and UI actions, other add-ons, and plugin resolutions handled by Kodi's `setResolvedUrl` do not participate in this add-on's lock. A nonparticipating start can still race between the final Kodi state read and `Player.play`; the post-start check limits the damage by retiring only our session and preserving any different current playback. This does not establish a zero-race guarantee. Live Kodi behavior remains for Task 7 acceptance.

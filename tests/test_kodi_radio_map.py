@@ -312,3 +312,52 @@ def test_window_does_not_interrupt_separately_selected_playback(monkeypatch):
         lambda session: calls.append(('session-stop', session)))
     assert not window._can_start_preview({'session_id': 'candidate'})
     assert calls == []
+
+
+def test_preview_rechecks_kodi_state_under_shared_start_arbiter(monkeypatch, tmp_path):
+    module = load_window(monkeypatch)
+    calls = []
+    state = {'url': '', 'playing': False}
+    player = SimpleNamespace(
+        isPlaying=lambda: state['playing'], getPlayingFile=lambda: state['url'],
+        play=lambda url, item: (calls.append(url), state.update(url=url, playing=True)))
+    window = make_window(module, player_factory=lambda: player,
+                         playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'))
+    result = {'session_id': 'preview', 'playback_url': 'http://127.0.0.1:1/preview'}
+    window._preview = SimpleNamespace(owned=result)
+    assert window._can_start_preview(result)
+    # Kodi or another addon can change playback after the earlier preflight.
+    state.update(url='https://external.example/live', playing=True)
+    with pytest.raises(RuntimeError, match='not owned by this map preview'):
+        window._play_preview(result)
+    assert calls == []
+    assert state['url'] == 'https://external.example/live'
+
+
+def test_preview_retires_session_if_kodi_changes_during_player_play(monkeypatch, tmp_path):
+    module = load_window(monkeypatch)
+    calls, stops = [], []
+    state = {'url': '', 'playing': False}
+
+    def play(url, item):
+        calls.append(url)
+        # Simulate an uncoordinated Kodi action winning immediately afterward.
+        state.update(url='https://external.example/live', playing=True)
+
+    player = SimpleNamespace(isPlaying=lambda: state['playing'],
+                              getPlayingFile=lambda: state['url'], play=play,
+                              stop=lambda: stops.append('stop-playback'))
+    window = make_window(module, player_factory=lambda: player,
+                         playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'),
+                         preview_stop=lambda session: stops.append(session))
+    result = {'session_id': 'preview-session',
+              'playback_url': 'http://127.0.0.1:1/preview'}
+    controller = module.PreviewController(
+        lambda *_: result, lambda _: True, window._play_preview,
+        player.getPlayingFile, player.isPlaying, player.stop,
+        lambda session: stops.append(session))
+    window._preview = controller
+    controller._resolve(0, 'station', threading.Event())
+    assert calls == [result['playback_url']]
+    assert state['url'] == 'https://external.example/live'
+    assert stops == ['preview-session']  # Cleanup retires only our relay session.

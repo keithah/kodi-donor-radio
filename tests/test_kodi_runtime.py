@@ -242,7 +242,7 @@ def test_country_and_tag_navigation(kodi,monkeypatch):
 
 
 def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monkeypatch):
-    runtime, state, _ = kodi
+    runtime, state, profile = kodi
     browser = directory(monkeypatch, runtime)
     browser.geographic = lambda code, offset, limit: ([STATION], False)
     opened = install_map_window(monkeypatch)
@@ -253,6 +253,7 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     assert opened[-1].kwargs['selected_uuid'] == STATION.uuid and opened[-1].modal
     assert opened[-1].kwargs['stations'] == [STATION]
     assert opened[-1].kwargs['origin_route'] == source
+    assert opened[-1].kwargs['playback_arbiter'].lock_path == profile / 'playback-start.lock'
     assert browser.clicks == []
 
 
@@ -1561,6 +1562,7 @@ def test_deliberate_play_marks_favorite_timestamp_and_context_play_works_without
     runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio','-1','?mode=play&uuid=station-1'])
     assert len(state.players) == 1 and state.players[0].playing
     assert state.players[0].file.startswith('http://127.0.0.1:12345/media/')
+    assert (profile / 'playback-start.lock').is_file()
     assert store.list()[0].last_played
     assert state.resolved == state.ended == []
     assert browser.clicks == ['station-1']

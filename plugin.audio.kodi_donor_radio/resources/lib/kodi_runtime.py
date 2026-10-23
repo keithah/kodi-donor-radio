@@ -32,6 +32,7 @@ from radio_ui import (FavoriteStore, PlaceStore, StationSummary, coordinates, sa
 from relay import RelayServer
 from sessions import SessionManager
 from icy_marker_store import IcyMarkerStore
+from playback_arbiter import PlaybackStartArbiter
 from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
@@ -56,6 +57,11 @@ def _private_profile(profile):
     profile.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(str(profile), 0o700)
     return profile
+
+
+def _playback_arbiter():
+    profile = _private_profile(profile_path())
+    return PlaybackStartArbiter(profile / 'playback-start.lock')
 
 
 @contextmanager
@@ -617,6 +623,7 @@ def _open_map(params, monitor, cancel, base):
         preview_enabled=xbmcaddon.Addon().getSettingBool('preview_on_browse'),
         addon_path=xbmcaddon.Addon().getAddonInfo('path'), plugin_base=base,
         preview_start=start_preview, preview_stop=stop_preview,
+        playback_arbiter=_playback_arbiter(),
         status_message=unavailable,
     )
     window.doModal()
@@ -734,7 +741,9 @@ def run_plugin(argv):
             if handle >= 0:
                 xbmcplugin.setResolvedUrl(handle, True, entry)
             else:
-                xbmc.Player().play(session['playback_url'], entry)
+                player = xbmc.Player()
+                _playback_arbiter().start(
+                    lambda: player.play(session['playback_url'], entry))
         except (OSError, ValueError, KeyError, TypeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)

@@ -10,6 +10,7 @@ import xbmcgui
 
 from radio_map import (MapView, cluster_cities, nearest_city_in_direction,
                        project, visible_cities)
+from playback_arbiter import PlaybackStartArbiter
 from radio_ui import station_identifier, safe_favicon
 
 
@@ -218,7 +219,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
     def __init__(self, origin_route, selected_uuid, stations, view, preview_enabled,
                  addon_path, plugin_base='plugin://plugin.audio.kodi_donor_radio',
                  execute=None, preview_start=None, preview_stop=None, player_factory=None,
-                 timer_factory=None, thread_factory=None, status_message=''):
+                 timer_factory=None, thread_factory=None, status_message='',
+                 playback_arbiter=None):
         self.plugin_base = plugin_base
         self.origin_route = _valid_origin(origin_route, plugin_base)
         self.selected_uuid = station_identifier(selected_uuid) if selected_uuid else ''
@@ -258,6 +260,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
         self.status_message = status_message
         self._player_factory = player_factory or xbmc.Player
         self._timer_factory, self._thread_factory = timer_factory, thread_factory
+        self._playback_arbiter = playback_arbiter or PlaybackStartArbiter()
         self._preview = None
         super().__init__('map.xml', addon_path, 'Default', '1080i', False)
 
@@ -488,7 +491,28 @@ class RadioMapWindow(xbmcgui.WindowXML):
         if isinstance(mime, str) and len(mime) <= 128:
             entry.setMimeType(mime)
             entry.setContentLookup(False)
-        player.play(result['playback_url'], entry)
+
+        def can_start():
+            try:
+                if not player.isPlaying():
+                    return True
+                current = player.getPlayingFile()
+                owned = self._preview.owned if self._preview else None
+                return bool(owned and current == owned.get('playback_url'))
+            except Exception:
+                return False
+
+        def start_preview():
+            player.play(result['playback_url'], entry)
+            # Kodi and unrelated addons cannot acquire our arbiter. Detect a
+            # competing start that wins immediately after the preflight, then
+            # retire only this session; never stop the now-current player.
+            if player.isPlaying() and player.getPlayingFile() != result['playback_url']:
+                raise RuntimeError('Kodi playback changed during preview start')
+
+        started = self._playback_arbiter.start_if_available(can_start, start_preview)
+        if not started:
+            raise RuntimeError('Kodi is playing a stream not owned by this map preview')
 
     def _stop_preview_session(self, session_id):
         if self._preview_stop_callback:
