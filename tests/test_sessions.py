@@ -90,6 +90,87 @@ def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_pat
     manager.close()
 
 
+def test_session_preparation_does_not_hold_manager_lock(monkeypatch):
+    import sessions
+    from sessions import SessionManager
+
+    preparing, release, lookup_finished = threading.Event(), threading.Event(), threading.Event()
+    original = sessions.PlaybackSession
+    created, errors = [], []
+
+    def delayed_session(*args, **kwargs):
+        preparing.set()
+        assert release.wait(2)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sessions, 'PlaybackSession', delayed_session)
+    manager = SessionManager(resolver=lambda *args: ResolvedSource(
+        'http://radio.example/live', 'continuous', Probe(), b'a'))
+
+    def create():
+        try:
+            created.append(manager.create(station()))
+        except Exception as error:
+            errors.append(error)
+
+    creator = threading.Thread(target=create)
+    creator.start()
+    assert preparing.wait(1)
+    lookup = threading.Thread(target=lambda: (manager.get('missing'), lookup_finished.set()))
+    lookup.start()
+    try:
+        assert lookup_finished.wait(.5), 'Session preparation blocked manager lookups'
+    finally:
+        release.set()
+        creator.join(2)
+        lookup.join(2)
+        manager.close()
+    assert not creator.is_alive() and not lookup.is_alive()
+    assert not errors and len(created) == 1
+
+
+def test_close_cancels_session_preparation_and_closes_unpublished_session(monkeypatch):
+    import sessions
+    from sessions import SessionManager
+
+    preparing, release, closed, close_finished = (threading.Event() for _ in range(4))
+    errors = []
+
+    class PreparedSession:
+        def close(self, *args):
+            closed.set()
+
+    def delayed_session(*args, **kwargs):
+        preparing.set()
+        assert release.wait(2)
+        return PreparedSession()
+
+    monkeypatch.setattr(sessions, 'PlaybackSession', delayed_session)
+    manager = SessionManager(resolver=lambda *args: ResolvedSource(
+        'http://radio.example/live', 'continuous', Probe(), b'a'))
+
+    def create():
+        try:
+            manager.create(station())
+        except Exception as error:
+            errors.append(error)
+
+    creator = threading.Thread(target=create)
+    creator.start()
+    assert preparing.wait(1)
+    closer = threading.Thread(target=lambda: (manager.close(), close_finished.set()))
+    closer.start()
+    try:
+        assert close_finished.wait(.5), 'Shutdown blocked while session preparation was running'
+    finally:
+        release.set()
+        creator.join(2)
+        closer.join(2)
+    assert not creator.is_alive() and not closer.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], RuntimeError)
+    assert closed.is_set()
+
+
 def test_switch_cancels_previous_and_invalidates_opaque_urls():
     m = manager()
     first = m.create(station())

@@ -601,6 +601,28 @@ def test_invalid_ad_only_edit_does_not_restart_running_service(kodi):
     assert not state.notifications
 
 
+def test_startup_recovers_after_invalid_ad_setting_is_corrected(kodi):
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
+                          ad_enabled=True, ad_preroll=True, ad_vast_url='invalid')
+    descriptors = []
+    waits = []
+
+    def action(monitor):
+        waits.append(True)
+        if len(waits) == 1:
+            state.settings['ad_vast_url'] = 'http://127.0.0.1:8765/vast.xml'
+            monitor.onSettingsChanged()
+        else:
+            descriptors.append(runtime.read_descriptor(profile))
+            state.abort = True
+
+    state.action = action
+    runtime.run_service()
+    assert len(descriptors) == 1
+    assert not (profile / 'service.json').exists()
+
+
 def test_player_refuses_ad_sample_when_file_has_switched_before_callback(kodi):
     runtime, _, _ = kodi
     current = SimpleNamespace(id='a'*48, cancel=threading.Event(), ad_enabled=False)

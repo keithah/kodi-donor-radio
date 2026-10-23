@@ -527,11 +527,18 @@ def run_service():
     while not monitor.abortRequested():
         server, descriptor = None, None
         try:
+            monitor.ad_changed = False
             profile = _private_profile(profile_path())
             CreativeCache.cleanup_abandoned(profile)
             monitor.settings_changed = False
+            try:
+                config = ad_settings()
+            except ValueError:
+                # A bad ad-only value must not prevent ordinary radio playback.
+                xbmcgui.Dialog().notification(text(30000), text(30014), xbmcgui.NOTIFICATION_ERROR, 5000)
+                config = AdConfig(False, False, False, '', '')
             manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
-                                     ad_config=ad_settings(), cache_root=profile,
+                                     ad_config=config, cache_root=profile,
                                      icy_marker_store=IcyMarkerStore(profile))
             server = RelayServer(manager=manager)
             descriptor = server.start()
@@ -551,7 +558,8 @@ def run_service():
         except (OSError, ValueError):
             xbmcgui.Dialog().notification(text(30000), text(30014), xbmcgui.NOTIFICATION_ERROR, 5000)
             # Stay subscribed so correcting settings can restart a failed service.
-            while not monitor.abortRequested() and not monitor.settings_changed:
+            while (not monitor.abortRequested() and not monitor.settings_changed
+                   and not monitor.ad_changed):
                 if monitor.waitForAbort(.5): break
         finally:
             if 'player' in locals():

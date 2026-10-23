@@ -2,7 +2,7 @@
 
 ## Controlled VAST acceptance, 2026-10-22
 
-Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using only `/Users/hermes/src/kodi-usb-build/portable_data`. The pre-test portable profile is backed up at `/Users/hermes/.config/steward-os/reports/kodi-donor-radio-e2e/portable_data-before-vast-test-20261022`. Reports named `task8-*.json` in that directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.
+Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using an isolated portable profile. The pre-test profile was backed up outside the repository. Reports named `task8-*.json` in the test report directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.
 
 The original six-segment live fixture stopped producing new media after sequence 005. Kodi then plateaued near `getTime=1.35s` for 16-second runs, including direct source playback without an ad. A finite `#EXT-X-ENDLIST` control with the same AAC files advanced to 9.95 seconds in ten seconds; the composed finite relay advanced across both ad discontinuities and ended near its 16.042-second duration. The fixture was therefore extended to 24 contiguous-PTS source segments, with a six-segment live window driven by monotonic media time rather than manifest request count. Direct Kodi playback of this repaired source advanced to 16.34 seconds in 18 seconds. See `task8-true-live-direct-kodi.json` and `task8-finite-relay-kodi.json`.
 
@@ -14,7 +14,7 @@ Kodi JSON-RPC `Player.PlayPause` and `Player.Seek` returned `Failed to execute m
 
 After the user approved a fixture-only mapper, the adapter mapped raw `getTime()` only when test mode supplied an exact `127.0.0.1` origin and the session had ads enabled. Ordinary station sessions received no mapper. A fresh five-scenario Kodi run delivered impression/start/quartile/completion events on advancing fixture playback; the delayed stall emitted impression/start/firstQuartile before the long jump, with no midpoint, third-quartile, or completion across it. Its report is `task8-fixture-tracking-enabled-kodi.json`.
 
-The 2026-10-23 candidate anchor now treats the composed session's sample zero as a fixed origin, requests `EXT-X-START:TIME-OFFSET=0,PRECISE=YES` on the initial ad-enabled manifest, and never resets its mapping to a later HLS window. Seek or backward Kodi-clock reset disables mapping for the rest of that session. A forward ambiguous clock jump permanently taints only placements it intersects; stationary samples during a buffer do not taint an ad, and later untouched placements can be tracked after their own continuous start. Unit tests cover these rules. A fresh Kodi run of this candidate anchor has not yet been made, so stable mapping is not yet target-verified; audible output and missing/early-end playback also remain outstanding. Ordinary Radio Browser sessions continue to have no ad mapper.
+The 2026-10-23 candidate anchor now treats the composed session's sample zero as a fixed origin, requests `EXT-X-START:TIME-OFFSET=0,PRECISE=YES` on the initial ad-enabled manifest, and never resets its mapping to a later HLS window. Seek or backward Kodi-clock reset disables mapping for the rest of that session. A forward ambiguous clock jump, or a stationary clock lasting at least 750 ms, permanently taints only the placements it intersects; later untouched placements can be tracked after their own continuous start. Unit tests cover these rules. A fresh Kodi run of this candidate anchor has not yet been made, so stable mapping is not yet target-verified; audible output and missing/early-end playback also remain outstanding. Ordinary Radio Browser sessions continue to have no ad mapper.
 
 Kodi's log also exposed an invalid empty `ad_vast_url` default. The setting now explicitly allows empty values; a fresh addon invocation on the target no longer logged that warning. Advertising remains opt-in through test mode, an enabled ad choice, and an explicit fixture URL.
 
@@ -28,8 +28,8 @@ The minimum declared dependency is **`xbmc.python` 3.0.1**, as supplied by the
 This is a Kodi addon API version, not an embedded CPython version.
 
 **Tested Kodi runtime: 21.3 Omega**, revision `20251031-a3a448d26b`,
-macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. The host is
-`mbpdev`. A process-local USB restriction was required to complete Kodi startup;
+macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. A process-local USB
+restriction was required to complete Kodi startup;
 see the runtime record below. All eight controlled streams produced advancing
 Kodi player time. HLS cue schedules matched exactly. Audible output was not
 independently confirmed; other Kodi platforms remain untested.

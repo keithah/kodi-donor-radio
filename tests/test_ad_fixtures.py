@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import threading
@@ -41,6 +42,9 @@ def get(origin, path):
 
 @pytest.fixture(scope='module')
 def assets(tmp_path_factory):
+    missing = [name for name in ('ffmpeg', 'ffprobe', 'espeak') if shutil.which(name) is None]
+    if missing:
+        pytest.skip('Ad fixture generation requires: ' + ', '.join(missing))
     target = tmp_path_factory.mktemp('ad-audio')
     assert (TOOLS / 'generate_ad_audio.py').is_file(), 'ad audio generator is missing'
     subprocess.run([sys.executable, str(TOOLS / 'generate_ad_audio.py'), '--assets', str(target)], check=True)

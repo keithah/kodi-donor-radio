@@ -34,7 +34,7 @@
 
 ## Workspace and ownership
 
-Worktree: `/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio`.
+Worktree: linked development checkout for this project.
 Branch: `codex/vast-controlled-ads`, based on merged PR #1, commit 4687232.
 Baseline: 399 tests pass; package check passes; eight controlled streams and five cue schedules verified in Kodi master. One test-server exception banner occurred during the passing premerge suite; retain any future traceback before judging it.
 

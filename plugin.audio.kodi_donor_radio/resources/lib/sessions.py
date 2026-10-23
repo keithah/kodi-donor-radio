@@ -283,14 +283,19 @@ class SessionManager:
                 if old is not None:
                     old.close('station_changed')
                 source = self.resolver(station.url, self.client, cancel)
+                # PlaybackSession may synchronously resolve and cache a preroll.
+                # Keep that bounded network work outside the manager lock so stop,
+                # expiry, lookup, and shutdown can service other requests.
+                session = PlaybackSession(station, source, cancel, self.base_url,
+                                          self.sink, self.resource_limit,
+                                          ad_config, self.client, self.cache_root,
+                                          lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
+                                          if self.icy_marker_store is not None else None)
                 with self._lock:
                     if self._closed or self._pending is not cancel or cancel.is_set():
+                        session.close('station_changed')
+                        source = None  # The unpublished session closed its source.
                         raise RuntimeError('Station selection cancelled')
-                    session = PlaybackSession(station, source, cancel, self.base_url,
-                                              self.sink, self.resource_limit,
-                                              ad_config, self.client, self.cache_root,
-                                              lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
-                                              if self.icy_marker_store is not None else None)
                     self._session = session
                     return session
             except Exception:

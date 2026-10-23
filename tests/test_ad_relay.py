@@ -5,9 +5,12 @@ import concurrent.futures
 import json
 import math
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 from urllib.parse import urlsplit
+
+import pytest
 
 from ad_media import inspect_ts
 from http_client import HttpClient
@@ -19,6 +22,12 @@ from url_policy import UrlPolicy
 
 
 ASSETS = Path(__file__).parent / 'generated-audio' / 'ad'
+if not (ASSETS / 'replacement000.ts').is_file() or not (ASSETS / 'source000.ts').is_file():
+    pytest.skip('Generate ad fixtures first: python3 tools/generate_ad_audio.py '
+                '--assets tests/generated-audio/ad', allow_module_level=True)
+
+NEEDS_FFMPEG = pytest.mark.skipif(shutil.which('ffmpeg') is None,
+                                   reason='Audio decoding requires ffmpeg')
 
 
 def get(url, method='GET', headers=None):
@@ -48,6 +57,7 @@ def decode_tone(data):
     return max((220, 330, 440, 550, 660, 770, 880), key=power)
 
 
+@NEEDS_FFMPEG
 def test_preroll_is_first_published_audio_and_cached_gets_are_stable(tmp_path):
     from ad_models import AdConfig
     fixture = make_server(ASSETS, port=0)
@@ -83,6 +93,7 @@ def test_preroll_is_first_published_audio_and_cached_gets_are_stable(tmp_path):
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
+@NEEDS_FFMPEG
 def test_async_midroll_preserves_first_break_for_later_replacement(tmp_path, monkeypatch):
     from ad_models import AdConfig
     from vast import VastResolver

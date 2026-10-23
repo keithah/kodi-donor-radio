@@ -37,7 +37,7 @@ def test_package_is_installable_source_only(package):
         assert ADDON + '/service.py' in names
         assert {ADDON + '/resources/lib/' + module + '.py' for module in
                 ('ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
-                 'vast', 'kodi_ad_player')} <= set(names)
+                 'vast', 'kodi_ad_player', 'icy_markers', 'icy_marker_store')} <= set(names)
         assert all(not any(part in ('tests', 'tools', '__pycache__') or part.startswith('.')
                            for part in name.split('/')) for name in names)
         assert not any(name.endswith(('.pyc', '.mp3', '.aac', '.ts', '.env')) for name in names)
