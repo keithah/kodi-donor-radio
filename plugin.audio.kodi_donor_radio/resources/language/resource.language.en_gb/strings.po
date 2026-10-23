@@ -185,7 +185,7 @@ msgid "Cancel"
 msgstr ""
 
 msgctxt "#30055"
-msgid "Remember this exact marker for this station? Choose No to apply the label only to the current listening session."
+msgid "How should this exact marker label be applied?"
 msgstr ""
 
 msgctxt "#30056"
@@ -198,4 +198,12 @@ msgstr ""
 
 msgctxt "#30058"
 msgid "ICY marker labeled."
+msgstr ""
+
+msgctxt "#30059"
+msgid "Remember for this station"
+msgstr ""
+
+msgctxt "#30060"
+msgid "This listening session only"
 msgstr ""

@@ -267,7 +267,11 @@ def _label_icy_marker(monitor, cancel):
                                [text(30052), text(30053), text(30054)])
         if choice not in (0, 1):
             return
-        remember = dialog.yesno(text(30050), text(30055))
+        memory_choice = dialog.select(text(30055),
+                                      [text(30059), text(30060), text(30054)])
+        if memory_choice not in (0, 1):
+            return
+        remember = memory_choice == 0
         _operation(lambda: client.label_icy_marker(candidate['session_id'], candidate['marker'],
                                                    ('start', 'end')[choice], remember), monitor, cancel)
         dialog.ok(text(30000), text(30058))

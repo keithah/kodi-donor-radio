@@ -27,7 +27,7 @@ def kodi(monkeypatch, tmp_path):
     state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
                             input='jazz', cancel=False, abort=False, waits=0, players=[], action=None,
                             player_paused=False, player_caching=False, selections=[], confirmations=[],
-                            selection=-1, remember=False, on_select=None, on_confirm=None)
+                            selection=-1, remember=False, memory_selection=None, on_select=None, on_confirm=None)
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
@@ -39,6 +39,11 @@ def kodi(monkeypatch, tmp_path):
         def ok(self, heading, message): state.messages.append(message)
         def select(self, heading, options):
             state.selections.append((heading, options))
+            if len(state.selections) == 2:
+                state.confirmations.append((heading, options))
+                if state.on_confirm: state.on_confirm()
+                if state.memory_selection is not None: return state.memory_selection
+                return 0 if state.remember else 1
             if state.on_select: state.on_select()
             return state.selection
         def yesno(self, heading, message):
@@ -742,12 +747,13 @@ def test_icy_label_displays_exact_candidate_applies_choice_and_optional_memory(
     player = runtime.xbmc.Player()
     player.playing, player.file = True, STATION.url
     route(runtime, action='label_icy_marker')
-    assert len(state.selections) == 1
+    assert len(state.selections) == 2
     heading, options = state.selections[0]
     assert '#' in heading and 'localized-30051' in heading
     assert options == ['localized-30052', 'localized-30053', 'localized-30054']
     assert len(state.confirmations) == 1
-    assert 'localized-30055' in state.confirmations[0][1]
+    assert state.confirmations[0] == ('localized-30055',
+                                      ['localized-30059', 'localized-30060', 'localized-30054'])
     labeled = [event for event in service.events if event.kind == 'icy_marker_labeled']
     assert len(labeled) == 1 and labeled[0].details['reason'] == action
     assert labeled[0].station_uuid == 'station-1'
@@ -805,3 +811,22 @@ def test_icy_label_rejects_candidate_or_session_changed_during_dialog(kodi, icy_
     assert not [event for event in service.events if event.kind == 'icy_marker_labeled']
     assert not (service.profile / 'icy-markers.json').exists()
     assert not state.resolved
+
+
+@pytest.mark.parametrize('memory_selection', [-1, 2])
+def test_icy_label_dismissing_or_canceling_memory_step_does_not_apply(kodi, icy_label_service, memory_selection):
+    runtime, state, _ = kodi
+    service = icy_label_service
+    service.observe('-')
+    state.selection = 0
+    state.memory_selection = memory_selection
+    # The old Yes/No prompt maps dismissal to False, reproducing its transient write.
+    state.remember = False
+    events_before = list(service.events)
+    route(runtime, action='label_icy_marker')
+    assert service.events == events_before
+    assert not [event for event in service.events if event.kind == 'icy_marker_labeled']
+    assert not (service.profile / 'icy-markers.json').exists()
+    assert service.store.lookup('station-1', '-') is None
+    assert 'localized-30058' not in state.messages
+    assert service.manager.get(service.session.id) is service.session
