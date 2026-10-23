@@ -57,6 +57,15 @@ external test report directory.
 - Kodi clock calibration, audible output verification, and final review gates are
   outstanding. The new PR has not been opened.
 
+## Follow-up — 2026-10-23
+
+The session-wide published-ID retention limit is resolved with a bounded recent
+output history. Active cached requests stay retained while in flight, and stale
+source bytes and creative pins are released as the output window advances. A
+rolling fixture test now advances beyond the former source-segment limit without
+stopping playback. Dialog-only labeling/settings actions no longer finish as
+successful empty folders. Kodi GUI playback acceptance remains outstanding.
+
 ---
 
 # Task 7 — Kodi adapter and explicit test settings

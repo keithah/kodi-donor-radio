@@ -3,6 +3,7 @@
 import math
 import threading
 import uuid
+from collections import OrderedDict
 from dataclasses import replace
 
 from ad_media import CreativeCache, inspect_ts
@@ -12,7 +13,7 @@ from url_policy import origin
 from vast import VastResolver
 
 SOURCE_BYTES = 32 * 1024 * 1024
-SOURCE_SEGMENTS = 128
+SOURCE_SEGMENTS = 192
 
 
 class CompositionFailure(ValueError):
@@ -38,13 +39,15 @@ class AdSession:
         self._source = {}  # URL -> (CachedSegment, immutable bytes)
         self._source_by_id = {}
         self._published = set()
+        self._published_order = OrderedDict()
         self._prepared = []
         self._initial = True
         self._committed = False
         self._terminal = False
         self._closed = False
         self.active_ids = lambda: set()
-        self._limit = min(SOURCE_SEGMENTS // 2, max(1, resource_limit - 1))
+        # Reserve one cache window for new source data and two for recent output.
+        self._limit = min(SOURCE_SEGMENTS // 3, max(1, resource_limit - 1))
         self._midroll = None
         self._midroll_placement_id = None
         self._midroll_done = threading.Event()
@@ -197,8 +200,16 @@ class AdSession:
         if not presentation.segments:
             raise CompositionFailure('empty_composition')
         self._committed = True
-        current = {s.resource_id for s in presentation.segments}
-        self._published.update(current)
+        for segment in presentation.segments:
+            self._published_order[segment.resource_id] = None
+            self._published_order.move_to_end(segment.resource_id)
+        # Keep enough published IDs for the current output window plus an
+        # incoming source window, while allowing old source bytes and creative
+        # pins to be released during long-running radio sessions.
+        retention_limit = max(1, SOURCE_SEGMENTS - self._limit)
+        while len(self._published_order) > retention_limit:
+            self._published_order.popitem(last=False)
+        self._published = set(self._published_order)
         if self._midroll is not None:
             for placement in presentation.placements:
                 if placement.ad is self._midroll.ad:
@@ -268,4 +279,6 @@ class AdSession:
             self._prepared.clear()
             self._source.clear()
             self._source_by_id.clear()
+            self._published.clear()
+            self._published_order.clear()
             self.creative.close()

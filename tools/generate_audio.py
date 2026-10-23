@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Generate project-authored 440 Hz tone MP3, AAC, and six HLS segments.
 
-Run: python3 tools/generate_audio.py --ffmpeg /opt/homebrew/bin/ffmpeg
+Run: python3 tools/generate_audio.py
+If FFmpeg is not on PATH, pass --ffmpeg /path/to/ffmpeg.
 Assets default to tests/generated-audio, outside the distributable addon.
 FFmpeg is a development tool only; Kodi never invokes it.
 """

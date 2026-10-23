@@ -87,22 +87,26 @@ smoke tool or fixture navigation.
 Generate playable authored 440 Hz tones and run the developer fixture server:
 
 ```sh
-python3 tools/generate_audio.py --ffmpeg /opt/homebrew/bin/ffmpeg
+python3 tools/generate_audio.py
 python3 tools/fixture_server.py --assets tests/generated-audio --port 8765
 ```
+
+The generator finds `ffmpeg` on `PATH`. If it is installed elsewhere, pass its
+location with `--ffmpeg /path/to/ffmpeg`.
 
 To decode MP3, ICY and normal HLS fixtures through an automatically started
 relay and origin, run after generating assets:
 
 ```sh
-python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
+python3 tools/smoke_relay_ffmpeg.py
 ```
 
 This developer smoke requires two seconds of nonzero decoded PCM audio from each
 fixture; it does not run Kodi.
 
-Use the actual developer FFmpeg path on your system. Generated MP3/AAC/HLS assets
-are ignored under `tests/generated-audio/` and excluded from the ZIP. In addon
+Both tools find `ffmpeg` on `PATH`; pass `--ffmpeg /path/to/ffmpeg` if it is
+installed elsewhere. Generated MP3/AAC/HLS assets are ignored under
+`tests/generated-audio/` and excluded from the ZIP. In addon
 settings enable test mode, set the exact origin `http://127.0.0.1:8765` without a
 trailing slash, and enable diagnostics. Open **Controlled test streams**. Restart
 the fixture server between scenarios so its three manifest windows begin fresh.

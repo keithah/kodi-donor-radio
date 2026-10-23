@@ -3,9 +3,12 @@
 Regenerate playable synthetic 440 Hz tone assets (MP3, AAC, and HLS transport-stream segments):
 
 ```sh
-python3 tools/generate_audio.py --ffmpeg /opt/homebrew/bin/ffmpeg
+python3 tools/generate_audio.py
 python3 tools/fixture_server.py --assets tests/generated-audio --port 8765
 ```
+
+The generator finds `ffmpeg` on `PATH`. If it is installed elsewhere, pass its
+location with `--ffmpeg /path/to/ffmpeg`.
 
 FFmpeg is a developer tool only. Generated assets live in the ignored `tests/generated-audio/` directory, outside `plugin.audio.kodi_donor_radio/` and the addon ZIP. Source code and synthetic tone generation are GPL-2.0-or-later; no third-party audio is used.
 

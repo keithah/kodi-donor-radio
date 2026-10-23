@@ -117,7 +117,14 @@ def test_home_hides_test_streams_and_uses_localized_labels(kodi):
     route(runtime)
     assert [item.label for _,item,_ in state.items] == ['localized-30001','localized-30002','localized-30003','localized-30004','localized-30050']
     assert all('tests' not in url for url,_,_ in state.items)
-    assert state.ended == [{'cacheToDisc': False}]
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
+
+
+def test_settings_action_does_not_replace_home_listing_with_empty_folder(kodi):
+    runtime, state, _ = kodi
+    route(runtime, action='settings')
+    assert state.settings_opened
+    assert state.ended == [{'succeeded': False, 'cacheToDisc': False}]
 
 
 def test_controlled_ad_sources_appear_in_test_menu(kodi):
@@ -852,7 +859,7 @@ def test_icy_label_displays_exact_candidate_applies_choice_and_optional_memory(
     assert state.messages[-1] == 'localized-30058'
     assert service.manager.get(service.session.id) is service.session
     assert player.playing and player.file == STATION.url and not state.resolved
-    assert state.ended == [{'cacheToDisc': False}]
+    assert state.ended == [{'succeeded': False, 'cacheToDisc': False}]
 
 
 @pytest.mark.parametrize('selection', [-1, 2])

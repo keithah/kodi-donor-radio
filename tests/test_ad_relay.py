@@ -327,11 +327,11 @@ def test_stop_during_retained_source_invalidates_routes_and_removes_cache(tmp_pa
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
-def test_old_published_routes_survive_reloads_until_bounded_capacity(tmp_path, monkeypatch):
+def test_published_route_retention_is_bounded_without_stopping_long_playback(tmp_path, monkeypatch):
     from ad_models import AdConfig
     import ad_session
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    monkeypatch.setattr(ad_session, 'SOURCE_SEGMENTS', 8)
+    monkeypatch.setattr(ad_session, 'SOURCE_SEGMENTS', 12)
     counter = {'manifest': 0}
     class Source(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -370,11 +370,11 @@ def test_old_published_routes_survive_reloads_until_bounded_capacity(tmp_path, m
             assert get(session.playback_url)[0] == 200
         # The old playlist can still be in a player's hands after new publication.
         assert get(old_route)[2] == (ASSETS / 'source000.ts').read_bytes()
-        for _ in range(10):
-            if get(session.playback_url)[0] != 200:
-                break
-        assert get(session.playback_url)[0] in (410, 503)
-        assert get(old_route)[2] == (ASSETS / 'source000.ts').read_bytes()
+        statuses = [get(session.playback_url)[0] for _ in range(20)]
+        assert statuses == [200] * 20
+        assert len(session.ad.published_ids) <= 8
+        assert len(session.ad._source) <= 12
+        assert get(old_route)[0] == 404
     finally:
         relay.close(); source.shutdown(); source.server_close(); source_thread.join(2)
         fixture.shutdown(); fixture.server_close(); fixture_thread.join(2)

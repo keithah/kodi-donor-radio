@@ -350,6 +350,7 @@ def run_plugin(argv):
                     pass
         return
     xbmcplugin.setContent(handle, 'songs')
+    listing_succeeded = True
     try:
         offset = int(params.get('offset', '0'))
         if offset < 0: raise ValueError('Invalid page')
@@ -361,13 +362,17 @@ def run_plugin(argv):
                 item(text(30007), action='tests')
         elif action == 'label_icy_marker':
             _label_icy_marker(monitor, cancel)
+            listing_succeeded = False
         elif action == 'settings':
             xbmcaddon.Addon().openSettings()
+            listing_succeeded = False
         elif action in ('search','stations'):
             name = params.get('name','')
             if action == 'search':
                 name = xbmcgui.Dialog().input(text(30001))
-                if not name: return
+                if not name:
+                    listing_succeeded = False
+                    return
             country, tag = params.get('country',''), params.get('tag','')
             stations = _operation(lambda: browser.search(name,country,tag,offset,PAGE_SIZE), monitor,cancel)
             for station in stations: station_item(station)
@@ -407,7 +412,8 @@ def run_plugin(argv):
         _error(30012)
         item(text(30006), **params)
     finally:
-        xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+        xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded,
+                                  cacheToDisc=False)
 
 
 class RelayPlayer(xbmc.Player):
