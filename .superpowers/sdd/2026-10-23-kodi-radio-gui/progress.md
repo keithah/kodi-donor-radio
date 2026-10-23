@@ -1,0 +1,49 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-10-23-kodi-radio-gui.md
+
+Workspace: `/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio`
+Plan SHA before Task 1: `d634de1560a28ba27a67c1f44671b04f97c85ec1`
+
+## Pre-flight conflict scan
+
+| Scope | Producer / consumer | Finding | Ruling |
+|---|---|---|---|
+| Task 1 ↔ Task 3: `radio_browser.py`, station records | Task 1 adds metadata; Task 3 builds listings from it | Compatible; listings need the safe optional fields produced in Task 1. | Keep Task 1 API stable; Task 3 consumes only parsed safe fields and UUIDs. |
+| Task 1 ↔ Task 3/4: `models.py` / favorite timestamp | Task 1 defines `StationSummary` and store; Task 4 marks deliberate plays | Compatible if `mark_played` persists the deliberate selection timestamp without URL. | Use UUID-only identity and pass bounded summary data from the deliberate play route. |
+| Task 2 ↔ Task 3/4/6: localization strings | Task 2 provides common IDs; later tasks add route-specific labels | Shared file, sequential additive changes. | Later work reserves unused IDs and retains unique IDs; do not overwrite existing strings. |
+| Task 2 ↔ Task 6: `interface` and `theme_open_on` | Task 2 proposes theme selector; Task 6 only builds map | Product spec includes theme mode but approved first slice explicitly defers themed screens. A selectable theme mode would be nonfunctional. | Ruling: expose setup-row, guided-setup, and map-preview settings now; defer the visible theme selector and `theme_open_on` until themed windows are implemented. Keep skin listings as sole behavior. |
+| Task 3 ↔ Task 4/6: `kodi_runtime.py` routing | Task 3 adds route skeleton; Tasks 4/6 add actions/window launch | Compatible only if route dispatch is kept in small helpers and new route handlers integrate without replacing existing playback or ICY routes. | Preserve `play`, `settings`, `tests`, and marker-label routes; add narrowly scoped handlers. |
+| Task 3 ↔ Task 4/6: transient station lookup | Listings/actions/map need station metadata; playback must use existing deliberate route | Existing route currently embeds Station JSON, including raw URL, in plugin URL. This conflicts with GUI spec's UUID indirection. | Ruling: update the implementation task before coding so station directory items carry only `mode=play&uuid=...`; add Radio Browser `by_uuid` lookup at deliberate play, never in list URLs or favorites. Keep fixture station route separate and loopback-guarded. |
+| Task 4 ↔ Task 6: map action and setup | Station context menu enters map; setup saves locations used by map | Compatible; map launches from context route and uses saved place/coordinates. | Share validated UUID/place IDs and keep map launch independent of active skin. |
+| Task 5 ↔ Task 6: `radio_map.py` | Task 5 supplies projection, bounded pins, and direction choices; Task 6 consumes these | Compatible; pure geometry remains Kodi-independent. | Preserve pure APIs and avoid duplicate geometry inside the window. |
+
+### Per-task consistency
+
+| Task | Self-consistency scan | Ruling |
+|---|---|---|
+| 1 | Test list matches stores and optional metadata; Task 1's requested `country` field follows the official record, while `country_code` is the standardized field. | Parse and retain both only as safe display data; do not use country name as the persistent identity. |
+| 2 | Tests ask for theme enum but implementation explicitly says do not expose nonfunctional theme choice. | Resolved above: defer both theme-specific settings until theme exists. |
+| 3 | The initial plan's station URL serialization conflicts with its own no-raw-URL constraint. | Resolved above by UUID-only deliberate lookup; update plan wording/API and tests before dispatch. |
+| 4 | Setup needs city candidates with coordinates; existing API supports station search, not a city catalog. | Candidate places will be discovered from bounded station search results and deduplicated by city/country/coordinates; explain that candidates represent cities with listed stations. |
+| 5 | City clustering from stations is testable, but strict exact city-name clustering can merge distant same-name cities. | Cluster on normalized city + country code + rounded coordinates; preserve station UUIDs. |
+| 6 | Kodi `WindowXML` constructor and navigation details are version-sensitive. | Verify APIs on official Kodi 21.3 docs before implementation and keep XML/map path packaged. |
+| 7 | Manual Kodi acceptance depends on host/UI access. | Run automated/package checks regardless; report any unavailable GUI checks without claiming them. |
+
+### External verification
+
+- Radio Browser official API guidance confirms mirror discovery from `all.api.radio-browser.info`, descriptive User-Agent, UUIDs across mirrors, and click accounting for deliberate user clicks. Source: https://api.radio-browser.info/ .
+- Official API reference's Station schema includes favicon, tags, country/countrycode, state, language, bitrate, clickcount, geo_lat and geo_long. Source: https://docs.radio-browser.info/ .
+
+### Decisions
+
+- Ruling: the final PR/push is an external side effect and remains subject to the existing user authorization in the conversation; do not push until the GUI implementation, test suite, Steward, and CodeRabbit checks pass.
+- Ruling: the first deliverable is skin listings + guided setup + shared map; themed windows are explicitly deferred per user-approved design.
+- Task 1 review found that widening the Station decoder left `asdict(station)` route serialization carrying all optional metadata. This conflicts with the UUID-only route plan and was a real, load-bearing boundary issue. Ruling: fix in Task 1 by restoring strict five-field route decoding and projecting exactly those five fields when creating legacy playback route payloads; Task 3 will replace the route with UUID-only lookup. Cost if wrong: old tests/fixtures that rely on extended serialized Station payloads may need conversion, but current safety and bounded URL requirements take priority.
+
+- Task 1: complete (commits `d634de1..cd4cb28`, initial review required one fix; fix round `cd4cb28..30a9664`: 1 addressed, 0 open; both review gates passed).
+- Task 2: complete (`30a9664..590e651`, review approved; 776 tests passed).
+- Task 3 planning note: the official API reference supports `countrycode` and `has_geo_info`, but does not list a direct radius parameter. Place browsing therefore uses bounded country-filtered pages and the existing local radius helper, with a continuation offset; it will not imply the server filters by distance.
+- Task 3 review found two Important defects. Ruling: retain `endOfDirectory(succeeded=False)` only for cancellation/actual failure; when an error handler successfully renders a localized Retry directory, close that directory as a successful listing. Ruling: add raw-page `has_more` metadata to regular station search so malformed rows cannot hide continuation. Both are user-visible navigation bugs and will be fixed before Task 4.
+- Task 3: complete (feature commit `590e651..5a05674`, fix round `5a05674..b3c078f`: 2 addressed, 0 open; scoped re-review passed; full suite 824 passed).
+
+- Task 4 implementation (`b3c078f..339a2a1`): complete and self-reviewed; focused runtime/store/browser/package checks 237 passed, full suite 862 passed in 99.70s, compileall and diff checks clean. Added transactional PlaceStore.save_many and atomic default-removal promotion; settings action closes Settings before running the common setup route; context Play handles Kodi RunPlugin's -1 handle through the existing validated relay result. Country/city candidates use a bounded four-page station scan and valid coordinates; this is not a complete geocoding catalog. Task 4 report records remaining native Kodi acceptance and Task 6 map/preview integration. External review remains pending; no Steward/CodeRabbit or upstream PR work was run by the implementer.
+- Task 5 implementation (`b3c078f..f1b68b0`): complete. Added Kodi-independent equirectangular map projection with validated canvas/view bounds and antimeridian handling, normalized-coordinate city clusters with stable IDs and UUID-only membership, a 60-pin view cap with deterministic selection/center/count priority, and nearest non-wrapping directional navigation within a ±45-degree cone. Test-first baseline failed because `radio_map` was absent. Focused map + UI tests 49 passed; module/test compileall and diff checks passed. Kodi window integration remains for Task 6.
