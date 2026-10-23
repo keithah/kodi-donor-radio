@@ -2,6 +2,7 @@
 """Kodi-only UI and service boundary; all media passes through the embedded relay."""
 from contextlib import contextmanager
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -25,7 +26,7 @@ from events import JsonEventSink
 from http_client import Cancelled, HttpClient
 from models import Station
 from radio_browser import RadioBrowser
-from radio_ui import (FavoriteStore, PlaceStore, StationSummary, safe_favicon,
+from radio_ui import (FavoriteStore, PlaceStore, StationSummary, coordinates, safe_favicon,
                       station_identifier, stations_in_radius)
 from relay import RelayServer
 from sessions import SessionManager
@@ -338,10 +339,171 @@ def _place_stations(browser, place, offset, cancel):
     return [], cursor if cursor <= MAX_OFFSET else None
 
 
+_RADIUS_KM = (10, 25, 50, 100, 250)
+_ACTION_ROUTES = frozenset(('setup', 'map', 'station_info', 'settings', 'label_icy_marker',
+                            'favorite_add', 'favorite_remove', 'place_default',
+                            'place_radius', 'place_remove'))
+
+
+def _real_station_uuid(value):
+    value = station_identifier(value)
+    if value.startswith('fixture-'):
+        raise ValueError('Fixture requires explicit fixture route')
+    return value
+
+
+def _check_ui_cancel(monitor, cancel):
+    if monitor.abortRequested() or cancel.is_set():
+        raise Cancelled('Request cancelled')
+
+
+def _dialog_choice(dialog, heading, options, monitor, cancel):
+    _check_ui_cancel(monitor, cancel)
+    choice = dialog.select(text(heading), options)
+    _check_ui_cancel(monitor, cancel)
+    if type(choice) is not int or not 0 <= choice < len(options):
+        raise Cancelled('Dialog cancelled')
+    return choice
+
+
+def _choose_radius(dialog, monitor, cancel):
+    choice = _dialog_choice(dialog, 30135, ['%d %s' % (radius, text(30136))
+                            for radius in _RADIUS_KM], monitor, cancel)
+    return _RADIUS_KM[choice]
+
+
+def _setup_candidates(browser, country_code, query, cancel):
+    """Cities represented by a bounded directory scan, not a geocoding catalog."""
+    candidates = {}
+    for page in range(GEO_SCAN_PAGES):
+        if cancel.is_set():
+            raise Cancelled('Request cancelled')
+        stations, more = browser.geographic(country_code, page * PAGE_SIZE, PAGE_SIZE)
+        for station in stations[:PAGE_SIZE]:
+            try:
+                latitude, longitude = coordinates(station.latitude, station.longitude)
+                name = _query_text(station.city).strip()
+                if not name or len(name) > 128 or (query and query.casefold() not in name.casefold()):
+                    continue
+                code = station.country_code
+                if code and not re.fullmatch(r'[A-Z]{2}', code):
+                    continue
+                if country_code and code != country_code:
+                    continue
+                key = (name.casefold(), code, round(latitude, 3), round(longitude, 3))
+                candidates.setdefault(key, dict(name=name, latitude=latitude, longitude=longitude,
+                                                country_code=code, country=_query_text(station.country)))
+            except (ValueError, TypeError):
+                continue
+        if not more:
+            break
+    return [candidates[key] for key in sorted(candidates)]
+
+
+def _guided_setup(browser, monitor, cancel):
+    dialog, pending = xbmcgui.Dialog(), []
+    store = PlaceStore(profile_path())
+    available = store.limit - len(store.list())
+    if available <= 0:
+        _error(30140)
+        return
+    while len(pending) < available:
+        source = _dialog_choice(dialog, 30130, [text(30131), text(30132)], monitor, cancel)
+        country_code, query = '', ''
+        if source == 0:
+            countries = _operation(browser.country_entries, monitor, cancel)
+            if not countries:
+                _error(30139)
+                return
+            choice = _dialog_choice(dialog, 30002, [name for name, _ in countries], monitor, cancel)
+            country_code = countries[choice][1]
+            if not re.fullmatch(r'[A-Z]{2}', country_code):
+                raise ValueError('Invalid country code')
+        else:
+            query = _query_text(dialog.input(text(30133))).strip()
+            _check_ui_cancel(monitor, cancel)
+            if not query:
+                raise Cancelled('Dialog cancelled')
+        candidates = _operation(lambda: _setup_candidates(browser, country_code, query, cancel), monitor, cancel)
+        if not candidates:
+            _error(30139)
+            return
+        choice = _dialog_choice(dialog, 30134, [
+            '%s%s (%.3f, %.3f)' % (c['name'], ' · ' + c['country'] if c['country'] else '',
+                                   c['latitude'], c['longitude']) for c in candidates], monitor, cancel)
+        candidate = candidates[choice]
+        pending.append({key: candidate[key] for key in ('name', 'latitude', 'longitude', 'country_code')})
+        pending[-1]['radius_km'] = _choose_radius(dialog, monitor, cancel)
+        options = [text(30137), text(30138)] if len(pending) < available else [text(30138)]
+        decision = _dialog_choice(dialog, 30110, options, monitor, cancel)
+        if len(options) == 1 or decision == 1:
+            _check_ui_cancel(monitor, cancel)
+            store.save_many(pending)
+            xbmc.executebuiltin('Container.Refresh')
+            return
+
+
+def _lookup_summary(browser, station_uuid, monitor, cancel):
+    station = _operation(lambda: browser.by_uuid(station_uuid), monitor, cancel)
+    if station.uuid != station_uuid:
+        raise ValueError('Invalid station lookup')
+    return StationSummary.from_station(replace(station, favicon=safe_favicon(station.favicon)))
+
+
+def _station_info(browser, params, monitor, cancel):
+    station_uuid = _real_station_uuid(params.get('uuid', ''))
+    summary = next((station for station in FavoriteStore(profile_path()).list()
+                    if station.station_uuid == station_uuid), None)
+    if summary is None:
+        summary = _lookup_summary(browser, station_uuid, monitor, cancel)
+    details = [summary.name, summary.station_uuid]
+    details.extend(value for value in (summary.city, summary.country, summary.codec, summary.tags) if value)
+    if summary.bitrate:
+        details.append('%d %s' % (summary.bitrate, text(30125)))
+    if summary.latitude is not None and summary.longitude is not None:
+        details.append('%.3f, %.3f' % (summary.latitude, summary.longitude))
+    xbmcgui.Dialog().ok(text(30124), '\n'.join(details))
+
+
+def _profile_action(mode, params, browser, monitor, cancel):
+    """Mutations leave the current directory intact until an explicit refresh."""
+    _check_ui_cancel(monitor, cancel)
+    if mode in ('favorite_add', 'favorite_remove'):
+        station_uuid = _real_station_uuid(params.get('uuid', ''))
+        store = FavoriteStore(profile_path())
+        if mode == 'favorite_add':
+            summary = _lookup_summary(browser, station_uuid, monitor, cancel)
+            _check_ui_cancel(monitor, cancel)
+            store.add(summary)
+        else:
+            store.remove(station_uuid)
+    else:
+        place_id = station_identifier(params.get('id', ''))
+        store = PlaceStore(profile_path())
+        place = next((p for p in store.list() if p.place_id == place_id), None)
+        if place is None:
+            raise ValueError('Unknown place')
+        if mode == 'place_default':
+            store.set_default(place_id)
+        elif mode == 'place_radius':
+            radius = _choose_radius(xbmcgui.Dialog(), monitor, cancel)
+            store.set_radius(place_id, radius)
+        elif mode == 'place_remove':
+            if not xbmcgui.Dialog().yesno(text(30128), text(30129) + '\n' + place.name):
+                return
+            _check_ui_cancel(monitor, cancel)
+            store.remove(place_id)
+    xbmc.executebuiltin('Container.Refresh')
+
+
 def _ui_transition(mode, params, monitor, cancel):
-    """Route seam for setup, station info and the shared map delivered in later tasks."""
-    if mode == 'station_info':
-        station_identifier(params.get('uuid', ''))
+    """Native action routes and the seam used by the shared map window."""
+    if mode == 'setup':
+        _guided_setup(RadioBrowser(cancel=cancel), monitor, cancel)
+    elif mode == 'station_info':
+        _station_info(RadioBrowser(cancel=cancel), params, monitor, cancel)
+    elif mode == 'map' and 'uuid' in params:
+        _real_station_uuid(params['uuid'])
 
 
 def run_plugin(argv):
@@ -351,12 +513,17 @@ def run_plugin(argv):
     monitor, cancel = xbmc.Monitor(), threading.Event()
     browser = RadioBrowser(cancel=cancel)
     def url(**values): return base + '?' + urlencode(values)
-    def item(label, folder=True, playable=False, **values):
+    def item(label, folder=True, playable=False, context=(), **values):
         entry = xbmcgui.ListItem(label=label)
+        if context:
+            entry.addContextMenuItems([(text(label_id), 'RunPlugin(%s)' % url(**route))
+                                       for label_id, route in context])
         if playable:
             entry.setProperty('IsPlayable', 'true')
         xbmcplugin.addDirectoryItem(handle, url(**values), entry, isFolder=folder)
+    favorite_ids = None
     def station_item(station):
+        nonlocal favorite_ids
         summary = (StationSummary.from_station(replace(station, favicon=safe_favicon(station.favicon)))
                    if isinstance(station, Station) else station)
         entry = xbmcgui.ListItem(label=summary.name)
@@ -369,6 +536,13 @@ def run_plugin(argv):
                               'comment': ' · '.join(value for value in (summary.city, summary.country, summary.tags) if value)})
         entry.setProperty('IsPlayable', 'true')
         entry.setIsFolder(False)
+        if favorite_ids is None:
+            favorite_ids = {s.station_uuid for s in FavoriteStore(profile_path()).list()}
+        favorite = summary.station_uuid in favorite_ids
+        entry.addContextMenuItems([(text(label), 'RunPlugin(%s)' % url(mode=target, uuid=summary.station_uuid))
+            for label, target in ((30120, 'play'),
+                (30122 if favorite else 30121, 'favorite_remove' if favorite else 'favorite_add'),
+                (30123, 'map'), (30124, 'station_info'))])
         xbmcplugin.addDirectoryItem(handle, url(mode='play', uuid=summary.station_uuid), entry, isFolder=False)
     if action in ('play', 'play_fixture'):
         client, session = None, None
@@ -380,9 +554,7 @@ def run_plugin(argv):
             if action == 'play_fixture':
                 station = _fixture_station(params.get('id', ''))
             else:
-                uuid = station_identifier(params.get('uuid', ''))
-                if uuid.startswith('fixture-'):
-                    raise ValueError('Fixture requires explicit fixture route')
+                uuid = _real_station_uuid(params.get('uuid', ''))
                 station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
                 if station.uuid != uuid:
                     raise ValueError('Invalid station lookup')
@@ -396,7 +568,8 @@ def run_plugin(argv):
             except OSError as error:
                 if isinstance(error, Cancelled): raise
                 _error(30010)
-                xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+                if handle >= 0:
+                    xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
                 return
             session = _operation(lambda: client.create(station), monitor, cancel, stop)
             if not isinstance(session, dict):
@@ -415,20 +588,31 @@ def run_plugin(argv):
             # The service already resolved redirects and the authoritative MIME.
             entry.setMimeType(mime)
             entry.setContentLookup(False)
-            xbmcplugin.setResolvedUrl(handle, True, entry)
+            if handle >= 0:
+                xbmcplugin.setResolvedUrl(handle, True, entry)
+            else:
+                xbmc.Player().play(session['playback_url'], entry)
         except (OSError, ValueError, KeyError, TypeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)
-            xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+            if handle >= 0:
+                xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
         else:
             # Playback is already resolved. Directory reporting must never revoke it.
             if not station.uuid.startswith('fixture-'):
+                try:
+                    favorites = FavoriteStore(profile_path())
+                    if any(s.station_uuid == station.uuid for s in favorites.list()):
+                        favorites.mark_played(station.uuid, datetime.now(timezone.utc).isoformat())
+                except (OSError, ValueError):
+                    pass  # A profile write must not revoke already-started playback.
                 try:
                     browser.click(station.uuid)
                 except Exception:
                     pass
         return
-    xbmcplugin.setContent(handle, 'songs')
+    if handle >= 0:
+        xbmcplugin.setContent(handle, 'songs')
     listing_succeeded = True
     retry = {'mode': 'home'}
     try:
@@ -436,10 +620,16 @@ def run_plugin(argv):
         if not 0 <= offset <= MAX_OFFSET:
             raise ValueError('Invalid page')
         if action == 'home':
+            if xbmcaddon.Addon().getSettingBool('guided_setup') and not PlaceStore(profile_path()).list():
+                listing_succeeded = False
+                _ui_transition('setup', {}, monitor, cancel)
+                return
             if xbmcaddon.Addon().getSettingBool('offer_setup_row'):
                 item(text(30110), folder=False, mode='setup')
             for place in PlaceStore(profile_path()).list():
-                item(place.name, mode='place', id=place.place_id)
+                item(place.name, mode='place', id=place.place_id, context=[
+                    (label, {'mode': target, 'id': place.place_id}) for label, target in (
+                        (30126, 'place_default'), (30127, 'place_radius'), (30128, 'place_remove'))])
             for label, target in ((30111, 'favorites'), (30003, 'tags'), (30002, 'countries'),
                                   (30001, 'search'), (30112, 'map'), (30004, 'settings'),
                                   (30050, 'label_icy_marker')):
@@ -455,6 +645,9 @@ def run_plugin(argv):
         elif action in ('setup', 'map', 'station_info'):
             _ui_transition(action, params, monitor, cancel)
             listing_succeeded = False
+        elif action in ('favorite_add', 'favorite_remove', 'place_default', 'place_radius', 'place_remove'):
+            listing_succeeded = False
+            _profile_action(action, params, browser, monitor, cancel)
         elif action == 'favorites':
             favorites = FavoriteStore(profile_path()).list()
             for station in favorites[offset:offset + PAGE_SIZE]:
@@ -531,11 +724,12 @@ def run_plugin(argv):
     except (OSError, ValueError, TypeError):
         listing_succeeded = False
         _error(30012)
-        item(text(30006), **retry)
-        # A rendered Retry directory completed successfully; action routes return to their caller.
-        listing_succeeded = action not in ('setup', 'map', 'station_info', 'settings', 'label_icy_marker')
+        if action not in _ACTION_ROUTES:
+            item(text(30006), **retry)
+            listing_succeeded = True  # A rendered Retry directory completed successfully.
     finally:
-        xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
+        if handle >= 0:
+            xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
 
 
 class RelayPlayer(xbmc.Player):

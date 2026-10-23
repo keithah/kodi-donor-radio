@@ -3,6 +3,11 @@
   <section id="plugin.audio.kodi_donor_radio">
     <category id="general" label="30004">
       <group id="4" label="30100">
+        <setting id="run_setup" type="action" label="30107" help="30108">
+          <level>0</level>
+          <data>RunPlugin(plugin://plugin.audio.kodi_donor_radio/?mode=setup)</data>
+          <control type="button" format="action"><close>true</close></control>
+        </setting>
         <setting id="guided_setup" type="boolean" label="30101" help="30102">
           <level>0</level><default>false</default><control type="toggle"/>
         </setting>

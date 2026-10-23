@@ -229,6 +229,34 @@ class PlaceStore(_Store):
         self._write(items + [place])
         return place
 
+    def save_many(self, records):
+        """Validate the complete setup before atomically appending any places."""
+        if not isinstance(records, list) or not records or len(records) > self.limit:
+            raise ValueError('Invalid setup places')
+        items = self.list()
+        default_exists = any(place.is_default for place in items)
+        added = []
+        for record in records:
+            if not isinstance(record, dict) or set(record) - {
+                    'name', 'latitude', 'longitude', 'radius_km', 'country_code'}:
+                raise ValueError('Invalid setup place')
+            try:
+                added.append(SavedPlace(str(uuid.uuid4()),
+                                        is_default=not default_exists and not added, **record))
+            except TypeError as error:
+                raise ValueError('Invalid setup place') from error
+        self._write(items + added)
+        return added
+
+    def remove(self, place_id):
+        station_identifier(place_id)
+        items = self.list()
+        removed_default = any(p.place_id == place_id and p.is_default for p in items)
+        remaining = [p for p in items if p.place_id != place_id]
+        if removed_default and remaining:
+            remaining[0] = replace(remaining[0], is_default=True)
+        self._write(remaining)
+
     def set_default(self, place_id):
         station_identifier(place_id)
         items = self.list()

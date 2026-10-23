@@ -291,3 +291,95 @@ msgstr ""
 msgctxt "#30116"
 msgid "Showing a bounded directory scan, ranked by popularity. Choose Next page to scan more stations."
 msgstr ""
+
+msgctxt "#30107"
+msgid "Run setup"
+msgstr ""
+
+msgctxt "#30108"
+msgid "Choose places and radii with the same guided setup. Your places are saved together only when you choose Save."
+msgstr ""
+
+msgctxt "#30120"
+msgid "Play"
+msgstr ""
+
+msgctxt "#30121"
+msgid "Add to favorites"
+msgstr ""
+
+msgctxt "#30122"
+msgid "Remove from favorites"
+msgstr ""
+
+msgctxt "#30123"
+msgid "Show on map"
+msgstr ""
+
+msgctxt "#30124"
+msgid "Station info"
+msgstr ""
+
+msgctxt "#30125"
+msgid "kbps"
+msgstr ""
+
+msgctxt "#30126"
+msgid "Make default"
+msgstr ""
+
+msgctxt "#30127"
+msgid "Change radius"
+msgstr ""
+
+msgctxt "#30128"
+msgid "Remove place"
+msgstr ""
+
+msgctxt "#30129"
+msgid "Remove this saved place?"
+msgstr ""
+
+msgctxt "#30130"
+msgid "Find a place"
+msgstr ""
+
+msgctxt "#30131"
+msgid "Choose a country"
+msgstr ""
+
+msgctxt "#30132"
+msgid "Search for a city"
+msgstr ""
+
+msgctxt "#30133"
+msgid "City name"
+msgstr ""
+
+msgctxt "#30134"
+msgid "Choose a city from listed stations"
+msgstr ""
+
+msgctxt "#30135"
+msgid "Choose a radius"
+msgstr ""
+
+msgctxt "#30136"
+msgid "km"
+msgstr ""
+
+msgctxt "#30137"
+msgid "Add another place"
+msgstr ""
+
+msgctxt "#30138"
+msgid "Save places"
+msgstr ""
+
+msgctxt "#30139"
+msgid "No matching cities with valid coordinates were found in this bounded station scan. Try a country or a different city."
+msgstr ""
+
+msgctxt "#30140"
+msgid "The saved place limit has been reached."
+msgstr ""

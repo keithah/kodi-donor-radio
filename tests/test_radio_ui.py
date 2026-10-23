@@ -189,3 +189,58 @@ def test_place_country_code_validation_never_writes_invalid_values(tmp_path, cod
     with pytest.raises(ValueError):
         ui().PlaceStore(tmp_path).save('Bad', 0, 0, 25, country_code=code)
     assert not (tmp_path / 'places.json').exists()
+
+
+def test_setup_batch_validates_all_places_before_single_atomic_write(tmp_path, monkeypatch):
+    store = ui().PlaceStore(tmp_path)
+    existing = store.save('Existing', 1, 2, 25, make_default=True)
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.save_many([dict(name='Paris', latitude=48.8, longitude=2.3, radius_km=25, country_code='FR'),
+                         dict(name='Bad', latitude=None, longitude=2, radius_km=25)])
+    assert store.path.read_bytes() == before
+    calls = []
+    real_replace = os.replace
+    def replace(source, destination):
+        calls.append(destination)
+        real_replace(source, destination)
+    monkeypatch.setattr(os, 'replace', replace)
+    store.save_many([dict(name='Paris', latitude=48.8, longitude=2.3, radius_km=25, country_code='FR'),
+                     dict(name='Tokyo', latitude=35.7, longitude=139.7, radius_km=50, country_code='JP')])
+    assert len(calls) == 1
+    places = store.list()
+    assert [p.name for p in places] == ['Existing', 'Paris', 'Tokyo']
+    assert [p.is_default for p in places] == [True, False, False]
+    assert places[0].place_id == existing.place_id
+
+
+def test_setup_batch_default_limit_and_disk_failure_leave_no_partial_places(tmp_path, monkeypatch):
+    m = ui()
+    store = m.PlaceStore(tmp_path)
+    values = [dict(name='Paris', latitude=48.8, longitude=2.3, radius_km=25, country_code='FR'),
+              dict(name='Tokyo', latitude=35.7, longitude=139.7, radius_km=50, country_code='JP')]
+    monkeypatch.setattr(m, 'MAX_PLACES', 1)
+    with pytest.raises(ValueError): store.save_many(values)
+    assert not store.path.exists()
+    monkeypatch.setattr(m, 'MAX_PLACES', 50)
+    def fail(*args): raise OSError('disk full')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError): store.save_many(values)
+    assert not store.path.exists()
+    assert list(tmp_path.iterdir()) == []
+    monkeypatch.undo()
+    store.save_many(values)
+    assert [p.is_default for p in store.list()] == [True, False]
+
+
+def test_removing_default_place_selects_first_remaining_in_stored_order(tmp_path):
+    store = ui().PlaceStore(tmp_path)
+    first = store.save('Zulu', 0, 0, 10)
+    middle = store.save('Default', 0, 0, 10, make_default=True)
+    last = store.save('Alpha', 0, 0, 10)
+    store.remove(middle.place_id)
+    assert [(p.place_id, p.is_default) for p in store.list()] == [(first.place_id, True), (last.place_id, False)]
+    store.remove(first.place_id)
+    assert store.list()[0].is_default
+    store.remove(last.place_id)
+    assert store.list() == []
