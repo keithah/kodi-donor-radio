@@ -54,7 +54,7 @@ def test_malformed_or_unsupported_provider_forms_are_not_explicit(title):
 def tracker(learned=None):
     events = []
     instance = IcyMarkerTracker('session-1', 'station-1', events.append,
-                                lambda marker: (learned or {}).get(marker))
+                                lambda marker: (learned if learned is not None else {}).get(marker))
     return instance, events
 
 
@@ -135,6 +135,17 @@ def test_learned_exact_marker_overrides_inference():
     assert instance.latest_candidate() is None
 
 
+def test_new_learned_label_applies_to_next_identical_metadata_block():
+    learned = {}
+    instance, events = tracker(learned)
+    observe(instance, '-', 1)
+    learned['-'] = 'end'
+    observe(instance, '-', 2)
+    assert [event.kind for event in events] == [
+        'icy_marker_candidate', 'break_start', 'break_end']
+    assert events[-1].details['classification'] == 'learned'
+
+
 def test_repeated_explicit_boundaries_do_not_emit_duplicate_transitions():
     instance, events = tracker()
     for number, title in enumerate(('AD_START', 'Song', 'AD_START',
@@ -156,3 +167,13 @@ def test_retention_is_bounded_by_age_and_count():
     assert len(instance.records) == 64
     instance.expire(500)
     assert len(instance.records) == 0
+
+
+def test_duplicate_suppression_title_expires_with_history():
+    instance, _ = tracker()
+    observe(instance, 'An ordinary title', 1)
+    instance.expire(302)
+    assert len(instance.records) == 0
+    assert instance._last_title is None
+    observe(instance, 'An ordinary title', 303)
+    assert len(instance.records) == 1

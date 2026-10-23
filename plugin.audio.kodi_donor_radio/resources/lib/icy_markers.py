@@ -94,6 +94,8 @@ class IcyMarkerTracker:
             self.records.popleft()
         if self._candidate and monotonic_at - self._candidate[0] > 300:
             self._candidate = None
+        if self._last_title and monotonic_at - self._last_title[0] > 300:
+            self._last_title = None
         if self._open_inferred and monotonic_at - self._open_inferred[0] > 300:
             _, metadata, observed_at, signal = self._open_inferred
             self._open_inferred = None
@@ -111,18 +113,24 @@ class IcyMarkerTracker:
             return
         marker = title.strip()
         normalized = marker.upper()
-        if normalized == self._last_title:
-            return
-        self._last_title = normalized
-        self.records.append((monotonic_at, marker[:256]))
-        if not marker:
-            return
-
-        learned = self.learned_lookup(normalized)
+        learned = self.learned_lookup(normalized) if marker else None
         if learned in ('start', 'end'):
             signal = MarkerSignal(learned, normalized, 'learned', 'learned', None)
         else:
             signal = parse_marker(marker)
+        candidate = (signal is None and
+                     (_punctuation_only(marker) or normalized in _CANDIDATES))
+        classification = ((signal.kind, signal.format, signal.confidence)
+                          if signal is not None else ('candidate',) if candidate
+                          else ('ordinary',))
+        if (self._last_title is not None
+                and (normalized, classification) == self._last_title[1:]):
+            return
+        self._last_title = (monotonic_at, normalized, classification)
+        self.records.append((monotonic_at, marker[:256]))
+        if not marker:
+            return
+
         if signal is not None:
             if signal.kind != self._last_boundary:
                 self._event('break_' + signal.kind, metadata, observed_at,
@@ -131,7 +139,6 @@ class IcyMarkerTracker:
             self._open_inferred = None
             return
 
-        candidate = _punctuation_only(marker) or normalized in _CANDIDATES
         if candidate:
             signal = MarkerSignal('candidate', normalized, 'heuristic', 'candidate', None)
             self._candidate = (monotonic_at, normalized)
