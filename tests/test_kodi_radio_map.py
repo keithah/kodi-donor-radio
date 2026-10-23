@@ -299,6 +299,71 @@ def test_close_stops_only_preview_owned_by_window(monkeypatch):
     assert played == ['stop'] and stopped == ['owned']
 
 
+def test_close_retires_owned_session_when_intent_lock_fails(monkeypatch):
+    module = load_window(monkeypatch)
+    events = []
+    player = SimpleNamespace(isPlaying=lambda: True,
+                              getPlayingFile=lambda: 'http://127.0.0.1:1/preview',
+                              stop=lambda: events.append('stop-player'))
+    arbiter = module.PlaybackStartArbiter()
+    arbiter.is_current_intent = lambda _token: (_ for _ in ()).throw(OSError('lock failed'))
+    window = make_window(module, preview_enabled=False, player_factory=lambda: player,
+                         playback_arbiter=arbiter)
+    controller = module.PreviewController(
+        lambda *_: None, lambda _: True, lambda _: None, player.getPlayingFile,
+        player.isPlaying, player.stop,
+        lambda session: events.append(('stop-session', session)),
+        playback_arbiter=arbiter)
+    controller.owned = {'session_id': 'owned', 'playback_url': player.getPlayingFile(),
+                        '_playback_intent': 'unknown-intent'}
+    window._preview = controller
+
+    window.close()
+
+    assert window.closed
+    assert events == [('stop-session', 'owned')]
+
+
+def test_pending_worker_retires_session_when_intent_lock_fails(monkeypatch):
+    module = load_window(monkeypatch)
+    events, workers = [], []
+    player = SimpleNamespace(isPlaying=lambda: True,
+                              getPlayingFile=lambda: 'https://old.example/live',
+                              stop=lambda: events.append('stop-player'))
+    arbiter = module.PlaybackStartArbiter()
+    checks = iter([True, OSError('lock failed')])
+
+    def current_intent(_token):
+        result = next(checks)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    arbiter.is_current_intent = current_intent
+    arbiter.stop_if_current = lambda *_: (_ for _ in ()).throw(OSError('lock failed'))
+
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+
+    controller = module.PreviewController(
+        lambda *_: None, lambda _: True, lambda _: None, player.getPlayingFile,
+        player.isPlaying, player.stop,
+        lambda session: events.append(('stop-session', session)),
+        thread_factory=thread, playback_arbiter=arbiter)
+    controller.owned = {'session_id': 'pending',
+                        'playback_url': 'http://127.0.0.1:1/preview',
+                        '_playback_intent': 'preview-intent'}
+    controller._pending_playback_url = controller.owned['playback_url']
+
+    controller.close()
+    assert len(workers) == 1 and events == []
+    workers[0].target()
+
+    assert events == [('stop-session', 'pending')]
+    assert player.getPlayingFile() == 'https://old.example/live'
+
+
 def test_window_does_not_interrupt_separately_selected_playback(monkeypatch):
     module = load_window(monkeypatch)
     calls = []

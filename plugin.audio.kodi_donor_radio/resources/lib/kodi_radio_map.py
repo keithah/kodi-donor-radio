@@ -199,7 +199,14 @@ class PreviewController:
         if result is None:
             return
         intent = result.get('_playback_intent')
-        if not self._playback_arbiter.is_current_intent(intent):
+        try:
+            current_intent = self._playback_arbiter.is_current_intent(intent)
+        except Exception:
+            # Lock state is unknown: fail closed for Player.stop, but always
+            # release this preview's relay session.
+            self._retire(result['session_id'])
+            return
+        if not current_intent:
             self._retire(result['session_id'])
             return
 
@@ -223,33 +230,41 @@ class PreviewController:
     def _defer_pending_stop(self, result):
         """Give Kodi a bounded window to acknowledge an asynchronous Player.play."""
         def finish_handoff():
-            deadline = self._clock() + self._pending_start_timeout
-            while True:
-                if not self._playback_arbiter.is_current_intent(
-                        result.get('_playback_intent')):
-                    break
-                try:
-                    playing = self._is_playing()
-                    current = self._current_file()
-                except Exception:
-                    playing, current = False, ''
-                if playing and current == result.get('playback_url'):
+            try:
+                deadline = self._clock() + self._pending_start_timeout
+                while True:
                     try:
-                        self._playback_arbiter.stop_if_current(
-                            result.get('_playback_intent'),
-                            lambda: self._is_playing() and
-                            self._current_file() == result.get('playback_url'),
-                            self._stop_playback)
+                        current_intent = self._playback_arbiter.is_current_intent(
+                            result.get('_playback_intent'))
                     except Exception:
-                        pass
-                    break
-                # A different URL is not an acknowledgment that Kodi dropped
-                # this queued request; wait for our URL or the bounded timeout.
-                remaining = deadline - self._clock()
-                if remaining <= 0:
-                    break
-                self._sleep(min(PENDING_PLAY_POLL_SECONDS, remaining))
-            self._retire(result['session_id'])
+                        # The shared lock is unavailable; never stop based on
+                        # an intent we could not verify.
+                        break
+                    if not current_intent:
+                        break
+                    try:
+                        playing = self._is_playing()
+                        current = self._current_file()
+                    except Exception:
+                        playing, current = False, ''
+                    if playing and current == result.get('playback_url'):
+                        try:
+                            self._playback_arbiter.stop_if_current(
+                                result.get('_playback_intent'),
+                                lambda: self._is_playing() and
+                                self._current_file() == result.get('playback_url'),
+                                self._stop_playback)
+                        except Exception:
+                            pass
+                        break
+                    # A different URL is not an acknowledgment that Kodi dropped
+                    # this queued request; wait for our URL or the bounded timeout.
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    self._sleep(min(PENDING_PLAY_POLL_SECONDS, remaining))
+            finally:
+                self._retire(result['session_id'])
 
         worker = self._thread_factory or threading.Thread
         worker(target=finish_handoff, daemon=True).start()
