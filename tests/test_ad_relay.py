@@ -204,7 +204,7 @@ def test_small_source_retention_omits_preroll_without_losing_programme(tmp_path)
     try:
         session = manager.create(Station('id', 'Fixture', origin + '/source/normal/index.m3u8', '', True))
         manifest = get(session.playback_url)[2].decode()
-        assert '#EXT-X-START:TIME-OFFSET=0' not in manifest
+        assert '#EXT-X-START:TIME-OFFSET=0,PRECISE=YES' in manifest
         routes = [line for line in manifest.splitlines() if line and not line.startswith('#')]
         base = 'http://127.0.0.1:%d' % relay.descriptor.port
         assert get(base + routes[0])[2] == (ASSETS / 'source000.ts').read_bytes()

@@ -14,6 +14,7 @@ from vast import substitute_macros
 
 
 MAX_GAP = .75
+MAX_STATIONARY = .75
 START_TOLERANCE = .25
 EVENT_FRACTIONS = (("firstQuartile", .25), ("midpoint", .5), ("thirdQuartile", .75))
 ERROR_CODES = frozenset((100, 101, 102, 200, 300, 301, 302, 303, 400, 401, 402, 403, 405, 900))
@@ -32,6 +33,7 @@ class _Progress:
     started: bool = False
     emitted: set = None
     final_interval: float = 0
+    ambiguous: bool = False
 
     def __post_init__(self):
         self.emitted = set()
@@ -46,6 +48,7 @@ class AdTracker:
     def __init__(self, session_id, emit, enqueue):
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
         self._previous = None
+        self._stationary_since = None
         self._seen_sample = False
         self._progress = {}
         self._presentation = None
@@ -68,6 +71,22 @@ class AdTracker:
                    "creative_id": _opaque(placement.ad.id),
                    "reason": "queued" if queued else "no_endpoint"})
 
+    def _taint_ambiguous(self, presentation, previous, sample):
+        """Disable later success milestones for placements crossed without evidence."""
+        if not sample.mapped or not math.isfinite(sample.position_seconds):
+            return
+        current = sample.position_seconds
+        low, high = ((min(previous.position_seconds, current),
+                      max(previous.position_seconds, current)) if previous is not None
+                     else (current, current))
+        for placement in presentation.placements:
+            start = placement.start_sample / 48000
+            end = placement.end_sample / 48000
+            if start <= high and end >= low:
+                state = self._progress.setdefault(placement.id, _Progress())
+                state.ambiguous = True
+                state.final_interval = 0
+
     def observe(self, presentation, sample):
         if self._finished or sample.session_id != self.session_id:
             return
@@ -86,10 +105,28 @@ class AdTracker:
             continuous = (previous.mapped and previous.playing and not previous.paused and
                           not previous.seeking and 0 < interval <= MAX_GAP and
                           0 < advance <= interval + START_TOLERANCE)
+            if advance > 0:
+                self._stationary_since = None
+            elif advance == 0 and interval > 0:
+                if self._stationary_since is None:
+                    self._stationary_since = previous.monotonic_seconds
+                if sample.monotonic_seconds - self._stationary_since >= MAX_STATIONARY:
+                    self._taint_ambiguous(presentation, previous, sample)
+            else:
+                self._stationary_since = None
+            if (sample.seeking or interval <= 0 or advance < 0 or
+                    (interval > MAX_GAP and advance > 0) or
+                    advance > interval + START_TOLERANCE):
+                self._taint_ambiguous(presentation, previous, sample)
+        elif sample.seeking and sample.mapped:
+            self._taint_ambiguous(presentation, previous, sample)
         for placement in presentation.placements:
             start = placement.start_sample / 48000
             end = placement.end_sample / 48000
             state = self._progress.setdefault(placement.id, _Progress())
+            if state.ambiguous:
+                state.final_interval = 0
+                continue
             if not good:
                 state.final_interval = 0
                 continue
@@ -113,6 +150,8 @@ class AdTracker:
             if previous.position_seconds < end <= position:
                 self._report(placement, "complete")
         self._previous = sample if good else None
+        if not good:
+            self._stationary_since = None
 
     def finish(self, reason):
         if self._finished:

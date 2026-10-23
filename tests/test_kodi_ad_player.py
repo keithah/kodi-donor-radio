@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from itertools import count
 import threading
 
-from ad_models import AdError, Placement, Presentation, ResolvedAd, TrackingUrl
+from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
 from kodi_ad_player import KodiAdPlayback
 
 
@@ -72,6 +72,66 @@ def test_fixture_clock_jump_does_not_cross_ad_completion(monkeypatch):
         adapter.sample()
     assert adapter.last_sample.mapped is True
     assert not any(event[1] == 'complete' for event in queued)
+    adapter.close()
+
+
+def test_fixture_clock_anchor_is_sticky_and_invalidates_on_clock_reset(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    clocks = iter((0.0, .25, .5, .1, .35))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    monkeypatch.setattr('kodi_ad_player.time.monotonic', lambda: 10.0 + next(ticks) * .25)
+    mapped = []
+    for _ in range(5):
+        adapter.sample()
+        mapped.append(adapter.mapping_valid)
+    assert mapped == [True, True, True, False, False]
+    assert adapter.last_sample.mapped is False
+    adapter.close()
+
+
+def test_fixture_anchor_keeps_session_sample_origin_when_playlist_window_slides(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: 20.25)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    session.presentation = lambda: Presentation(
+        (OutputSegment(10, 1, "older-segment", 20 * 48000, 96256, None),), (), False)
+    monkeypatch.setattr('kodi_ad_player.time.monotonic', lambda: 10.0)
+    adapter.sample()
+    assert adapter.last_sample.position_seconds == 20.25
+    assert adapter.last_sample.mapped is True
+    adapter.close()
+
+
+def test_fixture_clock_anchor_is_invalid_after_seek(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    clocks = iter((.1, .35, .6))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    monkeypatch.setattr('kodi_ad_player.time.monotonic', lambda: 10.0 + next(ticks) * .25)
+    adapter.sample()
+    adapter.on_seek(session.id)
+    adapter.sample()
+    assert adapter.last_sample.mapped is False
+    adapter.sample()
+    assert adapter.last_sample.mapped is False
     adapter.close()
 
 

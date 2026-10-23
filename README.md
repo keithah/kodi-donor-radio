@@ -1,10 +1,12 @@
 # Kodi Donor Radio
 
-A GPL-2.0-or-later radio observation POC. Search Radio Browser, browse countries
-and tags, and play supported stations through a Python relay embedded in the
-addon service. Optional local diagnostics record ICY metadata and explicit HLS
-cue evidence from the stream delivered to Kodi. The POC preserves programme
-audio and does not insert ads, resolve VAST, or send remote analytics.
+A GPL-2.0-or-later Kodi radio and controlled monetization POC. Search Radio
+Browser, browse countries and tags, and play supported stations through a Python
+relay embedded in the addon service. Optional diagnostics record ICY metadata
+and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
+restricted to configured loopback HLS fixtures; general Radio Browser stations
+remain ad-free. Fixture success beacons use an experimental Kodi media-clock
+anchor and must not be treated as production-validated tracking.
 
 **Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
@@ -111,6 +113,9 @@ Controlled ICY marker streams are available at `/icy/{scenario}.mp3`, with
 expected ordered observations at `/expected/icy/{scenario}.json`. They cover
 AD commands, TildeATS category 4/category 0 and `##` end forms, wrapped
 commands, punctuation candidates, inferred endings and unresolved timeout.
+With test mode enabled and the exact loopback origin configured, Kodi's
+controlled-stream menu includes one playable entry per ICY scenario, backed by
+the generated MP3 tone.
 Unknown values remain bounded evidence: at most 64 observations within 300
 seconds. Listener labels apply to the active station session; remembering a
 label stores that exact marker for that station. ICY remains observation-only,
@@ -145,6 +150,3 @@ exception assumption. This assumption is not independently verified repository
 approval. [The staged roadmap](docs/monetization-roadmap.md) retains VAST/preroll,
 HLS replacement, continuous-stream investigation, and listener ad budgets with
 explicit decisions and acceptance evidence before each implementation phase.
-With test mode enabled and the exact loopback origin configured, Kodi's
-controlled-stream menu includes one playable entry per ICY scenario, backed by
-the generated MP3 tone.

@@ -189,7 +189,10 @@ class AdSession:
                      '#EXT-X-TARGETDURATION:%d' % math.ceil(longest / 48000),
                      '#EXT-X-MEDIA-SEQUENCE:%d' % first.sequence,
                      '#EXT-X-DISCONTINUITY-SEQUENCE:%d' % first.discontinuity]
-            if self._initial and first.placement_id and first.placement_id.startswith('preroll-'):
+            if self._initial:
+                # The Kodi adapter maps media-relative getTime() from the
+                # first output segment. Request an explicit sample-zero start
+                # for this fixture-only composed presentation.
                 lines.append('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES')
             last_disc = first.discontinuity
             for index, segment in enumerate(presentation.segments):

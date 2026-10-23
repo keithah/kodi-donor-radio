@@ -12,7 +12,9 @@ The actual addon service was then run against the repaired loopback origin in th
 
 Kodi JSON-RPC `Player.PlayPause` and `Player.Seek` returned `Failed to execute method` for the active live HLS player (`canseek=false`). `Input.ExecuteAction(pause)` returned OK but the clock advanced by about one second during the following wall second; it did not pause playback. In the isolated delayed-segment run, the addon-owned player requested the delayed `source006.ts` and its clock held at 1.370 seconds from wall 3.026–8.424 seconds while `Player.Caching=false`. It then jumped from 1.370 to 7.770 seconds between adjacent 260 ms samples as `Player.Caching` became true; caching stayed true until wall 10.756 seconds and cleared by 11.011 seconds. `cachepercentage` remained 100 and speed remained one. The earlier run showed a similar 6.441-second jump; see `task8-buffer-stall-caching-kodi.json` and `task8-buffer-stall-kodi.json`. Normal live playback also showed up to 1.214-second jumps after short plateaus. The jump crosses the preroll completion boundary at 4.011 seconds without proof that those samples were presented, so a caching-only gate is insufficient. The absolute composed-media epoch at a sliding-window start is not exposed by Kodi, and segment requests show availability rather than decoded position. This is why the initial Kodi run did not emit success tracking. The fixture-only raw-clock mapper and its observed stall behavior are recorded below; production mapping still lacks a verified absolute anchor. The acceptance milestone remains incomplete pending anchor and rendered-audio verification. Missing/early-end playback remains unverified on target Kodi.
 
-After the user approved a fixture-only experimental mapper, the adapter maps raw `getTime()` only when test mode supplies an exact `127.0.0.1` origin and the session has ads enabled. Ordinary station sessions receive no mapper. The existing tracker rejects sample gaps and advances inconsistent with monotonic elapsed time. A fresh five-scenario Kodi run delivered impression/start/quartile/completion events on advancing fixture playback; the delayed stall emitted impression/start/firstQuartile before the long jump, with no midpoint, third-quartile, or completion across it. Its report is `task8-fixture-tracking-enabled-kodi.json`. This confirms the controlled test path and its gap suppression, but does not establish a stable absolute media anchor or audible output. Production success tracking remains unavailable; rendered-audio and missing/early-end Kodi verification remain outstanding.
+After the user approved a fixture-only mapper, the adapter mapped raw `getTime()` only when test mode supplied an exact `127.0.0.1` origin and the session had ads enabled. Ordinary station sessions received no mapper. A fresh five-scenario Kodi run delivered impression/start/quartile/completion events on advancing fixture playback; the delayed stall emitted impression/start/firstQuartile before the long jump, with no midpoint, third-quartile, or completion across it. Its report is `task8-fixture-tracking-enabled-kodi.json`.
+
+The 2026-10-23 candidate anchor now treats the composed session's sample zero as a fixed origin, requests `EXT-X-START:TIME-OFFSET=0,PRECISE=YES` on the initial ad-enabled manifest, and never resets its mapping to a later HLS window. Seek or backward Kodi-clock reset disables mapping for the rest of that session. A forward ambiguous clock jump permanently taints only placements it intersects; stationary samples during a buffer do not taint an ad, and later untouched placements can be tracked after their own continuous start. Unit tests cover these rules. A fresh Kodi run of this candidate anchor has not yet been made, so stable mapping is not yet target-verified; audible output and missing/early-end playback also remain outstanding. Ordinary Radio Browser sessions continue to have no ad mapper.
 
 Kodi's log also exposed an invalid empty `ad_vast_url` default. The setting now explicitly allows empty values; a fresh addon invocation on the target no longer logged that warning. Advertising remains opt-in through test mode, an enabled ad choice, and an explicit fixture URL.
 
@@ -522,6 +524,12 @@ TildeATS category 4/category 0 and `##` end-break forms, wrapped commands,
 bare punctuation candidates, inferred return-to-track and paired-marker ends,
 and an unresolved break after 300 seconds. Tests drive the last timeout with a
 synthetic monotonic timestamp, so they do not sleep five minutes.
+Each finite HTTP stream now uses generated MP3 frame payloads and paces complete
+audio-plus-metadata frames. In test mode with the exact configured loopback
+origin, the Kodi controlled-stream menu exposes a localized entry for each
+scenario. Automated RelayServer coverage exercises the paired-marker stream
+through the actual session path and verifies the stripped audio bytes and
+observation-only events.
 
 Automated fixture validation decodes the framed stream through `IcyDecoder`,
 checks each event kind and classification against the fixture schedule, and
@@ -538,9 +546,3 @@ Run the fixture-focused suite with
 This validation is not a Kodi UI playback run; the controlled sequences are
 verified as bounded stream/decoder/tracker fixtures, and any separate Kodi
 menu or audible-playback check must be recorded independently.
-Each finite HTTP stream now uses generated MP3 frame payloads and paces complete
-audio-plus-metadata frames. In test mode with the exact configured loopback
-origin, the Kodi controlled-stream menu exposes a localized entry for each
-scenario. Automated RelayServer coverage exercises the paired-marker stream
-through the actual session path and verifies the stripped audio bytes and
-observation-only events.

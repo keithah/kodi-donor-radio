@@ -129,12 +129,31 @@ the active relay session and its output presentation. Pure modules own VAST
 resolution, composition and tracking state. The relay exposes an internal
 immutable output timeline; no extra public arbitrary-fetch endpoint is added.
 
-Calibrate Kodi's getTime position against the composed presentation with
-controlled media. Confirm the mapping across preroll, both discontinuities,
-rolling windows, pause/resume and rebuffering before enabling successful
-playback beacons. Receipt time or a timer started by downloading a cue is never
-the replacement clock. If mapping cannot be established reliably, suppress
-success beacons and report tracking unavailable rather than fabricate delivery.
+The composed presentation has one immutable 48 kHz sample timeline per relay
+session, anchored at sample zero. Its first media playlist carries
+`EXT-X-START:TIME-OFFSET=0,PRECISE=YES` as a preferred start request; this does
+not prove Kodi honored it. The experimental fixture-only adapter interprets
+Kodi `Player.getTime()` as media-relative time from that start and never
+re-anchors to a later sliding window or HLS discontinuity. This identity
+assumption has not been independently verified against the served sample
+timeline. No Kodi core changes are in scope. A backwards clock reset greater
+than 50 ms or explicit seek invalidates the anchor for the rest of that session;
+backward jitter up to 50 ms is clamped, not interpreted as progress.
+`EXT-X-PROGRAM-DATE-TIME` may annotate the composed segments, but cannot establish
+which segment Kodi has presented and is not a playback-position signal.
+
+At 250 ms sampling, mark any ad placement intersecting an ambiguous transition
+as untrackable for the rest of that placement. A transition is ambiguous when
+media advances across a sample interval longer than 750 ms, media position moves
+backwards, media advances by more than elapsed monotonic time plus 250 ms, or the
+clock remains stationary for at least 750 ms. Because position samples alone
+cannot distinguish buffering from a stale clock, long stationary intervals fail
+closed. Previously confirmed milestones remain; later quartiles/completion for an
+affected placement are suppressed. Tracking may resume for a later placement only
+after observing its own start and continuous playback. Receipt time or a timer
+started by downloading a cue is never the replacement clock. If startup origin or
+session mapping cannot be established reliably, suppress success beacons and
+report tracking unavailable rather than fabricate delivery.
 
 For a mapped playing interval, emit impression/start on observed entry, quartiles
 on forward playback through the thresholds, and completion only with evidence
@@ -175,9 +194,12 @@ compare observed evidence against replacement decisions.
    programme A, replacement, programme B. Original-break audio must be absent
    only when replacement is committed. Programme boundaries must be preserved.
 4. Integrate Kodi playback feedback and demonstrate accurate test-beacon timing,
-   including prefetch without playback, pause, buffering, stop, switch, seeks,
-   repeated fetches and errors. If timing evidence fails, keep success tracking
-   disabled and fix the clock mapping before accepting the milestone.
+   including sample-zero startup, moving HLS windows, both ad discontinuities,
+   prefetch without playback, pause, buffering, stop, switch, seeks, repeated
+   fetches and errors. Assert that a clock jump taints intersected placements
+   permanently while a later independently observed placement can still be
+   tracked. If timing evidence fails, keep success tracking disabled and report
+   the add-on-only anchor limitation before accepting the milestone.
 5. Run existing tests/package checks, new failure and concurrency tests, and actual
    Kodi master playback. Verify controlled beacon counts and record measured
    transition behavior. Actual audible-output validation must be reported

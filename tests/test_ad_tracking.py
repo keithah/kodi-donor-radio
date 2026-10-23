@@ -52,6 +52,26 @@ def test_250ms_observations_emit_once_at_each_played_milestone():
     assert [item["event"] for item in diagnostics] == list(EVENTS)
 
 
+def test_long_stationary_clock_taints_current_ad_even_if_small_steps_resume():
+    instance, _, queued = tracker()
+    view = presentation()
+    positions = (0, .25, .25, .25, .25, .25, .25, .5, .75, 1, 1.25, 1.5,
+                 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4)
+    for tick, position in enumerate(positions):
+        instance.observe(view, sample(position, tick * .25))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+
+
+def test_short_stationary_sample_does_not_taint_continuous_playback():
+    instance, _, queued = tracker()
+    view = presentation()
+    positions = (0, .25, .25, .5, .75, 1, 1.25, 1.5, 1.75, 2, 2.25,
+                 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4)
+    for tick, position in enumerate(positions):
+        instance.observe(view, sample(position, tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
 def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():
     instance, _, queued = tracker()
     view = presentation()
@@ -72,6 +92,26 @@ def test_gap_seek_backwards_and_jump_over_ad_do_not_backfill():
         instance.observe(view, sample(0, 0))
         instance.observe(view, interruption)
         assert [event for _, event, _ in queued] == ["impression", "start"]
+
+
+def test_clock_jump_taints_intersected_ad_but_not_later_placements():
+    instance, _, queued = tracker()
+    first = presentation(start=0, duration=4, placement_id="first")
+    second_ad = ResolvedAd("later", "http://fixture.test/later", 4.0,
+                           tuple(TrackingUrl(event, URL + "/later/" + event)
+                                 for event in EVENTS), ())
+    second = Placement("later", second_ad, 5 * 48000, 9 * 48000)
+    view = Presentation(first.segments, (first.placements[0], second), False)
+    instance.observe(view, sample(0, 0))
+    instance.observe(view, sample(.25, .25))
+    instance.observe(view, sample(2.25, .5))  # Ambiguous jump lands inside first placement.
+    for tick in range(1, 28):
+        position = 2.25 + tick * .25
+        instance.observe(view, sample(position, .5 + tick * .25))
+    first_events = [event for placement, event, _ in queued if placement == "first"]
+    later_events = [event for placement, event, _ in queued if placement == "later"]
+    assert first_events == ["impression", "start"]
+    assert later_events == list(EVENTS)
 
 
 def test_seek_to_near_start_after_unmapped_playback_cannot_create_new_impression():

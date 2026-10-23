@@ -10,6 +10,37 @@ from ad_tracking import AdTracker, BeaconWorker, enqueue_ad_error
 from models import Event
 
 
+class KodiSessionClockAnchor:
+    """Map Kodi media time to the immutable sample-zero session timeline.
+
+    Composed fixture playlists explicitly start at TIME-OFFSET=0. Kodi's
+    getTime() is media-relative, so the session origin is fixed at zero and is
+    never recalculated from a sliding playlist window. A backward clock reset
+    invalidates this anchor for the rest of the session.
+    """
+    BACKWARD_TOLERANCE = .05
+
+    def __init__(self, session_id):
+        self.session_id = session_id
+        self.valid = True
+        self.last_clock = None
+
+    def invalidate(self):
+        self.valid = False
+
+    def __call__(self, session, _presentation, seconds):
+        if (not self.valid or getattr(session, 'id', None) != self.session_id or
+                not math.isfinite(seconds) or seconds < 0):
+            return None
+        if self.last_clock is not None:
+            if seconds < self.last_clock - self.BACKWARD_TOLERANCE:
+                self.invalidate()
+                return None
+            seconds = max(seconds, self.last_clock)
+        self.last_clock = seconds
+        return seconds
+
+
 class KodiAdPlayback:
     """Map Kodi time only for opted-in loopback fixture sessions."""
     def __init__(self, manager, player, client=None, fixture_origin=None):
@@ -65,10 +96,9 @@ class KodiAdPlayback:
         if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', True):
             self.worker = BeaconWorker(self.client, session.cancel, self.fixture_origin)
             self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue)
-            # This experimental raw media clock is deliberately limited to the
-            # explicit loopback fixture route. AdTracker's continuity window
-            # rejects ambiguous long stalls; production sources have no mapper.
-            self.enable_mapping(lambda _session, _presentation, seconds: seconds)
+            # The sample-zero mapping is deliberately limited to explicit
+            # loopback fixtures; normal Radio Browser sessions stay unmapped.
+            self.enable_mapping(KodiSessionClockAnchor(session_id))
 
     def sample(self):
         session = self.session
@@ -108,6 +138,8 @@ class KodiAdPlayback:
         if session_id is None or session_id == self.session_id:
             self.seeking = True
             self.mapping_valid = False
+            if hasattr(self.mapper, 'invalidate'):
+                self.mapper.invalidate()
 
     def on_pause(self, session_id=None):
         if session_id is None or session_id == self.session_id:
