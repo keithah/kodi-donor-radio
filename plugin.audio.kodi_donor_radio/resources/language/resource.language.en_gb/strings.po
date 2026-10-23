@@ -365,7 +365,7 @@ msgid "Choose a radius"
 msgstr ""
 
 msgctxt "#30136"
-msgid "km"
+msgid "miles"
 msgstr ""
 
 msgctxt "#30137"

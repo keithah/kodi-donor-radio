@@ -1292,7 +1292,7 @@ def test_place_context_routes_validate_confirm_and_refresh(kodi):
     assert [p.is_default for p in store.list()] == [False, True]
     state.dialog_choices = [2]
     route(runtime, mode='place_radius', id=second.place_id)
-    assert store.list()[1].radius_km == 50
+    assert store.list()[1].radius_km == pytest.approx(96.56064)
     before = store.path.read_bytes()
     state.dialog_choices = [-1]
     route(runtime, mode='place_radius', id=second.place_id)
@@ -1356,7 +1356,7 @@ def test_setup_saves_multiple_valid_city_candidates_once_then_refreshes(kodi, mo
     route(runtime, mode='setup')
     places = radio_ui.PlaceStore(profile).list()
     assert [(p.name, p.radius_km, p.country_code, p.is_default) for p in places] == [
-        ('Paris', 25, 'FR', True), ('Tokyo', 100, 'JP', False)]
+        ('Paris', 40.2336, 'FR', True), ('Tokyo', 160.9344, 'JP', False)]
     assert len(calls) == 1
     assert 'secret.example' not in (profile / 'places.json').read_text()
     assert state.builtins == ['Container.Refresh']
@@ -1571,3 +1571,26 @@ def test_setup_from_runplugin_without_directory_handle_saves_and_only_refreshes(
     assert [p.name for p in PlaceStore(profile).list()] == ['Paris']
     assert state.builtins == ['Container.Refresh']
     assert state.contents == state.ended == state.resolved == state.items == []
+
+
+@pytest.mark.parametrize('choice,expected_km', [
+    (0, 16.09344), (1, 40.2336), (2, 96.56064), (3, 160.9344), (4, 402.336),
+])
+def test_place_radius_displays_miles_and_converts_selection_for_store(kodi, choice, expected_km):
+    from radio_ui import PlaceStore
+    runtime, state, profile = kodi
+    store = PlaceStore(profile)
+    place = store.save('Home', 0, 0, 10)
+    state.dialog_choices = [choice]
+    route(runtime, mode='place_radius', id=place.place_id)
+    assert state.selections == [('localized-30135', [
+        '10 localized-30136', '25 localized-30136', '60 localized-30136',
+        '100 localized-30136', '250 localized-30136'])]
+    assert store.list()[0].radius_km == pytest.approx(expected_km)
+    assert state.builtins == ['Container.Refresh']
+
+
+def test_radius_unit_translation_is_miles():
+    strings = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
+    entries = dict(re.findall(r'^msgctxt "#(\d+)"\nmsgid (".*")(?:\n|$)', strings, re.MULTILINE))
+    assert json.loads(entries['30136']) == 'miles'

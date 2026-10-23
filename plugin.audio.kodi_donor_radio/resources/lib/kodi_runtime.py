@@ -339,7 +339,7 @@ def _place_stations(browser, place, offset, cancel):
     return [], cursor if cursor <= MAX_OFFSET else None
 
 
-_RADIUS_KM = (10, 25, 50, 100, 250)
+_RADIUS_MILES = (10, 25, 60, 100, 250)
 _ACTION_ROUTES = frozenset(('setup', 'map', 'station_info', 'settings', 'label_icy_marker',
                             'favorite_add', 'favorite_remove', 'place_default',
                             'place_radius', 'place_remove'))
@@ -368,8 +368,9 @@ def _dialog_choice(dialog, heading, options, monitor, cancel):
 
 def _choose_radius(dialog, monitor, cancel):
     choice = _dialog_choice(dialog, 30135, ['%d %s' % (radius, text(30136))
-                            for radius in _RADIUS_KM], monitor, cancel)
-    return _RADIUS_KM[choice]
+                            for radius in _RADIUS_MILES], monitor, cancel)
+    # The user chooses miles; stores and distance filtering use kilometers.
+    return _RADIUS_MILES[choice] * 1.609344
 
 
 def _setup_candidates(browser, country_code, query, cancel):
