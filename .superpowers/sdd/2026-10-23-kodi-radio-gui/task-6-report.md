@@ -57,3 +57,5 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - Focused verification: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 186 passed.
 - Full verification: `pytest -q` — 906 passed in 97.41s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
 - External Kodi UI actions and other add-ons still cannot participate in the shared start lock; the five-second pending handoff cannot make those sources atomic with `Player.play`. No zero-race claim. Live Kodi UI behavior remains unverified.
+
+- Fix commit: `1275ccd` (`fix: track pending Kodi preview handoff`).
