@@ -27,6 +27,7 @@ from models import Station
 from radio_browser import RadioBrowser
 from relay import RelayServer
 from sessions import SessionManager
+from icy_marker_store import IcyMarkerStore
 from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
@@ -494,7 +495,8 @@ def run_service():
             CreativeCache.cleanup_abandoned(profile)
             monitor.settings_changed = False
             manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
-                                     ad_config=ad_settings(), cache_root=profile)
+                                     ad_config=ad_settings(), cache_root=profile,
+                                     icy_marker_store=IcyMarkerStore(profile))
             server = RelayServer(manager=manager)
             descriptor = server.start()
             player = RelayPlayer(manager, descriptor.port, fixture_origin())

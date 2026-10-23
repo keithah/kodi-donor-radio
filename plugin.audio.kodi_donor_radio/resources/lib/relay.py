@@ -110,7 +110,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _authorized(self):
         value = self.headers.get('Authorization', '')
         expected = 'Bearer ' + self.server.relay.descriptor.control_token
-        return (not self.headers.get('Origin') and not self.headers.get('Transfer-Encoding')
+        return ('Origin' not in self.headers and 'Transfer-Encoding' not in self.headers
                 and hmac.compare_digest(value.encode(), expected.encode()))
 
     def do_HEAD(self):
@@ -145,10 +145,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path != '/sessions':
+        if not self._valid_target() or self.path not in ('/sessions', '/icy-marker/learn'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
+        if self.path == '/icy-marker/learn':
+            return self._learn_icy_marker()
         try:
             lengths = self.headers.get_all('Content-Length', [])
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
@@ -173,6 +175,26 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(201, {'id': session.id, 'playback_url': session.playback_url,
                           'mime_type': mime})
 
+    def _learn_icy_marker(self):
+        try:
+            lengths = self.headers.get_all('Content-Length', [])
+            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 4096:
+                return self._reply(400)
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
+            data = json.loads(body)
+            if (not isinstance(data, dict) or set(data) != {'session_id', 'marker', 'action'}
+                    or not all(isinstance(value, str) for value in data.values())
+                    or not re.fullmatch(r'[a-f0-9]{48}', data['session_id'])):
+                return self._reply(400)
+            learned = self.server.relay.manager.learn_icy_marker(**data)
+        except (ValueError, UnicodeError, RecursionError):
+            return self._reply(400)
+        except OSError:
+            return self._reply(502)
+        self._reply(204 if learned else 409)
+
     def do_DELETE(self):
         match = _SESSION.fullmatch(self.path) if self._valid_target() else None
         if match is None:
@@ -186,6 +208,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._started = False
         if not self._valid_target():
             return self._reply(404)
+        if self.path == '/icy-marker/candidate':
+            if not self._authorized():
+                return self._reply(401)
+            return self._reply(200, self.server.relay.manager.current_icy_candidate())
         if self.path == '/health':
             return self._reply(200, {'status': 'ok', 'instance_id': self.server.relay.descriptor.instance_id})
         match = _MEDIA.fullmatch(self.path)

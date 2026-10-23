@@ -14,6 +14,7 @@ from url_policy import origin
 from cues import CueTracker
 from http_client import HttpClient
 from icy_markers import IcyMarkerTracker
+from icy_marker_store import normalize_marker
 from models import Event
 from station_resolver import resolve_station
 
@@ -48,7 +49,7 @@ class Resource:
 
 class PlaybackSession:
     def __init__(self, station, source, cancel, base_url, sink, resource_limit,
-                 ad_config=None, ad_client=None, cache_root=None):
+                 ad_config=None, ad_client=None, cache_root=None, learned_lookup=None):
         if resource_limit < 1:
             raise ValueError('Resource limit must be positive')
         self.id = secrets.token_hex(24)
@@ -66,7 +67,7 @@ class PlaybackSession:
         self.tracker = CueTracker(self.id, station.uuid, sink,
                                   lambda: datetime.now(timezone.utc), time.monotonic)
         self.icy_tracker = IcyMarkerTracker(self.id, station.uuid, self.sink.emit,
-                                            lambda marker: None)
+                                            learned_lookup or (lambda marker: None))
         self.ad = None
         self.ad_enabled = False
         self._ad_errors = []
@@ -247,11 +248,13 @@ class PlaybackSession:
 
 class SessionManager:
     def __init__(self, client=None, sink=None, resolver=resolve_station,
-                 resource_limit=2048, idle_timeout=120, ad_config=None, cache_root=None):
+                 resource_limit=2048, idle_timeout=120, ad_config=None, cache_root=None,
+                 icy_marker_store=None):
         self.client = client or HttpClient()
         self.sink = SafeSink(sink)
         self.resolver, self.resource_limit, self.idle_timeout = resolver, resource_limit, idle_timeout
         self.ad_config, self.cache_root = ad_config, cache_root
+        self.icy_marker_store = icy_marker_store
         self.base_url = ''
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
@@ -281,7 +284,9 @@ class SessionManager:
                         raise RuntimeError('Station selection cancelled')
                     session = PlaybackSession(station, source, cancel, self.base_url,
                                               self.sink, self.resource_limit,
-                                              ad_config, self.client, self.cache_root)
+                                              ad_config, self.client, self.cache_root,
+                                              lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
+                                              if self.icy_marker_store is not None else None)
                     self._session = session
                     return session
             except Exception:
@@ -293,6 +298,38 @@ class SessionManager:
                 with self._lock:
                     if self._pending is cancel:
                         self._pending = None
+
+    def current_icy_candidate(self):
+        self.expire()
+        with self._lock:
+            session = self._session
+            if session is None or session.cancel.is_set():
+                return None
+            marker = session.latest_icy_candidate()
+            try:
+                normalize_marker(marker)
+            except (ValueError, UnicodeError):
+                return None
+            return {'session_id': session.id, 'station_uuid': session.station.uuid,
+                    'marker': marker}
+
+    def learn_icy_marker(self, session_id, marker, action):
+        normalize_marker(marker)
+        if action not in ('start', 'end'):
+            raise ValueError('Invalid marker action')
+        self.expire()
+        # Selection and observation cannot change ownership/candidate while writing.
+        with self._lock:
+            session = self._session
+            if session is None or session.id != session_id or session.cancel.is_set():
+                return False
+            with session._lock:
+                if marker != session.latest_icy_candidate():
+                    return False
+                if self.icy_marker_store is None:
+                    raise ValueError('Marker store unavailable')
+                self.icy_marker_store.learn(session.station.uuid, marker, action)
+                return True
 
     def get(self, session_id):
         self.expire()

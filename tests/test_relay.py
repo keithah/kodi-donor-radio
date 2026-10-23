@@ -531,3 +531,152 @@ def test_icy_marker_observations_keep_metadata_and_exact_audio(
         assert markers[0].to_dict()['details'] == {
             'classification': 'explicit', 'marker_format': 'ad_command',
             'confidence': 'explicit', 'duration': 30}
+
+
+def observe_marker(session, marker):
+    session.observe_icy_metadata({'StreamTitle': marker}, '2026-10-23T00:00:00Z', time.monotonic())
+
+
+def test_icy_control_requires_auth_rejects_origins_and_caps_body(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'})
+    for headers in ({}, {'Authorization': 'Bearer wrong'}, dict(auth, Origin='https://evil.example'),
+                    dict(auth, Origin='')):
+        assert request(base + '/icy-marker/candidate', headers=headers)[0] == 401
+        assert request(base + '/icy-marker/learn', 'POST', payload, headers)[0] == 401
+    assert request(base + '/icy-marker/learn', 'POST', ' ' * 4097, auth)[0] == 400
+    for data in ('[]', '{}', '{', json.dumps({'session_id': session.id, 'marker': '-', 'action': 'bad'}),
+                 json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end', 'station_uuid': 'other'})):
+        assert request(base + '/icy-marker/learn', 'POST', data, auth)[0] == 400
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+
+
+def test_icy_client_learning_is_exact_station_scoped_and_overrides_next_metadata(relay, origin, tmp_path):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    client = ControlClient(relay[3])
+    assert client.current_icy_candidate() is None
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    assert client.current_icy_candidate() == {'session_id': session.id, 'station_uuid': 'id', 'marker': '-'}
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, ' - ', 'end')
+    client.learn_icy_marker(session.id, '-', 'end')
+    assert IcyMarkerStore(tmp_path).lookup('id', '-') == 'end'
+    observe_marker(session, '-')  # same title, newly learned meaning must take precedence
+    assert [(e.kind, e.details['classification']) for e in relay[2].events
+            if e.source == 'icy_marker' and e.kind == 'break_end'] == [('break_end', 'learned')]
+    other = relay[1].create(Station('other', 'Other', origin[0] + '/icy', '', False))
+    observe_marker(other, '-')
+    assert relay[2].events[-1].details['classification'] == 'inferred'
+    restored = relay[1].create(Station('id', 'Radio', origin[0] + '/icy', '', False))
+    observe_marker(restored, '-')
+    assert relay[2].events[-1].details['classification'] == 'learned'
+    assert restored.ad is None
+
+
+def test_icy_learning_rejects_stale_candidate_session_and_stop(relay, origin, tmp_path):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    observe_marker(session, '#')
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '-', 'end')
+    replacement = relay[1].create(Station('other', 'Other', origin[0] + '/icy', '', False))
+    observe_marker(replacement, '#')
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '#', 'end')
+    relay[1].stop(replacement.id)
+    assert client.current_icy_candidate() is None
+    with pytest.raises(OSError):
+        client.learn_icy_marker(replacement.id, '#', 'end')
+    assert not (tmp_path / 'icy-markers.json').exists()
+
+
+def test_icy_control_does_not_expose_unsafe_or_oversized_candidate(relay, origin):
+    from control import ControlClient
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    for candidate in ('token=secret', 'https://radio.example/', '\n-', 'é' * 129):
+        # Exercise the trust boundary even if future parser variants nominate unsafe data.
+        with session._lock:
+            session.icy_tracker._candidate = (time.monotonic(), candidate)
+        assert client.current_icy_candidate() is None
+
+
+def test_icy_learning_body_boundary_and_invalid_framing(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    path = '/icy-marker/learn'
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'})
+    assert request(base + path, 'POST', payload.ljust(4096), auth)[0] == 204
+    for extra in ('Content-Length: 2\r\nContent-Length: 2\r\n',
+                  'Content-Length: -1\r\n', 'Content-Length: invalid\r\n', '',
+                  'Transfer-Encoding: chunked\r\n'):
+        client = socket.create_connection(('127.0.0.1', relay[3].port))
+        client.settimeout(2)
+        try:
+            client.sendall(('POST %s HTTP/1.1\r\nHost: localhost\r\nAuthorization: %s\r\n%s\r\n{}' % (
+                path, auth['Authorization'], extra)).encode())
+            response = http.client.HTTPResponse(client)
+            response.begin()
+            assert response.status == (401 if 'Transfer-Encoding' in extra else 400)
+            response.read()
+        finally:
+            client.close()
+
+
+def test_icy_candidate_expires_and_disk_failure_does_not_apply_label(relay, origin, tmp_path, monkeypatch):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    import os
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    client = ControlClient(relay[3])
+    observe_marker(session, '-')
+    def fail(*args):
+        raise OSError('private filesystem failure')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '-', 'end')
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+    with session._lock:
+        session.icy_tracker._candidate = (time.monotonic() - 301, '-')
+    assert client.current_icy_candidate() is None
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '-', 'end')
+
+
+def test_icy_learning_rejects_truncated_json_body_even_when_json_is_complete(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'}).encode()
+    client = socket.create_connection(('127.0.0.1', relay[3].port))
+    client.settimeout(2)
+    try:
+        headers = ('POST /icy-marker/learn HTTP/1.1\r\nHost: localhost\r\n'
+                   'Authorization: Bearer %s\r\nContent-Length: %d\r\n\r\n' % (
+                       relay[3].control_token, len(payload) + 10))
+        client.sendall(headers.encode() + payload)
+        client.shutdown(socket.SHUT_WR)
+        response = http.client.HTTPResponse(client)
+        response.begin()
+        assert response.status == 400
+        assert relay[1].icy_marker_store.lookup('id', '-') is None
+    finally:
+        client.close()

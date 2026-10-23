@@ -660,3 +660,26 @@ def test_shutdown_cancels_pending_demand_without_resuming_old_stream(kodi):
     assert outcomes == ['cancelled']
     assert manager.get('a'*48) is None
     assert player.owned is None
+
+
+def test_service_loads_station_labels_from_its_private_profile(kodi, monkeypatch):
+    from icy_marker_store import IcyMarkerStore
+    from station_resolver import ResolvedSource
+    runtime, state, profile = kodi
+    IcyMarkerStore(profile).learn('station-1', '-', 'end')
+    real_manager = SessionManager
+    def manager(**kwargs):
+        result = real_manager(**kwargs)
+        result.resolver = lambda *args: ResolvedSource('https://radio.example/live', 'hls', None, b'')
+        return result
+    monkeypatch.setattr(runtime, 'SessionManager', manager)
+    def action(monitor):
+        client = ControlClient(runtime.read_descriptor(profile))
+        result = client.create(STATION)
+        # Access the actual service through its player, keeping relay and store real.
+        session = state.players[-1].manager.get(result['id'])
+        session.observe_icy_metadata({'StreamTitle': '-'}, '2026-10-23T00:00:00Z', time.monotonic())
+        assert session.icy_tracker.learned_lookup('-') == 'end'
+        state.abort = True
+    state.action = action
+    runtime.run_service()

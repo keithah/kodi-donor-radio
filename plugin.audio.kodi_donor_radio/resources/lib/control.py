@@ -38,3 +38,10 @@ class ControlClient:
 
     def health(self):
         return self._request('GET', '/health')
+
+    def current_icy_candidate(self):
+        return self._request('GET', '/icy-marker/candidate')
+
+    def learn_icy_marker(self, session_id, marker, action):
+        return self._request('POST', '/icy-marker/learn',
+                             {'session_id': session_id, 'marker': marker, 'action': action})
