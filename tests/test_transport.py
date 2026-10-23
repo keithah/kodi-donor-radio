@@ -229,7 +229,7 @@ def test_ad_origin_redirect_escape_rejected_before_follow(server):
 def test_ad_redirect_url_length_rejected(server):
     from http_client import HttpError
     client, base = local_client(server[0])
-    with pytest.raises(HttpError):
+    with pytest.raises(HttpError, match='Advertising URL exceeds limit'):
         client.open(base + '/oversized-ad-redirect', {}, threading.Event(), allowed_origin=base)
     assert [request[0] for request in server[1]] == ['/oversized-ad-redirect']
 

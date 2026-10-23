@@ -190,16 +190,22 @@ class AdTimeline:
             if reset:
                 if len(self._zero_anchors) >= MAX_EPOCH_ANCHORS:
                     raise TimelineEpochLimit('source_epoch_history_exhausted')
-                self._epoch += 1
+            candidate_epoch = self._epoch + int(reset)
+            candidate_highwater = None if reset else self._highwater
+            candidate_source = {} if reset else self._source
+            # Validate a prospective epoch before committing the reset. Missing
+            # media must not clear source history or make old segments publishable.
+            unseen = [s for s in incoming
+                      if (candidate_epoch, s.sequence, s.discontinuity) not in candidate_source
+                      and (candidate_highwater is None or s.sequence > candidate_highwater)]
+            if any(s.uri not in source_segments or not _supported(source_segments[s.uri]) for s in unseen):
+                return self.snapshot()
+            if reset:
+                self._epoch = candidate_epoch
                 self._highwater = None
                 self._last_source_disc = None
                 self._boundary_pending = True
                 self._source.clear()
-            # Avoid a partial publication when a referenced source file is absent.
-            unseen = [s for s in incoming if (self._epoch, s.sequence, s.discontinuity) not in self._source
-                      and (self._highwater is None or s.sequence > self._highwater)]
-            if any(s.uri not in source_segments or not _supported(source_segments[s.uri]) for s in unseen):
-                return self.snapshot()
             # A changed URI on an overlapping reload is source mutation, not
             # a new epoch, and must not consume replay-suppression history.
             if zero and (reset or not self._started) and zero_uri not in self._zero_anchors:

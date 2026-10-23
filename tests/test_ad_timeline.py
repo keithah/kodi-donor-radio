@@ -144,6 +144,18 @@ def test_sequence_reset_creates_new_epoch_and_never_reuses_output_numbers():
     assert b.segments[2].discontinuity > a.segments[-1].discontinuity
 
 
+def test_rejected_sequence_reset_does_not_mutate_published_source_history():
+    t = AdTimeline(None, 16)
+    first = t.update(playlist(['a', 'b'], sequence=50), sources('a', 'b'))
+    assert ids(first) == ['a', 'b']
+
+    rejected = t.update(playlist(['new0', 'new1']), {})
+    assert rejected == first
+
+    continued = t.update(playlist(['b', 'c'], sequence=51), sources('b', 'c'))
+    assert ids(continued) == ['a', 'b', 'c']
+
+
 def test_one_frame_tolerance_does_not_create_cumulative_drift():
     t = AdTimeline(None, 16)
     t.offer(creative(frames=(94, 95)))
