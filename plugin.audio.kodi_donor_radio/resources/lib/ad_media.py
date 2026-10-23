@@ -138,12 +138,13 @@ def inspect_ts(data: bytes, _check=None) -> MediaInfo:
                 _bad('Invalid transport adaptation')
         if not adaptation & 1:
             continue
+        if pid == 0x1fff:
+            # Null-packet continuity counters are undefined by H.222.0.
+            continue
         cc = packet[3] & 15
         if pid in continuity and cc != (continuity[pid] + 1) & 15:
             _bad('Transport continuity error')
         continuity[pid] = cc
-        if pid == 0x1fff:
-            continue
         if pid in (0, pmt_pid):
             if pusi:
                 pointer = packet[offset]

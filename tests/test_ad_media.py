@@ -30,6 +30,13 @@ def test_real_segments_measure_frames_and_contiguous_pts():
     assert second.samples == 96256
 
 
+def test_null_packets_with_arbitrary_continuity_counters_are_ignored():
+    original = segment()
+    null_packet = lambda counter: bytes((0x47, 0x1f, 0xff, 0x10 | counter)) + b'\xff' * 184
+    padded = null_packet(3) + null_packet(12) + original
+    assert inspect_ts(padded) == inspect_ts(original)
+
+
 def test_ts_rejects_truncation_continuity_and_extra_stream():
     original = segment()
     with pytest.raises(AdError):
