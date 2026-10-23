@@ -26,6 +26,31 @@ def test_malformed_commands_are_not_explicit(title):
     assert parse_marker(title) is None
 
 
+@pytest.mark.parametrize('title,kind', [
+    ('#AD_START#', 'start'), ('*ad_end*', 'end'), ('-AD_STOP-', 'end'),
+])
+def test_exactly_wrapped_commands_are_explicit(title, kind):
+    signal = parse_marker(title)
+    assert signal == MarkerSignal(kind, title.strip().upper(),
+                                  'ad_command', 'explicit', None)
+
+
+@pytest.mark.parametrize('title', [
+    '##AD_START#', '# AD_START #', '#AD_START# trailing',
+    '#XAD_START#', '#AD_START_EXTRA#', '#AD_START_301#',
+])
+def test_wrapped_commands_require_one_exact_known_command(title):
+    assert parse_marker(title) is None
+
+
+def test_wrapped_command_is_explicit_in_tracker():
+    instance, events = tracker()
+    observe(instance, '#AD_START#', 1)
+    assert [event.kind for event in events] == ['break_start']
+    assert events[0].details['classification'] == 'explicit'
+    assert events[0].evidence['StreamTitle'] == '#AD_START#'
+
+
 @pytest.mark.parametrize('title, kind, duration', [
     ('Break ~ Break ~ 60 ~ 4 ^', 'start', 60),
     ('Break ~ Break ~ 30 ~ 4 ~ I ^', 'start', 30),
@@ -158,6 +183,52 @@ def test_symbol_that_is_not_punctuation_is_not_a_candidate():
     instance, events = tracker()
     observe(instance, '🎵', 1)
     assert events == []
+
+
+@pytest.mark.parametrize('title', ['#LOCAL_BREAK#', '*CUSTOM_AD*', '-SPOT-'])
+def test_unknown_visibly_framed_tokens_are_candidates_with_original_evidence(title):
+    instance, events = tracker()
+    observe(instance, title, 1)
+    assert [event.kind for event in events] == ['icy_marker_candidate', 'break_start']
+    assert events[0].details['classification'] == 'candidate'
+    assert events[1].details['classification'] == 'inferred'
+    assert instance.latest_candidate() == title.upper()
+    assert events[0].evidence['StreamTitle'] == title
+
+
+def test_bare_marker_punctuation_stays_direction_neutral():
+    for title in ('-', '#', '*'):
+        assert parse_marker(title) is None
+        instance, events = tracker()
+        observe(instance, title, 1)
+        assert [event.kind for event in events] == ['icy_marker_candidate', 'break_start']
+        assert all(event.details['classification'] != 'explicit' for event in events)
+
+
+@pytest.mark.parametrize('title', [
+    'The #AD_START# Song', 'Artist - #AD_END#', 'Commercial Breakers',
+    'My *CUSTOM_AD* Track', 'Song about #LOCAL_BREAK#',
+])
+def test_marker_words_inside_ordinary_artist_title_are_not_candidates(title):
+    instance, events = tracker()
+    observe(instance, title, 1)
+    assert events == []
+    assert instance.latest_candidate() is None
+
+
+def test_oversized_framed_unknown_token_is_not_candidate():
+    instance, events = tracker()
+    observe(instance, '#' + ('X' * 256) + '#', 1)
+    assert events == []
+    assert instance.latest_candidate() is None
+
+
+@pytest.mark.parametrize('title', ['#' + ('A' * 65) + '#', '#12345#'])
+def test_framed_value_must_be_short_and_have_marker_text(title):
+    instance, events = tracker()
+    observe(instance, title, 1)
+    assert events == []
+    assert instance.latest_candidate() is None
 
 
 def test_retention_is_bounded_by_age_and_count():

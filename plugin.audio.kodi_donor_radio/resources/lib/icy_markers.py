@@ -19,11 +19,24 @@ _CANDIDATES = frozenset({
     'AD', 'AD BREAK', 'COMMERCIAL', 'SPOT', 'START', 'STOP',
     'AD START', 'AD STOP', 'AD END', 'BREAK START', 'BREAK END',
 })
+_WRAPPED_TOKEN = re.compile(
+    r'(?P<frame>[#*_-])(?P<token>[A-Z0-9]+(?:[ _-][A-Z0-9]+)*)'
+    r'(?P=frame)', re.ASCII)
+_MAX_MARKER_BYTES = 256
+_MAX_WRAPPED_TOKEN_CHARS = 64
 
 
 def _punctuation_only(value):
     return bool(value) and all(unicodedata.category(character).startswith('P')
                                for character in value)
+
+
+def _framed_token(value):
+    match = _WRAPPED_TOKEN.fullmatch(value)
+    if (match is None or len(match.group('token')) > _MAX_WRAPPED_TOKEN_CHARS
+            or not re.search(r'[A-Z]', match.group('token'), re.ASCII)):
+        return None
+    return match
 
 
 @dataclass(frozen=True)
@@ -42,11 +55,17 @@ def parse_marker(title: str) -> Optional[MarkerSignal]:
     marker = title.strip()
     command = marker.upper()
     match = _COMMAND.fullmatch(command)
+    command_value = command
+    if match is None:
+        wrapped = _framed_token(command)
+        if wrapped is not None:
+            command_value = wrapped.group('token')
+            match = _COMMAND.fullmatch(command_value)
     if match:
         duration = int(match.group(1)) if match.group(1) else None
         if duration is not None and not 1 <= duration <= 300:
             return None
-        return MarkerSignal('end' if command in ('AD_STOP', 'AD_END') else 'start',
+        return MarkerSignal('end' if command_value in ('AD_STOP', 'AD_END') else 'start',
                             command, 'ad_command', 'explicit', duration)
     provider_end = marker.startswith('##')
     tilde_value = marker[2:] if provider_end else marker
@@ -138,14 +157,16 @@ class IcyMarkerTracker:
             return
         marker = title.strip()
         normalized = marker.upper()
+        bounded_marker = len(marker.encode('utf-8')) <= _MAX_MARKER_BYTES
         learned = ((self._session_overrides.get(normalized) or self.learned_lookup(normalized))
                    if marker else None)
         if learned in ('start', 'end'):
             signal = MarkerSignal(learned, normalized, 'learned', 'learned', None)
         else:
             signal = parse_marker(marker)
-        candidate = (signal is None and
-                     (_punctuation_only(marker) or normalized in _CANDIDATES))
+        framed = _framed_token(normalized) is not None
+        candidate = (signal is None and bounded_marker and
+                     (_punctuation_only(marker) or normalized in _CANDIDATES or framed))
         classification = ((signal.kind, signal.format, signal.confidence)
                           if signal is not None else ('candidate',) if candidate
                           else ('ordinary',))
