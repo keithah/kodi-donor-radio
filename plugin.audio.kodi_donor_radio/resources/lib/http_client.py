@@ -265,7 +265,13 @@ class HttpClient:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError('HTTP connection timed out')
-                sock.settimeout(min(self.read_timeout, remaining) if total_deadline is not None else self.read_timeout)
+                if total_deadline is not None:
+                    total_remaining = total_deadline - time.monotonic()
+                    if total_remaining <= 0:
+                        raise TimeoutError('HTTP deadline exceeded')
+                    sock.settimeout(min(self.read_timeout, total_remaining))
+                else:
+                    sock.settimeout(self.read_timeout)
                 conn.sock = sock
                 parts = urlsplit(url)
                 path = urlunsplit(('', '', parts.path or '/', parts.query, ''))

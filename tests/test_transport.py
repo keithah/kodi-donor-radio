@@ -54,6 +54,13 @@ def server():
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
+            if self.path == '/delayed-header':
+                time.sleep(.3)
+                self.send_response(200)
+                self.send_header('Content-Length', '5')
+                self.end_headers()
+                self.wfile.write(b'hello')
+                return
             if self.path == '/oversized-ad-redirect':
                 self.send_response(302)
                 self.send_header('Location', '/' + 'x' * 9000)
@@ -323,6 +330,14 @@ def test_total_deadline_survives_redirects_and_trickle(server):
             read_bounded(response, 256)
     assert time.monotonic() - started < .7
     assert [request[0] for request in server[1]] == ['/deadline-redirect', '/deadline-trickle']
+
+
+def test_response_read_uses_remaining_total_budget_after_connect(server):
+    from http_client import read_bounded
+    client, base = local_client(server[0], connect_timeout=.1, read_timeout=1)
+    deadline = time.monotonic() + 1
+    with client.open(base + '/delayed-header', {}, threading.Event(), deadline=deadline) as response:
+        assert read_bounded(response, 5) == b'hello'
 
 
 def test_cancellation_interrupts_read_and_closes(server):

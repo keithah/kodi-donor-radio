@@ -125,7 +125,7 @@ msgid "Enable test mode"
 msgstr ""
 
 msgctxt "#30035"
-msgid "Show controlled test streams and allow only the exact configured loopback origin. The service restarts when settings change."
+msgid "Show controlled test streams and allow only the exact configured loopback origin. Changing test mode or the fixture origin restarts the service."
 msgstr ""
 
 msgctxt "#30036"
