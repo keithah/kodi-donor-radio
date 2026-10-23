@@ -67,3 +67,5 @@ No live Kodi window or real playback test was run. Actual skin rendering, D-pad 
 - TDD RED: temporarily restoring the early-retire branch made the ordering test fail because the watcher skipped its wait when another URL was current. Removing that branch made the ordering test pass. GREEN: `pytest -q tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_playback_arbiter.py tests/test_package.py` — 188 passed.
 - Full verification: `pytest -q` — 908 passed in 98.11s; `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` passed; package creation and `tools/check_package.py` passed; `git diff --check` passed.
 - The handoff remains bounded at five seconds. Kodi UI actions and other add-ons remain outside our lock; a preview acknowledged after the timeout can fail. No zero-race claim.
+
+- Fix commit: `713e331` (`fix: retain pending preview through competing playback`).
