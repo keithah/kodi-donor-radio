@@ -79,7 +79,7 @@ class PreviewController:
     def __init__(self, start, can_play, play, current_file, is_playing,
                  stop_playback, stop_session, timer_factory=None, thread_factory=None,
                  delay=0.4, pending_start_timeout=PENDING_PLAY_HANDOFF_SECONDS,
-                 clock=None, sleep=None):
+                 clock=None, sleep=None, playback_arbiter=None):
         self._start, self._can_play, self._play = start, can_play, play
         self._current_file, self._is_playing = current_file, is_playing
         self._stop_playback, self._stop_session = stop_playback, stop_session
@@ -89,6 +89,7 @@ class PreviewController:
         self._pending_start_timeout = pending_start_timeout
         self._clock = clock or time.monotonic
         self._sleep = sleep or time.sleep
+        self._playback_arbiter = playback_arbiter or PlaybackStartArbiter()
         self._lock = threading.RLock()
         # Serialize lifecycle changes with the final player handoff. A stale
         # resolution must not call Player.play after cancel/close has returned.
@@ -197,13 +198,23 @@ class PreviewController:
     def _stop_owned(self, result, pending=False):
         if result is None:
             return
-        stopped_playback = False
+        intent = result.get('_playback_intent')
+        if not self._playback_arbiter.is_current_intent(intent):
+            self._retire(result['session_id'])
+            return
+
+        def can_stop():
+            try:
+                return (self._is_playing()
+                        and self._current_file() == result.get('playback_url'))
+            except Exception:
+                return False
+
         try:
-            if self._is_playing() and self._current_file() == result.get('playback_url'):
-                self._stop_playback()
-                stopped_playback = True
+            stopped_playback = self._playback_arbiter.stop_if_current(
+                intent, can_stop, self._stop_playback)
         except Exception:
-            pass
+            stopped_playback = False
         if pending and not stopped_playback:
             self._defer_pending_stop(result)
             return
@@ -214,6 +225,9 @@ class PreviewController:
         def finish_handoff():
             deadline = self._clock() + self._pending_start_timeout
             while True:
+                if not self._playback_arbiter.is_current_intent(
+                        result.get('_playback_intent')):
+                    break
                 try:
                     playing = self._is_playing()
                     current = self._current_file()
@@ -221,7 +235,11 @@ class PreviewController:
                     playing, current = False, ''
                 if playing and current == result.get('playback_url'):
                     try:
-                        self._stop_playback()
+                        self._playback_arbiter.stop_if_current(
+                            result.get('_playback_intent'),
+                            lambda: self._is_playing() and
+                            self._current_file() == result.get('playback_url'),
+                            self._stop_playback)
                     except Exception:
                         pass
                     break
@@ -338,6 +356,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 lambda: self._player_factory().stop(),
                 self._stop_preview_session,
                 timer_factory=self._timer_factory, thread_factory=self._thread_factory,
+                playback_arbiter=self._playback_arbiter,
             )
 
     def _pin_control(self, city_id):
@@ -555,6 +574,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
         started = self._playback_arbiter.start_if_available(can_start, start_preview)
         if not started:
             raise RuntimeError('Kodi is playing a stream not owned by this map preview')
+        result['_playback_intent'] = started
 
     def _stop_preview_session(self, session_id):
         if self._preview_stop_callback:
