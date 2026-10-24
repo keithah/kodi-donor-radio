@@ -120,7 +120,7 @@ The setup row is hidden when `offer_setup_row` is false. Place rows carry their 
 
 - `label` — station name. Keep the frequency if the name has one; do not synthesise it.
 - `label2` — city, then codec and bitrate. `San Mateo · AAC 64`.
-- `art` — `thumb` and `icon` from the Radio Browser `favicon` field, with the monogram fallback described under Assets.
+- `art` — use the bundled monogram for this first GUI slice. Do not pass a directory-provided favicon URL to Kodi: its native artwork loader bypasses this add-on's destination and redirect validation. Remote favicons may be enabled after bounded validated fetching and local caching are implemented.
 - `setInfo('music', ...)` — `title`, `genre` from tags, `comment` for the plot panel.
 - `setProperty('IsPlayable', 'true')` and `setIsFolder(False)`, so the skin treats it as a track.
 - Station URL: resolve through `?mode=play&uuid=<stationuuid>` and `setResolvedUrl`, never hand the skin the raw stream URL. The indirection is where the click report and the favourite's last-played timestamp happen.
@@ -409,7 +409,7 @@ All icons are flat single-colour PNGs so they can be recoloured with `colordiffu
 
 ### Station artwork
 
-Radio Browser's `favicon` field is often missing, often tiny, and sometimes a dead link. Do not stretch it.
+Radio Browser's `favicon` field is often missing, often tiny, and sometimes a dead link. Do not stretch it. In the current Kodi GUI slice, remote favicon loading is disabled because Kodi fetches artwork outside the add-on's URL policy; the bundled monogram is used until safe validated fetching and local caching exist.
 
 Fall back to a **call-letter monogram** drawn on `tile.png`: take the station's call sign or first word, cap it at four characters, render it in Plex Mono. It degrades well at 10 feet, it is consistent across a grid, and it never looks like a broken image. The designs use it everywhere, so treat the monogram as the default and the favicon as the exception.
 

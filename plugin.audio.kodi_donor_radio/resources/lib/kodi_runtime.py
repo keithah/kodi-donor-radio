@@ -695,8 +695,11 @@ def run_plugin(argv):
         entry = xbmcgui.ListItem(label=summary.name)
         details = ' '.join(value for value in (summary.codec, str(summary.bitrate) if summary.bitrate else '') if value)
         entry.setLabel2(' · '.join(value for value in (summary.city, details) if value))
-        art = safe_favicon(summary.favicon) or os.path.join(
-            xbmcaddon.Addon().getAddonInfo('path'), 'resources', 'station-monogram.png')
+        # Kodi fetches ListItem artwork itself, outside UrlPolicy and redirect
+        # checks. Until remote artwork is fetched through a validated cache,
+        # use only the bundled monogram and never hand Kodi directory URLs.
+        art = os.path.join(xbmcaddon.Addon().getAddonInfo('path'),
+                           'resources', 'station-monogram.png')
         entry.setArt({'thumb': art, 'icon': art})
         entry.setInfo('music', {'title': summary.name, 'genre': summary.tags,
                               'comment': ' · '.join(value for value in (summary.city, summary.country, summary.tags) if value)})

@@ -31,8 +31,10 @@ The consolidated review-fix wave prevents preview creation from replacing active
 
 The one scoped re-review confirmed that all six important findings and the two cleanup notes were addressed. It identified one remaining copy issue: setup prompts still called fallback areas “cities.” These prompts now say “place”; the targeted setup/map suite passed again (181 tests).
 
-ZIP: `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`, **433,414 bytes**, SHA-256:
-`e5f8aa5dc555697dcbda69ff1134758434eb21a93bbdbe05d2dc12819e3b69bb`.
+A separate adversarial Steward pass then found that Kodi's native image loader could fetch an untrusted Radio Browser favicon URL directly, outside the add-on's URL policy. The list and map now use the bundled monogram for all station artwork until the add-on can fetch images through bounded destination- and redirect-validated caching. A regression supplies a loopback favicon URL and confirms the native artwork field receives only the local monogram. The product spec records this first-slice boundary. After this change, the GUI/directory/package-focused suite passed (252 tests), the full suite passed (929 tests in 102.84s), compileall/package/archive checks passed, and Kodi checker 0.0.36 reported no add-on problems/warnings on the final archive (dependency check skipped for this last run; dependency availability passed on the immediately preceding package build).
+
+ZIP: `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`, **433,800 bytes**, SHA-256:
+`2d687f9c413dee6b1b334583d62a3be8f265499fa32d1a850089002883b16cb5`.
 
 ## Live acceptance unavailable
 

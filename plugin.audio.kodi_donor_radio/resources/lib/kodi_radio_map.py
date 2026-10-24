@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi 21.3 WindowXML adapter for the shared radio discovery map."""
 from urllib.parse import parse_qs, urlencode, urlsplit
+import os
 import threading
 import re
 import time
@@ -12,7 +13,7 @@ import xbmcgui
 from radio_map import (MapView, cluster_cities, nearest_city_in_direction,
                        project, visible_cities)
 from playback_arbiter import PlaybackStartArbiter
-from radio_ui import station_identifier, safe_favicon
+from radio_ui import station_identifier
 
 
 PIN_FIRST_ID = 1000
@@ -439,8 +440,10 @@ class RadioMapWindow(xbmcgui.WindowXML):
             if not city_label:
                 city_label = self._unknown_location
             entry.setLabel2(' · '.join(value for value in (city_label, code) if value))
-            favicon = safe_favicon(getattr(station, 'favicon', ''))
-            artwork = favicon or 'DefaultAudio.png'
+            # Kodi would fetch remote ListItem art outside UrlPolicy. Keep
+            # directory-controlled image URLs away from the native loader.
+            artwork = os.path.join(xbmcaddon.Addon().getAddonInfo('path'),
+                                   'resources', 'station-monogram.png')
             entry.setArt({'thumb': artwork, 'icon': artwork})
             entry.setInfo('music', {'title': label})
             entry.setProperty('station_uuid', station_uuid)

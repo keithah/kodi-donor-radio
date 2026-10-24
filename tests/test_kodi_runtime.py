@@ -1125,14 +1125,15 @@ def test_station_display_metadata_safe_artwork_and_uuid_links(kodi, monkeypatch)
     runtime, state, _ = kodi
     browser = directory(monkeypatch, runtime)
     browser.search = lambda *a: [Station('a', 'FM 88', 'https://secret.example/token', 'AAC', False,
-        city='San Mateo', bitrate=64, tags='jazz,news', favicon='https://art.example/a.png'),
+        city='San Mateo', bitrate=64, tags='jazz,news', favicon='http://127.0.0.1:8080/admin'),
         Station('b', 'Other', 'https://secret.example/other', '', False, favicon='file:///secret')]
     route(runtime, mode='tag', tag='jazz')
     assert len(state.items) == 2
     link, item, folder = state.items[0]
     assert parse_qs(urlsplit(link).query) == {'mode': ['play'], 'uuid': ['a']}
     assert item.label == 'FM 88' and item.label2 == 'San Mateo · AAC 64'
-    assert item.art == {'thumb': 'https://art.example/a.png', 'icon': 'https://art.example/a.png'}
+    expected_art = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/station-monogram.png'
+    assert item.art == {'thumb': str(expected_art), 'icon': str(expected_art)}
     assert item.info['music']['genre'] == 'jazz,news'
     assert item.info['music']['title'] == 'FM 88'
     assert item.props['IsPlayable'] == 'true' and folder is False and item.folder is False

@@ -74,7 +74,8 @@ def load_window(monkeypatch):
         Player=lambda: SimpleNamespace(isPlaying=lambda: False, getPlayingFile=lambda: '',
                                        play=lambda *args: None, stop=lambda: None)))
     monkeypatch.setitem(sys.modules, 'xbmcaddon', SimpleNamespace(
-        Addon=lambda: SimpleNamespace(getLocalizedString=lambda identifier: 'localized-%d' % identifier)))
+        Addon=lambda: SimpleNamespace(getLocalizedString=lambda identifier: 'localized-%d' % identifier,
+                                      getAddonInfo=lambda key: '/addon')))
     sys.modules.pop('kodi_radio_map', None)
     return importlib.import_module('kodi_radio_map')
 
@@ -109,7 +110,8 @@ def test_window_populates_bounded_pin_pool_and_station_rail(monkeypatch):
     rail = window.controls[2000]
     assert [item.label for item in rail.items] == ['Station %02d' % i for i in range(50)]
     assert rail.items[0].getProperty('station_uuid') == 'station-00'
-    assert rail.items[0].art == {'thumb': 'DefaultAudio.png', 'icon': 'DefaultAudio.png'}
+    assert rail.items[0].art == {'thumb': '/addon/resources/station-monogram.png',
+                                 'icon': '/addon/resources/station-monogram.png'}
     assert 'Town' in rail.items[0].label2 and 'MP3' in rail.items[0].label2
     assert window.xml_args == ('map.xml', '/addon', 'Default', '1080i', False)
 
@@ -172,6 +174,20 @@ def test_station_rail_skin_has_visible_focus_and_metadata_fallback():
     ordinary = ET.tostring(rail.find('itemlayout'), encoding='unicode')
     assert '703D9BE9' in focused and focused != ordinary
     assert 'ListItem.Label2' in focused and 'ListItem.Art(thumb)' in focused
+
+
+def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch):
+    from dataclasses import replace
+    module = load_window(monkeypatch)
+    hostile = replace(station('local-art', 'Local Art', 0, 0),
+                      favicon='http://127.0.0.1:8080/admin')
+    window = make_window(module, stations=[hostile])
+    window.onInit()
+    window._render_rail()
+    art = window.controls[2000].items[0].art
+    assert art == {'thumb': '/addon/resources/station-monogram.png',
+                   'icon': '/addon/resources/station-monogram.png'}
+    assert '127.0.0.1' not in repr(art)
 
 
 def test_station_rail_play_uses_uuid_route_and_never_reports_click(monkeypatch):
