@@ -1684,7 +1684,8 @@ def setup_directory(monkeypatch, runtime):
 
 
 @pytest.mark.parametrize('choices,inputs', [
-    ([-1], []), ([0, -1], []), ([1], ['']), ([0, 0, -1], []),
+    ([-1], []), ([0, -1], []), ([1, 0], ['']), ([0, 0, -1], []),
+    ([1, -1], []),
     ([0, 0, 0, -1], []), ([0, 0, 0, 1, -1], []),
     ([0, 0, 0, 1, 0, -1], []),
 ])
@@ -1709,7 +1710,7 @@ def test_setup_saves_multiple_valid_city_candidates_once_then_refreshes(kodi, mo
     import radio_ui
     runtime, state, profile = kodi
     browser = setup_directory(monkeypatch, runtime)
-    state.dialog_choices = [0, 0, 0, 1, 0, 1, 0, 3, 1]
+    state.dialog_choices = [0, 0, 0, 1, 0, 1, 1, 0, 3, 1]
     state.dialog_inputs = ['Tokyo']
     calls = []
     real_replace = os.replace
@@ -1722,7 +1723,7 @@ def test_setup_saves_multiple_valid_city_candidates_once_then_refreshes(kodi, mo
     assert len(calls) == 1
     assert 'secret.example' not in (profile / 'places.json').read_text()
     assert state.builtins == ['Container.Refresh']
-    assert browser.geo_calls == [('FR', 0, 50), ('', 0, 50)]
+    assert browser.geo_calls == [('FR', 0, 50), ('JP', 0, 50)]
     assert browser.clicks == browser.lookups == state.resolved == []
 
 
@@ -1755,7 +1756,7 @@ def test_setup_rejects_candidates_without_valid_coordinates(kodi, monkeypatch, s
     runtime, state, profile = kodi
     browser = setup_directory(monkeypatch, runtime)
     browser.geographic = lambda *args: ([station], False)
-    state.dialog_choices = [1]
+    state.dialog_choices = [1, 0]
     state.dialog_inputs = ['City']
     route(runtime, mode='setup')
     assert not (profile / 'places.json').exists()
@@ -1771,9 +1772,10 @@ def test_setup_cities_are_deduplicated_matched_and_scan_is_bounded(kodi, monkeyp
     def geographic(code, offset, limit):
         browser.geo_calls.append((code, offset, limit)); return raw * 25, True
     browser.geographic = geographic
-    state.dialog_choices, state.dialog_inputs = [1, -1], ['Paris']
+    state.dialog_choices, state.dialog_inputs = [1, 0, -1], ['Paris']
     route(runtime, mode='setup')
     assert len(browser.geo_calls) == 4
+    assert all(call[0] == 'FR' for call in browser.geo_calls)
     assert state.selections[-1][1] == ['Paris · France (48.800, 2.300)']
     assert not (profile / 'places.json').exists()
 
@@ -1786,7 +1788,7 @@ def test_setup_failure_after_pending_place_does_not_write_and_abort_is_respected
         if browser.geo_calls: raise OSError('offline')
         return real_geo(*args)
     browser.geographic = geographic
-    state.dialog_choices = [0, 0, 0, 1, 0, 1]
+    state.dialog_choices = [0, 0, 0, 1, 0, 1, 0]
     state.dialog_inputs = ['Tokyo']
     route(runtime, mode='setup')
     assert not (profile / 'places.json').exists()

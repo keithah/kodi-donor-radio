@@ -412,17 +412,16 @@ def _guided_setup(browser, monitor, cancel):
         return
     while len(pending) < available:
         source = _dialog_choice(dialog, 30130, [text(30131), text(30132)], monitor, cancel)
-        country_code, query = '', ''
-        if source == 0:
-            countries = _operation(browser.country_entries, monitor, cancel)
-            if not countries:
-                _error(30139)
-                return
-            choice = _dialog_choice(dialog, 30002, [name for name, _ in countries], monitor, cancel)
-            country_code = countries[choice][1]
-            if not re.fullmatch(r'[A-Z]{2}', country_code):
-                raise ValueError('Invalid country code')
-        else:
+        countries = _operation(browser.country_entries, monitor, cancel)
+        if not countries:
+            _error(30139)
+            return
+        choice = _dialog_choice(dialog, 30002, [name for name, _ in countries], monitor, cancel)
+        country_code = countries[choice][1]
+        if not re.fullmatch(r'[A-Z]{2}', country_code):
+            raise ValueError('Invalid country code')
+        query = ''
+        if source == 1:
             query = _query_text(dialog.input(text(30133))).strip()
             _check_ui_cancel(monitor, cancel)
             if not query:

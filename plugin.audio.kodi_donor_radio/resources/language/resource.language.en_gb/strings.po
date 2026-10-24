@@ -349,7 +349,7 @@ msgid "Choose a country"
 msgstr ""
 
 msgctxt "#30132"
-msgid "Search for a place"
+msgid "Search within a country"
 msgstr ""
 
 msgctxt "#30133"

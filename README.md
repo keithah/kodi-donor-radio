@@ -55,8 +55,9 @@ Play, Add to / Remove from favorites, Show on map, and Station info. Station
 routes contain UUIDs; playback resolves the current stream through the relay.
 Favorites retain safe display metadata and the last deliberate-play time.
 
-Choose **Set up Donor Radio** from the root, or **Run setup** in Settings. Native dialogs find
-cities represented by a bounded Radio Browser station scan, then offer a radius
+Choose **Set up Donor Radio** from the root, or **Run setup** in Settings. Native dialogs ask
+for a country before browsing its bounded station scan or searching for a place
+within that country, then offer a radius
 of 10, 25, 60, 100, or 250 miles. Save one or more places at the final confirmation;
 cancelling leaves existing places unchanged. Place menus change the radius,
 choose the default, or remove the place. Nearby results are filtered locally

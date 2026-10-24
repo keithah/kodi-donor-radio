@@ -14,17 +14,19 @@ Closing an ad session suppresses late VAST preparation-error callbacks. Station
 resolution now trusts a concrete audio MIME type and binary sniff over a playlist-like
 URL suffix. ICY learned-marker lookups use immutable snapshots and do not wait for
 profile writes. The README and radio-browser spec now use the actual Settings label and
-accurately distinguish stream resolution from click counting. HLS line parsing
+accurately distinguish stream resolution from click counting. Setup asks for a
+country before either browsing or filtering a free-text place query, so search is
+scoped to that country rather than the global top 200 stations. HLS line parsing
 splits only at LF/CRLF so Unicode separators inside EXTINF titles cannot desynchronize
 the relay parser from Kodi. The repository tree separates the packaged add-on from
 root-level development tests and tools. Focused playback/HLS/marker/resolution checks
 passed **205 tests**; the full suite passed
-**1,039 tests in 112.63s**. `compileall`, package build, `check_package.py`, and
+**1,040 tests in 116.51s**. `compileall`, package build, `check_package.py`, and
 `git diff --check` passed. Kodi add-on checker 0.0.36 on a fresh ZIP extraction
 reported no add-on problems or warnings with dependency checks skipped; its host
 Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
-**37 files**, **457,747 bytes**, mode **0644**, SHA-256
-`84c5033c569998115cb0a5f3955a984a1577d7698917e09678e6fb413356788b`.
+**37 files**, **457,688 bytes**, mode **0644**, SHA-256
+`b999d864219e1d8d9e1fb0fb7f9601c0b196413ecd5dc4994b80a8a6d889d75d`.
 Live Kodi UI and playback remain unverified because desktop automation reports
 that the Mac is locked.
 

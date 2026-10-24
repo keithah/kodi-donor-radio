@@ -15,7 +15,7 @@ view/store and themed Home, Now playing, and other themed windows are deferred.
 The implemented settings are `guided_setup=false`, `offer_setup_row=true`,
 `preview_on_browse=true`, and the `run_setup` action. The target `interface` and
 `theme_open_on` selectors are deferred until their screens exist. Setup uses a
-bounded station-derived city scan and 10/25/60/100/250-mile radius choices,
+country-scoped bounded station-derived place scan and 10/25/60/100/250-mile radius choices,
 converted to kilometers in the store. Place results use bounded country pages
 and local radius filtering; the map uses at most 200 seed rows, 60 city pins,
 and 50 rail stations. It does not yet implement a complete geocoding catalog,
