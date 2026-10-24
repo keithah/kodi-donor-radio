@@ -33,16 +33,25 @@ _GRID_STEPS = (120, 90, 60, 45, 30, 20, 15, 10, 5, 2, 1, .5,
                .25, .125, .0625, .01, .001)
 
 
+def _grid_value_count(start, end, step):
+    """Count strict-interior grid lines without allocating their coordinates."""
+    first = math.floor(start / step) + 1
+    last = math.ceil(end / step) - 1
+    return max(0, last - first + 1)
+
+
 def _grid_values(start, end):
     """Choose a bounded, readable set of evenly spaced graticule values."""
     candidates = []
     for step in _GRID_STEPS:
         first = math.floor(start / step) + 1
         last = math.ceil(end / step) - 1
+        count = _grid_value_count(start, end, step)
+        if not 1 <= count <= 5:
+            continue
         values = [round(index * step, 8) for index in range(first, last + 1)
                   if start < index * step < end]
-        if 1 <= len(values) <= 5:
-            candidates.append((abs(4 - len(values)), -len(values), -step, values))
+        candidates.append((abs(4 - count), -count, -step, values))
     return min(candidates)[3] if candidates else []
 
 

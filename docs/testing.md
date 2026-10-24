@@ -153,13 +153,13 @@ cleanup, the cancellation exception assertion, total source-segment fetch
 deadlines, HTTP/JSON control-response normalization, and retries after empty
 Radio Browser mirror discovery.
 
-The full suite passed **951 tests in 107.17s** after adding world/local/dateline
-grid-rendering cases; compileall, package creation,
+The full suite passed **952 tests in 104.46s** after adding world/local/dateline
+grid-rendering and density-count cases; compileall, package creation,
 `check_package.py`, and `git diff --check` passed. Kodi add-on checker 0.0.36
 reported no add-on problems or warnings, with only its environment's known
-LibreSSL/urllib3 warning. The final ZIP has **36 files**, is **446,664 bytes**,
+LibreSSL/urllib3 warning. The final ZIP has **36 files**, is **446,957 bytes**,
 and has SHA-256
-`c40299208eefe0543e65fdebe29f7a041699c7da1d8b2d317c52617d963edba8`.
+`2d58cdc36ca025ee81298a19f1cba226379749e0da537cd8f8a122056a747f54`.
 Kodi's actual visual acceptance remains pending because the desktop is locked.
 
 ## Controlled VAST acceptance, 2026-10-22

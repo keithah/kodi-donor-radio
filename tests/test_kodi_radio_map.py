@@ -261,6 +261,12 @@ def test_antimeridian_grid_uses_unwrapped_longitude_and_narrow_views_get_grid(mo
     assert any(narrow.controls[index].visible for index in range(25, 30))
 
 
+def test_grid_value_count_skips_dense_candidates_without_materializing_them(monkeypatch):
+    module = load_window(monkeypatch)
+    assert module._grid_value_count(-90, 90, .001) == 179999
+    assert module._grid_values(-90, 90) == [-60, -30, 0, 30, 60]
+
+
 def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch):
     from dataclasses import replace
     module = load_window(monkeypatch)
