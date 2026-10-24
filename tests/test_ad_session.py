@@ -26,6 +26,59 @@ def test_published_source_read_does_not_wait_for_playlist_render_lock():
     assert result == [b'immutable segment']
 
 
+def test_source_cache_retires_old_unrequested_routes_to_reserve_byte_budget(monkeypatch):
+    from collections import OrderedDict
+    import ad_session as module
+    monkeypatch.setattr(module, 'SOURCE_BYTES', 10)
+    monkeypatch.setattr(module, 'SOURCE_SEGMENTS', 4)
+    session = AdSession.__new__(AdSession)
+    session._lock = RLock()
+    session._source = {
+        'needed': (SimpleNamespace(id='needed'), b'n' * 4),
+        'old': (SimpleNamespace(id='old'), b'o' * 4),
+    }
+    session._source_by_id = {'needed': b'n' * 4, 'old': b'o' * 4}
+    session._published_order = OrderedDict((('old', None), ('needed', None)))
+    session._published = {'old', 'needed'}
+    session.active_ids = lambda: set()
+
+    session._make_source_room(6, {'needed', 'incoming'})
+
+    assert session._source_by_id == {'needed': b'n' * 4}
+    assert session._published == {'needed'}
+    assert list(session._published_order) == ['needed']
+
+
+def test_published_route_retention_is_limited_to_two_output_windows(monkeypatch):
+    from collections import OrderedDict
+    from types import SimpleNamespace
+    import ad_session as module
+    from ad_models import OutputSegment, Presentation
+    monkeypatch.setattr(module, 'SOURCE_SEGMENTS', 192)
+    session = AdSession.__new__(AdSession)
+    session._lock = RLock()
+    session._limit = 7
+    session._published_order = OrderedDict()
+    session._published = set()
+    session._source = {}
+    session._source_by_id = {}
+    session.active_ids = lambda: set()
+    session.timeline = SimpleNamespace()
+    session._midroll = None
+    session._prepared = []
+    session.creative = SimpleNamespace(unpin=lambda _identity: None)
+    session._initial = True
+    for batch in range(3):
+        segments = tuple(OutputSegment(batch * 7 + index, 0,
+                                       'resource-%d' % (batch * 7 + index),
+                                       (batch * 7 + index) * 48000,
+                                       48000, None) for index in range(7))
+        presentation = Presentation(segments, (), False)
+        session.timeline.update = lambda *_args, p=presentation: p
+        session._compose_locked(SimpleNamespace(segments=()), lambda identity: '/' + identity, {})
+    assert len(session._published_order) <= 14
+
+
 def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):
     import ad_session as module
     from hls import Playlist, Segment

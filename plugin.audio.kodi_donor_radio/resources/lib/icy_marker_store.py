@@ -38,6 +38,7 @@ class IcyMarkerStore:
         self.path = self.profile / 'icy-markers.json'
         self._lock = threading.RLock()
         self._stations = {}
+        self._load_failed = False
         try:
             with self.path.open('rb') as source:
                 body = source.read(_MAX_BYTES + 1)
@@ -56,9 +57,11 @@ class IcyMarkerStore:
                     if normalize_marker(marker) != marker or action not in ('start', 'end'):
                         raise ValueError('Invalid marker store')
             self._stations = data['stations']
+        except FileNotFoundError:
+            pass
         except (OSError, ValueError, UnicodeError, RecursionError):
             # A damaged or unsupported profile must not interrupt station playback.
-            pass
+            self._load_failed = True
 
     def lookup(self, station_uuid, marker):
         try:
@@ -75,6 +78,8 @@ class IcyMarkerStore:
         if action not in ('start', 'end'):
             raise ValueError('Invalid marker action')
         with self._lock:
+            if self._load_failed:
+                raise ValueError('Marker store is unreadable; refusing to overwrite')
             stations = {key: dict(value) for key, value in self._stations.items()}
             rules = stations.setdefault(station_uuid, {})
             rules[marker] = action

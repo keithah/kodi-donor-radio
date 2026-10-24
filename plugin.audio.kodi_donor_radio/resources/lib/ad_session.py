@@ -114,6 +114,33 @@ class AdSession:
     def presentation(self):
         return self.timeline.snapshot()
 
+    def _make_source_room(self, required_bytes, needed):
+        """Retire oldest inactive published source routes before the cache fills.
+
+        The caller holds ``_lock``. Routes in the incoming playlist and active
+        HTTP reads stay pinned; older published routes may expire under pressure.
+        """
+        active = self.active_ids()
+        while (len(self._source) >= SOURCE_SEGMENTS or
+               sum(len(value[1]) for value in self._source.values()) + required_bytes > SOURCE_BYTES):
+            victim = None
+            for resource_id in self._published_order:
+                if resource_id in active:
+                    continue
+                for url, (item, _data) in self._source.items():
+                    if item.id == resource_id and url not in needed:
+                        victim = resource_id, url
+                        break
+                if victim is not None:
+                    break
+            if victim is None:
+                raise CompositionFailure('source_cache_full')
+            resource_id, url = victim
+            self._published_order.pop(resource_id, None)
+            self._published.discard(resource_id)
+            item, _data = self._source.pop(url)
+            self._source_by_id.pop(item.id, None)
+
     def _cache_window(self, playlist):
         from ad_models import CachedSegment
         from pathlib import Path
@@ -165,9 +192,7 @@ class AdSession:
                     raise CompositionFailure('session_closed')
                 if segment.uri in self._source:
                     continue
-                if (len(self._source) >= SOURCE_SEGMENTS or
-                        sum(len(x[1]) for x in self._source.values()) + len(data) > SOURCE_BYTES):
-                    raise CompositionFailure('source_cache_full')
+                self._make_source_room(len(data), needed)
                 self._source[segment.uri] = (item, data)
                 self._source_by_id[item.id] = data
         with self._lock:
@@ -217,7 +242,7 @@ class AdSession:
         # Keep enough published IDs for the current output window plus an
         # incoming source window, while allowing old source bytes and creative
         # pins to be released during long-running radio sessions.
-        retention_limit = max(1, SOURCE_SEGMENTS - self._limit)
+        retention_limit = max(1, min(2 * self._limit, SOURCE_SEGMENTS - self._limit))
         while len(self._published_order) > retention_limit:
             self._published_order.popitem(last=False)
         self._published = set(self._published_order)

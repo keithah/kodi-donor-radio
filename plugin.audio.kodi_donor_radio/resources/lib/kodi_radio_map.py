@@ -355,13 +355,16 @@ class RadioMapWindow(xbmcgui.WindowXML):
                              == self.selected_uuid), None)
             if selected is not None:
                 incoming = [selected] + [station for station in incoming if station is not selected]
-        self.stations = incoming[:200]
         self.station_by_uuid = {}
-        for station in self.stations:
+        for station in incoming:
+            if len(self.station_by_uuid) >= 200:
+                break
             try:
-                self.station_by_uuid[_safe_station(station)] = station
+                station_uuid = _safe_station(station)
             except ValueError:
                 continue
+            self.station_by_uuid.setdefault(station_uuid, station)
+        self.stations = list(self.station_by_uuid.values())
         self.cities = cluster_cities(self.stations)
         preferred = next((city.city_id for city in self.cities
                           if self.selected_uuid and self.selected_uuid in city.station_uuids), None)

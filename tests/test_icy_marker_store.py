@@ -80,3 +80,14 @@ def test_256_station_limit_can_still_update_existing_station(tmp_path):
 def test_invalid_or_oversized_profile_does_not_load_rules(tmp_path, data):
     (tmp_path / 'icy-markers.json').write_bytes(data)
     assert IcyMarkerStore(tmp_path).lookup('one', '-') is None
+
+
+@pytest.mark.parametrize('data', [b'not json', b'{"version":2,"stations":{}}'])
+def test_learn_refuses_to_overwrite_unreadable_profile(tmp_path, data):
+    path = tmp_path / 'icy-markers.json'
+    path.write_bytes(data)
+    store = IcyMarkerStore(tmp_path)
+    with pytest.raises(ValueError, match='unreadable'):
+        store.learn('new-station', '-', 'start')
+    assert path.read_bytes() == data
+    assert store.lookup('new-station', '-') is None

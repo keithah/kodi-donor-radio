@@ -381,6 +381,19 @@ def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch
     assert '127.0.0.1' not in repr(art)
 
 
+def test_rejected_stations_do_not_create_or_inflate_map_pins(monkeypatch):
+    from dataclasses import replace
+    module = load_window(monkeypatch)
+    accepted = station('accepted', 'Accepted', 0, 0)
+    unsafe = replace(station('fixture-hidden', 'Fixture hidden', 0, 0), city='Other town')
+    window = make_window(module, stations=[unsafe, accepted])
+    window.onInit()
+    assert window.stations == [accepted]
+    assert len(window.pins) == 1
+    assert window.pins[0].station_uuids == ('accepted',)
+    assert window.pins[0].station_count == 1
+
+
 def test_station_rail_play_uses_uuid_route_and_never_reports_click(monkeypatch):
     module = load_window(monkeypatch)
     calls = []

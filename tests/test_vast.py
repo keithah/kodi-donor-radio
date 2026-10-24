@@ -26,8 +26,12 @@ def origin_server(tmp_path):
 
 
 def beacons(base):
-    with urlopen(base + '/stats') as response:
+    with urlopen(base + '/stats', timeout=5) as response:
         return json.load(response)['beacons']
+
+
+def assert_ad_error(error, code, reason):
+    assert (error.value.code, error.value.reason) == (code, reason)
 
 
 def test_wrapper_tracking_inherited_once(tmp_path):
@@ -51,10 +55,12 @@ def test_five_wrapper_hops_allowed_six_rejected(tmp_path):
     with origin_server(tmp_path) as (base, client):
         resolver = VastResolver(client, base)
         assert resolver.resolve(base + '/vast/wrapper-depth-2', threading.Event()).id == 'placement-1'
-        with pytest.raises(AdError):
+        with pytest.raises(AdError) as error:
             resolver.resolve(base + '/vast/wrapper-depth-1', threading.Event())
-        with pytest.raises(AdError):
+        assert_ad_error(error, 302, 'Too many VAST wrappers')
+        with pytest.raises(AdError) as error:
             resolver.resolve(base + '/vast/wrapper-depth', threading.Event())
+        assert_ad_error(error, 302, 'Too many VAST wrappers')
         assert beacons(base) == {}
 
 
@@ -66,15 +72,18 @@ def test_cycle_no_fill_bad_xml_and_external_entity(tmp_path, monkeypatch):
     with origin_server(tmp_path) as (base, client):
         resolver = VastResolver(client, base)
         assert resolver.resolve(base + '/vast/no-fill', threading.Event()) is None
-        for scenario in ('wrapper-cycle', 'invalid-xml'):
-            with pytest.raises(AdError):
+        for scenario, expected in (('wrapper-cycle', (302, 'VAST wrapper cycle')),
+                                   ('invalid-xml', (100, 'Invalid VAST XML'))):
+            with pytest.raises(AdError) as error:
                 resolver.resolve(base + '/vast/' + scenario, threading.Event())
+            assert_ad_error(error, *expected)
         monkeypatch.setattr(ad_fixture_server, 'vast_xml', lambda scenario, origin:
                             b'<!DOCTYPE VAST [<!ENTITY x SYSTEM "file:///etc/passwd">]>'
                             b'<VAST><Ad><InLine><AdTitle>&x;</AdTitle></InLine></Ad></VAST>'
                             if scenario == 'direct' else original(scenario, origin))
-        with pytest.raises(AdError):
+        with pytest.raises(AdError) as error:
             resolver.resolve(base + '/vast/direct', threading.Event())
+        assert_ad_error(error, 100, 'Invalid VAST XML')
         assert beacons(base) == {}
 
 
@@ -88,8 +97,9 @@ def test_vast_rejects_non_utf8_and_utf16_dtd_entities(body):
     from vast import VastResolver
     from ad_models import AdError
     resolver = VastResolver(None, 'http://127.0.0.1:8766')
-    with pytest.raises(AdError):
+    with pytest.raises(AdError) as error:
         resolver._parse(body)
+    assert_ad_error(error, 100, 'Invalid VAST XML')
 
 
 def test_ad_origin_wrapper_escape_rejected(tmp_path, monkeypatch):
@@ -120,8 +130,9 @@ def test_ad_origin_wrapper_escape_rejected(tmp_path, monkeypatch):
                 original('wrapped', origin).replace((origin + '/vast/direct').encode(),
                                                     (other + '/vast/direct').encode())
                 if scenario == 'direct' else original(scenario, origin))
-            with pytest.raises(AdError):
+            with pytest.raises(AdError) as error:
                 VastResolver(client, base).resolve(base + '/vast/direct', threading.Event())
+            assert_ad_error(error, 100, 'Advertising origin rejected')
             assert escaped_requests == []
             assert beacons(base) == {}
     finally:
@@ -141,8 +152,9 @@ def test_wrapper_no_fill_control_blocks_empty_child(tmp_path, monkeypatch):
                                                 b'fallbackOnNoAd="false"')
             .replace(b'/vast/direct', b'/vast/no-fill')
             if scenario == 'wrapped' else original(scenario, origin))
-        with pytest.raises(AdError):
+        with pytest.raises(AdError) as error:
             VastResolver(client, base).resolve(base + '/vast/wrapped', threading.Event())
+        assert_ad_error(error, 303, 'VAST wrapper returned no ad')
         assert beacons(base) == {}
 
 
@@ -185,8 +197,9 @@ def test_invalid_duration_rejected(tmp_path, monkeypatch, replacement):
         monkeypatch.setattr(ad_fixture_server, 'vast_xml', lambda scenario, origin:
             original('direct', origin).replace(b'<Duration>00:00:04.000</Duration>', replacement)
             if scenario == 'direct' else original(scenario, origin))
-        with pytest.raises(AdError):
+        with pytest.raises(AdError) as error:
             VastResolver(client, base).resolve(base + '/vast/direct', threading.Event())
+        assert_ad_error(error, 403, 'Invalid VAST duration')
         assert beacons(base) == {}
 
 
@@ -198,17 +211,23 @@ def test_oversized_xml_depth_nodes_and_media_url_rejected(tmp_path, monkeypatch)
     with origin_server(tmp_path) as (base, client):
         resolver = VastResolver(client, base)
         variants = (
-            b'<VAST version="4.3">' + b'<x>' * 33 + b'</x>' * 33 + b'</VAST>',
-            b'<VAST version="4.3">' + b'<x/>' * 4097 + b'</VAST>',
-            original('direct', base).replace(b'/ads/replacement.m3u8', b'/ads/' + b'x' * 8192),
-            original('direct', base).replace((base + '/ads/replacement.m3u8').encode(),
-                                             b'/ads/' + b'x' * (8192 - 5)),
-            b'<VAST version="4.3">' + b' ' * (256 * 1024) + b'</VAST>',
+            (b'<VAST version="4.3">' + b'<x>' * 33 + b'</x>' * 33 + b'</VAST>',
+             (100, 'VAST XML exceeds limits')),
+            (b'<VAST version="4.3">' + b'<x/>' * 4097 + b'</VAST>',
+             (100, 'VAST XML exceeds limits')),
+            (original('direct', base).replace(b'/ads/replacement.m3u8', b'/ads/' + b'x' * 8192),
+             (100, 'Invalid advertising URL')),
+            (original('direct', base).replace((base + '/ads/replacement.m3u8').encode(),
+                                              b'/ads/' + b'x' * (8192 - 5)),
+             (100, 'Invalid advertising URL')),
+            (b'<VAST version="4.3">' + b' ' * (256 * 1024) + b'</VAST>',
+             (301, 'VAST transport failed')),
         )
-        for data in variants:
+        for data, expected in variants:
             monkeypatch.setattr(ad_fixture_server, 'vast_xml', lambda scenario, origin, data=data: data)
-            with pytest.raises(AdError):
+            with pytest.raises(AdError) as error:
                 resolver.resolve(base + '/vast/direct', threading.Event())
+            assert_ad_error(error, *expected)
         assert beacons(base) == {}
 
 
@@ -222,6 +241,7 @@ def test_wrapper_required_verification_is_rejected(tmp_path, monkeypatch):
             original('wrapped', origin).replace(b'</Wrapper>',
                 b'<AdVerifications><Verification vendor="required"/></AdVerifications></Wrapper>')
             if scenario == 'wrapped' else original(scenario, origin))
-        with pytest.raises(AdError):
+        with pytest.raises(AdError) as error:
             VastResolver(client, base).resolve(base + '/vast/wrapped', threading.Event())
+        assert_ad_error(error, 403, 'Unsupported required VAST feature')
         assert beacons(base) == {}
