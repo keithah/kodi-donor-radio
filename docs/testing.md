@@ -8,15 +8,19 @@ policy, fixture beaconing defaulted to enabled without explicit session opt-in,
 and creative-preparation failures did not retain resolved VAST Error URLs. These
 paths now degrade safely or fail closed, with regression tests. Test-origin
 client disconnects are also silenced without hiding unrelated handler errors,
-and the VAST checkpoint now documents bounded media retention accurately.
+and the VAST checkpoint now documents bounded media retention accurately. Map
+and station-info screens also tolerate unreadable favorites/places. The
+directory smoke probe accepts ICY interval zero as unframed audio, while
+rejecting malformed interval values. Several threaded and timing tests now
+assert their outcomes outside worker callbacks and avoid read-scheduling flakes.
 
-The focused runtime, transport, VAST session and Kodi playback tests passed
-**266 tests**. The full suite passed **1,014 tests in 108.56s**. Compileall,
+The focused review regression set passed **267 tests**. The full suite passed
+**1,017 tests in 109.32s**. Compileall,
 `git diff --check`, package creation, and `check_package.py` passed. Kodi add-on
 checker 0.0.36 on a fresh archive extraction reported no problems or warnings;
 its environment emitted the known LibreSSL/urllib3 compatibility warning. The
-ZIP has **37 files**, **453,977 bytes**, mode **0644**, SHA-256
-`dc26028c615451a93a74dba3cfd1562f8c6645478a9845b23895ca16382cef33`.
+ZIP has **37 files**, **454,301 bytes**, mode **0644**, SHA-256
+`9fa5bc708ae91f494658929b208f1f5b3785141067da4bdc292787b17b0366a1`.
 Steward and CodeRabbit must run again against the exact committed revision
 before updating the PR branch. Interactive Kodi GUI acceptance remains pending
 because the desktop is locked.

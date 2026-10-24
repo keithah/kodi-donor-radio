@@ -455,7 +455,11 @@ def _lookup_summary(browser, station_uuid, monitor, cancel):
 
 def _station_info(browser, params, monitor, cancel):
     station_uuid = _real_station_uuid(params.get('uuid', ''))
-    summary = next((station for station in FavoriteStore(profile_path()).list()
+    try:
+        favorites = FavoriteStore(profile_path()).list()
+    except (OSError, ValueError, TypeError):
+        favorites = []
+    summary = next((station for station in favorites
                     if station.station_uuid == station_uuid), None)
     if summary is None:
         summary = _lookup_summary(browser, station_uuid, monitor, cancel)
@@ -557,9 +561,16 @@ def _open_map(params, monitor, cancel, base):
             raise
         except (OSError, ValueError):
             unavailable = xbmcaddon.Addon().getLocalizedString(30164)
-            selected = next((station for station in FavoriteStore(profile_path()).list()
+            try:
+                favorites = FavoriteStore(profile_path()).list()
+            except (OSError, ValueError, TypeError):
+                favorites = []
+            selected = next((station for station in favorites
                              if station.station_uuid == selected_uuid), None)
-    places = PlaceStore(profile_path()).list()
+    try:
+        places = PlaceStore(profile_path()).list()
+    except (OSError, ValueError, TypeError):
+        places = []
     place = next((candidate for candidate in places if candidate.is_default),
                  places[0] if places else None)
     country_code = (selected.country_code if selected is not None else

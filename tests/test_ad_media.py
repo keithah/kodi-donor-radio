@@ -460,6 +460,9 @@ def test_aggregate_parallel_preparation_is_bounded(tmp_path, monkeypatch):
 
     waiter = threading.Thread(target=attempt)
     waiter.start()
+    waiter.join(.2)
+    assert waiter.is_alive(), 'second preparation must wait for a preparation slot'
+    assert not second_client.calls
     cancel.set()
     waiter.join(1)
     assert not waiter.is_alive() and errors

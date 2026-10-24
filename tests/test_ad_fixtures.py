@@ -160,7 +160,7 @@ def test_failure_variants_and_source_mutation(assets):
         assert depth.findtext('.//VASTAdTagURI') == origin + '/vast/wrapper-depth-1'
         unsupported = ET.fromstring(get(origin, '/vast/unsupported-media'))
         assert unsupported.find('.//MediaFile').attrib['type'] == 'video/mp4'
-        with urlopen(origin + '/ads/unsupported.mp4') as response:
+        with urlopen(origin + '/ads/unsupported.mp4', timeout=3) as response:
             assert b'ftyp' in response.read(64)
         wrong = ET.fromstring(get(origin, '/vast/wrong-duration'))
         assert wrong.findtext('.//Duration') == '00:00:09.000'

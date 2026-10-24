@@ -2,8 +2,8 @@
 
 ## Scope and branch
 
-Worked only in `/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio` on
-`codex/vast-controlled-ads`, starting from clean base
+Worked only in the managed development worktree on `codex/vast-controlled-ads`,
+starting from clean base
 `2eabbee4f9e0d20ed7dddab90b61604d85cbfdb9`. Followed `final-fix-brief.md` as the
 requirements. No subagents/reviewers were dispatched, no branch was pushed, and
 no GitHub/PR state was changed. The Mac desktop remains locked; nothing in this

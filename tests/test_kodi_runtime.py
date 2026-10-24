@@ -186,6 +186,27 @@ def test_station_listing_recovers_when_favorites_are_unreadable(kodi, monkeypatc
     assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
 
 
+def test_map_launch_recovers_when_saved_profile_files_are_unreadable(kodi, monkeypatch):
+    runtime, _, profile = kodi
+    (profile / 'places.json').write_text('{invalid')
+    (profile / 'favorites.json').write_text('{invalid')
+    browser = directory(monkeypatch, runtime)
+    browser.by_uuid = lambda *_args: (_ for _ in ()).throw(OSError('offline'))
+    browser.geographic = lambda *args: ([], False)
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map', uuid=STATION.uuid)
+    assert opened and opened[-1].kwargs['stations'] == []
+    assert opened[-1].kwargs['status_message'] == 'localized-30164'
+
+
+def test_station_info_falls_back_to_directory_when_favorites_are_unreadable(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    (profile / 'favorites.json').write_text('{invalid')
+    directory(monkeypatch, runtime)
+    route(runtime, mode='station_info', uuid=STATION.uuid)
+    assert state.messages[-1].startswith(STATION.name)
+
+
 def test_settings_action_does_not_replace_home_listing_with_empty_folder(kodi):
     runtime, state, _ = kodi
     route(runtime, action='settings')
@@ -1005,12 +1026,18 @@ def test_startup_removes_only_abandoned_ad_cache_directories(kodi):
 def test_ad_cache_cleanup_failure_does_not_block_radio_service(kodi, monkeypatch, failure):
     import ad_media
     runtime, state, profile = kodi
-    state.action = lambda monitor: (runtime.read_descriptor(profile), setattr(state, 'abort', True))
+    seen = []
+    def action(monitor):
+        try:
+            seen.append(runtime.read_descriptor(profile))
+        finally:
+            state.abort = True
+    state.action = action
     monkeypatch.setattr(ad_media.CreativeCache, 'cleanup_abandoned',
                         lambda _profile: (_ for _ in ()).throw(failure))
     runtime.run_service()
     assert state.players
-    assert state.action is not None
+    assert len(seen) == 1 and seen[0].port > 0
     assert not state.notifications
 
 
@@ -1177,16 +1204,20 @@ def test_service_loads_station_labels_from_its_private_profile(kodi, monkeypatch
         result.resolver = lambda *args: ResolvedSource('https://radio.example/live', 'hls', None, b'')
         return result
     monkeypatch.setattr(runtime, 'SessionManager', manager)
+    learned = []
     def action(monitor):
-        client = ControlClient(runtime.read_descriptor(profile))
-        result = client.create(STATION)
-        # Access the actual service through its player, keeping relay and store real.
-        session = state.players[-1].manager.get(result['id'])
-        session.observe_icy_metadata({'StreamTitle': '-'}, '2026-10-23T00:00:00Z', time.monotonic())
-        assert session.icy_tracker.learned_lookup('-') == 'end'
-        state.abort = True
+        try:
+            client = ControlClient(runtime.read_descriptor(profile))
+            result = client.create(STATION)
+            # Access the actual service through its player, keeping relay and store real.
+            session = state.players[-1].manager.get(result['id'])
+            session.observe_icy_metadata({'StreamTitle': '-'}, '2026-10-23T00:00:00Z', time.monotonic())
+            learned.append(session.icy_tracker.learned_lookup('-'))
+        finally:
+            state.abort = True
     state.action = action
     runtime.run_service()
+    assert learned == ['end']
 
 
 @pytest.fixture

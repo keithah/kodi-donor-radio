@@ -306,9 +306,12 @@ def test_close_cancels_inflight_resolution_without_waiting_for_create_lock():
         stopped.set()
         raise OSError('cancelled')
     m = SessionManager(resolver=resolve)
+    errors = []
     def create():
-        with pytest.raises(OSError):
+        try:
             m.create(station())
+        except Exception as error:
+            errors.append(error)
     worker = threading.Thread(target=create)
     worker.start()
     assert entered.wait(1)
@@ -316,6 +319,7 @@ def test_close_cancels_inflight_resolution_without_waiting_for_create_lock():
     assert stopped.wait(1)
     worker.join(1)
     assert not worker.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], OSError)
 
 
 @pytest.mark.parametrize('selections', [2, 3])

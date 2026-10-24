@@ -201,6 +201,8 @@ def test_kodi_smoke_menu_matches_expected_fixture_id(monkeypatch, source, fixtur
 
 
 def test_kodi_smoke_menu_rejects_unknown_source(monkeypatch):
+    monkeypatch.setattr(smoke_ad_kodi, 'rpc',
+                        lambda *_args, **_kwargs: pytest.fail('rpc before source validation'))
     with pytest.raises(ValueError, match='Unknown controlled source'):
         smoke_ad_kodi._menu_file(9090, 'unexpected')
 
