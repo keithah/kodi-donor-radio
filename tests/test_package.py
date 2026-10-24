@@ -117,6 +117,21 @@ def test_package_checker_rejects_python_that_parses_but_cannot_compile(package):
         checker(contents)
 
 
+@pytest.mark.parametrize('comment_target', ['archive', 'member'])
+def test_package_checker_rejects_zip_comments(package, tmp_path, comment_target):
+    candidate = tmp_path / ('commented-' + comment_target + '.zip')
+    with zipfile.ZipFile(package) as source, zipfile.ZipFile(candidate, 'w') as target:
+        for index, item in enumerate(source.infolist()):
+            if comment_target == 'member' and index == 0:
+                item.comment = b'embedded-data'
+            target.writestr(item, source.read(item.filename))
+        if comment_target == 'archive':
+            target.comment = b'embedded-data'
+    result = run_tool('check_package.py', candidate)
+    assert result.returncode != 0
+    assert 'comments are not allowed' in result.stderr
+
+
 def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     source = tmp_path / ADDON
     shutil.copytree(ROOT / ADDON, source, ignore=shutil.ignore_patterns('__pycache__'))

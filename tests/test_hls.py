@@ -127,6 +127,19 @@ def test_malformed_playlists_rejected(text):
         parse(text)
 
 
+def test_empty_quoted_hls_metadata_values_are_valid_but_empty_uri_is_not():
+    from hls import InvalidPlaylist, parse_playlist
+    playlist = parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",'
+                               'LANGUAGE="",CHARACTERISTICS=""\n', 'https://radio.example/master.m3u8')
+    assert playlist.is_master
+    with pytest.raises(InvalidPlaylist, match='Invalid resource URI'):
+        parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",URI=""\n',
+                       'https://radio.example/master.m3u8')
+    with pytest.raises(InvalidPlaylist, match='Empty attribute'):
+        parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",LANGUAGE=\n',
+                       'https://radio.example/master.m3u8')
+
+
 def test_oversized_playlist_rejected_by_shared_byte_limit():
     from hls import InvalidPlaylist
     with pytest.raises(InvalidPlaylist):

@@ -123,6 +123,7 @@ def check_contents(contents):
 
 def check_package(path):
     with zipfile.ZipFile(path) as archive:
+        require(not archive.comment, 'ZIP archive comments are not allowed')
         infos = archive.infolist()
         names = [info.filename for info in infos]
         require(len(names) == len(set(names)), 'Duplicate ZIP members')
@@ -130,6 +131,7 @@ def check_package(path):
         require(set(names) == expected, 'Unexpected, missing, or unsafe ZIP paths')
         require(sum(info.file_size for info in infos) <= 16 * 1024 * 1024, 'Package exceeds size limit')
         for info in infos:
+            require(not info.comment, 'ZIP member comments are not allowed')
             mode = info.external_attr >> 16
             require(stat.S_IFMT(mode) == stat.S_IFREG and stat.S_IMODE(mode) == 0o644,
                     'Only non-executable regular files with mode 0644 are allowed')

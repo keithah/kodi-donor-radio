@@ -131,7 +131,7 @@ def _attributes(value):
                     raise InvalidPlaylist('Malformed unquoted attribute')
                 i += 1
             end, decoded = i, value[start:i]
-        if not decoded:
+        if not decoded and not quoted:
             raise InvalidPlaylist('Empty attribute')
         attrs[key], spans[key] = decoded, (start, end, quoted)
         if i < len(value):
