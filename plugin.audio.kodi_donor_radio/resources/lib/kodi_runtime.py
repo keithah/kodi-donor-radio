@@ -381,7 +381,12 @@ def _choose_radius(dialog, monitor, cancel):
 
 
 def _setup_candidates(browser, country_code, query, cancel):
-    """Cities represented by a bounded directory scan, not a geocoding catalog."""
+    """Bounded station-derived places using only fields the directory supplies.
+
+    City is optional/nonstandard in Radio Browser records. If absent, expose the
+    station's state as an area, or its coordinates as a station area; never label
+    either as a verified city.
+    """
     candidates = {}
     for page in range(GEO_SCAN_PAGES):
         if cancel.is_set():
@@ -390,8 +395,18 @@ def _setup_candidates(browser, country_code, query, cancel):
         for station in stations[:PAGE_SIZE]:
             try:
                 latitude, longitude = coordinates(station.latitude, station.longitude)
-                name = _query_text(station.city).strip()
-                if not name or len(name) > 128 or (query and query.casefold() not in name.casefold()):
+                city = _query_text(station.city).strip()
+                state = _query_text(station.state).strip()
+                if city:
+                    name = city
+                    source_name = city
+                elif state:
+                    name = '%s · %s' % (text(30153), state)
+                    source_name = state
+                else:
+                    name = '%s · %.3f, %.3f' % (text(30153), latitude, longitude)
+                    source_name = name
+                if len(name) > 128 or (query and query.casefold() not in source_name.casefold()):
                     continue
                 code = station.country_code
                 if code and not re.fullmatch(r'[A-Z]{2}', code):
@@ -589,7 +604,9 @@ def _open_map(params, monitor, cancel, base):
             raise Cancelled('Request cancelled')
         descriptor = read_descriptor(profile_path())
         client = ControlClient(descriptor, timeout=10)
-        session = client.create(station)
+        # Service-side create is non-destructive and refuses if a deliberate
+        # or pending session exists; Player guards alone are too late.
+        session = client.create_preview(station)
         if not isinstance(session, dict):
             raise ValueError('Invalid preview response')
         session_id = _relay_path(session.get('playback_url', ''), descriptor.port)
@@ -618,6 +635,7 @@ def _open_map(params, monitor, cancel, base):
             except (OSError, ValueError): pass
 
     window = RadioMapWindow(
+        'map.xml', xbmcaddon.Addon().getAddonInfo('path'), 'Default', '1080i', False,
         origin_route=params.get('origin', base + '?' + urlencode({'mode': 'home'})),
         selected_uuid=selected_uuid, stations=stations, view=view,
         preview_enabled=xbmcaddon.Addon().getSettingBool('preview_on_browse'),

@@ -34,6 +34,11 @@ class ControlClient:
         return self._request('POST', '/sessions', {
             key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
 
+    def create_preview(self, station):
+        """Create only when the service has no deliberate/pending session."""
+        return self._request('POST', '/preview-sessions', {
+            key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
+
     def stop(self, session_id):
         self._request('DELETE', '/sessions/' + session_id)
 

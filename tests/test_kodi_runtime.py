@@ -121,7 +121,9 @@ def route(runtime, **params):
 def install_map_window(monkeypatch):
     opened = []
     class MapWindow:
-        def __init__(self, **kwargs): self.kwargs = kwargs; opened.append(self)
+        def __init__(self, *native, **kwargs):
+            self.native, self.kwargs = native, kwargs
+            opened.append(self)
         def doModal(self): self.modal = True
     monkeypatch.setitem(sys.modules, 'kodi_radio_map', SimpleNamespace(RadioMapWindow=MapWindow))
     return opened
@@ -254,6 +256,9 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     assert opened[-1].kwargs['stations'] == [STATION]
     assert opened[-1].kwargs['origin_route'] == source
     assert opened[-1].kwargs['playback_arbiter'].lock_path == profile / 'playback-start.lock'
+    assert opened[-1].native[0] == 'map.xml'
+    assert opened[-1].native[1] == opened[-1].kwargs['addon_path']
+    assert opened[-1].native[2:] == ('Default', '1080i', False)
     assert browser.clicks == []
 
 
@@ -1439,13 +1444,32 @@ def test_setup_saves_multiple_valid_city_candidates_once_then_refreshes(kodi, mo
     assert browser.clicks == browser.lookups == state.resolved == []
 
 
+def test_setup_uses_truthful_station_area_when_official_schema_has_no_city(kodi, monkeypatch):
+    import radio_ui
+    from radio_browser import RadioBrowser
+    runtime, state, profile = kodi
+    browser = setup_directory(monkeypatch, runtime)
+    row = {'stationuuid': 'schema-station', 'name': 'Regional Radio',
+           'url_resolved': 'https://radio.example/live', 'country': 'France',
+           'countrycode': 'FR', 'state': 'Brittany', 'geo_lat': 48.1,
+           'geo_long': -1.7, 'codec': 'MP3', 'hls': 0}
+    parsed = RadioBrowser._stations([row])
+    assert len(parsed) == 1 and parsed[0].city == '' and parsed[0].state == 'Brittany'
+    browser.geographic = lambda *args: (parsed, False)
+    state.dialog_choices = [0, 0, 0, 0, 1]
+    route(runtime, mode='setup')
+    places = radio_ui.PlaceStore(profile).list()
+    assert places[0].name == 'localized-30153 · Brittany'
+    assert places[0].country_code == 'FR' and state.builtins == ['Container.Refresh']
+
+
 @pytest.mark.parametrize('station', [
     Station('none', 'Missing', 'https://x', '', False, city='City'),
     Station('lat', 'Invalid', 'https://x', '', False, city='City', latitude=91, longitude=0),
     Station('lon', 'Invalid', 'https://x', '', False, city='City', latitude=0, longitude=float('nan')),
-    Station('nameless', 'No city', 'https://x', '', False, latitude=0, longitude=0),
+    Station('nameless', 'No city', 'https://x', '', False, latitude=None, longitude=None),
 ])
-def test_setup_rejects_city_candidates_without_valid_coordinates_or_city(kodi, monkeypatch, station):
+def test_setup_rejects_candidates_without_valid_coordinates(kodi, monkeypatch, station):
     runtime, state, profile = kodi
     browser = setup_directory(monkeypatch, runtime)
     browser.geographic = lambda *args: ([station], False)

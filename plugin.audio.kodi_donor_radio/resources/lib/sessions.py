@@ -309,6 +309,46 @@ class SessionManager:
                     if self._pending is cancel:
                         self._pending = None
 
+    def create_preview(self, station):
+        """Create a preview session only while no deliberate or pending choice exists.
+
+        This check and creation share the same serialization lock as deliberate
+        creates. Preview preparation therefore cannot evict the station currently
+        playing or cancel a deliberate selection that raced with it.
+        """
+        with self._create_lock:
+            with self._lock:
+                if self._closed or self._session is not None or self._pending is not None:
+                    raise RuntimeError('Preview unavailable while a station is selected')
+                cancel = self._pending = threading.Event()
+                ad_config = self.ad_config
+            source = None
+            try:
+                if cancel.is_set():
+                    raise RuntimeError('Preview cancelled')
+                source = self.resolver(station.url, self.client, cancel)
+                session = PlaybackSession(station, source, cancel, self.base_url,
+                                          self.sink, self.resource_limit, ad_config,
+                                          self.client, self.cache_root,
+                                          lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
+                                          if self.icy_marker_store is not None else None)
+                with self._lock:
+                    if self._closed or self._pending is not cancel or cancel.is_set() or self._session is not None:
+                        session.close('station_changed')
+                        source = None
+                        raise RuntimeError('Preview cancelled')
+                    self._session = session
+                    return session
+            except Exception:
+                cancel.set()
+                if source is not None and source.response is not None:
+                    source.response.close()
+                raise
+            finally:
+                with self._lock:
+                    if self._pending is cancel:
+                        self._pending = None
+
     def current_icy_candidate(self):
         self.expire()
         with self._lock:

@@ -148,7 +148,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/icy-marker/learn', '/icy-marker/label'):
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
@@ -165,7 +165,11 @@ class _Handler(BaseHTTPRequestHandler):
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
                 return self._reply(400)
-            session = self.server.relay.manager.create(Station(**data))
+            station = Station(**data)
+            if self.path == '/preview-sessions':
+                session = self.server.relay.manager.create_preview(station)
+            else:
+                session = self.server.relay.manager.create(station)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:

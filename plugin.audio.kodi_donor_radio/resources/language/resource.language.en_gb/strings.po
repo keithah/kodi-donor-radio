@@ -249,7 +249,7 @@ msgid "Guided setup"
 msgstr ""
 
 msgctxt "#30102"
-msgid "Pick the cities you care about before you start. You can run setup again from Settings. Listings use your Kodi skin; themed screens and their settings will be added later."
+msgid "Pick the places you care about before you start. You can run setup again from Settings. Listings use your Kodi skin; themed screens and their settings will be added later."
 msgstr ""
 
 msgctxt "#30103"
@@ -349,15 +349,15 @@ msgid "Choose a country"
 msgstr ""
 
 msgctxt "#30132"
-msgid "Search for a city"
+msgid "Search for a place"
 msgstr ""
 
 msgctxt "#30133"
-msgid "City name"
+msgid "Place, area, or coordinates"
 msgstr ""
 
 msgctxt "#30134"
-msgid "Choose a city from listed stations"
+msgid "Choose a place based on listed stations"
 msgstr ""
 
 msgctxt "#30135"
@@ -377,7 +377,7 @@ msgid "Save places"
 msgstr ""
 
 msgctxt "#30139"
-msgid "No matching cities with valid coordinates were found in this bounded station scan. Try a country or a different city."
+msgid "No matching station locations with valid coordinates were found in this bounded directory scan. Try a country or a different location."
 msgstr ""
 
 msgctxt "#30140"
@@ -406,4 +406,20 @@ msgstr ""
 
 msgctxt "#30150"
 msgid "Selected"
+msgstr ""
+
+msgctxt "#30151"
+msgid "stations"
+msgstr ""
+
+msgctxt "#30152"
+msgid "Radio preview"
+msgstr ""
+
+msgctxt "#30153"
+msgid "Station area"
+msgstr ""
+
+msgctxt "#30154"
+msgid "Unknown location"
 msgstr ""

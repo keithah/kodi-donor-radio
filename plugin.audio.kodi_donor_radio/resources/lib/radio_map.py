@@ -140,7 +140,9 @@ def cluster_cities(stations):
         if (not isinstance(station_uuid, str) or not _STATION_ID.fullmatch(station_uuid) or
                 not _coordinate(latitude, -90, 90) or not _coordinate(longitude, -180, 180)):
             continue
-        city = _clean_label(_get(station, 'city', '')) or 'Unknown location'
+        # Keep the pure projection free of UI language; the Kodi adapter adds
+        # the localized fallback label when it renders an unnamed area.
+        city = _clean_label(_get(station, 'city', ''))
         country = _clean_label(_get(station, 'country', ''))
         raw_country_code = _get(station, 'country_code', '')
         country_code = (raw_country_code.upper() if isinstance(raw_country_code, str) and

@@ -333,6 +333,18 @@ def test_control_client_and_credential_headers_not_forwarded(relay, origin):
     assert request(result['playback_url'])[0] == 404
 
 
+def test_preview_create_cannot_replace_an_existing_deliberate_session(relay, origin):
+    from control import ControlClient
+    control = ControlClient(relay[3])
+    deliberate = control.create(Station('deliberate', 'Chosen radio', origin[0] + '/list', '', True))
+    active = relay[1].get(deliberate['id'])
+    assert request(deliberate['playback_url'])[0] == 200
+    with pytest.raises(OSError):
+        control.create_preview(Station('preview', 'Preview radio', origin[0] + '/list', '', True))
+    assert relay[1].get(deliberate['id']) is active
+    assert not active.cancel.is_set()
+
+
 def test_hop_headers_and_invalid_range_never_forwarded_as_success(relay, origin):
     s = create(relay, origin, '/nominated')
     status, headers, body = request(s.playback_url)

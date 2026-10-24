@@ -46,6 +46,9 @@ class Item:
 
 
 class WindowXML:
+    def __new__(cls, xml_filename, script_path, default_skin, default_res, is_media):
+        assert xml_filename and script_path
+        return object.__new__(cls)
     def __init__(self, *args):
         self.xml_args = args
         self.controls = {control_id: Control(control_id) for control_id in range(1000, 1060)}
@@ -90,7 +93,8 @@ def make_window(module, **kwargs):
                     view=MapView(1, -1, -1, 1, 1000, 650), preview_enabled=False,
                     addon_path='/addon', plugin_base='plugin://plugin.audio.kodi_donor_radio')
     defaults.update(kwargs)
-    return module.RadioMapWindow(**defaults)
+    native = ('map.xml', '/addon', 'Default', '1080i', False)
+    return module.RadioMapWindow(*native, **defaults)
 
 
 def test_window_populates_bounded_pin_pool_and_station_rail(monkeypatch):
@@ -105,6 +109,20 @@ def test_window_populates_bounded_pin_pool_and_station_rail(monkeypatch):
     rail = window.controls[2000]
     assert [item.label for item in rail.items] == ['Station %02d' % i for i in range(50)]
     assert rail.items[0].getProperty('station_uuid') == 'station-00'
+    assert rail.items[0].art == {'thumb': 'DefaultAudio.png', 'icon': 'DefaultAudio.png'}
+    assert 'Town' in rail.items[0].label2 and 'MP3' in rail.items[0].label2
+    assert window.xml_args == ('map.xml', '/addon', 'Default', '1080i', False)
+
+
+@pytest.mark.parametrize('base', ['plugin://plugin.audio.kodi_donor_radio',
+                                  'plugin://plugin.audio.kodi_donor_radio/'])
+def test_validates_and_canonicalizes_both_kodi_plugin_root_forms(monkeypatch, base):
+    module = load_window(monkeypatch)
+    route = base + '?mode=home'
+    window = make_window(module, origin_route=route, plugin_base=base)
+    assert window.origin_route == route
+    with pytest.raises(ValueError):
+        make_window(module, origin_route=base + 'other?mode=home', plugin_base=base)
 
 
 def test_directional_city_navigation_uses_radio_map_and_does_not_wrap(monkeypatch):
@@ -118,6 +136,42 @@ def test_directional_city_navigation_uses_radio_map_and_does_not_wrap(monkeypatc
     last = window.selected_city_id
     window.onAction(Action(2))
     assert window.selected_city_id == last
+
+
+def test_rail_previews_native_focused_row_and_only_exits_after_edge_is_reached(monkeypatch):
+    module = load_window(monkeypatch)
+    window = make_window(module, preview_enabled=True, stations=[
+        station('one', 'One', 0, 0), station('two', 'Two', 0, 0), station('three', 'Three', 0, 0)])
+    window.onInit()
+    rail = window.controls[2000]
+    assert rail.size() == 3
+    window._preview = SimpleNamespace(focus_station=lambda uuid: seen.append(uuid), cancel=lambda: None)
+    seen = []
+    window._rail_position = 0
+    window.setFocusId(2000)
+    rail.selectItem(1)  # Kodi changes selection before Python receives onAction.
+    second_uuid = rail.items[1].getProperty('station_uuid')
+    window.onAction(Action(4))
+    assert seen == [second_uuid] and window.getFocusId() == 2000
+    rail.selectItem(2)
+    last_uuid = rail.items[2].getProperty('station_uuid')
+    window.onAction(Action(4))
+    assert seen == [second_uuid, last_uuid] and window.getFocusId() == 2000
+    window.onAction(Action(4))
+    assert window.getFocusId() == module.PREVIEW_ID
+
+
+def test_station_rail_skin_has_visible_focus_and_metadata_fallback():
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i/map.xml'
+    tree = ET.parse(root)
+    rail = tree.find(".//control[@id='2000']")
+    assert rail is not None
+    focused = ET.tostring(rail.find('focusedlayout'), encoding='unicode')
+    ordinary = ET.tostring(rail.find('itemlayout'), encoding='unicode')
+    assert '703D9BE9' in focused and focused != ordinary
+    assert 'ListItem.Label2' in focused and 'ListItem.Art(thumb)' in focused
 
 
 def test_station_rail_play_uses_uuid_route_and_never_reports_click(monkeypatch):
@@ -141,9 +195,12 @@ def test_station_rail_keeps_dpad_navigation_inside_rows_until_edge(monkeypatch):
     window = make_window(module, stations=stations, selected_uuid='one', preview_enabled=True)
     window.onInit()
     window.setFocusId(2000)
+    window.controls[2000].selectItem(1)
     window.onAction(Action(4))
     assert window.getFocusId() == 2000
     window.controls[2000].selectItem(2)
+    window.onAction(Action(4))
+    assert window.getFocusId() == 2000
     window.onAction(Action(4))
     assert window.getFocusId() == 3000
 
@@ -299,7 +356,8 @@ def test_close_stops_only_preview_owned_by_window(monkeypatch):
     assert played == ['stop'] and stopped == ['owned']
 
 
-def test_close_retires_owned_session_when_intent_lock_fails(monkeypatch):
+@pytest.mark.parametrize('lifecycle_method', ['cancel', 'close'])
+def test_cancel_or_close_retires_owned_session_when_intent_lock_fails(monkeypatch, lifecycle_method):
     module = load_window(monkeypatch)
     events = []
     player = SimpleNamespace(isPlaying=lambda: True,
@@ -318,10 +376,34 @@ def test_close_retires_owned_session_when_intent_lock_fails(monkeypatch):
                         '_playback_intent': 'unknown-intent'}
     window._preview = controller
 
-    window.close()
+    getattr(controller, lifecycle_method)()
 
-    assert window.closed
     assert events == [('stop-session', 'owned')]
+
+
+def test_deferred_stop_failure_retires_session_after_exact_url_ack(monkeypatch):
+    module = load_window(monkeypatch)
+    events, workers = [], []
+    player = SimpleNamespace(isPlaying=lambda: True,
+                              getPlayingFile=lambda: 'http://127.0.0.1:1/preview',
+                              stop=lambda: events.append('stop-player'))
+    arbiter = module.PlaybackStartArbiter()
+    arbiter.stop_if_current = lambda *_: (_ for _ in ()).throw(OSError('lock failed'))
+    def thread(target, daemon=True):
+        worker = SimpleNamespace(target=target, start=lambda: workers.append(worker))
+        return worker
+    controller = module.PreviewController(
+        lambda *_: None, lambda _: True, lambda _: None, player.getPlayingFile,
+        player.isPlaying, player.stop,
+        lambda session: events.append(('stop-session', session)),
+        thread_factory=thread, playback_arbiter=arbiter)
+    controller.owned = {'session_id': 'acknowledged', 'playback_url': player.getPlayingFile(),
+                        '_playback_intent': None}
+    controller._pending_playback_url = controller.owned['playback_url']
+    controller.cancel()
+    assert len(workers) == 1 and events == []
+    workers[0].target()
+    assert events == [('stop-session', 'acknowledged')]
 
 
 def test_pending_worker_retires_session_when_intent_lock_fails(monkeypatch):

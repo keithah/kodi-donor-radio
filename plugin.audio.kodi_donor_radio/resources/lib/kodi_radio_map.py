@@ -32,12 +32,12 @@ PENDING_PLAY_POLL_SECONDS = 0.05
 def _valid_origin(route, plugin_base):
     if not isinstance(route, str) or len(route) > 1024:
         raise ValueError('Invalid map origin')
-    if plugin_base != 'plugin://plugin.audio.kodi_donor_radio':
-        raise ValueError('Invalid plugin identity')
     parts = urlsplit(route)
     base = urlsplit(plugin_base)
-    if (parts.scheme != 'plugin' or parts.netloc != base.netloc or
-            parts.path != base.path or len(parts.query) > 512 or
+    if (base.scheme != 'plugin' or base.netloc != 'plugin.audio.kodi_donor_radio' or
+            base.path not in ('', '/') or base.query or base.fragment or
+            parts.scheme != 'plugin' or parts.netloc != base.netloc or
+            parts.path not in ('', '/') or len(parts.query) > 512 or
             parts.fragment or parts.username or parts.password):
         raise ValueError('Invalid map origin')
     query = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
@@ -294,7 +294,16 @@ class RadioMapWindow(xbmcgui.WindowXML):
     local projection, navigation, and UUID-safe playback requests.
     """
 
-    def __init__(self, origin_route, selected_uuid, stations, view, preview_enabled,
+    def __new__(cls, xml_filename, script_path, default_skin='Default',
+                default_res='720p', is_media=False, **state):
+        # Kodi's SWIG WindowXML constructor is invoked from tp_new, before this
+        # class's __init__. Consume add-on state here so only native parameters
+        # reach Kodi's allocator.
+        return super().__new__(cls, xml_filename, script_path, default_skin,
+                               default_res, is_media)
+
+    def __init__(self, xml_filename, script_path, default_skin, default_res, is_media,
+                 origin_route, selected_uuid, stations, view, preview_enabled,
                  addon_path, plugin_base='plugin://plugin.audio.kodi_donor_radio',
                  execute=None, preview_start=None, preview_stop=None, player_factory=None,
                  timer_factory=None, thread_factory=None, status_message='',
@@ -325,6 +334,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
                           if self.selected_uuid and self.selected_uuid in city.station_uuids), None)
         self.pins = visible_cities(self.cities, view, selected_city=preferred, limit=PIN_LIMIT)
         self.city_by_id = {city.city_id: city for city in self.pins}
+        self._unknown_location = xbmcaddon.Addon().getLocalizedString(30154)
         self.selected_city_id = ''
         if self.selected_uuid:
             self.selected_city_id = next((city.city_id for city in self.pins
@@ -340,7 +350,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
         self._timer_factory, self._thread_factory = timer_factory, thread_factory
         self._playback_arbiter = playback_arbiter or PlaybackStartArbiter()
         self._preview = None
-        super().__init__('map.xml', addon_path, 'Default', '1080i', False)
+        self._rail_position = 0
+        super().__init__(xml_filename, script_path, default_skin, default_res, is_media)
 
     def onInit(self):
         self.getControl(PREVIEW_ID).setLabel(xbmcaddon.Addon().getLocalizedString(30145))
@@ -395,7 +406,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
                                 min(MAP_TOP + MAP_HEIGHT - 42, max(MAP_TOP, y)))
             control.setVisible(True)
             control.setEnabled(True)
-            label = '%s (%d)' % (city.city[:24], city.station_count)
+            city_label = city.city or self._unknown_location
+            label = '%s (%d)' % (city_label[:24], city.station_count)
             if city.city_id == self.selected_city_id:
                 label = self._selected_prefix + ' ' + label
             control.setLabel(label)
@@ -408,8 +420,9 @@ class RadioMapWindow(xbmcgui.WindowXML):
             self.getControl(STATUS_ID).setLabel(
                 self.status_message or xbmcaddon.Addon().getLocalizedString(30147))
             return
-        status = '%s · %s · %d stations' % (
-            city.city, city.country or city.country_code, city.station_count)
+        status = '%s · %s · %d %s' % (
+            city.city or self._unknown_location, city.country or city.country_code, city.station_count,
+            xbmcaddon.Addon().getLocalizedString(30151))
         self.getControl(STATUS_ID).setLabel((self.status_message + ' · ' + status)
                                             if self.status_message else status)
         station_uuids = sorted(city.station_uuids, key=lambda uuid: (
@@ -422,14 +435,17 @@ class RadioMapWindow(xbmcgui.WindowXML):
             label = getattr(station, 'name', '') or station_uuid
             entry = xbmcgui.ListItem(label=label)
             code = getattr(station, 'codec', '')
-            city_label = getattr(station, 'city', '')
+            city_label = getattr(station, 'city', '') or getattr(station, 'state', '')
+            if not city_label:
+                city_label = self._unknown_location
             entry.setLabel2(' · '.join(value for value in (city_label, code) if value))
             favicon = safe_favicon(getattr(station, 'favicon', ''))
-            if favicon:
-                entry.setArt({'thumb': favicon, 'icon': favicon})
+            artwork = favicon or 'DefaultAudio.png'
+            entry.setArt({'thumb': artwork, 'icon': artwork})
             entry.setInfo('music', {'title': label})
             entry.setProperty('station_uuid', station_uuid)
             rail.addItems([entry])
+        self._rail_position = 0
 
     def focus_city(self, city_id):
         if city_id not in self.city_by_id:
@@ -450,6 +466,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
             if direction == 'right':
                 target = RAIL_ID
                 self.setFocusId(target)
+                self._rail_position = self.getControl(RAIL_ID).getSelectedPosition()
             elif direction == 'down':
                 target = PREVIEW_ID if self.preview_enabled else BACK_ID
                 self.setFocusId(target)
@@ -492,18 +509,20 @@ class RadioMapWindow(xbmcgui.WindowXML):
             elif direction == 'down':
                 rail = self.getControl(RAIL_ID)
                 position = rail.getSelectedPosition()
-                if position + 1 < rail.size():
-                    self._preview_station_at(position + 1)
-                else:
+                if position != self._rail_position:
+                    self._rail_position = position
+                    self._preview_station_at(position)
+                elif position + 1 >= rail.size():
                     self.setFocusId(PREVIEW_ID if self.preview_enabled else BACK_ID)
                     if self._preview:
                         self._preview.cancel()
             elif direction == 'up':
                 rail = self.getControl(RAIL_ID)
                 position = rail.getSelectedPosition()
-                if position > 0:
-                    self._preview_station_at(position - 1)
-                else:
+                if position != self._rail_position:
+                    self._rail_position = position
+                    self._preview_station_at(position)
+                elif position == 0:
                     self.setFocusId(self._pin_control(self.selected_city_id) or BACK_ID)
                     if self._preview:
                         self._preview.cancel()
@@ -518,10 +537,12 @@ class RadioMapWindow(xbmcgui.WindowXML):
     def onFocus(self, control_id):
         if PIN_FIRST_ID <= control_id < PIN_FIRST_ID + len(self.pins):
             self.focus_city(self.pins[control_id - PIN_FIRST_ID].city_id)
-        elif control_id == RAIL_ID and self._preview:
-            station_uuid = self._focused_station_uuid()
-            if station_uuid:
-                self._preview.focus_station(station_uuid)
+        elif control_id == RAIL_ID:
+            self._rail_position = self.getControl(RAIL_ID).getSelectedPosition()
+            if self._preview:
+                station_uuid = self._focused_station_uuid()
+                if station_uuid:
+                    self._preview.focus_station(station_uuid)
         elif control_id != RAIL_ID and self._preview:
             self._preview.cancel()
 
@@ -566,7 +587,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
 
     def _play_preview(self, result):
         player = self._player_factory()
-        entry = xbmcgui.ListItem(label='Radio preview', path=result['playback_url'])
+        entry = xbmcgui.ListItem(label=xbmcaddon.Addon().getLocalizedString(30152), path=result['playback_url'])
         entry.setProperty('IsPlayable', 'true')
         mime = result.get('mime_type', 'application/octet-stream')
         if isinstance(mime, str) and len(mime) <= 128:
