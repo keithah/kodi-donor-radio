@@ -426,41 +426,43 @@ directory URL.
 
 ## Repo layout
 
-The current repository is `plugin.audio.kodi_donor_radio/`. This inventory describes
-the observation/VAST POC and the implemented first GUI slice; themed windows
-beyond the shared map remain proposed.
+The repository root contains the add-on package and its development-only
+tests, tools, and documentation. This inventory describes the observation/VAST
+POC and the implemented first GUI slice; themed windows beyond the shared map
+remain proposed.
 
 ```
-plugin.audio.kodi_donor_radio/
-  addon.xml                         music plugin + service declarations
-  default.py                        plugin:// entry point
-  service.py                        Kodi service entry point
-  resources/
-    settings.xml                    setup, map preview, diagnostics, fixture-only ads
-    lib/
-      kodi_runtime.py               Kodi routes, service loop, player callbacks
-      radio_browser.py              mirror discovery, directory calls, click counter
-      radio_ui.py                   safe place/favorite stores, display/radius helpers
-      radio_map.py                  pure projection, clustering, directional selection
-      kodi_radio_map.py             shared map window and preview lifecycle
-      playback_arbiter.py            profile lock and add-on direct-start intent tokens
-      station_resolver.py           bounded M3U/PLS/HTTP resolution
-      sessions.py                   session and opaque resource ownership
-      relay.py                      local HTTP relay and HLS route rewriting
-      hls.py                         HLS parsing and cue observation
-      cues.py                        normalized cue lifecycle
-      ad_session.py                 controlled VAST preparation and HLS composition
-      ad_timeline.py                immutable 48 kHz output sample timeline
-      ad_media.py                    AAC/TS validation and creative cache
-      ad_tracking.py                 playback evidence and beacon worker
-      kodi_ad_player.py              fixture-only Kodi clock adapter
-      events.py, control.py, ...     bounded diagnostics and local service control
-    skins/Default/1080i/map.xml      shared map, 60 pin controls and station rail
-    station-monogram.png            bundled station fallback
-    language/resource.language.en_gb/
-  tests/                             pure, relay, package, and Kodi-adapter tests
-  tools/                             local fixtures, smoke checks, packaging
-  docs/                              design, validation, and monetization roadmap
+<repository root>/
+  plugin.audio.kodi_donor_radio/   distributable add-on root
+    addon.xml                         music plugin + service declarations
+    default.py                        plugin:// entry point
+    service.py                        Kodi service entry point
+    resources/
+      settings.xml                    setup, map preview, diagnostics, fixture-only ads
+      lib/
+        kodi_runtime.py               Kodi routes, service loop, player callbacks
+        radio_browser.py              mirror discovery, directory calls, click counter
+        radio_ui.py                   safe place/favorite stores, display/radius helpers
+        radio_map.py                  pure projection, clustering, directional selection
+        kodi_radio_map.py             shared map window and preview lifecycle
+        playback_arbiter.py            profile lock and add-on direct-start intent tokens
+        station_resolver.py           bounded M3U/PLS/HTTP resolution
+        sessions.py                   session and opaque resource ownership
+        relay.py                      local HTTP relay and HLS route rewriting
+        hls.py                         HLS parsing and cue observation
+        cues.py                        normalized cue lifecycle
+        ad_session.py                 controlled VAST preparation and HLS composition
+        ad_timeline.py                immutable 48 kHz output sample timeline
+        ad_media.py                    AAC/TS validation and creative cache
+        ad_tracking.py                 playback evidence and beacon worker
+        kodi_ad_player.py              fixture-only Kodi clock adapter
+        events.py, control.py, ...     bounded diagnostics and local service control
+      skins/Default/1080i/map.xml      shared map, 60 pin controls and station rail
+      station-monogram.png            bundled station fallback
+      language/resource.language.en_gb/
+  tests/                             repository root; not packaged
+  tools/                             repository root; not packaged
+  docs/                              repository root; not packaged
 ```
 
 Projection/clustering and profile stores now remain independent of Kodi. Future

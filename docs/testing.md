@@ -5,23 +5,26 @@
 The Kodi preview stop path now marks its playback intent and releases the shared
 profile lock before calling `Player.stop()`. Add-on starts wait for that bounded
 handoff, while GUI-thread intent checks remain responsive. Abandoned stop markers
-expire after one minute; markers with future timestamps are stale, covering
-systems whose clock moves backward. A regression verifies a blocked stop cannot
-hold the profile lock or race a new playback start, and another verifies a
-future-dated marker is cleared.
+expire after one minute using a cross-process monotonic clock; future-dated markers
+are stale after a reboot. Regressions verify a blocked stop cannot hold the profile
+lock or race a new playback start, and wall-clock changes do not expire an active
+marker.
 
 Closing an ad session suppresses late VAST preparation-error callbacks. Station
 resolution now trusts a concrete audio MIME type and binary sniff over a playlist-like
 URL suffix. ICY learned-marker lookups use immutable snapshots and do not wait for
-profile writes. The README and radio-browser spec now use the actual Settings label
-and accurately distinguish stream resolution from click counting. The focused
-playback-arbiter/map tests passed **57 tests**; the full suite passed
-**1,034 tests in 112.16s**. `compileall`, package build, `check_package.py`, and
+profile writes. The README and radio-browser spec now use the actual Settings label and
+accurately distinguish stream resolution from click counting. HLS line parsing
+splits only at LF/CRLF so Unicode separators inside EXTINF titles cannot desynchronize
+the relay parser from Kodi. The repository tree separates the packaged add-on from
+root-level development tests and tools. Focused playback/HLS/marker/resolution checks
+passed **205 tests**; the full suite passed
+**1,039 tests in 112.63s**. `compileall`, package build, `check_package.py`, and
 `git diff --check` passed. Kodi add-on checker 0.0.36 on a fresh ZIP extraction
 reported no add-on problems or warnings with dependency checks skipped; its host
 Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
-**37 files**, **458,410 bytes**, mode **0644**, SHA-256
-`c6359aab49b8a9dd3125a37eec7b82c48e3f4508a56def0c8c03787ba6d377b0`.
+**37 files**, **457,747 bytes**, mode **0644**, SHA-256
+`84c5033c569998115cb0a5f3955a984a1577d7698917e09678e6fb413356788b`.
 Live Kodi UI and playback remain unverified because desktop automation reports
 that the Mac is locked.
 

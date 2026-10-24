@@ -208,9 +208,15 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
     """
     if len(text.encode('utf-8')) > BODY_BYTES:
         raise InvalidPlaylist('Playlist exceeds size limit')
-    if any(ord(c) < 32 and c not in '\r\n' for c in text) or '\ufeff' in text:
+    if (any(ord(c) < 32 and c not in '\r\n' for c in text) or '\ufeff' in text
+            or re.search(r'\r(?!\n)', text)):
         raise InvalidPlaylist('Invalid playlist characters')
-    lines = tuple(text.splitlines(keepends=True))
+    # HLS uses LF or CRLF line endings. str.splitlines() also treats Unicode
+    # separators inside EXTINF title text as line boundaries, unlike Kodi.
+    parts = text.split('\n')
+    lines = tuple(part + '\n' for part in parts[:-1])
+    if parts[-1]:
+        lines += (parts[-1],)
     if not lines or lines[0].rstrip('\r\n') != '#EXTM3U':
         raise InvalidPlaylist('Missing HLS signature')
     _resolve(final_url, final_url)

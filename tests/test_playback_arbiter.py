@@ -113,9 +113,19 @@ def test_future_dated_stop_marker_is_treated_as_stale(tmp_path):
     module = load_module()
     arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
     with arbiter._locked():
-        arbiter._write_intent('!%.6f' % (time.time() + 3600))
+        arbiter._write_intent('!%.6f' % (time.monotonic() + 3600))
 
     started = []
     token = arbiter.start_if_available(lambda: True, lambda: started.append(True))
 
     assert token and started == [True]
+
+
+def test_active_stop_marker_uses_monotonic_time_not_wall_clock(tmp_path, monkeypatch):
+    module = load_module()
+    arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
+    with arbiter._locked():
+        arbiter._write_intent('!%.6f' % time.monotonic())
+    monkeypatch.setattr(module.time, 'time', lambda: -3600)
+
+    assert arbiter._stop_pending()

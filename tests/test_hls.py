@@ -127,6 +127,21 @@ def test_malformed_playlists_rejected(text):
         parse(text)
 
 
+@pytest.mark.parametrize('separator', ['\x85', '\u2028', '\u2029'])
+def test_unicode_separators_in_extinf_title_are_not_hls_line_breaks(separator):
+    playlist = parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+                     '#EXTINF:6,Title' + separator + 'Artist\nsegment.aac\n')
+    assert len(playlist.segments) == 1
+    assert playlist.segments[0].uri.endswith('/segment.aac')
+    assert playlist.lines[2].endswith('Title' + separator + 'Artist\n')
+
+
+def test_bare_carriage_return_is_not_an_hls_line_ending():
+    from hls import InvalidPlaylist
+    with pytest.raises(InvalidPlaylist, match='Invalid playlist characters'):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\r#EXTINF:6,Title\nsegment.aac\n')
+
+
 def test_empty_quoted_hls_metadata_values_are_valid_but_empty_uri_is_not():
     from hls import InvalidPlaylist, parse_playlist
     playlist = parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",'

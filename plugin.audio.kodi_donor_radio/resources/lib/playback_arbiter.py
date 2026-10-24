@@ -89,18 +89,7 @@ class PlaybackStartArbiter:
 
     def _record_intent(self):
         token = uuid.uuid4().hex
-        if self.lock_path is None:
-            with _registry_lock:
-                _path_intents[self._key] = token
-            return token
-        intent_path = Path(str(self.lock_path) + '.intent')
-        fd = os.open(str(intent_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-        try:
-            os.chmod(str(intent_path), 0o600)
-            os.write(fd, token.encode('ascii'))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        self._write_intent(token)
         return token
 
     def _write_intent(self, value):
@@ -117,39 +106,32 @@ class PlaybackStartArbiter:
         finally:
             os.close(fd)
 
-    def _current_intent(self):
+    def _read_intent_raw(self):
         if self.lock_path is None:
             with _registry_lock:
-                return _path_intents.get(self._key)
+                return _path_intents.get(self._key, '')
         try:
             with open(str(self.lock_path) + '.intent', 'rb') as source:
-                token = source.read(64)
-        except OSError:
+                return source.read(96).decode('ascii')
+        except (OSError, UnicodeDecodeError):
             return None
-        try:
-            value = token.decode('ascii')
-        except UnicodeDecodeError:
-            return None
-        return value if len(value) == 32 else None
+
+    def _current_intent(self):
+        value = self._read_intent_raw()
+        return value if isinstance(value, str) and len(value) == 32 else None
 
     def _stop_pending(self):
         """Return whether a stop callback owns playback, expiring crash residue."""
-        if self.lock_path is None:
-            with _registry_lock:
-                value = _path_intents.get(self._key, '')
-        else:
-            try:
-                with open(str(self.lock_path) + '.intent', 'rb') as source:
-                    value = source.read(96).decode('ascii')
-            except (OSError, UnicodeDecodeError):
-                return False
-        if not value.startswith('!'):
+        value = self._read_intent_raw()
+        if not isinstance(value, str) or not value.startswith('!'):
             return False
         try:
             started = float(value[1:])
         except ValueError:
             started = 0
-        age = time.time() - started
+        # Python's monotonic clock is shared across processes; a negative age
+        # means the marker predates a system reboot and is stale.
+        age = time.monotonic() - started
         if 0 <= age <= STOP_MARKER_MAX_AGE:
             return True
         self._write_intent('')
@@ -178,7 +160,7 @@ class PlaybackStartArbiter:
 
     def stop_if_current(self, token, can_stop, callback):
         """Run potentially blocking Kodi stop calls without holding the profile lock."""
-        marker = '!%.6f' % time.time()
+        marker = '!%.6f' % time.monotonic()
         with self._locked():
             if self._stop_pending():
                 return False
@@ -192,15 +174,7 @@ class PlaybackStartArbiter:
             return True
         finally:
             with self._locked():
-                if self.lock_path is None:
-                    with _registry_lock:
-                        current = _path_intents.get(self._key)
-                else:
-                    try:
-                        with open(str(self.lock_path) + '.intent', 'rb') as source:
-                            current = source.read(96).decode('ascii')
-                    except (OSError, UnicodeDecodeError):
-                        current = None
+                current = self._read_intent_raw()
                 if current == marker:
                     self._write_intent('')
 
