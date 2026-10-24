@@ -194,6 +194,30 @@ def test_map_pins_and_actions_have_visible_distinct_focus_styles():
     assert title is not None and title.text == '$LOCALIZE[30149]'
 
 
+def test_map_schematic_has_geographic_grid_and_region_labels():
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i/map.xml'
+    xml = ET.parse(root)
+    images = {int(node.get('id')): node for node in xml.findall(".//control[@type='image']")
+              if node.get('id') is not None}
+    assert set(range(20, 30)) <= set(images)
+    horizontal = [images[index] for index in range(20, 25)]
+    vertical = [images[index] for index in range(25, 30)]
+    assert all(int(node.findtext('width')) == 1030 and int(node.findtext('height')) == 1
+               for node in horizontal)
+    assert all(int(node.findtext('width')) == 1 and int(node.findtext('height')) == 590
+               for node in vertical)
+    assert [int(node.findtext('top')) for node in horizontal] == [243, 341, 440, 538, 636]
+    assert [int(node.findtext('left')) for node in vertical] == [247, 419, 590, 762, 933]
+    labels = {int(node.get('id')): node.findtext('label')
+              for node in xml.findall(".//control[@type='label']")
+              if node.get('id') is not None}
+    assert [labels[index] for index in range(30, 37)] == [
+        '$LOCALIZE[%d]' % value for value in range(30155, 30162)]
+    assert '$LOCALIZE[30148]' in [node.findtext('label') for node in xml.findall(".//control[@type='label']")]
+
+
 def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch):
     from dataclasses import replace
     module = load_window(monkeypatch)

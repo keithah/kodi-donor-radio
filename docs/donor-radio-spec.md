@@ -7,7 +7,7 @@ Oct 22, 2026 · @Keith
 This describes the full product target. The 2026-10-23 first slice implements
 skin-native root/nested listings, safe place and favorite stores (including the
 favorite's last deliberate-play timestamp), sequential native setup dialogs,
-station/place actions, and one shared schematic map with debounced preview.
+station/place actions, and one shared labeled schematic map with a coordinate grid and debounced preview.
 The existing Radio Browser discovery, local relay, ICY/HLS observation, and
 controlled loopback-only VAST/HLS behavior remain in place. A separate history
 view/store and themed Home, Now playing, and other themed windows are deferred.
@@ -21,7 +21,7 @@ and local radius filtering; the map uses at most 200 seed rows, 60 city pins,
 and 50 rail stations. It does not yet implement a complete geocoding catalog,
 free map panning/zoom, or all target artwork.
 
-Automated and package verification is recorded in [testing](testing.md#gui-package-verification--2026-10-23).
+Automated and package verification is recorded in [testing](testing.md#gui-package-verification--initial-task-7-run-2026-10-23).
 New GUI acceptance on Kodi 21.3 remains unverified because the desktop was locked:
 Estuary/alternate-skin rendering, real setup, D-pad/focus, playback, click count,
 and preview behavior have not been observed. External Kodi UI/other-add-on/native

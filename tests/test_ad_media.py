@@ -222,10 +222,11 @@ def test_invalid_manifest_never_returns_creative(tmp_path, manifest):
 
 
 def test_cancel_during_body_never_publishes(tmp_path):
+    from http_client import Cancelled
     stop = threading.Event()
     client = Client(on_read=stop.set)
     cache = CreativeCache(tmp_path, client, 'http://127.0.0.1:8766')
-    with pytest.raises(Exception):
+    with pytest.raises(Cancelled):
         cache.prepare(ad(), stop)
     assert not list(tmp_path.rglob('*.ts'))
     cache.close()

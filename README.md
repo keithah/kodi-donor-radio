@@ -90,7 +90,7 @@ end-to-end acceptance is **unverified**: the 2026-10-23 desktop check reported t
 Mac locked. Estuary/alternate-skin rendering, setup interaction, D-pad/focus
 restoration, real playback, click count, and preview behavior still require an
 accessible Kodi desktop. Earlier playback evidence above predates this GUI.
-See [the current GUI acceptance record](docs/testing.md#gui-package-verification--2026-10-23).
+See [the current GUI acceptance record](docs/testing.md#gui-package-verification--initial-task-7-run-2026-10-23).
 
 ## Stream scope
 

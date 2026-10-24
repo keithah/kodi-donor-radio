@@ -397,7 +397,7 @@ msgid "No mapped stations are available. Check your connection or browse the dir
 msgstr ""
 
 msgctxt "#30148"
-msgid "Schematic map. Pins use station coordinates reported by Radio Browser."
+msgid "Schematic world map: labeled regions, 30° latitude and 60° longitude grid; not to scale. Pins use station coordinates reported by Radio Browser."
 msgstr ""
 
 msgctxt "#30149"
@@ -422,4 +422,32 @@ msgstr ""
 
 msgctxt "#30154"
 msgid "Unknown location"
+msgstr ""
+
+msgctxt "#30155"
+msgid "NORTH AMERICA"
+msgstr ""
+
+msgctxt "#30156"
+msgid "SOUTH AMERICA"
+msgstr ""
+
+msgctxt "#30157"
+msgid "EUROPE"
+msgstr ""
+
+msgctxt "#30158"
+msgid "AFRICA"
+msgstr ""
+
+msgctxt "#30159"
+msgid "ASIA"
+msgstr ""
+
+msgctxt "#30160"
+msgid "OCEANIA"
+msgstr ""
+
+msgctxt "#30161"
+msgid "ANTARCTICA"
 msgstr ""

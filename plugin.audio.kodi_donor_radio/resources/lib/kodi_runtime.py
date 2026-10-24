@@ -1026,7 +1026,7 @@ class ServiceMonitor(xbmc.Monitor):
 def run_service():
     monitor = ServiceMonitor()
     while not monitor.abortRequested():
-        server, descriptor = None, None
+        server, descriptor, player = None, None, None
         try:
             monitor.ad_changed = False
             profile = _private_profile(profile_path())
@@ -1063,7 +1063,7 @@ def run_service():
                    and not monitor.ad_changed):
                 if monitor.waitForAbort(.5): break
         finally:
-            if 'player' in locals():
+            if player is not None:
                 player.ads.close()
             if server is not None: server.close()
             if descriptor is not None: remove_descriptor(profile, descriptor)

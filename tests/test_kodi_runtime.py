@@ -485,6 +485,28 @@ def test_service_settings_restart_invalidates_stale_token(kodi,monkeypatch):
     assert not (profile/'service.json').exists()
 
 
+@pytest.mark.parametrize('failure', ['http', 'json'])
+def test_control_client_normalizes_http_protocol_and_json_failures(monkeypatch, failure):
+    import control
+
+    closed = []
+    class Response:
+        status = 200
+        def read(self, _size): return b'{broken' if failure == 'json' else b'{}'
+    class Connection:
+        def request(self, *_args, **_kwargs):
+            if failure == 'http':
+                raise control.http.client.BadStatusLine('invalid')
+        def getresponse(self): return Response()
+        def close(self): closed.append(True)
+    conn = Connection()
+    monkeypatch.setattr(control.http.client, 'HTTPConnection', lambda *_args, **_kwargs: conn)
+
+    with pytest.raises(OSError, match='(?i)relay control'):
+        ControlClient(ServiceDescriptor(1234, 'instance', 'token')).health()
+    assert closed == [True]
+
+
 def test_debug_logging_is_opt_in(kodi):
     runtime,state,profile=kodi
     from models import Event

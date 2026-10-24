@@ -2,6 +2,7 @@
 """Session-local controlled HLS composition and immutable media retention."""
 import math
 import threading
+import time
 import uuid
 from collections import OrderedDict
 from dataclasses import replace
@@ -14,6 +15,7 @@ from vast import VastResolver
 
 SOURCE_BYTES = 32 * 1024 * 1024
 SOURCE_SEGMENTS = 192
+SOURCE_FETCH_SECONDS = 15
 
 
 class CompositionFailure(ValueError):
@@ -137,12 +139,15 @@ class AdSession:
                     raise CompositionFailure('session_closed')
                 if segment.uri in self._source:
                     continue
+            deadline = time.monotonic() + SOURCE_FETCH_SECONDS
             try:
-                with self.client.open(segment.uri, {}, self.cancel,
+                with self.client.open(segment.uri, {}, self.cancel, deadline=deadline,
                                       allowed_origin=playlist.final_url) as response:
                     if response.status != 200:
                         raise SourceUnavailable('source_unavailable')
                     data = read_bounded(response, SOURCE_BYTES)
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('Source segment fetch timed out')
             except Cancelled:
                 raise
             except SourceUnavailable:

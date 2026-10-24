@@ -19,14 +19,22 @@ class ControlClient:
     def _request(self, method, path, payload=None):
         conn = http.client.HTTPConnection('127.0.0.1', self.descriptor.port, timeout=self.timeout)
         try:
-            conn.request(method, path, json.dumps(payload).encode() if payload is not None else None,
-                         {'Authorization': 'Bearer ' + self.descriptor.control_token,
-                          'Content-Type': 'application/json'})
-            response = conn.getresponse()
-            body = response.read(16385)
-            if len(body) > 16384 or response.status not in (200, 201, 204):
-                raise OSError('Relay control request failed')
-            return json.loads(body) if body else None
+            try:
+                conn.request(method, path, json.dumps(payload).encode() if payload is not None else None,
+                             {'Authorization': 'Bearer ' + self.descriptor.control_token,
+                              'Content-Type': 'application/json'})
+                response = conn.getresponse()
+                body = response.read(16385)
+                if len(body) > 16384 or response.status not in (200, 201, 204):
+                    raise OSError('Relay control request failed')
+                if not body:
+                    return None
+                try:
+                    return json.loads(body)
+                except ValueError as error:
+                    raise OSError('Invalid relay control response') from error
+            except http.client.HTTPException as error:
+                raise OSError('Relay control request failed') from error
         finally:
             conn.close()
 

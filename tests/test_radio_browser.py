@@ -71,6 +71,27 @@ def test_click_one_attempt_per_selection_even_uncertain_delivery():
     assert len(transport.calls) == 2
 
 
+def test_empty_mirror_discovery_is_not_cached_and_can_recover():
+    from http_client import HttpError
+    from radio_browser import RadioBrowser
+
+    lookups = iter(([], ['https://recovered.example']))
+    calls = []
+    def lookup():
+        calls.append(True)
+        return next(lookups)
+    transport = Transport([Reply(b'[]')])
+    rb = RadioBrowser(transport, mirror_lookup=lookup)
+
+    with pytest.raises(HttpError, match='No Radio Browser mirrors available'):
+        rb.countries()
+    assert rb._mirrors is None
+
+    assert rb.countries() == []
+    assert len(calls) == 2
+    assert transport.calls[0][0] == 'https://recovered.example/json/countries?limit=300'
+
+
 def test_dns_mirror_discovery_uses_forward_then_reverse(monkeypatch):
     import radio_browser
     import socket

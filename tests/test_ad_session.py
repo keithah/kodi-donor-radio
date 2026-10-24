@@ -93,6 +93,41 @@ def test_source_transport_error_is_classified_as_retryable():
         session._cache_window(playlist)
 
 
+def test_source_segment_fetch_uses_one_total_deadline(monkeypatch):
+    import ad_session as module
+    from ad_session import SourceUnavailable
+    from hls import Playlist, Segment
+
+    observed = []
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *_args): pass
+        def read(self, _size): return b''
+
+    class Client:
+        def open(self, url, headers, cancel, deadline=None, allowed_origin=None):
+            observed.append((url, headers, deadline, allowed_origin))
+            return Response()
+
+    clock = iter((100.0, 100.0 + module.SOURCE_FETCH_SECONDS + .01))
+    monkeypatch.setattr(module.time, 'monotonic', lambda: next(clock))
+    session = AdSession.__new__(AdSession)
+    session._lock = RLock()
+    session._source, session._source_by_id, session._published = {}, {}, set()
+    session._limit, session.active_ids = 4, lambda: set()
+    session.client, session.cancel = Client(), Event()
+    session._closed = session._terminal = False
+    playlist = Playlist('http://fixture.test/index.m3u8', (), (), 0, 0, 1,
+                        (Segment(0, 0, 1, 0, 'http://fixture.test/segment.ts'),), (), False)
+
+    with pytest.raises(SourceUnavailable):
+        session._cache_window(playlist)
+    assert observed == [(playlist.segments[0].uri, {}, 100 + module.SOURCE_FETCH_SECONDS,
+                         playlist.final_url)]
+    assert not session._source
+
+
 def test_midroll_completion_after_close_tolerates_cleared_cache_and_signals_done():
     from threading import Event, RLock
 

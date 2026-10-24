@@ -139,6 +139,26 @@ known host LibreSSL/urllib3 warning. The package has SHA-256
 Live Kodi interface acceptance remains pending while the Mac desktop is
 locked.
 
+### Map context and final review follow-up — 2026-10-23
+
+An independent review noted that the first schematic map showed pins against a
+blank panel. The shared map now draws 30-degree latitude and 60-degree
+longitude grid lines and labels the world regions beneath the coordinate pins;
+the footer states that it is schematic and not to scale. The map remains
+artwork-independent and the pins continue to use the directory's station
+coordinates. Also corrected the acceptance-record links, service-pass player
+cleanup, the cancellation exception assertion, total source-segment fetch
+deadlines, HTTP/JSON control-response normalization, and retries after empty
+Radio Browser mirror discovery.
+
+The full suite passed **948 tests in 104.03s**; compileall, package creation,
+`check_package.py`, and `git diff --check` passed. Kodi add-on checker 0.0.36
+reported no add-on problems or warnings, with only its environment's known
+LibreSSL/urllib3 warning. The final ZIP has **36 files**, is **444,210 bytes**,
+and has SHA-256
+`ae43043b4642c447014e0b8f93f36d9072dd9384c9fe085f5289a17e774671b5`.
+Kodi's actual visual acceptance remains pending because the desktop is locked.
+
 ## Controlled VAST acceptance, 2026-10-22
 
 Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using an isolated portable profile. The pre-test profile was backed up outside the repository. Reports named `task8-*.json` in the test report directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.

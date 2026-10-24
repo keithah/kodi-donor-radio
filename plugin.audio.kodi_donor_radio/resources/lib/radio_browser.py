@@ -53,7 +53,11 @@ class RadioBrowser:
                 mirrors = discover_mirrors(self.cancel, self.connect_timeout)
             else:
                 mirrors = bounded_lookup(self.mirror_lookup, self.connect_timeout, self.cancel)
-            self._mirrors = list(dict.fromkeys(mirrors))
+            discovered = list(dict.fromkeys(mirrors))
+            # Cache only successful discovery. An empty DNS result can be a
+            # transient outage, and must not poison this browser instance.
+            if discovered:
+                self._mirrors = discovered
         if not self._mirrors:
             raise HttpError('No Radio Browser mirrors available')
         return ([self._preferred] if self._preferred else []) + [m for m in self._mirrors if m != self._preferred]

@@ -15,6 +15,24 @@
       <left>60</left><top>125</top><width>1060</width><height>620</height>
       <texture>white.png</texture><colordiffuse>50304048</colordiffuse>
     </control>
+    <!-- Schematic equirectangular graticule; pins use the same coordinate bounds. -->
+    <control type="image" id="20"><left>75</left><top>243</top><width>1030</width><height>1</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="21"><left>75</left><top>341</top><width>1030</width><height>1</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="22"><left>75</left><top>440</top><width>1030</width><height>1</height><texture>white.png</texture><colordiffuse>506FA8BE</colordiffuse></control>
+    <control type="image" id="23"><left>75</left><top>538</top><width>1030</width><height>1</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="24"><left>75</left><top>636</top><width>1030</width><height>1</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="25"><left>247</left><top>145</top><width>1</width><height>590</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="26"><left>419</left><top>145</top><width>1</width><height>590</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="27"><left>590</left><top>145</top><width>1</width><height>590</height><texture>white.png</texture><colordiffuse>506FA8BE</colordiffuse></control>
+    <control type="image" id="28"><left>762</left><top>145</top><width>1</width><height>590</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="image" id="29"><left>933</left><top>145</top><width>1</width><height>590</height><texture>white.png</texture><colordiffuse>385AA6C8</colordiffuse></control>
+    <control type="label" id="30"><left>245</left><top>310</top><width>210</width><height>34</height><label>$LOCALIZE[30155]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="31"><left>335</left><top>515</top><width>190</width><height>34</height><label>$LOCALIZE[30156]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="32"><left>565</left><top>275</top><width>145</width><height>34</height><label>$LOCALIZE[30157]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="33"><left>570</left><top>430</top><width>150</width><height>34</height><label>$LOCALIZE[30158]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="34"><left>800</left><top>315</top><width>210</width><height>34</height><label>$LOCALIZE[30159]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="35"><left>890</left><top>520</top><width>190</width><height>34</height><label>$LOCALIZE[30160]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
+    <control type="label" id="36"><left>490</left><top>680</top><width>200</width><height>34</height><label>$LOCALIZE[30161]</label><font>font12</font><textcolor>FF91AFC0</textcolor><align>center</align></control>
     <control type="label" id="13">
       <left>75</left><top>755</top><width>1040</width><height>40</height>
       <label>$LOCALIZE[30148]</label><font>font12</font><textcolor>FFE0E0E0</textcolor>
