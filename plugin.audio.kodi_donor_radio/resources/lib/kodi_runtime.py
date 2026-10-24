@@ -1041,7 +1041,11 @@ def run_service():
         try:
             monitor.ad_changed = False
             profile = _private_profile(profile_path())
-            CreativeCache.cleanup_abandoned(profile)
+            try:
+                CreativeCache.cleanup_abandoned(profile)
+            except (OSError, ValueError):
+                # Stale ad-cache cleanup must not prevent ordinary radio playback.
+                pass
             monitor.settings_changed = False
             try:
                 config = ad_settings()

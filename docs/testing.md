@@ -153,15 +153,33 @@ cleanup, the cancellation exception assertion, total source-segment fetch
 deadlines, HTTP/JSON control-response normalization, and retries after empty
 Radio Browser mirror discovery.
 
-The full suite passed **957 tests in 104.76s** after adding world/local/dateline
+At this 2026-10-23 checkpoint, the full suite passed **957 tests in 104.76s** after adding world/local/dateline
 grid-rendering, density-count, package-localization, repeated-initialization,
 invalid-tag, and preview-mirror-reuse cases; compileall, package creation,
 `check_package.py`, and `git diff --check` passed. Kodi add-on checker 0.0.36
 reported no add-on problems or warnings, with only its environment's known
-LibreSSL/urllib3 warning. The final ZIP has **37 files**, is **448,136 bytes**,
+LibreSSL/urllib3 warning. That checkpoint ZIP has **37 files**, is **448,136 bytes**,
 and has SHA-256
 `7115aa80854501daf9ad0c4f9ab3b2f043428ad3d642aaed4cf1659acb98fd1c`.
 Kodi's actual visual acceptance remains pending because the desktop is locked.
+
+### Final GUI review fixes — 2026-10-24
+
+Tag browsing now keeps its next-page row when malformed Radio Browser rows are
+filtered, place scans only show the bounded-scan notice when no results were
+found, and cache eviction no longer inverts the session/ad-session lock order.
+The package checker rejects XML DTD/entity declarations, and package rejection
+tests assert their specific reasons. The ZIP publisher sets the final artifact
+mode to `0644` before atomic rename. Failures while cleaning an abandoned ad
+cache are non-fatal to ordinary radio-service startup.
+
+The final suite passed **964 tests in 105.39s**. Compileall, package build and
+internal package validation passed. Kodi add-on checker 0.0.36 on a fresh ZIP
+extraction reported no add-on problems or warnings; its host emitted the known
+LibreSSL/urllib3 warning. The current ZIP has **37 files**, is **448,994 bytes**,
+mode `0644`, and has SHA-256
+`cca6f4853177c3d6e11b6103068762f48869c963cc40357036b91a42d77414dd`.
+Live Kodi interface acceptance remains pending because the Mac desktop is locked.
 
 ## Controlled VAST acceptance, 2026-10-22
 

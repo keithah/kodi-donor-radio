@@ -869,6 +869,19 @@ def test_startup_removes_only_abandoned_ad_cache_directories(kodi):
     assert neighbor.exists()
 
 
+@pytest.mark.parametrize('failure', [OSError('locked cache'), ValueError('unsafe cache root')])
+def test_ad_cache_cleanup_failure_does_not_block_radio_service(kodi, monkeypatch, failure):
+    import ad_media
+    runtime, state, profile = kodi
+    state.action = lambda monitor: (runtime.read_descriptor(profile), setattr(state, 'abort', True))
+    monkeypatch.setattr(ad_media.CreativeCache, 'cleanup_abandoned',
+                        lambda _profile: (_ for _ in ()).throw(failure))
+    runtime.run_service()
+    assert state.players
+    assert state.action is not None
+    assert not state.notifications
+
+
 def test_invalid_ad_only_edit_does_not_restart_running_service(kodi):
     runtime, state, profile = kodi
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
