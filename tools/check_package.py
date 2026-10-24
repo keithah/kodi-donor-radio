@@ -76,6 +76,8 @@ def check_contents(contents):
             and info.findtext('assets/fanart') == 'resources/fanart.jpg', 'Incorrect artwork metadata')
     settings = ET.fromstring(contents['resources/settings.xml'])
     require(settings.tag == 'settings', 'Invalid settings root')
+    map_xml = ET.fromstring(contents['resources/skins/Default/1080i/map.xml'])
+    require(map_xml.tag == 'window', 'Invalid map skin root')
     po = contents['resources/language/resource.language.en_gb/strings.po'].decode('utf-8')
     localized = set(re.findall(r'^msgctxt "#(\d+)"$', po, re.M))
     require('30000' in localized and 'Content-Type: text/plain; charset=UTF-8' in po,

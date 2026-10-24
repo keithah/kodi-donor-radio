@@ -220,6 +220,12 @@ def test_temporary_source_segment_failure_keeps_committed_ad_for_retry(tmp_path,
         assert get(session.playback_url)[0] == 200
         ad = session.ad
         assert ad.committed and not ad.terminal
+        observed = []
+        original_observe = session.tracker.observe
+        def count_observe(*args):
+            observed.append(args)
+            return original_observe(*args)
+        monkeypatch.setattr(session.tracker, 'observe', count_observe)
         render = ad.render
         calls = {'count': 0}
 
@@ -231,8 +237,10 @@ def test_temporary_source_segment_failure_keeps_committed_ad_for_retry(tmp_path,
 
         monkeypatch.setattr(ad, 'render', fail_once)
         assert get(session.playback_url)[0] == 503
+        assert len(observed) == 1
         assert session.ad is ad and ad.committed and not ad.terminal
         assert get(session.playback_url)[0] == 200
+        assert len(observed) == 2
         assert calls['count'] == 2 and not ad.terminal
     finally:
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)

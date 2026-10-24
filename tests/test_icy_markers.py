@@ -198,6 +198,16 @@ def test_repeated_explicit_boundaries_do_not_emit_duplicate_transitions():
     assert [event.kind for event in events] == ['break_start', 'break_end']
 
 
+def test_explicit_start_without_end_allows_a_later_break_after_five_minutes():
+    instance, events = tracker()
+    observe(instance, 'AD_START_30', 1)
+    observe(instance, 'Song one', 2)
+    observe(instance, 'AD_START_30', 3)
+    assert [event.kind for event in events] == ['break_start']
+    observe(instance, 'AD_START_30', 304)
+    assert [event.kind for event in events] == ['break_start', 'break_start']
+
+
 def test_symbol_that_is_not_punctuation_is_not_a_candidate():
     instance, events = tracker()
     observe(instance, '🎵', 1)

@@ -96,6 +96,7 @@ class IcyMarkerTracker:
         self._open_inferred = None
         self._last_title = None
         self._last_boundary = None
+        self._last_boundary_at = None
         self._session_overrides = OrderedDict()
 
     def _event(self, kind, metadata, observed_at, monotonic_at, signal,
@@ -117,6 +118,11 @@ class IcyMarkerTracker:
             self._candidate = None
         if self._last_title and monotonic_at - self._last_title[0] > 300:
             self._last_title = None
+        if (self._last_boundary == 'start' and self._open_inferred is None
+                and self._last_boundary_at is not None
+                and monotonic_at - self._last_boundary_at > 300):
+            self._last_boundary = None
+            self._last_boundary_at = None
         if self._open_inferred and monotonic_at - self._open_inferred[0] > 300:
             _, metadata, observed_at, signal = self._open_inferred
             self._open_inferred = None
@@ -145,6 +151,7 @@ class IcyMarkerTracker:
         if self._last_boundary != action:
             self._event('break_' + action, metadata, observed_at, monotonic_at, signal)
             self._last_boundary = action
+        self._last_boundary_at = monotonic_at
         self._open_inferred = ((monotonic_at, metadata, observed_at, signal)
                                if action == 'start' else None)
         if self._last_title is not None and self._last_title[1] == normalized:
@@ -184,6 +191,7 @@ class IcyMarkerTracker:
                 self._event('break_' + signal.kind, metadata, observed_at,
                             monotonic_at, signal)
                 self._last_boundary = signal.kind
+            self._last_boundary_at = monotonic_at
             self._open_inferred = ((monotonic_at, metadata, observed_at, signal)
                                    if signal.confidence == 'learned'
                                    and signal.kind == 'start' else None)
@@ -199,12 +207,14 @@ class IcyMarkerTracker:
                 self._open_inferred = (monotonic_at, metadata, observed_at, inferred)
                 self._event('break_start', metadata, observed_at, monotonic_at, inferred)
                 self._last_boundary = 'start'
+                self._last_boundary_at = monotonic_at
             elif (self._open_inferred is not None
                   and normalized == self._open_inferred[3].marker):
                 inferred = MarkerSignal('end', normalized, 'heuristic', 'inferred', None)
                 self._open_inferred = None
                 self._event('break_end', metadata, observed_at, monotonic_at, inferred)
                 self._last_boundary = 'end'
+                self._last_boundary_at = monotonic_at
             return
 
         if self._open_inferred is not None:
@@ -212,3 +222,4 @@ class IcyMarkerTracker:
             self._open_inferred = None
             self._event('break_end', metadata, observed_at, monotonic_at, signal)
             self._last_boundary = 'end'
+            self._last_boundary_at = monotonic_at

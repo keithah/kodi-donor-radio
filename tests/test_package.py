@@ -65,6 +65,18 @@ def test_package_is_installable_source_only(package):
     assert result.returncode == 0, result.stderr
 
 
+def test_package_checker_rejects_malformed_map_xml(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['resources/skins/Default/1080i/map.xml'] = b'<window>'
+    with pytest.raises(ET.ParseError):
+        checker(contents)
+
+
 def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     source = tmp_path / ADDON
     shutil.copytree(ROOT / ADDON, source, ignore=shutil.ignore_patterns('__pycache__'))

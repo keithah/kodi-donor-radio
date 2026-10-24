@@ -794,9 +794,11 @@ def run_plugin(argv):
             raise ValueError('Invalid page')
         if action == 'home':
             if xbmcaddon.Addon().getSettingBool('guided_setup') and not PlaceStore(profile_path()).list():
-                listing_succeeded = False
-                _ui_transition('setup', {}, monitor, cancel, base)
-                return
+                try:
+                    _ui_transition('setup', {}, monitor, cancel, base)
+                except (Cancelled, OSError, ValueError, TypeError):
+                    # A cancelled or unavailable setup must not hide local navigation.
+                    pass
             if xbmcaddon.Addon().getSettingBool('offer_setup_row'):
                 item(text(30110), folder=False, mode='setup')
             for place in PlaceStore(profile_path()).list():

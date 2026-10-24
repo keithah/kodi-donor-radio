@@ -118,6 +118,27 @@ Kodi GUI acceptance is still unavailable because the desktop is locked. These
 automated checks do not establish live rendering, D-pad focus, click delivery,
 playback audio, or interactive setup behavior.
 
+### CodeRabbit follow-up fixes — 2026-10-23
+
+The follow-up addressed six CodeRabbit findings across the full branch. An
+unmatched explicit ICY start now releases duplicate suppression after five
+minutes without inventing an end event. Bare URI-bearing HLS cue-out values
+fail closed. Session shutdown snapshots the ad reference once; guided setup
+cancellation or network failure still renders the normal local root menu; the
+package checker parses the shared map XML; and each fetched HLS playlist is
+observed once. Regression coverage exercises each case.
+
+The focused regression set passed **408 tests**. The full suite passed **943
+tests in 104.10s**; pytest printed a loopback HTTP-handler exception banner
+without a retained traceback, as seen in earlier runs. Compileall, package
+creation, `check_package.py`, and `git diff --check` passed. Kodi add-on checker
+0.0.36 reported no add-on problems or warnings; its environment emitted the
+known host LibreSSL/urllib3 warning. The package has SHA-256
+`15770f1b0a2102a7d6a47ad0d7739397271fc420f2db29390609e87f88892804`.
+
+Live Kodi interface acceptance remains pending while the Mac desktop is
+locked.
+
 ## Controlled VAST acceptance, 2026-10-22
 
 Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using an isolated portable profile. The pre-test profile was backed up outside the repository. Reports named `task8-*.json` in the test report directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.

@@ -99,6 +99,13 @@ def test_unsupported_features_fail_closed(tag):
         parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n' + tag + '\n#EXTINF:6,\nseg.aac\n')
 
 
+def test_bare_uri_bearing_cue_out_fails_closed():
+    from hls import UnsupportedPlaylist
+    with pytest.raises(UnsupportedPlaylist, match='URI-bearing cue'):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+              '#EXT-X-CUE-OUT:https://upstream.example/cue\n#EXTINF:6,\nseg.aac\n')
+
+
 @pytest.mark.parametrize('text', [
     '', 'seg.aac\n', '#EXTM3U\nseg.aac\n', '#EXTM3U\n#EXTINF:6,\nseg.aac\n',
     '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\n',

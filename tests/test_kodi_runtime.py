@@ -1526,10 +1526,23 @@ def test_settings_setup_action_and_guided_first_run_use_same_flow(kodi, monkeypa
     route(runtime)
     assert (profile / 'places.json').exists()
     assert state.builtins == ['Container.Refresh']
-    assert state.items == []
+    assert state.items[0][1].label == 'Paris'
     state.dialog_choices = []
     route(runtime)
     assert state.items[0][1].label == 'Paris'
+
+
+@pytest.mark.parametrize('failure_name', ['Cancelled', 'OSError'])
+def test_guided_setup_cancel_or_offline_still_renders_root(kodi, monkeypatch, failure_name):
+    runtime, state, _ = kodi
+    state.settings['guided_setup'] = True
+    failure = runtime.Cancelled if failure_name == 'Cancelled' else OSError
+    monkeypatch.setattr(runtime, '_ui_transition', lambda *_args: (_ for _ in ()).throw(failure()))
+    route(runtime)
+    labels = [item.label for _, item, _ in state.items]
+    assert 'localized-30111' in labels
+    assert 'localized-30001' in labels
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
 
 
 def test_station_info_uses_safe_cached_metadata_offline_without_clicks(kodi, monkeypatch):

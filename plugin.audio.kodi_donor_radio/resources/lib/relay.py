@@ -388,13 +388,14 @@ class _Handler(BaseHTTPRequestHandler):
                 body = read_bounded(response, BODY_BYTES)
                 playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
                 ad = session.ad
+                if playlist.segments:
+                    # A backwards window that still overlaps is not a restart.
+                    if (resource.first_sequence is not None
+                            and playlist.segments[-1].sequence < resource.first_sequence):
+                        resource.epoch += 1
+                    resource.first_sequence = playlist.segments[0].sequence
+                session.tracker.observe(playlist, resource.id, resource.epoch)
                 if ad is not None and resource.kind == 'hls' and not playlist.is_master:
-                    if playlist.segments:
-                        if (resource.first_sequence is not None and
-                                playlist.segments[-1].sequence < resource.first_sequence):
-                            resource.epoch += 1
-                        resource.first_sequence = playlist.segments[0].sequence
-                    session.tracker.observe(playlist, resource.id, resource.epoch)
                     try:
                         rendered = ad.render(playlist, session.cached_route)
                     except SourceUnavailable:
@@ -421,13 +422,6 @@ class _Handler(BaseHTTPRequestHandler):
                                                [ref.kind for ref in playlist.uri_references])
                 registered = dict(zip([ref.url for ref in playlist.uri_references], routes))
                 rewritten = rewrite_playlist(playlist, registered.__getitem__).encode('utf-8')
-                if playlist.segments:
-                    # A backwards window that still overlaps is not a restart.
-                    if (resource.first_sequence is not None
-                            and playlist.segments[-1].sequence < resource.first_sequence):
-                        resource.epoch += 1
-                    resource.first_sequence = playlist.segments[0].sequence
-                session.tracker.observe(playlist, resource.id, resource.epoch)
                 self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rewritten))
                 self.wfile.write(rewritten)
             else:

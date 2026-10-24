@@ -247,8 +247,9 @@ class PlaybackSession:
         self.cancel.set()
         if self.source.response is not None:
             self.source.response.close()
-        if self.ad is not None:
-            self.ad.close()
+        ad = self.ad
+        if ad is not None:
+            ad.close()
         self.tracker.finish(reason)
 
 

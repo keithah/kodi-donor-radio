@@ -96,6 +96,31 @@ def test_retire_cached_uses_one_ad_reference_during_concurrent_disable():
     assert not session._resources
 
 
+def test_close_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+    class Ad:
+        def __init__(self): self.closed = False
+        def close(self): self.closed = True
+    ad = Ad()
+    class Tracker:
+        def __init__(self): self.reason = None
+        def finish(self, reason): self.reason = reason
+    class Session:
+        def __init__(self):
+            self.reads = 0
+            self.cancel = threading.Event()
+            self.source = type('Source', (), {'response': None})()
+            self.tracker = Tracker()
+        @property
+        def ad(self):
+            self.reads += 1
+            return ad if self.reads == 1 else None
+    session = Session()
+    PlaybackSession.close(session)
+    assert session.reads == 1 and ad.closed
+    assert session.tracker.reason == 'session_stopped'
+
+
 def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_path):
     from types import SimpleNamespace
     from ad_models import AdConfig

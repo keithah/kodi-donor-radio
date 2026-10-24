@@ -256,7 +256,12 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         if tag in _ATTR_TAGS:
             attrs, spans = _attributes(value)
         elif tag == 'EXT-X-CUE-OUT':
-            attrs = _attributes(value)[0] if '=' in value else ({'DURATION': value} if value else {})
+            if '=' in value:
+                attrs = _attributes(value)[0]
+            else:
+                if _URI_VALUE.search(value):
+                    raise UnsupportedPlaylist('Unsupported URI-bearing cue')
+                attrs = {'DURATION': value} if value else {}
         elif tag == 'EXT-X-CUE-OUT-CONT':
             if '=' in value:
                 attrs = _attributes(value)[0]
