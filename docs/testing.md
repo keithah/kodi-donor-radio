@@ -1,11 +1,44 @@
 # Validation record
 
+## GUI runtime edge verification — 2026-10-24
+
+The consolidated final fix wave separates passive Kodi pin notifications from
+explicit focus requests, restores rail endpoints after Kodi's native list wraps,
+and preserves/selects a context station within the 50-row rail. Network failures
+have distinct localized states and retain valid selected/cached display records.
+Optional origin-query rejection falls back to a validated home route, and preview
+cleanup now runs after native modal return or abort. The settings scope statement
+matches the approved slice. A zero ICY interval forwards unframed audio unchanged;
+positive interval parsing, ad eligibility, and beacon behavior are preserved.
+
+The focused map/runtime/relay set passed **282 tests in 34.53s** with clean output.
+The full `python3 -m pytest -q` run passed **995 tests in 107.56s**. It emitted the
+previously documented intermittent loopback HTTP-handler exception banner. A
+final `python3 -m pytest -q -s` diagnostic run passed **995 tests in 107.71s** and
+captured the traceback: `BrokenPipeError: [Errno 32] Broken pipe` at the shared
+transport-test origin's `tests/test_transport.py:96` body write after its client
+closed. No test failed; full-suite output is not claimed to be pristine. The
+diagnostic log is `/tmp/kodi-final-fix-pytest-full.log`.
+
+Compileall, package build, `check_package.py`, and `git diff --check` exited 0.
+Kodi add-on checker **0.0.36**, invoked with `--branch omega` on the fresh ZIP
+extraction in `dist/checker-gui-final-CECTfo/`, exited 0 and reported **no add-on
+problems or warnings**. Its Python environment emitted the known host LibreSSL
+2.8.3 / urllib3 warning. The final ZIP has **37 files**, **450,757 bytes**, mode
+**0644**, and SHA-256
+`681ea71ef5cc9312d19bad51ff2d406b91c308734ad92af2b9d2a2c22d6aa9e1`.
+
+Kodi GUI acceptance remains unverified because the desktop is locked. Queued
+focus and native movement-before-callback fakes cover the reported ordering;
+they do not establish live rendering, focus delivery, audible output, or setup
+interaction. The live acceptance table below remains pending.
+
 ## GUI package verification — initial Task 7 run, 2026-10-23
 
 The first GUI slice implements native skin listings, saved places/favorites,
 sequential native setup, station/place actions, and one shared schematic map.
 Themed Home/Now playing/other themed windows and their interface selectors remain
-deferred. This record covers the current GUI package; earlier Kodi playback
+deferred. This initial record covers the package built at that point; earlier Kodi playback
 records below predate these changes and do not establish GUI acceptance.
 
 Development verification used macOS ARM64 and Python 3.9.6. The focused GUI and

@@ -125,6 +125,7 @@ def install_map_window(monkeypatch):
             self.native, self.kwargs = native, kwargs
             opened.append(self)
         def doModal(self): self.modal = True
+        def cleanup(self): pass
     monkeypatch.setitem(sys.modules, 'kodi_radio_map', SimpleNamespace(RadioMapWindow=MapWindow))
     return opened
 
@@ -328,6 +329,116 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     assert opened[-1].native[1] == opened[-1].kwargs['addon_path']
     assert opened[-1].native[2:] == ('Default', '1080i', False)
     assert browser.clicks == []
+
+
+def test_successful_empty_map_has_no_network_error(kodi, monkeypatch):
+    runtime, _, _ = kodi
+    directory(monkeypatch, runtime)
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map')
+    assert opened[-1].kwargs['stations'] == []
+    assert opened[-1].kwargs['status_message'] == ''
+
+
+@pytest.mark.parametrize('with_selected', [False, True])
+def test_map_discovery_failure_has_distinct_error_and_retains_selected(kodi, monkeypatch, with_selected):
+    from dataclasses import replace
+    runtime, _, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    selected = replace(STATION, latitude=0, longitude=0)
+    browser.by_uuid = lambda uuid: selected
+    def failed(*args): raise OSError('offline')
+    browser.geographic = failed
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map', **({'uuid': STATION.uuid} if with_selected else {}))
+    assert opened[-1].kwargs['status_message'] == 'localized-30163'
+    assert opened[-1].kwargs['stations'] == ([selected] if with_selected else [])
+
+
+def test_map_selected_lookup_failure_keeps_successful_discovery_and_reports_lookup_error(kodi, monkeypatch):
+    runtime, _, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    def failed(uuid): raise OSError('lookup unavailable')
+    browser.by_uuid = failed
+    browser.geographic = lambda *args: ([STATION], False)
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map', uuid=STATION.uuid)
+    assert opened[-1].kwargs['status_message'] == 'localized-30164'
+    assert opened[-1].kwargs['stations'] == [STATION]
+
+
+@pytest.mark.parametrize('discovery_fails', [False, True])
+def test_map_lookup_failure_preserves_cached_selected_display_record(kodi, monkeypatch, discovery_fails):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, _, profile = kodi
+    cached = StationSummary.from_station(replace(STATION, latitude=12, longitude=34))
+    FavoriteStore(profile).add(cached)
+    browser = directory(monkeypatch, runtime)
+    def failed(*args): raise OSError('offline')
+    browser.by_uuid = failed
+    if discovery_fails:
+        browser.geographic = failed
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map', uuid=STATION.uuid)
+    assert opened[-1].kwargs['stations'] == [cached]
+    assert opened[-1].kwargs['status_message'] == (
+        'localized-30164 · localized-30163' if discovery_fails else 'localized-30164')
+    assert opened[-1].kwargs['view'].north == 13.5
+
+
+@pytest.mark.parametrize('modal_raises', [False, True])
+def test_map_modal_exit_releases_real_preview_without_reclosing_native_window(kodi, monkeypatch, modal_raises):
+    from test_kodi_radio_map import load_window, WindowXML
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.mirror_urls = ()
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None, mirror_lookup=None: browser)
+    module = load_window(monkeypatch)
+    descriptor = ServiceDescriptor(32123, 'a' * 48, 'b' * 64)
+    runtime.publish_descriptor(profile, descriptor)
+    events, windows, controllers = [], [], []
+    player_state = {'url': '', 'playing': False}
+    player = SimpleNamespace(
+        isPlaying=lambda: player_state['playing'], getPlayingFile=lambda: player_state['url'],
+        play=lambda url, item: player_state.update(url=url, playing=True),
+        stop=lambda: (events.append('stop-player'), player_state.update(url='', playing=False)))
+    state.settings['preview_on_browse'] = True
+    monkeypatch.setattr(module.xbmc, 'Player', lambda: player)
+    class Client:
+        def __init__(self, descriptor, timeout=10): pass
+        def create_preview(self, station):
+            return {'id': 'c' * 48, 'playback_url': 'http://127.0.0.1:32123/media/' +
+                    'c' * 48 + '/' + 'd' * 48, 'mime_type': 'audio/aac'}
+        def stop(self, session): events.append(('stop-session', session))
+    monkeypatch.setattr(runtime, 'ControlClient', Client)
+    def modal(self):
+        windows.append(self)
+        # Run only the thread boundary inline; resolution, player ownership,
+        # session registration and cleanup remain the real implementation.
+        self._thread_factory = lambda target, daemon=True: SimpleNamespace(start=target)
+        self.onInit()
+        controller = self._preview
+        controllers.append(controller)
+        controller._resolve(0, STATION.uuid, threading.Event())
+        assert player_state['playing']
+        if modal_raises:
+            raise RuntimeError('native modal aborted')
+        # Native close/dismiss returns without calling RadioMapWindow.close.
+    monkeypatch.setattr(WindowXML, 'doModal', modal)
+    if modal_raises:
+        with pytest.raises(RuntimeError, match='native modal aborted'):
+            runtime._open_map({}, runtime.xbmc.Monitor(), threading.Event(),
+                              'plugin://plugin.audio.kodi_donor_radio')
+    else:
+        runtime._open_map({}, runtime.xbmc.Monitor(), threading.Event(),
+                          'plugin://plugin.audio.kodi_donor_radio')
+    assert not player_state['playing']
+    assert events == ['stop-player', ('stop-session', 'c' * 48)]
+    assert windows[0]._preview is None and controllers[0]._closed
+    assert not windows[0].closed, 'cleanup after doModal must not invoke native close'
+    windows[0].cleanup()
+    assert events == ['stop-player', ('stop-session', 'c' * 48)]
 
 
 def test_map_scan_is_bounded_and_keeps_a_selected_station(kodi):

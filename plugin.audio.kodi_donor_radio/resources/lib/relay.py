@@ -312,7 +312,9 @@ class _Handler(BaseHTTPRequestHandler):
             def metadata(value):
                 session.observe_icy_metadata(value, datetime.now(timezone.utc).isoformat(),
                                              time.monotonic())
-            decoder = IcyDecoder(int(metaint), metadata)
+            # A zero interval denotes an unframed audio body (no metadata).
+            if int(metaint) > 0:
+                decoder = IcyDecoder(int(metaint), metadata)
         self._headers(response.status, response.headers)
         block = session.source.initial_bytes
         try:

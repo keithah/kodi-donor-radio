@@ -534,7 +534,9 @@ def _map_stations(browser, country_code, selected_station, cancel):
         if not more:
             break
     limit = GEO_SCAN_PAGES * PAGE_SIZE
-    if selected_station is not None and all(s.uuid != selected_station.uuid for s in stations):
+    selected_uuid = (getattr(selected_station, 'uuid', getattr(selected_station, 'station_uuid', ''))
+                     if selected_station is not None else '')
+    if selected_station is not None and all(s.uuid != selected_uuid for s in stations):
         # The context action must remain visible even when the bounded scan is
         # full, so reserve one slot for it and keep the earliest scan results.
         stations = [selected_station] + stations[:limit - 1]
@@ -554,7 +556,9 @@ def _open_map(params, monitor, cancel, base):
         except Cancelled:
             raise
         except (OSError, ValueError):
-            unavailable = xbmcaddon.Addon().getLocalizedString(30147)
+            unavailable = xbmcaddon.Addon().getLocalizedString(30164)
+            selected = next((station for station in FavoriteStore(profile_path()).list()
+                             if station.station_uuid == selected_uuid), None)
     places = PlaceStore(profile_path()).list()
     place = next((candidate for candidate in places if candidate.is_default),
                  places[0] if places else None)
@@ -566,7 +570,9 @@ def _open_map(params, monitor, cancel, base):
     except Cancelled:
         raise
     except (OSError, ValueError):
-        stations, unavailable = [], xbmcaddon.Addon().getLocalizedString(30147)
+        stations = [selected] if selected is not None else []
+        discovery_error = xbmcaddon.Addon().getLocalizedString(30163)
+        unavailable = unavailable + ' · ' + discovery_error if unavailable else discovery_error
     if selected is not None and selected.latitude is not None:
         view = _map_view(station=selected)
     elif place is not None:
@@ -627,7 +633,11 @@ def _open_map(params, monitor, cancel, base):
         playback_arbiter=_playback_arbiter(),
         status_message=unavailable,
     )
-    window.doModal()
+    try:
+        window.doModal()
+    finally:
+        # Native dismissal/abort can return without invoking our close override.
+        window.cleanup()
 
 
 def _ui_transition(mode, params, monitor, cancel, base='plugin://plugin.audio.kodi_donor_radio'):

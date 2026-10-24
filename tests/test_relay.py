@@ -66,6 +66,9 @@ def origin():
                 metadata = b"StreamTitle='token=secret';".ljust(32, b'\0')
                 body = b'abcd' + b'\2' + metadata + b'efgh' + b'\0'
                 headers.update({'Content-Type': 'audio/mpeg', 'icy-metaint': '4'})
+            elif self.path.startswith('/icy-interval/'):
+                headers.update({'Content-Type': 'audio/mpeg',
+                                'icy-metaint': self.path.rsplit('/', 1)[-1]})
             elif self.path == '/nominated':
                 headers.update({'Content-Type': 'audio/mpeg', 'Connection': 'content-type', 'Set-Cookie': 'token=upstream-secret'})
             elif self.path == '/bad-range':
@@ -183,6 +186,22 @@ def test_icy_headers_removed_metadata_event_and_sink_errors_do_not_break_audio(r
     event = relay[2].events[0]
     assert event.kind == 'metadata_observed' and event.session_id == s.id
     assert event.evidence == {'StreamTitle': 'token=secret'}
+
+
+def test_zero_icy_interval_forwards_unframed_audio_unchanged(relay, origin):
+    session = create(relay, origin, '/icy-interval/0')
+    status, headers, body = request(session.playback_url)
+    assert status == 200 and body == origin[2]
+    assert headers['Content-Type'] == 'audio/mpeg'
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    assert not relay[2].events
+
+
+@pytest.mark.parametrize('interval', ['-1', 'oops', '1.5', '99999999999'])
+def test_malformed_icy_interval_rejected_before_audio_headers(relay, origin, interval):
+    session = create(relay, origin, '/icy-interval/' + interval)
+    status, _, body = request(session.playback_url)
+    assert status == 502 and body != origin[2]
 
 
 def test_control_auth_health_forgery_and_switch(relay, origin):

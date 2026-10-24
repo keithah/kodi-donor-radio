@@ -49,8 +49,8 @@ map pass Kodi acceptance. This preserves both interface modes in the product tar
   selection when closing it.
 - Add guided setup and the optional setup row using sequential Kodi dialogs. Setup
   can be cancelled without stopping existing playback. Settings independently
-  control interface mode, guided setup, setup-row visibility, themed entry screen,
-  and map preview.
+  control guided setup, setup-row visibility, and map preview. Interface-mode and
+  themed-entry settings are deferred with the themed windows.
 - Share station records and action handlers between plugin listings and custom
   windows. Do not introduce themed listing windows in this first slice.
 

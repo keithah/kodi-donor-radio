@@ -335,7 +335,13 @@ class RadioMapWindow(xbmcgui.WindowXML):
                  timer_factory=None, thread_factory=None, status_message='',
                  playback_arbiter=None):
         self.plugin_base = plugin_base
-        self.origin_route = _valid_origin(origin_route, plugin_base)
+        home_route = _valid_origin(plugin_base + '?mode=home', plugin_base)
+        try:
+            self.origin_route = _valid_origin(origin_route, plugin_base)
+        except ValueError:
+            # Origin is optional return context, never a playback target. A
+            # long/encoded search query must not prevent opening the map.
+            self.origin_route = home_route
         self.selected_uuid = station_identifier(selected_uuid) if selected_uuid else ''
         if self.selected_uuid.startswith('fixture-'):
             raise ValueError('Fixture station UUID is not valid for map')
@@ -345,7 +351,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
         incoming = list(stations)
         if self.selected_uuid:
             selected = next((station for station in incoming
-                             if getattr(station, 'uuid', '') == self.selected_uuid), None)
+                             if getattr(station, 'uuid', getattr(station, 'station_uuid', ''))
+                             == self.selected_uuid), None)
             if selected is not None:
                 incoming = [selected] + [station for station in incoming if station is not selected]
         self.stations = incoming[:200]
@@ -488,7 +495,10 @@ class RadioMapWindow(xbmcgui.WindowXML):
         station_uuids = sorted(city.station_uuids, key=lambda uuid: (
             -getattr(self.station_by_uuid.get(uuid), 'click_count', 0),
             getattr(self.station_by_uuid.get(uuid), 'name', '').casefold(), uuid))
-        for station_uuid in station_uuids[:RAIL_LIMIT]:
+        rail_uuids = station_uuids[:RAIL_LIMIT]
+        if self.selected_uuid in station_uuids and self.selected_uuid not in rail_uuids:
+            rail_uuids = rail_uuids[:RAIL_LIMIT - 1] + [self.selected_uuid]
+        for station_uuid in rail_uuids:
             station = self.station_by_uuid.get(station_uuid)
             if station is None:
                 continue
@@ -507,18 +517,20 @@ class RadioMapWindow(xbmcgui.WindowXML):
             entry.setInfo('music', {'title': label})
             entry.setProperty('station_uuid', station_uuid)
             rail.addItems([entry])
-        self._rail_position = 0
+        self._rail_position = rail_uuids.index(self.selected_uuid) if self.selected_uuid in rail_uuids else 0
+        rail.selectItem(self._rail_position)
 
-    def focus_city(self, city_id):
+    def focus_city(self, city_id, request_focus=True):
         if city_id not in self.city_by_id:
             return False
         if self._preview:
             self._preview.cancel()
-        self.selected_city_id = city_id
-        self._render_pins()
-        self._render_rail()
+        if self.selected_city_id != city_id:
+            self.selected_city_id = city_id
+            self._render_pins()
+            self._render_rail()
         pin = self._pin_control(city_id)
-        if pin is not None:
+        if request_focus and pin is not None and self.getFocusId() != pin:
             self.setFocusId(pin)
         return True
 
@@ -571,23 +583,27 @@ class RadioMapWindow(xbmcgui.WindowXML):
             elif direction == 'down':
                 rail = self.getControl(RAIL_ID)
                 position = rail.getSelectedPosition()
-                if position != self._rail_position:
-                    self._rail_position = position
-                    self._preview_station_at(position)
-                elif position + 1 >= rail.size():
+                # Kodi moves the native list before onAction and wraps at its
+                # endpoints. Restore the boundary row before leaving the rail.
+                if self._rail_position + 1 >= rail.size():
+                    rail.selectItem(self._rail_position)
                     self.setFocusId(PREVIEW_ID if self.preview_enabled else BACK_ID)
                     if self._preview:
                         self._preview.cancel()
+                elif position != self._rail_position:
+                    self._rail_position = position
+                    self._preview_station_at(position)
             elif direction == 'up':
                 rail = self.getControl(RAIL_ID)
                 position = rail.getSelectedPosition()
-                if position != self._rail_position:
-                    self._rail_position = position
-                    self._preview_station_at(position)
-                elif position == 0:
+                if self._rail_position == 0:
+                    rail.selectItem(0)
                     self.setFocusId(self._pin_control(self.selected_city_id) or BACK_ID)
                     if self._preview:
                         self._preview.cancel()
+                elif position != self._rail_position:
+                    self._rail_position = position
+                    self._preview_station_at(position)
         elif focus_id in (PREVIEW_ID, BACK_ID):
             if direction == 'up':
                 self.setFocusId(RAIL_ID if focus_id == PREVIEW_ID else self._pin_control(self.selected_city_id) or RAIL_ID)
@@ -598,7 +614,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
 
     def onFocus(self, control_id):
         if PIN_FIRST_ID <= control_id < PIN_FIRST_ID + len(self.pins):
-            self.focus_city(self.pins[control_id - PIN_FIRST_ID].city_id)
+            self.focus_city(self.pins[control_id - PIN_FIRST_ID].city_id, request_focus=False)
         elif control_id == RAIL_ID:
             self._rail_position = self.getControl(RAIL_ID).getSelectedPosition()
             if self._preview:
@@ -679,8 +695,12 @@ class RadioMapWindow(xbmcgui.WindowXML):
             worker = self._thread_factory or threading.Thread
             worker(target=lambda: self._preview_stop_callback(session_id), daemon=True).start()
 
-    def close(self):
+    def cleanup(self):
+        """Release preview ownership even after Kodi has dismissed the window."""
         if self._preview:
             self._preview.close()
             self._preview = None
+
+    def close(self):
+        self.cleanup()
         super().close()

@@ -45,6 +45,15 @@ class Item:
     def setContentLookup(self, value): self.lookup = value
 
 
+def native_rail_action(window, action_id):
+    """Kodi 21.3's default list wraps before delivering WindowXML.onAction."""
+    rail = window.controls[2000]
+    moved_position = (rail.getSelectedPosition() + (1 if action_id == 4 else -1)) % rail.size()
+    rail.selectItem(moved_position)
+    window.onAction(Action(action_id))
+    return moved_position
+
+
 class WindowXML:
     def __new__(cls, xml_filename, script_path, default_skin, default_res, is_media):
         assert xml_filename and script_path
@@ -124,8 +133,8 @@ def test_validates_and_canonicalizes_both_kodi_plugin_root_forms(monkeypatch, ba
     route = base + '?mode=home'
     window = make_window(module, origin_route=route, plugin_base=base)
     assert window.origin_route == route
-    with pytest.raises(ValueError):
-        make_window(module, origin_route=base + 'other?mode=home', plugin_base=base)
+    fallback = make_window(module, origin_route=base + 'other?mode=home', plugin_base=base)
+    assert fallback.origin_route == route
 
 
 def test_directional_city_navigation_uses_radio_map_and_does_not_wrap(monkeypatch):
@@ -139,6 +148,87 @@ def test_directional_city_navigation_uses_radio_map_and_does_not_wrap(monkeypatc
     last = window.selected_city_id
     window.onAction(Action(2))
     assert window.selected_city_id == last
+
+
+def test_queued_kodi_pin_focus_notifications_drain_without_rebuilding_rail(monkeypatch):
+    module = load_window(monkeypatch)
+    pending = []
+    def set_focus(self, control_id):
+        self.focus_id = control_id
+        pending.append(control_id)  # Kodi also notifies when focus is unchanged.
+    monkeypatch.setattr(WindowXML, 'setFocusId', set_focus)
+    window = make_window(module)
+    window.onInit()
+    rows = list(window.controls[2000].items)
+    for _ in range(8):
+        if not pending:
+            break
+        window.onFocus(pending.pop(0))
+    assert pending == [], 'setFocusId notifications must not request focus again'
+    assert window.controls[2000].items == rows
+    # A native focus change still selects the new city and renders its rail.
+    window.setFocusId(1001)
+    window.onFocus(pending.pop(0))
+    assert window.selected_city_id == window.pins[1].city_id
+    assert window.controls[2000].items[0].getProperty('station_uuid') in window.pins[1].station_uuids
+    assert pending == []
+
+
+@pytest.mark.parametrize('preview_enabled', [False, True])
+@pytest.mark.parametrize('direction,positions,exit_id', [
+    (4, [1, 2, 0], 3000), (3, [1, 0, 2], 1000),
+])
+def test_rail_exits_edges_after_native_wrapping_movement(
+        monkeypatch, preview_enabled, direction, positions, exit_id):
+    module = load_window(monkeypatch)
+    window = make_window(module, preview_enabled=preview_enabled, stations=[
+        station('one', 'One', 0, 0), station('two', 'Two', 0, 0),
+        station('three', 'Three', 0, 0)])
+    window.onInit()
+    rail = window.controls[2000]
+    rail.selectItem(0 if direction == 4 else 2)
+    window.setFocusId(2000)
+    window.onFocus(2000)
+    seen = []
+    window._preview = SimpleNamespace(focus_station=seen.append, cancel=lambda: None) if preview_enabled else None
+    for position in positions[:2]:
+        native_rail_action(window, direction)
+        assert rail.getSelectedPosition() == position
+        assert window.getFocusId() == 2000
+    expected_seen = (['three', 'two'] if direction == 4 else ['three', 'one']) if preview_enabled else []
+    assert seen == expected_seen
+    assert native_rail_action(window, direction) == positions[2]
+    assert rail.getSelectedPosition() == (2 if direction == 4 else 0)
+    assert window.getFocusId() == (3001 if exit_id == 3000 and not preview_enabled else exit_id)
+    assert seen == expected_seen, 'the wrapped row must never trigger a preview'
+
+
+@pytest.mark.parametrize('selected_uuid,expected_position', [('station-59', 49), ('station-17', 17)])
+def test_context_station_is_reserved_and_selected_in_bounded_rail(monkeypatch, selected_uuid, expected_position):
+    module = load_window(monkeypatch)
+    stations = [station('station-%02d' % i, 'Station %02d' % i, 0, 0) for i in range(60)]
+    window = make_window(module, stations=stations, selected_uuid=selected_uuid)
+    window.onInit()
+    window.onAction(Action(2))  # Enter the rail from the selected map pin.
+    rail = window.controls[2000]
+    assert rail.size() == 50
+    assert rail.getSelectedPosition() == expected_position
+    assert rail.getSelectedItem().getProperty('station_uuid') == selected_uuid
+    expected = ['station-%02d' % i for i in range(49)] + ['station-59' if selected_uuid == 'station-59' else 'station-49']
+    assert [entry.getProperty('station_uuid') for entry in rail.items] == expected
+
+
+def test_cached_selected_summary_is_reserved_in_seed_budget_and_rendered(monkeypatch):
+    from radio_ui import StationSummary
+    module = load_window(monkeypatch)
+    cached = StationSummary.from_station(station('cached', 'Cached station', 0, 0))
+    stations = [station('station-%03d' % i, 'Station %03d' % i, .5, .5) for i in range(200)]
+    window = make_window(module, stations=stations + [cached], selected_uuid='cached')
+    window.onInit()
+    assert len(window.stations) == 200
+    window.setFocusId(2000)
+    window.onFocus(2000)
+    assert window.controls[2000].getSelectedItem().getProperty('station_uuid') == 'cached'
 
 
 def test_rail_previews_native_focused_row_and_only_exits_after_edge_is_reached(monkeypatch):
@@ -328,10 +418,32 @@ def test_window_rejects_invalid_selected_uuid(monkeypatch):
         make_window(module, selected_uuid='https://stream.invalid/live')
 
 
-def test_window_rejects_untrusted_origin_route(monkeypatch):
+def test_window_discards_untrusted_optional_origin_route(monkeypatch):
+    module = load_window(monkeypatch)
+    window = make_window(module, origin_route='plugin://plugin.audio.kodi_donor_radio?url=https://stream.invalid')
+    assert window.origin_route == 'plugin://plugin.audio.kodi_donor_radio?mode=home'
+
+
+@pytest.mark.parametrize('name', ['https://radio.example/live', 'a' * 300, '東京' * 80])
+def test_unusable_optional_search_origin_falls_back_to_home(monkeypatch, name):
+    from urllib.parse import urlencode
+    module = load_window(monkeypatch)
+    window = make_window(module, origin_route='plugin://plugin.audio.kodi_donor_radio?' +
+                         urlencode({'mode': 'search', 'name': name}))
+    window.onInit()
+    assert window.origin_route == 'plugin://plugin.audio.kodi_donor_radio?mode=home'
+    assert window.getFocusId() == 1000
+
+
+@pytest.mark.parametrize('base', ['https://plugin.audio.kodi_donor_radio',
+    'plugin://evil.example', 'plugin://plugin.audio.kodi_donor_radio/path',
+    'plugin://plugin.audio.kodi_donor_radio?mode=home',
+    'plugin://user@plugin.audio.kodi_donor_radio'])
+def test_optional_origin_fallback_never_accepts_unsafe_plugin_root(monkeypatch, base):
     module = load_window(monkeypatch)
     with pytest.raises(ValueError):
-        make_window(module, origin_route='plugin://plugin.audio.kodi_donor_radio?url=https://stream.invalid')
+        make_window(module, origin_route='plugin://plugin.audio.kodi_donor_radio?mode=search&name=' + 'a' * 300,
+                    plugin_base=base)
 
 
 def test_empty_map_has_localized_status_and_hides_disabled_preview(monkeypatch):

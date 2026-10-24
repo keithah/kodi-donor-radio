@@ -393,7 +393,7 @@ msgid "Back to stations"
 msgstr ""
 
 msgctxt "#30147"
-msgid "No mapped stations are available. Check your connection or browse the directory."
+msgid "No stations with valid map coordinates were found in this directory scan. Browse the directory or try another area."
 msgstr ""
 
 msgctxt "#30148"
@@ -454,4 +454,12 @@ msgstr ""
 
 msgctxt "#30162"
 msgid "Local schematic view. Grid follows the displayed station/place bounds; not to scale."
+msgstr ""
+
+msgctxt "#30163"
+msgid "The station map could not be loaded. Check your connection and try again."
+msgstr ""
+
+msgctxt "#30164"
+msgid "The selected station could not be refreshed. Showing available station information."
 msgstr ""
