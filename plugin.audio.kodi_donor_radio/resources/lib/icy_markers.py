@@ -72,7 +72,9 @@ def parse_marker(title: str) -> Optional[MarkerSignal]:
     match = _TILDE.fullmatch(tilde_value)
     if match:
         duration = int(match.group(3))
-        if duration > 300 or (match.group(6) and int(match.group(6)) > 300):
+        is_ad_start = not provider_end and match.group(4) == '4'
+        if is_ad_start and (duration > 300 or
+                            (match.group(6) and int(match.group(6)) > 300)):
             return None
         if match.group(4) != '4' and match.group(5):
             return None

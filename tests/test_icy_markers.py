@@ -56,7 +56,9 @@ def test_wrapped_command_is_explicit_in_tracker():
     ('Break ~ Break ~ 30 ~ 4 ~ I ^', 'start', 30),
     ('Break ~ Break ~ 30 ~ 4 ~ I ~ 3 ^', 'start', 30),
     ('Artist ~ Song ~ 246 ~ 0 ^', 'end', 246),
+    ('Artist ~ Song ~ 400 ~ 0 ^', 'end', 400),
     ('##Ignored ~ Event ~ 300 ~ 0 ^', 'end', 300),
+    ('##Ignored ~ Event ~ 400 ~ 0 ^', 'end', 400),
     ('##Ignored - Event', 'end', None),
 ])
 def test_terminated_tildeats_and_provider_end_break(title, kind, duration):

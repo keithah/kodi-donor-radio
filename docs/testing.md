@@ -13,14 +13,18 @@ and station-info screens also tolerate unreadable favorites/places. The
 directory smoke probe accepts ICY interval zero as unframed audio, while
 rejecting malformed interval values. Several threaded and timing tests now
 assert their outcomes outside worker callbacks and avoid read-scheduling flakes.
+Favorites and saved places now lock read-modify-write across Kodi invocations,
+and the five-minute marker limit applies only to ad-start markers, not long
+song or end-break durations. Fixture-only beacons are experimental; production
+stations remain unmapped until the absolute presentation clock is validated.
 
-The focused review regression set passed **267 tests**. The full suite passed
-**1,017 tests in 109.32s**. Compileall,
+The focused GUI, store-locking, and marker regression set passed **304 tests**.
+The full suite passed **1,021 tests in 109.54s**. Compileall,
 `git diff --check`, package creation, and `check_package.py` passed. Kodi add-on
 checker 0.0.36 on a fresh archive extraction reported no problems or warnings;
 its environment emitted the known LibreSSL/urllib3 compatibility warning. The
-ZIP has **37 files**, **454,301 bytes**, mode **0644**, SHA-256
-`9fa5bc708ae91f494658929b208f1f5b3785141067da4bdc292787b17b0366a1`.
+ZIP has **37 files**, **455,320 bytes**, mode **0644**, SHA-256
+`fb6a2470479f9cfd94c4074e063f10f9d90dcaf27b73647096f6d05a6eac4304`.
 Steward and CodeRabbit must run again against the exact committed revision
 before updating the PR branch. Interactive Kodi GUI acceptance remains pending
 because the desktop is locked.

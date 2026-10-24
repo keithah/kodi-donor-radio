@@ -93,7 +93,39 @@ def test_atomic_failure_preserves_previous_file_and_cleans_temp(tmp_path, monkey
     with pytest.raises(OSError):
         store.add(ui().StationSummary('b', 'B'))
     assert (tmp_path / 'favorites.json').read_bytes() == previous
-    assert sorted(p.name for p in tmp_path.iterdir()) == ['favorites.json']
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['.favorites.json.lock', 'favorites.json']
+
+
+@pytest.mark.parametrize('kind', ['favorite', 'place'])
+def test_profile_mutations_wait_for_other_kodi_invocation_lock(tmp_path, kind):
+    import threading
+    from playback_arbiter import profile_file_lock
+    module = ui()
+    if kind == 'favorite':
+        store, lock_name = module.FavoriteStore(tmp_path), '.favorites.json.lock'
+        store.add(module.StationSummary('before', 'Before'))
+        mutate = lambda: store.add(module.StationSummary('after', 'After'))
+    else:
+        store, lock_name = module.PlaceStore(tmp_path), '.places.json.lock'
+        store.save('Before', 0, 0, 10)
+        mutate = lambda: store.save('After', 1, 1, 10)
+    entered = threading.Event()
+    errors = []
+    def update():
+        entered.set()
+        try:
+            mutate()
+        except Exception as error:
+            errors.append(error)
+    worker = threading.Thread(target=update)
+    with profile_file_lock(tmp_path / lock_name):
+        worker.start()
+        assert entered.wait(1)
+        worker.join(.1)
+        assert worker.is_alive(), 'a competing profile mutation must wait for the lock'
+    worker.join(1)
+    assert not worker.is_alive() and not errors
+    assert len(store.list()) == 2
 
 
 def test_store_limits_and_safe_string_bounds(tmp_path, monkeypatch):
@@ -243,7 +275,7 @@ def test_setup_batch_default_limit_and_disk_failure_leave_no_partial_places(tmp_
     monkeypatch.setattr(os, 'replace', fail)
     with pytest.raises(OSError): store.save_many(values)
     assert not store.path.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert [path.name for path in tmp_path.iterdir()] == ['.places.json.lock']
     monkeypatch.undo()
     store.save_many(values)
     assert [p.is_default for p in store.list()] == [True, False]

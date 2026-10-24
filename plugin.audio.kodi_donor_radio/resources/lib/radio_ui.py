@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Safe display records, private profile stores, and pure geographic helpers."""
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -10,6 +11,8 @@ from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from playback_arbiter import profile_file_lock
 
 MAX_FAVORITES = 500
 MAX_PLACES = 50
@@ -181,6 +184,14 @@ class _Store:
             raise ValueError('Multiple default places')
         return items
 
+    @contextmanager
+    def _mutation(self):
+        """Serialize profile read-modify-write across Kodi's addon processes."""
+        self.profile.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.profile, 0o700)
+        with profile_file_lock(self.profile / ('.' + self.filename + '.lock')):
+            yield
+
     def _write(self, items):
         if len(items) > self.limit:
             raise ValueError('Profile item limit reached')
@@ -206,7 +217,8 @@ class _Store:
 
     def remove(self, item_id):
         station_identifier(item_id)
-        self._write([item for item in self.list() if getattr(item, self.key) != item_id])
+        with self._mutation():
+            self._write([item for item in self.list() if getattr(item, self.key) != item_id])
 
 
 class PlaceStore(_Store):
@@ -225,54 +237,59 @@ class PlaceStore(_Store):
 
     def save(self, name, latitude, longitude, radius_km, make_default=False, country_code=''):
         place = SavedPlace(str(uuid.uuid4()), name, latitude, longitude, radius_km, make_default, country_code)
-        items = self.list()
-        if make_default:
-            items = [replace(item, is_default=False) for item in items]
-        self._write(items + [place])
+        with self._mutation():
+            items = self.list()
+            if make_default:
+                items = [replace(item, is_default=False) for item in items]
+            self._write(items + [place])
         return place
 
     def save_many(self, records):
         """Validate the complete setup before atomically appending any places."""
         if not isinstance(records, list) or not records or len(records) > self.limit:
             raise ValueError('Invalid setup places')
-        items = self.list()
-        default_exists = any(place.is_default for place in items)
-        added = []
-        for record in records:
-            if not isinstance(record, dict) or set(record) - {
-                    'name', 'latitude', 'longitude', 'radius_km', 'country_code'}:
-                raise ValueError('Invalid setup place')
-            try:
-                added.append(SavedPlace(str(uuid.uuid4()),
-                                        is_default=not default_exists and not added, **record))
-            except TypeError as error:
-                raise ValueError('Invalid setup place') from error
-        self._write(items + added)
+        with self._mutation():
+            items = self.list()
+            default_exists = any(place.is_default for place in items)
+            added = []
+            for record in records:
+                if not isinstance(record, dict) or set(record) - {
+                        'name', 'latitude', 'longitude', 'radius_km', 'country_code'}:
+                    raise ValueError('Invalid setup place')
+                try:
+                    added.append(SavedPlace(str(uuid.uuid4()),
+                                            is_default=not default_exists and not added, **record))
+                except TypeError as error:
+                    raise ValueError('Invalid setup place') from error
+            self._write(items + added)
         return added
 
     def remove(self, place_id):
         station_identifier(place_id)
-        items = self.list()
-        removed_default = any(p.place_id == place_id and p.is_default for p in items)
-        remaining = [p for p in items if p.place_id != place_id]
-        if removed_default and remaining:
-            remaining[0] = replace(remaining[0], is_default=True)
-        self._write(remaining)
+        with self._mutation():
+            items = self.list()
+            removed_default = any(p.place_id == place_id and p.is_default for p in items)
+            remaining = [p for p in items if p.place_id != place_id]
+            if removed_default and remaining:
+                remaining[0] = replace(remaining[0], is_default=True)
+            self._write(remaining)
 
     def set_default(self, place_id):
         station_identifier(place_id)
-        items = self.list()
-        if not any(p.place_id == place_id for p in items):
-            raise ValueError('Place not found')
-        self._write([replace(p, is_default=p.place_id == place_id) for p in items])
+        with self._mutation():
+            items = self.list()
+            if not any(p.place_id == place_id for p in items):
+                raise ValueError('Place not found')
+            self._write([replace(p, is_default=p.place_id == place_id) for p in items])
 
     def set_radius(self, place_id, radius_km):
         station_identifier(place_id)
         _number(radius_km, 0.001, 20040)
-        items = self.list()
-        if not any(p.place_id == place_id for p in items):
-            raise ValueError('Place not found')
-        self._write([replace(p, radius_km=radius_km) if p.place_id == place_id else p for p in items])
+        with self._mutation():
+            items = self.list()
+            if not any(p.place_id == place_id for p in items):
+                raise ValueError('Place not found')
+            self._write([replace(p, radius_km=radius_km) if p.place_id == place_id else p for p in items])
 
 
 class FavoriteStore(_Store):
@@ -286,34 +303,37 @@ class FavoriteStore(_Store):
     def add(self, station_summary):
         if type(station_summary) is not StationSummary:
             raise ValueError('Expected safe station summary')
-        items = self.list()
-        for index, item in enumerate(items):
-            if item.station_uuid == station_summary.station_uuid:
-                items[index] = replace(station_summary, last_played=item.last_played)
-                break
-        else:
-            items.append(station_summary)
-        self._write(items)
+        with self._mutation():
+            items = self.list()
+            for index, item in enumerate(items):
+                if item.station_uuid == station_summary.station_uuid:
+                    items[index] = replace(station_summary, last_played=item.last_played)
+                    break
+            else:
+                items.append(station_summary)
+            self._write(items)
 
     def move(self, station_uuid, index):
         station_identifier(station_uuid)
-        items = self.list()
-        if type(index) is not int or not 0 <= index < len(items):
-            raise ValueError('Invalid favorite position')
-        found = next((i for i, item in enumerate(items) if item.station_uuid == station_uuid), None)
-        if found is None:
-            raise ValueError('Favorite not found')
-        items.insert(index, items.pop(found))
-        self._write(items)
+        with self._mutation():
+            items = self.list()
+            if type(index) is not int or not 0 <= index < len(items):
+                raise ValueError('Invalid favorite position')
+            found = next((i for i, item in enumerate(items) if item.station_uuid == station_uuid), None)
+            if found is None:
+                raise ValueError('Favorite not found')
+            items.insert(index, items.pop(found))
+            self._write(items)
 
     def mark_played(self, station_uuid, played_at):
         station_identifier(station_uuid)
         _timestamp(played_at)
-        items = self.list()
-        if not any(item.station_uuid == station_uuid for item in items):
-            raise ValueError('Favorite not found')
-        self._write([replace(item, last_played=played_at) if item.station_uuid == station_uuid
-                     else item for item in items])
+        with self._mutation():
+            items = self.list()
+            if not any(item.station_uuid == station_uuid for item in items):
+                raise ValueError('Favorite not found')
+            self._write([replace(item, last_played=played_at) if item.station_uuid == station_uuid
+                         else item for item in items])
 
 
 def distance_km(lat1, lon1, lat2, lon2):
