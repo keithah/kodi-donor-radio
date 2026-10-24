@@ -208,7 +208,8 @@ class PlaybackSession:
             missing = requested.difference(by_url)
             excess = len(self._resources) + len(missing) - self.resource_limit
             removable = [key for key, resource in self._resources.items()
-                         if key != self._root and not resource.active and resource.url not in requested]
+                         if key != self._root and not resource.active and resource.url not in requested
+                         and resource.kind != 'cached']
             if excess > len(removable):
                 raise ResourceLimit('Session resource limit')
             for key in removable[:max(0, excess)]:

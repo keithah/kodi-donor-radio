@@ -265,6 +265,18 @@ def test_resource_limit_evicts_inactive_but_keeps_active_and_batch_atomic():
     m.close()
 
 
+def test_generic_resource_eviction_keeps_cached_route_index_consistent():
+    m = manager(resource_limit=3)
+    s = m.create(station())
+    cached = s.cached_route('cache-id')
+    s.register_many(['http://a/1'])
+    s.register_many(['http://a/2'])
+    resource = s.cached_route('cache-id')
+    assert resource == cached
+    assert s.lookup(resource) is not None
+    m.close()
+
+
 def test_idle_expiry_closes_probe_and_closed_manager_rejects_create():
     m = manager(idle_timeout=.01)
     s = m.create(station())

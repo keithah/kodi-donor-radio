@@ -32,7 +32,7 @@ from radio_ui import (FavoriteStore, PlaceStore, StationSummary, coordinates, sa
 from relay import RelayServer
 from sessions import SessionManager
 from icy_marker_store import IcyMarkerStore
-from playback_arbiter import PlaybackStartArbiter
+from playback_arbiter import PlaybackStartArbiter, profile_file_lock
 from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
@@ -68,28 +68,8 @@ def _playback_arbiter():
 def _descriptor_lock(profile):
     """Serialize publish and compare/remove across Kodi's separate interpreters."""
     profile = _private_profile(profile)
-    fd = os.open(str(profile / 'service.lock'), os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        os.chmod(str(profile / 'service.lock'), 0o600)
-        if os.name == 'nt':
-            import msvcrt
-            if os.fstat(fd).st_size == 0:
-                os.write(fd, b'\0')
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
-            yield profile
-        finally:
-            if os.name == 'nt':
-                os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)
+    with profile_file_lock(profile / 'service.lock'):
+        yield profile
 
 
 def _descriptor(record):

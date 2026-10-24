@@ -194,6 +194,28 @@ def test_complete_cache_is_private_and_pinned(tmp_path):
     assert all(not s.path.exists() for s in prepared.segments)
 
 
+def test_redirected_manifest_resolves_relative_segments_from_final_url(tmp_path):
+    origin = 'http://127.0.0.1:8766'
+    manifest = ('#EXTM3U\n#EXTINF:2.005333,\nreplacement000.ts\n'
+                '#EXT-X-ENDLIST\n').encode()
+    client = Client()
+    calls = []
+
+    def open_url(url, headers, cancel, deadline=None, allowed_origin=None):
+        calls.append(url)
+        if url.endswith('.m3u8'):
+            return Response(manifest, origin + '/redirected/playlist.m3u8')
+        return Response(segment(url.rsplit('/', 1)[-1]), url)
+
+    client.open = open_url
+    cache = CreativeCache(tmp_path, client, origin)
+    prepared = cache.prepare(ad(origin + '/original/playlist.m3u8'), threading.Event())
+    assert calls == [origin + '/original/playlist.m3u8',
+                     origin + '/redirected/replacement000.ts']
+    assert len(prepared.segments) == 1
+    cache.close()
+
+
 def test_cache_close_releases_session_when_directory_removal_fails(tmp_path, monkeypatch):
     import ad_media
 

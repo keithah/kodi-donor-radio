@@ -171,14 +171,17 @@ found, and cache eviction no longer inverts the session/ad-session lock order.
 The package checker rejects XML DTD/entity declarations, and package rejection
 tests assert their specific reasons. The ZIP publisher sets the final artifact
 mode to `0644` before atomic rename. Failures while cleaning an abandoned ad
-cache are non-fatal to ordinary radio-service startup.
+cache are non-fatal to ordinary radio-service startup. Redirected VAST manifests
+resolve relative segments from the final manifest URL, cached media routes are
+excluded from unrelated resource eviction, and the source deadline test uses an
+isolated monotonic clock. Both profile-file locking paths share one helper.
 
-The final suite passed **964 tests in 105.39s**. Compileall, package build and
+The final suite passed **966 tests in 104.43s**. Compileall, package build and
 internal package validation passed. Kodi add-on checker 0.0.36 on a fresh ZIP
 extraction reported no add-on problems or warnings; its host emitted the known
-LibreSSL/urllib3 warning. The current ZIP has **37 files**, is **448,994 bytes**,
+LibreSSL/urllib3 warning. The current ZIP has **37 files**, is **448,567 bytes**,
 mode `0644`, and has SHA-256
-`cca6f4853177c3d6e11b6103068762f48869c963cc40357036b91a42d77414dd`.
+`0dae8fbe601e48de4a64973a81b24a03d75377d4fa04bfa5df4fe6e7ec421475`.
 Live Kodi interface acceptance remains pending because the Mac desktop is locked.
 
 ## Controlled VAST acceptance, 2026-10-22

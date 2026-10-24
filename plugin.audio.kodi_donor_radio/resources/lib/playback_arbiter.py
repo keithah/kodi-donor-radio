@@ -23,7 +23,7 @@ def _process_lock(path):
 
 
 @contextmanager
-def _file_lock(path):
+def profile_file_lock(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
@@ -69,7 +69,7 @@ class PlaybackStartArbiter:
             if self.lock_path is None:
                 yield
             else:
-                with _file_lock(self.lock_path):
+                with profile_file_lock(self.lock_path):
                     yield
 
     def _record_intent(self):

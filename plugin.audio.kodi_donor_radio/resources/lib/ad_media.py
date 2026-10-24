@@ -241,7 +241,7 @@ class CreativeCache:
         if time.monotonic() >= deadline:
             raise TimeoutError('Creative preparation timed out')
 
-    def _fetch(self, url, cancel, deadline, limit, reserve=None):
+    def _fetch(self, url, cancel, deadline, limit, reserve=None, return_url=False):
         self._check(cancel, deadline)
         if origin(url) != origin(self.fixture_origin):
             _bad('Advertising origin rejected')
@@ -255,7 +255,8 @@ class CreativeCache:
                 block = response.read(min(65536, limit + 1 - len(body)))
                 self._check(cancel, deadline)
                 if not block:
-                    return bytes(body)
+                    body = bytes(body)
+                    return (body, response.final_url) if return_url else body
                 if reserve is not None:
                     reserve(len(block))
                 body.extend(block)
@@ -326,8 +327,9 @@ class CreativeCache:
             self._reserve(size)
             reserved += size
         try:
-            manifest = self._fetch(ad.media_url, cancel, deadline, MAX_MANIFEST)
-            items = self._manifest(manifest, ad.media_url)
+            manifest, manifest_url = self._fetch(
+                ad.media_url, cancel, deadline, MAX_MANIFEST, return_url=True)
+            items = self._manifest(manifest, manifest_url)
             self._check(cancel, deadline)
             segments = []
             total_samples = 0

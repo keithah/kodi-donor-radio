@@ -76,6 +76,7 @@ def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):
 def test_source_transport_error_is_classified_as_retryable():
     from ad_session import SourceUnavailable
     from hls import Playlist, Segment
+    from types import SimpleNamespace
 
     class Client:
         def open(self, *args, **kwargs):
@@ -111,7 +112,7 @@ def test_source_segment_fetch_uses_one_total_deadline(monkeypatch):
             return Response()
 
     clock = iter((100.0, 100.0 + module.SOURCE_FETCH_SECONDS + .01))
-    monkeypatch.setattr(module.time, 'monotonic', lambda: next(clock))
+    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=lambda: next(clock)))
     session = AdSession.__new__(AdSession)
     session._lock = RLock()
     session._source, session._source_by_id, session._published = {}, {}, set()
