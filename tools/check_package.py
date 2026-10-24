@@ -17,6 +17,7 @@ FILES = frozenset({
     'addon.xml', 'default.py', 'service.py', 'LICENSE.txt',
     'resources/settings.xml', 'resources/icon.png', 'resources/fanart.jpg',
     'resources/station-monogram.png',
+    'resources/skins/Default/media/white.png',
     'resources/language/resource.language.en_gb/strings.po',
     *('resources/lib/' + name + '.py' for name in (
         'control', 'cues', 'events', 'hls', 'http_client', 'icy', 'kodi_runtime',
@@ -87,6 +88,9 @@ def check_contents(contents):
             value = element.get(attribute, '')
             if value.isdigit() and int(value) >= 30000:
                 require(value in localized, 'Settings reference missing localization')
+    map_references = set(re.findall(r'\$LOCALIZE\[(\d+)\]', contents[
+        'resources/skins/Default/1080i/map.xml'].decode('utf-8')))
+    require(map_references <= localized, 'Map references missing localization')
     license_text = contents['LICENSE.txt'].decode('utf-8')
     require(len(license_text) > 17000 and 'GNU GENERAL PUBLIC LICENSE' in license_text
             and 'Version 2, June 1991' in license_text

@@ -184,11 +184,11 @@ def test_map_pins_and_actions_have_visible_distinct_focus_styles():
     controls = {int(node.get('id')): node for node in ET.parse(root).findall(".//control[@type='button']")}
     pins = [controls[index] for index in range(1000, 1060)]
     for pin in pins:
-        assert pin.findtext('texturefocus') == 'white.png'
+        assert pin.findtext('texturefocus') == 'media/white.png'
         assert pin.findtext('colordiffuse') == '7044A8D8'
         assert pin.findtext('focusedcolor') != pin.findtext('textcolor')
     preview, back = controls[3000], controls[3001]
-    assert preview.findtext('texturefocus') == back.findtext('texturefocus') == 'white.png'
+    assert preview.findtext('texturefocus') == back.findtext('texturefocus') == 'media/white.png'
     assert preview.findtext('colordiffuse') != back.findtext('colordiffuse')
     assert preview.findtext('focusedcolor') != back.findtext('focusedcolor')
     title = ET.parse(root).find(".//control[@id='11']/label")
@@ -245,6 +245,16 @@ def test_world_map_keeps_world_regions_and_expected_graticule(monkeypatch):
     assert [window.controls[index].position[1] for index in range(20, 25)] == [243, 342, 440, 538, 637]
     assert [window.controls[index].position[0] for index in range(25, 30)] == [247, 418, 590, 762, 933]
     assert window.controls[13].label == 'localized-30148'
+
+
+def test_reinitializing_window_reuses_the_existing_preview_controller(monkeypatch):
+    module = load_window(monkeypatch)
+    window = make_window(module, preview_enabled=True,
+                         preview_start=lambda station_uuid, cancel: None)
+    window.onInit()
+    controller = window._preview
+    window.onInit()
+    assert window._preview is controller
 
 
 def test_antimeridian_grid_uses_unwrapped_longitude_and_narrow_views_get_grid(monkeypatch):

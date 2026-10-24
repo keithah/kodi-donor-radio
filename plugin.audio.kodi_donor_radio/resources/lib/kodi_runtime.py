@@ -598,7 +598,10 @@ def _open_map(params, monitor, cancel, base):
     def start_preview(station_uuid, request_cancel):
         if cancel.is_set() or request_cancel.is_set():
             raise Cancelled('Request cancelled')
-        preview_browser = RadioBrowser(cancel=request_cancel)
+        known_mirrors = browser.mirror_urls
+        preview_browser = RadioBrowser(
+            cancel=request_cancel,
+            mirror_lookup=(lambda: list(known_mirrors)) if known_mirrors else None)
         station = preview_browser.by_uuid(_real_station_uuid(station_uuid))
         if request_cancel.is_set():
             raise Cancelled('Request cancelled')
@@ -882,7 +885,11 @@ def run_plugin(argv):
                     label, code = name
                     item(label, mode='country', code=code)
                 else:
-                    item(_query_text(name), mode='tag', tag=_query_text(name))
+                    try:
+                        tag = _query_text(name)
+                    except ValueError:
+                        continue
+                    item(tag, mode='tag', tag=tag)
             if ((action == 'countries' and offset + PAGE_SIZE < len(names)) or
                     (action == 'tags' and len(page) == PAGE_SIZE)) and offset + PAGE_SIZE <= MAX_OFFSET:
                 item(text(30005), mode=action, offset=offset+PAGE_SIZE)

@@ -401,7 +401,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 self.setFocusId(pin)
         else:
             self.setFocusId(BACK_ID)
-        if self.preview_enabled and self._preview_start_callback:
+        if self._preview is None and self.preview_enabled and self._preview_start_callback:
             self._preview = PreviewController(
                 self._preview_start_callback,
                 self._can_start_preview,

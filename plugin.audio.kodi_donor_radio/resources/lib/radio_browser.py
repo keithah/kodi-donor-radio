@@ -47,6 +47,11 @@ class RadioBrowser:
         self._mirrors = None
         self._preferred = None
 
+    @property
+    def mirror_urls(self):
+        """Return a snapshot of mirrors discovered by this browser, if any."""
+        return tuple(self._mirrors or ())
+
     def _servers(self):
         if self._mirrors is None:
             if self.mirror_lookup is None:

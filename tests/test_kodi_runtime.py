@@ -243,6 +243,47 @@ def test_country_and_tag_navigation(kodi,monkeypatch):
     assert parse_qs(urlsplit(state.items[-1][0]).query)['offset']==['100']
 
 
+def test_tag_page_skips_invalid_remote_tag_and_keeps_other_tags(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.tags = lambda *args: ['jazz', 'x' * 257, 'bad\x01tag', 'news']
+    route(runtime, mode='tags')
+    assert [entry.label for _, entry, _ in state.items] == ['jazz', 'news']
+
+
+def test_map_preview_reuses_discovered_directory_mirrors(kodi, monkeypatch):
+    runtime, _, profile = kodi
+    mirrors = ['https://nl1.api.radio-browser.info']
+    browser_instances = []
+
+    class Browser:
+        def __init__(self, cancel=None, mirror_lookup=None):
+            self.cancel, self.mirror_lookup = cancel, mirror_lookup
+            self._mirrors = list(mirrors)
+            browser_instances.append(self)
+        @property
+        def mirror_urls(self): return tuple(self._mirrors)
+        def by_uuid(self, uuid): return STATION
+        def geographic(self, code, offset, limit): return [STATION], False
+
+    monkeypatch.setattr(runtime, 'RadioBrowser', Browser)
+    descriptor = ServiceDescriptor(32123, 'a' * 48, 'b' * 64)
+    runtime.publish_descriptor(profile, descriptor)
+    class Client:
+        def __init__(self, descriptor, timeout=10): pass
+        def create_preview(self, station):
+            return {'id': 'c' * 48,
+                    'playback_url': 'http://127.0.0.1:32123/media/' + 'c' * 48 + '/' + 'd' * 48,
+                    'mime_type': 'audio/aac'}
+    monkeypatch.setattr(runtime, 'ControlClient', Client)
+    opened = install_map_window(monkeypatch)
+    route(runtime, mode='map', uuid=STATION.uuid)
+    result = opened[-1].kwargs['preview_start'](STATION.uuid, threading.Event())
+    assert result['session_id'] == 'c' * 48
+    assert len(browser_instances) == 3
+    assert browser_instances[-1].mirror_lookup() == mirrors
+
+
 def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monkeypatch):
     runtime, state, profile = kodi
     browser = directory(monkeypatch, runtime)
@@ -1160,7 +1201,8 @@ def test_station_display_metadata_safe_artwork_and_uuid_links(kodi, monkeypatch)
     assert item.info['music']['title'] == 'FM 88'
     assert item.props['IsPlayable'] == 'true' and folder is False and item.folder is False
     fallback = state.items[1][1].art['thumb']
-    assert fallback.endswith('/resources/station-monogram.png') and Path(fallback).is_file()
+    assert Path(fallback).parts[-2:] == ('resources', 'station-monogram.png')
+    assert Path(fallback).is_file()
     assert all('secret' not in url for url, _, _ in state.items)
     assert browser.clicks == browser.lookups == []
 

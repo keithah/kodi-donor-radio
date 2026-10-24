@@ -37,6 +37,7 @@ def test_package_is_installable_source_only(package):
         assert ADDON + '/default.py' in names
         assert ADDON + '/service.py' in names
         assert ADDON + '/resources/station-monogram.png' in names
+        assert ADDON + '/resources/skins/Default/media/white.png' in names
         assert ADDON + '/resources/lib/radio_ui.py' in names
         assert ADDON + '/resources/lib/radio_map.py' in names
         assert ADDON + '/resources/lib/kodi_radio_map.py' in names
@@ -74,6 +75,19 @@ def test_package_checker_rejects_malformed_map_xml(package):
                     for name in archive.namelist() if name.startswith(prefix)}
     contents['resources/skins/Default/1080i/map.xml'] = b'<window>'
     with pytest.raises(ET.ParseError):
+        checker(contents)
+
+
+def test_package_checker_rejects_missing_map_localization(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['resources/skins/Default/1080i/map.xml'] = contents[
+        'resources/skins/Default/1080i/map.xml'].replace(b'$LOCALIZE[30148]', b'$LOCALIZE[39999]')
+    with pytest.raises(ValueError, match='Map references missing localization'):
         checker(contents)
 
 
@@ -138,7 +152,8 @@ def test_packaged_gui_settings_and_map_have_localized_resources(package):
 
 @pytest.mark.parametrize('resource', [
     'resources/settings.xml', 'resources/language/resource.language.en_gb/strings.po',
-    'resources/skins/Default/1080i/map.xml', 'resources/station-monogram.png',
+    'resources/skins/Default/1080i/map.xml', 'resources/skins/Default/media/white.png',
+    'resources/station-monogram.png',
     'resources/lib/radio_ui.py', 'resources/lib/radio_map.py',
     'resources/lib/kodi_radio_map.py', 'resources/lib/playback_arbiter.py',
 ])
