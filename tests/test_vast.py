@@ -156,6 +156,7 @@ def test_macros_are_encoded_and_unknown_endpoint_is_unusable(tmp_path, monkeypat
             .replace(b'/track/placement-1/start', b'/track/placement-1/start?unknown=[UNKNOWN]')
             if scenario == 'direct' else original(scenario, origin))
         ad = VastResolver(client, base).resolve(base + '/vast/direct', threading.Event())
+        assert len(ad.error_urls) == 1
         assert all('[ERRORCODE]' in url and '[CACHEBUSTING]' in url for url in ad.error_urls)
         assert all(item.event != 'start' for item in ad.tracking)
         assert beacons(base) == {}

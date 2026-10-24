@@ -9,7 +9,7 @@
     </control>
     <control type="label" id="11">
       <left>75</left><top>30</top><width>1770</width><height>60</height>
-      <label>Radio map</label><font>font30_title</font><textcolor>FFFFFFFF</textcolor>
+      <label>$LOCALIZE[30149]</label><font>font30_title</font><textcolor>FFFFFFFF</textcolor>
     </control>
     <control type="image" id="12">
       <left>60</left><top>125</top><width>1060</width><height>620</height>
@@ -33,370 +33,434 @@
     <control type="button" id="3000">
       <left>1150</left><top>870</top><width>330</width><height>70</height>
       <label></label><font>font16</font>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor>
     </control>
     <control type="button" id="3001">
       <left>1510</left><top>870</top><width>330</width><height>70</height>
       <label></label><font>font16</font>
+      <texturefocus>white.png</texturefocus><colordiffuse>70D17B3F</colordiffuse>
+      <focusedcolor>FFFFD08A</focusedcolor>
     </control>
     <control type="button" id="1000">
       <description>Map city pin 1</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1001">
       <description>Map city pin 2</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1002">
       <description>Map city pin 3</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1003">
       <description>Map city pin 4</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1004">
       <description>Map city pin 5</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1005">
       <description>Map city pin 6</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1006">
       <description>Map city pin 7</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1007">
       <description>Map city pin 8</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1008">
       <description>Map city pin 9</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1009">
       <description>Map city pin 10</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1010">
       <description>Map city pin 11</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1011">
       <description>Map city pin 12</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1012">
       <description>Map city pin 13</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1013">
       <description>Map city pin 14</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1014">
       <description>Map city pin 15</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1015">
       <description>Map city pin 16</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1016">
       <description>Map city pin 17</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1017">
       <description>Map city pin 18</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1018">
       <description>Map city pin 19</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1019">
       <description>Map city pin 20</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1020">
       <description>Map city pin 21</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1021">
       <description>Map city pin 22</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1022">
       <description>Map city pin 23</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1023">
       <description>Map city pin 24</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1024">
       <description>Map city pin 25</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1025">
       <description>Map city pin 26</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1026">
       <description>Map city pin 27</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1027">
       <description>Map city pin 28</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1028">
       <description>Map city pin 29</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1029">
       <description>Map city pin 30</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1030">
       <description>Map city pin 31</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1031">
       <description>Map city pin 32</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1032">
       <description>Map city pin 33</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1033">
       <description>Map city pin 34</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1034">
       <description>Map city pin 35</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1035">
       <description>Map city pin 36</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1036">
       <description>Map city pin 37</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1037">
       <description>Map city pin 38</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1038">
       <description>Map city pin 39</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1039">
       <description>Map city pin 40</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1040">
       <description>Map city pin 41</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1041">
       <description>Map city pin 42</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1042">
       <description>Map city pin 43</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1043">
       <description>Map city pin 44</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1044">
       <description>Map city pin 45</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1045">
       <description>Map city pin 46</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1046">
       <description>Map city pin 47</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1047">
       <description>Map city pin 48</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1048">
       <description>Map city pin 49</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1049">
       <description>Map city pin 50</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1050">
       <description>Map city pin 51</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1051">
       <description>Map city pin 52</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1052">
       <description>Map city pin 53</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1053">
       <description>Map city pin 54</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1054">
       <description>Map city pin 55</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1055">
       <description>Map city pin 56</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1056">
       <description>Map city pin 57</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1057">
       <description>Map city pin 58</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1058">
       <description>Map city pin 59</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
     <control type="button" id="1059">
       <description>Map city pin 60</description>
       <left>75</left><top>145</top><width>180</width><height>42</height>
       <label></label><font>font13</font><textcolor>FFFFFFFF</textcolor>
-      <focusedcolor>FFFFFFFF</focusedcolor><align>center</align>
+      <texturefocus>white.png</texturefocus><colordiffuse>7044A8D8</colordiffuse>
+      <focusedcolor>FF8CE8FF</focusedcolor><align>center</align>
     </control>
   </controls>
 </window>

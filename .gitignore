@@ -9,5 +9,7 @@ dist/
 .coverage
 htmlcov/
 .DS_Store
-.superpowers/sdd/
+.superpowers/sdd/*
+!.superpowers/sdd/.gitignore
+!.superpowers/sdd/2026-10-23-kodi-radio-gui/
 tests/generated-audio/

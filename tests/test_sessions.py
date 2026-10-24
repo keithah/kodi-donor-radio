@@ -73,6 +73,29 @@ def test_presentation_uses_one_ad_reference_during_concurrent_disable():
     assert session.reads == 1
 
 
+def test_retire_cached_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+    from collections import OrderedDict
+
+    resource = type('Resource', (), {'id': 'cached-resource', 'active': 0})()
+    class Session:
+        def __init__(self):
+            self.reads = 0
+            self._lock = threading.RLock()
+            self._cache_routes = {'cache-id': resource}
+            self._resources = OrderedDict([(resource.id, resource)])
+        @property
+        def ad(self):
+            self.reads += 1
+            return type('Ad', (), {'published_ids': set()})() if self.reads == 1 else None
+
+    session = Session()
+    PlaybackSession.retire_cached(session)
+    assert session.reads == 1
+    assert not session._cache_routes
+    assert not session._resources
+
+
 def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_path):
     from types import SimpleNamespace
     from ad_models import AdConfig

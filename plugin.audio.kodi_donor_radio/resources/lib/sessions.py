@@ -151,9 +151,10 @@ class PlaybackSession:
             return self.route(resource.id)
 
     def retire_cached(self):
-        if self.ad is None:
+        ad = self.ad
+        if ad is None:
             return
-        retained = self.ad.published_ids
+        retained = ad.published_ids
         with self._lock:
             for cache_id, resource in list(self._cache_routes.items()):
                 if cache_id not in retained and not resource.active:

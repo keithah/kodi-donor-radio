@@ -1,6 +1,6 @@
 # Task 7 report — GUI package and flow verification
 
-Status: automated/package/documentation scope complete, including one consolidated fix wave from the independent whole-branch review; live Kodi GUI acceptance unavailable and still outstanding under the plan's explicit fallback branch.
+Status: automated/package/documentation scope complete, including consolidated review fixes; live Kodi GUI acceptance unavailable and still outstanding under the plan's explicit fallback branch.
 
 ## Scope
 
@@ -17,15 +17,17 @@ Host: macOS ARM64; Python 3.9.6. Verification includes the consolidated correcti
 | --- | --- |
 | `python3 -m pytest tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_sessions.py tests/test_relay.py -q` | 251 passed in 31.92s |
 | `python3 -m pytest tests/test_package.py tests/test_kodi_runtime.py tests/test_kodi_radio_map.py tests/test_radio_map.py tests/test_radio_ui.py tests/test_playback_arbiter.py -q` | 256 passed in 8.88s |
-| `python3 -m pytest -q` | 928 passed in 104.01s; no failures; local HTTP-handler exception banner noted below |
+| `python3 -m pytest -q` | Latest follow-up: 937 passed in 103.37s; clean output |
 | `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` | Exit 0, no output |
 | `python3 tools/package_addon.py --output dist` | Exit 0; installable ZIP built |
 | `python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip` | Exit 0, `Package OK` |
-| ZIP manifest/member inspection and fresh extraction to `dist/checker-gui-final3/` | 36 approved files; both entry points; version 0.1.0; only xbmc.python 3.0.1 dependency |
-| `.venv/checker/bin/kodi-addon-checker --branch omega --skip-dependency-checks dist/checker-gui-final3/plugin.audio.kodi_donor_radio` | Checker 0.0.36 exit 0: no add-on problems or warnings (dependency availability was checked on the preceding same-runtime package build) |
+| ZIP manifest/member inspection and fresh extraction | 36 approved files; both entry points; version 0.1.0; only xbmc.python 3.0.1 dependency |
+| `.venv/checker/bin/kodi-addon-checker --branch omega --skip-dependency-checks` on the fresh extraction | Checker 0.0.36 exit 0: no add-on problems or warnings (dependency availability was checked on the preceding same-runtime package build) |
 | `git diff --check` | Exit 0, no output |
 
-The full run emitted `Exception occurred during processing of request from ('127.0.0.1', 60913)` and a separator banner without a retained traceback. The emitting test was not identified. All 929 tests passed, but the output was not pristine. The official checker separately emitted the known host `urllib3` warning that Python's LibreSSL 2.8.3 is outside its OpenSSL support range; the checker itself reported zero add-on warnings/problems.
+An earlier full run emitted `Exception occurred during processing of request` for a loopback client, without a retained traceback. The latest 937-test run was clean. The official checker separately emitted the known host `urllib3` warning that Python's LibreSSL 2.8.3 is outside its OpenSSL support range; the checker itself reported zero add-on warnings/problems.
+
+The final review follow-up also adds focused map textures with distinct Preview/Back colors, localizes the map title, switches profile file permissions to portable path-based chmod, snapshots the session ad reference once during cache retirement, selects smoke entries by exact fixture ID, makes the VAST macro assertion non-vacuous, and clarifies `radius_km` storage and miles conversion. Its focused regression set passed 116 tests; the latest full suite passed 937 tests in 103.37s. The 36-file package is 439,141 bytes with SHA-256 `8a281b988801c505e1f6559501a54da3511f818c797b1da6e28f4002b472c8b6`.
 
 The consolidated review-fix wave prevents preview creation from replacing active or pending deliberate relay sessions, passes Kodi's native WindowXML constructor arguments at allocation time, accepts both valid empty/trailing-slash plugin roots, and lets setup save truthful station areas when Radio Browser records omit city. The map rail now follows the already-moved Kodi selection and handles a non-wrapping edge; visible focused styling, fallback artwork, metadata, and localized map labels are covered. Regressions also cover the cleanup lock-failure cases noted by the scoped reviewer.
 
@@ -33,10 +35,10 @@ The one scoped re-review confirmed that all six important findings and the two c
 
 A separate adversarial Steward pass then found that Kodi's native image loader could fetch an untrusted Radio Browser favicon URL directly, outside the add-on's URL policy. The list and map now use the bundled generic “DR” tile for all station artwork until the add-on can fetch images through bounded destination- and redirect-validated caching. A regression supplies a loopback favicon URL and confirms the native artwork field receives only the local monogram. Station-specific call-letter artwork remains a future target. The product spec records this first-slice boundary. After this change, the GUI/directory/package-focused suite passed (252 tests), the full suite passed (929 tests in 102.84s), compileall/package/archive checks passed, and Kodi checker 0.0.36 reported no add-on problems/warnings on the final archive (dependency check skipped for this last run; dependency availability passed on the immediately preceding package build).
 
-Fresh Steward primary and adversarial passes at commit `aa42466e264cf1323febd7b31a0c13c289364729` found no code blocker and confirmed the private-artwork issue resolved. The primary pass noted the generic “DR” tile distinction now documented above. Reports: `/Users/hermes/.config/steward-os/reports/kodi-donor-radio-e2e/gui-aa42466-primary.md` and `gui-aa42466-adversarial.md`.
+Fresh Steward primary and adversarial passes at commit `aa42466e264cf1323febd7b31a0c13c289364729` found no code blocker and confirmed the private-artwork issue resolved. The primary pass noted the generic “DR” tile distinction now documented above. Reports are saved in the local Steward report directory.
 
-ZIP: `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`, **433,800 bytes**, SHA-256:
-`2d687f9c413dee6b1b334583d62a3be8f265499fa32d1a850089002883b16cb5`.
+ZIP: `dist/plugin.audio.kodi_donor_radio-0.1.0.zip`, **439,141 bytes**, SHA-256:
+`8a281b988801c505e1f6559501a54da3511f818c797b1da6e28f4002b472c8b6`.
 
 ## Live acceptance unavailable
 

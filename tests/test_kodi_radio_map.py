@@ -176,6 +176,24 @@ def test_station_rail_skin_has_visible_focus_and_metadata_fallback():
     assert 'ListItem.Label2' in focused and 'ListItem.Art(thumb)' in focused
 
 
+def test_map_pins_and_actions_have_visible_distinct_focus_styles():
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i/map.xml'
+    controls = {int(node.get('id')): node for node in ET.parse(root).findall(".//control[@type='button']")}
+    pins = [controls[index] for index in range(1000, 1060)]
+    for pin in pins:
+        assert pin.findtext('texturefocus') == 'white.png'
+        assert pin.findtext('colordiffuse') == '7044A8D8'
+        assert pin.findtext('focusedcolor') != pin.findtext('textcolor')
+    preview, back = controls[3000], controls[3001]
+    assert preview.findtext('texturefocus') == back.findtext('texturefocus') == 'white.png'
+    assert preview.findtext('colordiffuse') != back.findtext('colordiffuse')
+    assert preview.findtext('focusedcolor') != back.findtext('focusedcolor')
+    title = ET.parse(root).find(".//control[@id='11']/label")
+    assert title is not None and title.text == '$LOCALIZE[30149]'
+
+
 def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch):
     from dataclasses import replace
     module = load_window(monkeypatch)

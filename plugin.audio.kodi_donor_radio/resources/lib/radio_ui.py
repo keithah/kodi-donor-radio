@@ -193,7 +193,9 @@ class _Store:
         descriptor, temporary = tempfile.mkstemp(prefix='.' + self.filename, dir=str(self.profile))
         try:
             with os.fdopen(descriptor, 'wb') as target:
-                os.fchmod(target.fileno(), 0o600)
+                # chmod(path) is available on the add-on's older Windows Python
+                # targets, while os.fchmod is not consistently exposed there.
+                os.chmod(temporary, 0o600)
                 target.write(data)
                 target.flush()
                 os.fsync(target.fileno())

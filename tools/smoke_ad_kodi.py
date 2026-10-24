@@ -98,12 +98,24 @@ def _stats(origin):
     return result
 
 
+_SOURCE_FIXTURE_IDS = {
+    'normal': 'fixture-30045',
+    'mutation': 'fixture-30046',
+    'expired-window': 'fixture-30047',
+    'stall': 'fixture-30048',
+}
+
+
 def _menu_file(port, source):
+    try:
+        expected_id = _SOURCE_FIXTURE_IDS[source]
+    except KeyError as error:
+        raise ValueError('Unknown controlled source: ' + str(source)) from error
     listing = rpc('Files.GetDirectory', {'directory':
         'plugin://plugin.audio.kodi_donor_radio/?action=tests', 'media': 'music'}, port=port)
     for item in listing.get('files', []):
-        station = parse_qs(urlsplit(item['file']).query).get('station', [])
-        if station and json.loads(station[0]).get('url', '').endswith('/source/' + source + '/index.m3u8'):
+        query = parse_qs(urlsplit(item.get('file', '')).query)
+        if query.get('mode') == ['play_fixture'] and query.get('id') == [expected_id]:
             return item['file'], item.get('label')
     raise RuntimeError('Controlled source not listed in Kodi test menu: ' + source)
 

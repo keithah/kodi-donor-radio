@@ -188,6 +188,23 @@ def test_kodi_smoke_accepts_only_loopback_relay_media_item():
     assert not _item_matches_expected('http://127.0.0.1:8767/media/not-an-id', expected)
 
 
+@pytest.mark.parametrize(('source', 'fixture_id'), [
+    ('normal', 'fixture-30045'), ('mutation', 'fixture-30046'),
+    ('expired-window', 'fixture-30047'), ('stall', 'fixture-30048'),
+])
+def test_kodi_smoke_menu_matches_expected_fixture_id(monkeypatch, source, fixture_id):
+    expected = 'plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=' + fixture_id
+    wrong = 'plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=fixture-30067'
+    monkeypatch.setattr(smoke_ad_kodi, 'rpc', lambda *_args, **_kwargs: {'files': [
+        {'file': wrong, 'label': 'Wrong fixture'}, {'file': expected, 'label': 'Expected fixture'}]})
+    assert smoke_ad_kodi._menu_file(9090, source) == (expected, 'Expected fixture')
+
+
+def test_kodi_smoke_menu_rejects_unknown_source(monkeypatch):
+    with pytest.raises(ValueError, match='Unknown controlled source'):
+        smoke_ad_kodi._menu_file(9090, 'unexpected')
+
+
 def test_kodi_rpc_ignores_async_notification_before_matching_response(monkeypatch):
     class Socket:
         def __init__(self):

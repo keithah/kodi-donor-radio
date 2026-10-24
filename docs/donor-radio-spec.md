@@ -291,7 +291,7 @@ Four things persist, all in the add-on's profile directory rather than in `setti
 
 | Store | Holds | Notes |
 | --- | --- | --- |
-| `places.json` | id, display name, lat, lon, radius in miles, is\_default | Order is the order they appear on Home |
+| `places.json` | id, display name, lat, lon, `radius_km`, `is_default` | Radius is stored in kilometers; the UI accepts miles and converts with 1 mile = 1.609344 km. Order is the order they appear on Home |
 | `favorites.json` | station UUID, name cached, added timestamp, user order | Name is cached so the list renders offline |
 | `recent_searches.json` | query string, scope, timestamp | Capped at 10, most recent first |
 | `history.json` | station UUID, play count, last played | Drives Most played and Recently played |

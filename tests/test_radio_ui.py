@@ -40,6 +40,22 @@ def test_favorites_preserve_order_update_played_and_round_trip(tmp_path):
     assert stat.S_IMODE((tmp_path / 'favorites.json').stat().st_mode) == 0o600
 
 
+def test_store_uses_path_chmod_for_portable_private_file_mode(tmp_path, monkeypatch):
+    m = ui()
+    calls = []
+    real_chmod = m.os.chmod
+    def record_chmod(path, mode):
+        calls.append((os.fspath(path), mode))
+        return real_chmod(path, mode)
+    monkeypatch.setattr(m.os, 'chmod', record_chmod)
+    monkeypatch.setattr(m.os, 'fchmod', lambda *_args: pytest.fail('fchmod is not portable'), raising=False)
+
+    m.FavoriteStore(tmp_path).add(m.StationSummary('portable', 'Portable'))
+
+    assert any(os.path.basename(path).startswith('.favorites.json') and mode == 0o600
+               for path, mode in calls)
+
+
 def test_places_have_single_default_and_stable_identity(tmp_path):
     store = ui().PlaceStore(tmp_path)
     first = store.save('Home', 1, 2, 25, make_default=True)

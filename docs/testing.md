@@ -1,6 +1,6 @@
 # Validation record
 
-## GUI package verification — 2026-10-23
+## GUI package verification — initial Task 7 run, 2026-10-23
 
 The first GUI slice implements native skin listings, saved places/favorites,
 sequential native setup, station/place actions, and one shared schematic map.
@@ -92,6 +92,31 @@ bounded to five seconds; a later Kodi acknowledgment can fail. There is no atomi
 Kodi-wide compare-and-play guarantee. Profile safety, UUID-only routes, live
 Radio Browser discovery, exact loopback fixtures and ICY/ad behavior remain
 covered by the full automated suite.
+
+### Consolidated review follow-up — 2026-10-23
+
+The follow-up review fixes preserve Kodi's required native WindowXML allocation,
+prevent preview preparation from replacing an active deliberate session, and
+keep artwork local. The additional UI and portability fixes give map pins and
+Preview/Back obvious focused textures, use localized map-title text, apply
+portable path-based profile-file permissions, and read the session's ad object
+once during cache retirement. The smoke test now identifies controlled entries
+by the add-on's exact fixture ID instead of parsing an assumed embedded station
+object; VAST macro coverage verifies that its error-URL assertion has a fixture
+to inspect. The spec now records the actual `radius_km` storage field and miles
+conversion.
+
+Verification on this follow-up: **116 targeted tests passed** and the full suite
+passed **937 tests in 103.37s** with clean pytest output. `compileall`, archive
+creation, `check_package.py`, and `git diff --check` passed. Kodi add-on checker
+0.0.36 reported no add-on problems or warnings; its Python environment emitted
+the known host LibreSSL/urllib3 warning. The fresh archive contains 36 files,
+is 439,141 bytes, and has SHA-256
+`8a281b988801c505e1f6559501a54da3511f818c797b1da6e28f4002b472c8b6`.
+
+Kodi GUI acceptance is still unavailable because the desktop is locked. These
+automated checks do not establish live rendering, D-pad focus, click delivery,
+playback audio, or interactive setup behavior.
 
 ## Controlled VAST acceptance, 2026-10-22
 
