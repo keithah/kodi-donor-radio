@@ -165,6 +165,27 @@ def test_home_hides_test_streams_and_uses_localized_labels(kodi):
     assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
 
 
+def test_home_recovers_when_saved_places_are_unreadable(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    (profile / 'places.json').write_text('{invalid')
+    route(runtime)
+    assert [entry.label for _, entry, _ in state.items] == [
+        'localized-30165', 'localized-30111', 'localized-30003', 'localized-30002',
+        'localized-30001', 'localized-30112', 'localized-30004', 'localized-30050']
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
+
+
+def test_station_listing_recovers_when_favorites_are_unreadable(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    (profile / 'favorites.json').write_text('{invalid')
+    browser = directory(monkeypatch, runtime)
+    browser.search = lambda *args, **kwargs: [STATION]
+    route(runtime, mode='search')
+    assert state.items[0][1].label == STATION.name
+    assert ('localized-30121', 'RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorite_add&uuid=station-1)') in state.items[0][1].context
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
+
+
 def test_settings_action_does_not_replace_home_listing_with_empty_folder(kodi):
     runtime, state, _ = kodi
     route(runtime, action='settings')

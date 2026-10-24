@@ -93,7 +93,7 @@ class KodiAdPlayback:
         self.paused = self.seeking = False
         self.mapping_valid = False
         self.mapper = None
-        if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', True):
+        if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', False):
             self.worker = BeaconWorker(self.client, session.cancel, self.fixture_origin)
             self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue)
             # The sample-zero mapping is deliberately limited to explicit

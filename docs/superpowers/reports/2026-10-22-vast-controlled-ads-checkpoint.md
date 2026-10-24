@@ -50,9 +50,9 @@ external test report directory.
 - Ads require explicit test settings and the configured loopback fixture origin;
   general Radio Browser stations are excluded. No production advertising traffic.
 - The supported media is clear single-rendition AAC-LC MPEG-TS at 48 kHz stereo.
-- Published media is retained for the session. Hard cache caps can terminate new
-  manifests on long sessions; previously published resources remain available
-  until stop or idle expiry. There is no inferred playback-based eviction.
+- Published media uses a bounded recent output history. Active requests remain
+  pinned while in flight, but routes from a playlist older than the history
+  window can return 404 as source bytes and creative pins are released.
 - Preroll adds latency. No catch-up, arbitrary truncation, or programme deletion.
 - Kodi clock calibration, audible output verification, and final review gates are
   outstanding. The new PR has not been opened.

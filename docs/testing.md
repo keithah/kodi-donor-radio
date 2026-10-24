@@ -2,6 +2,27 @@
 
 ## Final review follow-up — 2026-10-24
 
+A fresh deep CodeRabbit review found that unreadable place/favorites files could
+hide GUI navigation, IPv6 reserved or multicast destinations could pass the URL
+policy, fixture beaconing defaulted to enabled without explicit session opt-in,
+and creative-preparation failures did not retain resolved VAST Error URLs. These
+paths now degrade safely or fail closed, with regression tests. Test-origin
+client disconnects are also silenced without hiding unrelated handler errors,
+and the VAST checkpoint now documents bounded media retention accurately.
+
+The focused runtime, transport, VAST session and Kodi playback tests passed
+**266 tests**. The full suite passed **1,014 tests in 108.56s**. Compileall,
+`git diff --check`, package creation, and `check_package.py` passed. Kodi add-on
+checker 0.0.36 on a fresh archive extraction reported no problems or warnings;
+its environment emitted the known LibreSSL/urllib3 compatibility warning. The
+ZIP has **37 files**, **453,977 bytes**, mode **0644**, SHA-256
+`dc26028c615451a93a74dba3cfd1562f8c6645478a9845b23895ca16382cef33`.
+Steward and CodeRabbit must run again against the exact committed revision
+before updating the PR branch. Interactive Kodi GUI acceptance remains pending
+because the desktop is locked.
+
+## Final review follow-up — 2026-10-24
+
 A fresh deep CodeRabbit review on the preceding committed GUI branch identified
 map-station admission, unreadable marker-store preservation, source-cache
 retention, VAST assertion specificity, ICY metadata callback isolation, nested
@@ -20,8 +41,8 @@ After these changes, `python3 -m pytest -q` passed **1,003 tests in 108.14s**.
 official Kodi add-on checker 0.0.36 on a fresh extraction passed. The checker
 reported no add-on problems or warnings; Python emitted only the host LibreSSL
 2.8.3 / urllib3 compatibility warning. The package has **37 files**, **452,897
-bytes**, mode **0644**, SHA-256
-`09e441b9b76120e5dfe3ac77ebd132b4a82e5583dba5ea2acb92f61150a8bfdda`.
+bytes**, mode **0644**. Its previously recorded checksum had an invalid length;
+the original archive is no longer available to recompute it.
 Steward and CodeRabbit must be rerun on the final committed revision before the
 PR branch is updated.
 

@@ -64,11 +64,24 @@ class AdSession:
             self._worker.start()
 
     def _prepare(self):
+        from ad_models import AdError
+        ad = None
         try:
             ad = self.resolver.resolve(self.config.vast_url, self.cancel)
-            return self.creative.prepare(ad, self.cancel) if ad is not None else None
+            if ad is None:
+                return None
+            try:
+                return self.creative.prepare(ad, self.cancel)
+            except Exception as error:
+                if self.cancel.is_set():
+                    return None
+                if not isinstance(error, AdError):
+                    code = 402 if isinstance(error, TimeoutError) else 405
+                    error = AdError(code, 'Creative preparation failed')
+                if not error.error_urls:
+                    error = AdError(error.code, error.reason, ad.error_urls)
+                raise error
         except Exception as error:
-            from ad_models import AdError
             if isinstance(error, AdError) and self.on_error is not None and not self.cancel.is_set():
                 self.on_error(error)
             return None

@@ -79,6 +79,47 @@ def test_published_route_retention_is_limited_to_two_output_windows(monkeypatch)
     assert len(session._published_order) <= 14
 
 
+@pytest.mark.parametrize('preparation_error,expected_code', [
+    ('ad-error', 403), ('timeout', 402), ('transport', 405)])
+def test_creative_preparation_failure_reports_resolved_vast_error_urls(
+        preparation_error, expected_code):
+    from ad_models import AdError, ResolvedAd
+    urls = ('http://127.0.0.1/error?code=[ERRORCODE]',)
+    ad = ResolvedAd('creative', 'http://127.0.0.1/media', 5, (), urls)
+    events = []
+    session = AdSession.__new__(AdSession)
+    session.config = SimpleNamespace(vast_url='http://127.0.0.1/vast')
+    session.cancel = Event()
+    session.resolver = SimpleNamespace(resolve=lambda *_args: ad)
+    def prepare(*_args):
+        if preparation_error == 'ad-error':
+            raise AdError(403, 'Creative failed')
+        if preparation_error == 'timeout':
+            raise TimeoutError('slow creative')
+        raise OSError('creative unavailable')
+    session.creative = SimpleNamespace(prepare=prepare)
+    session.on_error = events.append
+
+    assert session._prepare() is None
+    assert len(events) == 1
+    assert events[0].code == expected_code
+    assert events[0].error_urls == urls
+
+
+def test_vast_resolution_failure_keeps_original_error_without_losing_its_urls():
+    from ad_models import AdError
+    original = AdError(301, 'Wrapper failed', ('http://127.0.0.1/error',))
+    events = []
+    session = AdSession.__new__(AdSession)
+    session.config = SimpleNamespace(vast_url='http://127.0.0.1/vast')
+    session.cancel = Event()
+    session.resolver = SimpleNamespace(resolve=lambda *_args: (_ for _ in ()).throw(original))
+    session.creative = SimpleNamespace(prepare=lambda *_args: pytest.fail('prepare after resolver error'))
+    session.on_error = events.append
+    assert session._prepare() is None
+    assert events == [original]
+
+
 def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):
     import ad_session as module
     from hls import Playlist, Segment

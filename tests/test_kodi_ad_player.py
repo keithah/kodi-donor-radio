@@ -152,6 +152,20 @@ def test_non_fixture_session_does_not_install_clock_mapper():
     adapter.close()
 
 
+def test_fixture_session_without_explicit_ad_opt_in_does_not_install_mapper_or_worker(monkeypatch):
+    session = _session()
+    created = []
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', lambda *_args: created.append(True))
+    adapter = KodiAdPlayback(SimpleNamespace(get=lambda identity: session),
+                             SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .1),
+                             client=SimpleNamespace(), fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    assert adapter.mapper is None
+    assert adapter.worker is None
+    assert created == []
+    adapter.close()
+
+
 def test_stale_callbacks_cannot_retire_new_session():
     current = [_session("old")]
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: 1.0)
@@ -170,6 +184,7 @@ def test_stale_callbacks_cannot_retire_new_session():
 
 def test_errors_are_dispatched_only_for_current_session(monkeypatch):
     session = _session()
+    session.ad_enabled = True
     session.take_ad_errors = lambda: [AdError(403, "No supported VAST media", ("http://127.0.0.1:8765/error",))]
     calls = []
     monkeypatch.setattr("kodi_ad_player.enqueue_ad_error", lambda worker, identity, error: calls.append((identity, error.code)))
@@ -185,6 +200,7 @@ def test_errors_are_dispatched_only_for_current_session(monkeypatch):
 
 def test_early_playback_error_flushes_preparation_error(monkeypatch):
     session = _session()
+    session.ad_enabled = True
     session.take_ad_errors = lambda: [AdError(403, 'No supported VAST media', ())]
     calls = []
     monkeypatch.setattr('kodi_ad_player.enqueue_ad_error',

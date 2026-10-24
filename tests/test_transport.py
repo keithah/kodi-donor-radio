@@ -93,7 +93,10 @@ def server():
             elif self.path == '/truncated-fixed':
                 self.wfile.write(b'hi')
             else:
-                self.wfile.write(b'hello')
+                try:
+                    self.wfile.write(b'hello')
+                except (BrokenPipeError, ConnectionResetError):
+                    self.close_connection = True
         def log_message(self, *args):
             pass
     instance = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -146,6 +149,23 @@ def test_ipv6_destination_policy_matches_runtime_global_classification(address):
     else:
         with pytest.raises(UnsafeUrl):
             policy.resolve('https://station.example/')
+
+
+@pytest.mark.parametrize('address', ['::a00:1', '::ffff:0:a00:1', 'ff02::1'])
+def test_reserved_and_multicast_ipv6_destinations_are_rejected(address):
+    from url_policy import UrlPolicy, UnsafeUrl
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
+    with pytest.raises(UnsafeUrl):
+        UrlPolicy(resolver=resolve).resolve('https://station.example/')
+
+
+def test_fixture_origin_allowlist_still_allows_explicit_ipv6_test_destinations():
+    from url_policy import UrlPolicy
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('ff02::1', port, 0, 0))]
+    assert UrlPolicy(resolver=resolve, test_origins={'https://fixture.example'}).resolve(
+        'https://fixture.example/live').addresses[0][3][0] == 'ff02::1'
 
 
 @pytest.mark.parametrize('status_line', [b'ICY 200 OK', b'HTTP/1.0 200 OK', b'HTTP/1.1 200 OK'])

@@ -699,7 +699,10 @@ def run_plugin(argv):
         entry.setProperty('IsPlayable', 'true')
         entry.setIsFolder(False)
         if favorite_ids is None:
-            favorite_ids = {s.station_uuid for s in FavoriteStore(profile_path()).list()}
+            try:
+                favorite_ids = {s.station_uuid for s in FavoriteStore(profile_path()).list()}
+            except (OSError, ValueError, TypeError):
+                favorite_ids = set()
         favorite = summary.station_uuid in favorite_ids
         entry.addContextMenuItems([(text(label), 'RunPlugin(%s)' % url(
             mode=target, uuid=summary.station_uuid,
@@ -794,7 +797,12 @@ def run_plugin(argv):
                     pass
             if xbmcaddon.Addon().getSettingBool('offer_setup_row'):
                 item(text(30110), folder=False, mode='setup')
-            for place in PlaceStore(profile_path()).list():
+            try:
+                places = PlaceStore(profile_path()).list()
+            except (OSError, ValueError, TypeError):
+                places = []
+                item(text(30165), folder=False, mode='home')
+            for place in places:
                 item(place.name, mode='place', id=place.place_id, context=[
                     (label, {'mode': target, 'id': place.place_id}) for label, target in (
                         (30126, 'place_default'), (30127, 'place_radius'), (30128, 'place_remove'))])

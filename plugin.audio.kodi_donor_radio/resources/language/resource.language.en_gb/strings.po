@@ -463,3 +463,7 @@ msgstr ""
 msgctxt "#30164"
 msgid "The selected station could not be refreshed. Showing available station information."
 msgstr ""
+
+msgctxt "#30165"
+msgid "Saved places could not be loaded. You can still browse stations, favorites, search, and the map."
+msgstr ""
