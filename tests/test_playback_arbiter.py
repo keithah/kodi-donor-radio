@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import threading
+import time
 
 
 MODULE = Path(__file__).resolve().parents[1] / 'plugin.audio.kodi_donor_radio/resources/lib/playback_arbiter.py'
@@ -106,3 +107,15 @@ def test_player_stop_callback_runs_without_shared_lock_and_blocks_new_starts(tmp
     starter.join(1)
     assert not stopper.is_alive() and not starter.is_alive()
     assert stopped == [True] and started == [True]
+
+
+def test_future_dated_stop_marker_is_treated_as_stale(tmp_path):
+    module = load_module()
+    arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
+    with arbiter._locked():
+        arbiter._write_intent('!%.6f' % (time.time() + 3600))
+
+    started = []
+    token = arbiter.start_if_available(lambda: True, lambda: started.append(True))
+
+    assert token and started == [True]

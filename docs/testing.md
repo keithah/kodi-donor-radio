@@ -1,5 +1,26 @@
 # Validation record
 
+## Playback arbiter GUI follow-up — 2026-10-24
+
+The Kodi preview stop path now marks its playback intent and releases the shared
+profile lock before calling `Player.stop()`. Add-on starts wait for that bounded
+handoff, while GUI-thread intent checks remain responsive. Abandoned stop markers
+expire after one minute; markers with future timestamps are stale, covering
+systems whose clock moves backward. A regression verifies a blocked stop cannot
+hold the profile lock or race a new playback start, and another verifies a
+future-dated marker is cleared.
+
+Closing an ad session suppresses late VAST preparation-error callbacks. The
+focused playback-arbiter/map tests passed **57 tests**; the full suite passed
+**1,032 tests in 112.01s**. `compileall`, package build, `check_package.py`, and
+`git diff --check` passed. Kodi add-on checker 0.0.36 on a fresh ZIP extraction
+reported no add-on problems or warnings with dependency checks skipped; its host
+Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
+**37 files**, **458,021 bytes**, mode **0644**, SHA-256
+`a61f85f94bf305175ee780fa5306992cd8fe693a107e30ecacd0d8e3a5cee20e`.
+Live Kodi UI and playback remain unverified because desktop automation reports
+that the Mac is locked.
+
 ## Final review follow-up — second pass — 2026-10-24
 
 A fresh deep CodeRabbit review found that unreadable place/favorites files could

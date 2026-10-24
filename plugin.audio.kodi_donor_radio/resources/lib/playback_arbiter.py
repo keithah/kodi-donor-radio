@@ -149,7 +149,8 @@ class PlaybackStartArbiter:
             started = float(value[1:])
         except ValueError:
             started = 0
-        if time.time() - started <= STOP_MARKER_MAX_AGE:
+        age = time.time() - started
+        if 0 <= age <= STOP_MARKER_MAX_AGE:
             return True
         self._write_intent('')
         return False
