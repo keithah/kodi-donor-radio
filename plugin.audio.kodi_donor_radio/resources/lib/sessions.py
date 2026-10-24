@@ -137,11 +137,17 @@ class PlaybackSession:
                     if resource.active}
 
     def cached_route(self, cache_id):
+        ad = self.ad
+        retained = ad.published_ids if ad is not None else None
         with self._lock:
             resource = self._cache_routes.get(cache_id)
             if resource is None:
                 if len(self._resources) >= self.resource_limit:
-                    self.retire_cached()
+                    if retained is not None:
+                        for old_id, old in list(self._cache_routes.items()):
+                            if old_id not in retained and not old.active:
+                                self._resources.pop(old.id, None)
+                                del self._cache_routes[old_id]
                 if len(self._resources) >= self.resource_limit:
                     raise ResourceLimit('Session resource limit')
                 resource = Resource(secrets.token_hex(24), 'cache:///%s.ts' % cache_id, 'cached')

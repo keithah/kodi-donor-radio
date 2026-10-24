@@ -36,6 +36,14 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def parse_xml(data):
+    text = data.decode('utf-8-sig')
+    upper = text.upper()
+    require('<!DOCTYPE' not in upper and '<!ENTITY' not in upper,
+            'XML DTDs are not allowed')
+    return ET.fromstring(text)
+
+
 def jpeg_dimensions(data):
     require(data.startswith(b'\xff\xd8') and data.endswith(b'\xff\xd9'), 'Invalid JPEG framing')
     cursor = 2
@@ -60,7 +68,7 @@ def jpeg_dimensions(data):
 
 def check_contents(contents):
     require(set(contents) == FILES, 'Distribution must contain exactly the approved source manifest')
-    metadata = ET.fromstring(contents['addon.xml'])
+    metadata = parse_xml(contents['addon.xml'])
     require(metadata.tag == 'addon' and metadata.get('id') == ADDON_ID
             and metadata.get('version') == VERSION, 'Incorrect addon identity/version')
     extensions = {(item.get('point'), item.get('library')) for item in metadata.findall('extension')}
@@ -75,9 +83,9 @@ def check_contents(contents):
     require(info.findtext('license') == 'GPL-2.0-or-later', 'Incorrect license metadata')
     require(info.findtext('assets/icon') == 'resources/icon.png'
             and info.findtext('assets/fanart') == 'resources/fanart.jpg', 'Incorrect artwork metadata')
-    settings = ET.fromstring(contents['resources/settings.xml'])
+    settings = parse_xml(contents['resources/settings.xml'])
     require(settings.tag == 'settings', 'Invalid settings root')
-    map_xml = ET.fromstring(contents['resources/skins/Default/1080i/map.xml'])
+    map_xml = parse_xml(contents['resources/skins/Default/1080i/map.xml'])
     require(map_xml.tag == 'window', 'Invalid map skin root')
     po = contents['resources/language/resource.language.en_gb/strings.po'].decode('utf-8')
     localized = set(re.findall(r'^msgctxt "#(\d+)"$', po, re.M))

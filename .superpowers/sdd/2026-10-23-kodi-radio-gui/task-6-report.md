@@ -1,6 +1,8 @@
 # Task 6 implementation report: shared Kodi radio map
 
-Status: DONE; commit `2ee413c`; ready for independent scoped review.
+Historical initial Task 6 implementation report (commit `2ee413c`). Later review
+fixes and GUI refinements are recorded in Task 7/progress notes. Automated checks
+are complete; live Kodi visual and focus acceptance remains pending.
 
 ## Implementation
 

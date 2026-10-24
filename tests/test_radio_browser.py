@@ -62,6 +62,13 @@ def test_countries_and_tags_are_bounded_and_paginated():
     assert parse_qs(urlsplit(transport.calls[2][0]).query) == {'offset': ['50'], 'limit': ['50']}
 
 
+def test_tag_page_uses_raw_row_count_for_continuation():
+    rows = [{'name': 'tag-%02d' % i} for i in range(49)] + [None]
+    rb, _ = browser([Reply(json.dumps(rows).encode())])
+    names, more = rb.tags_page(0, 50)
+    assert len(names) == 49 and more is True
+
+
 def test_click_one_attempt_per_selection_even_uncertain_delivery():
     rb, transport = browser([TimeoutError('delivery uncertain'), Reply(b'{"ok":true}')])
     rb.click('station-uuid')

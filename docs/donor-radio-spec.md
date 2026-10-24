@@ -411,7 +411,10 @@ All icons are flat single-colour PNGs so they can be recoloured with `colordiffu
 
 Radio Browser's `favicon` field is often missing, often tiny, and sometimes a dead link. Do not stretch it. In the current Kodi GUI slice, remote favicon loading is disabled because Kodi fetches artwork outside the add-on's URL policy; the bundled generic “DR” tile is used until safe validated fetching and local caching exist. A station-specific call-letter monogram remains a future design target; this slice does not generate per-station artwork.
 
-Fall back to a **call-letter monogram** drawn on `tile.png`: take the station's call sign or first word, cap it at four characters, render it in Plex Mono. It degrades well at 10 feet, it is consistent across a grid, and it never looks like a broken image. The designs use it everywhere, so treat the monogram as the default and the favicon as the exception.
+The current slice uses the bundled generic “DR” tile. A future station-specific
+call-letter monogram or directory favicon requires bounded validated fetching and
+local caching first; Kodi's native artwork loader must not receive an unvalidated
+directory URL.
 
 ## Repo layout
 
@@ -464,7 +467,7 @@ The target remains two modes. The approved first slice delivers skin listings, s
 | --- | --- | --- |
 | Map placement | Keep **Open the map** at the root | The location-first path is a primary entry point, and the same map is available from station context actions. |
 | Pin controls | Start with a fixed pool of about 60 | Stable IDs make focus behavior easy to test and the cap is explicit. Prototype dynamic controls only if focus and removal are equally reliable. |
-| Station artwork | Use a valid favicon, otherwise a shared monogram tile | Keep the fallback consistent across plugin listings and built-in windows; do not stretch low-resolution favicons. |
+| Station artwork | Current slice uses a bundled generic DR tile | Remote artwork and station-specific monograms wait for safe validated fetching and local caching; do not stretch low-resolution favicons. |
 | Preview default | On, as listed in Settings | The setting applies to the map in both modes and can be disabled for slow connections. Preview never counts as a deliberate click. |
 | Guided setup in skin mode | Implemented: sequential native dialogs | This avoids loading theme assets for the default mode. Revisit if testing shows that dialogs cannot explain location selection clearly. |
 | Delivery order | Approved and implemented: skin listings plus shared map first; themed windows after Kodi acceptance | This validates the information architecture before the larger custom-theme investment. Both modes remain in the product target; the first slice follows the approved delivery order. |

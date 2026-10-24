@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed implementation design for the GUI target in `docs/donor-radio-spec.md`.
-The recommended defaults below follow that spec, but this design needs Keith's
-approval before implementation.
+Approved target design for the GUI in `docs/donor-radio-spec.md`. The first slice
+(skin-native listings, sequential Kodi setup dialogs, and shared map) is implemented.
+Live Kodi visual/focus acceptance and themed windows remain pending.
 
 ## Goal
 
@@ -104,12 +104,14 @@ map pass Kodi acceptance. This preserves both interface modes in the product tar
   that asset, use a functional, clearly labeled schematic map rather than inventing
   branded artwork.
 - Radio Browser fields may omit coordinates, favicons, or descriptive metadata.
-  Missing data must produce useful empty states and must not prevent playback.
+  The current slice uses the bundled generic DR tile; remote artwork waits for
+  bounded validated fetching and local caching. Missing data must produce useful
+  empty states and must not prevent playback.
 - Custom `WindowXML` focus and return behavior must be checked on Kodi 21.3, not
   inferred only from current Kodi master.
 
-## Approval needed
+## Approval outcome
 
-Approve or revise the recommended delivery order and the sequential native-dialog
-setup for skin mode. The later themed-window work remains in the product target but
-is not part of this initial GUI slice.
+The user approved skin listings and the shared map first, followed by Kodi-native
+setup dialogs. The later themed-window work remains in the product target but is
+deferred until live Kodi acceptance of this first slice.

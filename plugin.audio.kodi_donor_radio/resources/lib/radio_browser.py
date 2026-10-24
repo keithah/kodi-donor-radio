@@ -212,17 +212,21 @@ class RadioBrowser:
                 return station
         raise ValueError('Station not found')
 
-    def _names(self, path, params):
+    def _names(self, path, params, with_more=False):
         rows = self._json(path, params)
         if not isinstance(rows, list):
             raise ValueError('Invalid directory list')
-        return [row['name'] for row in rows if isinstance(row, dict) and isinstance(row.get('name'), str)]
+        names = [row['name'] for row in rows if isinstance(row, dict) and isinstance(row.get('name'), str)]
+        return (names, len(rows) >= params.get('limit', len(rows))) if with_more else names
 
     def countries(self):
         return self._names('/json/countries', {'limit': 300})
 
     def tags(self, offset, limit=50):
         return self._names('/json/tags', self._page(offset, limit))
+
+    def tags_page(self, offset, limit=50):
+        return self._names('/json/tags', self._page(offset, limit), with_more=True)
 
     def click(self, uuid):
         """One invocation per user selection; uncertain delivery is never retried."""

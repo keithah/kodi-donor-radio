@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+import ad_media
 from ad_media import CreativeCache, inspect_ts
 from ad_models import AdError, ResolvedAd
 
@@ -52,8 +53,13 @@ def test_ts_rejects_truncation_continuity_and_extra_stream():
     changed = bytearray(original)
     pmt = 2 * 188
     assert changed[pmt + 1:pmt + 3] == b'P\x00'
-    changed[pmt + 18] = 0x1b  # AAC elementary stream becomes H.264.
-    with pytest.raises(AdError):
+    changed[pmt + 17] = 0x1b  # AAC elementary stream becomes H.264.
+    section_start = pmt + 5
+    section_length = ((changed[section_start + 1] & 0x0f) << 8) | changed[section_start + 2]
+    section_end = section_start + 3 + section_length
+    changed[section_end - 4:section_end] = ad_media._crc32_mpeg(
+        bytes(changed[section_start:section_end - 4])).to_bytes(4, 'big')
+    with pytest.raises(AdError, match='Unsupported or ambiguous media streams'):
         inspect_ts(bytes(changed))
 
 

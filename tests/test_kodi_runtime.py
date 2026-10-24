@@ -138,6 +138,9 @@ class Directory:
         return stations, len(stations) == limit
     def countries(self): return ['Canada', 'France']
     def tags(self, offset, limit=50): self.tag_page=(offset,limit); return ['jazz'] * 50
+    def tags_page(self, offset, limit=50):
+        names = self.tags(offset, limit)
+        return names, len(names) >= limit
     def click(self, uuid): self.clicks.append(uuid)
     def by_uuid(self, uuid): self.lookups.append(uuid); return STATION
     def country_entries(self): return [('Canada', 'CA'), ('France', 'FR')]
@@ -247,8 +250,32 @@ def test_tag_page_skips_invalid_remote_tag_and_keeps_other_tags(kodi, monkeypatc
     runtime, state, _ = kodi
     browser = directory(monkeypatch, runtime)
     browser.tags = lambda *args: ['jazz', 'x' * 257, 'bad\x01tag', 'news']
+    browser.tags_page = lambda offset, limit: (browser.tags(offset, limit), False)
     route(runtime, mode='tags')
     assert [entry.label for _, entry, _ in state.items] == ['jazz', 'news']
+
+
+def test_tag_pagination_uses_upstream_page_continuation(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.tags_page = lambda offset, limit: (['tag-%02d' % i for i in range(49)], True)
+    route(runtime, mode='tags')
+    assert len(state.items) == 50
+    assert state.items[-1][1].label == 'localized-30005'
+    assert parse_qs(urlsplit(state.items[-1][0]).query)['offset'] == ['50']
+
+
+def test_place_continuation_does_not_show_empty_warning_with_results(kodi, monkeypatch):
+    from radio_ui import PlaceStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    place = PlaceStore(profile).save('Home', 0, 0, 25)
+    station = Station('nearby', 'Nearby', 'https://x.example/live', '', False,
+                      latitude=0, longitude=0)
+    browser.geographic = lambda code, offset, limit: ([station], True)
+    route(runtime, mode='place', id=place.place_id)
+    assert len(state.items) == 2
+    assert 'localized-30116' not in state.messages
 
 
 def test_map_preview_reuses_discovered_directory_mirrors(kodi, monkeypatch):
@@ -1266,6 +1293,7 @@ def test_empty_listings_have_localized_message(kodi, monkeypatch, mode):
     browser = directory(monkeypatch, runtime)
     browser.search = lambda *a: []
     browser.tags = lambda *a: []
+    browser.tags_page = lambda *a: ([], False)
     browser.country_entries = lambda: []
     route(runtime, mode=mode, tag='jazz')
     assert 'localized-30113' in state.messages

@@ -91,6 +91,19 @@ def test_package_checker_rejects_missing_map_localization(package):
         checker(contents)
 
 
+def test_package_checker_rejects_xml_dtd(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['resources/settings.xml'] = (
+        b'<!DOCTYPE settings [<!ENTITY local "expanded">]><settings/>')
+    with pytest.raises(ValueError, match='XML DTDs are not allowed'):
+        checker(contents)
+
+
 def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     source = tmp_path / ADDON
     shutil.copytree(ROOT / ADDON, source, ignore=shutil.ignore_patterns('__pycache__'))
@@ -168,12 +181,23 @@ def test_checker_rejects_missing_gui_resource(package, tmp_path, resource):
     assert 'Unexpected, missing, or unsafe ZIP paths' in result.stderr
 
 
-@pytest.mark.parametrize('mutation', [
-    'missing_entry', 'invalid_xml', 'wrong_version', 'wrong_license', 'short_license',
-    'missing_localization', 'bad_artwork', 'extra_secret', 'extra_root', 'traversal',
-    'executable', 'symlink', 'duplicate',
+@pytest.mark.parametrize('mutation, message', [
+    ('missing_entry', 'Unexpected, missing, or unsafe ZIP paths'),
+    ('invalid_xml', 'Package check failed'),
+    ('wrong_version', 'Incorrect addon identity/version'),
+    ('wrong_license', 'Incorrect license metadata'),
+    ('short_license', 'Full GPL version 2 license text required'),
+    ('missing_localization', 'English localization missing'),
+    ('bad_artwork', 'Invalid PNG icon'),
+    ('extra_secret', 'Unexpected, missing, or unsafe ZIP paths'),
+    ('extra_root', 'Unexpected, missing, or unsafe ZIP paths'),
+    ('traversal', 'Unexpected, missing, or unsafe ZIP paths'),
+    ('executable', 'Only non-executable regular files with mode 0644 are allowed'),
+    ('symlink', 'Only non-executable regular files with mode 0644 are allowed'),
+    ('duplicate', 'Duplicate ZIP members'),
+    ('missing_map_localization', 'Map references missing localization'),
 ])
-def test_checker_rejects_invalid_distribution(package, tmp_path, mutation):
+def test_checker_rejects_invalid_distribution(package, tmp_path, mutation, message):
     with zipfile.ZipFile(package) as archive:
         contents = {info.filename: archive.read(info) for info in archive.infolist()}
     root = ADDON + '/'
@@ -189,6 +213,9 @@ def test_checker_rejects_invalid_distribution(package, tmp_path, mutation):
         contents[root + 'LICENSE.txt'] = b'GNU GENERAL PUBLIC LICENSE\nEND OF TERMS AND CONDITIONS'
     elif mutation == 'missing_localization':
         contents[root + 'resources/language/resource.language.en_gb/strings.po'] = b''
+    elif mutation == 'missing_map_localization':
+        map_path = root + 'resources/skins/Default/1080i/map.xml'
+        contents[map_path] = contents[map_path].replace(b'$LOCALIZE[30148]', b'$LOCALIZE[39999]')
     elif mutation == 'bad_artwork':
         contents[root + 'resources/icon.png'] = b'not a picture'
     elif mutation == 'extra_secret':
@@ -214,4 +241,4 @@ def test_checker_rejects_invalid_distribution(package, tmp_path, mutation):
                 archive.writestr(root + 'default.py', b'')
     result = run_tool('check_package.py', path)
     assert result.returncode != 0
-    assert result.stderr.strip()
+    assert message in result.stderr

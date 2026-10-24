@@ -847,7 +847,8 @@ def run_plugin(argv):
                 for station in stations:
                     station_item(station)
                 if next_offset is not None:
-                    _error(30116)
+                    if not stations:
+                        _error(30116)
                     item(text(30005), mode=action, id=place_id, offset=next_offset)
                 elif not stations:
                     _error(30113)
@@ -878,7 +879,11 @@ def run_plugin(argv):
                 _error(30113)
         elif action in ('countries', 'tags'):
             retry = {'mode': action, 'offset': offset}
-            names = _operation(lambda: browser.country_entries() if action == 'countries' else browser.tags(offset, PAGE_SIZE), monitor, cancel)
+            if action == 'countries':
+                names = _operation(lambda: browser.country_entries(), monitor, cancel)
+                has_more = offset + PAGE_SIZE < len(names)
+            else:
+                names, has_more = _operation(lambda: browser.tags_page(offset, PAGE_SIZE), monitor, cancel)
             page = names[offset:offset+PAGE_SIZE] if action == 'countries' else names
             for name in page:
                 if action == 'countries':
@@ -890,8 +895,7 @@ def run_plugin(argv):
                     except ValueError:
                         continue
                     item(tag, mode='tag', tag=tag)
-            if ((action == 'countries' and offset + PAGE_SIZE < len(names)) or
-                    (action == 'tags' and len(page) == PAGE_SIZE)) and offset + PAGE_SIZE <= MAX_OFFSET:
+            if has_more and offset + PAGE_SIZE <= MAX_OFFSET:
                 item(text(30005), mode=action, offset=offset+PAGE_SIZE)
             if not page:
                 _error(30113)

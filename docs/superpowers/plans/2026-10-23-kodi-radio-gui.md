@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-23-kodi-radio-gui-design.md`; product requirements and acceptance: `docs/donor-radio-spec.md`.
 
+**Status:** User-approved design and implemented first slice: skin-native listings,
+sequential Kodi setup dialogs, and the shared map. Automated and package checks are
+complete; live Kodi visual/focus acceptance and themed windows remain pending.
+
 ## Global Constraints
 
 - Skin listings are the default and are rendered by the active Kodi skin. Do not implement themed home/listing windows in this slice.
@@ -94,7 +98,7 @@
 - Persist the selected country's two-letter code with each guided-setup place when available so geographic searches can be country-scoped. Migrate old version-1 records as empty country code.
 - Extend `SavedPlace` and `PlaceStore.save(..., country_code='')` with optional validated two-letter country code; existing calls and version-1 records without the field continue to work.
 - Root rows are setup (when enabled), one per saved place, favorites, browse by genre, browse by country, search, open map, settings, and the existing marker-label action. Keep the marker-label item available during playback without breaking navigation.
-- Build station ListItems with label=name, label2=city then codec/bitrate, `thumb`/`icon` from a validated favicon or bundled monogram fallback, music info from tags/comment, and `IsPlayable=true`; the route resolves the UUID to a transient station record before using existing playback.
+- Build station ListItems with label=name, label2=city then codec/bitrate, `thumb`/`icon` from the bundled generic DR tile, music info from tags/comment, and `IsPlayable=true`; remote artwork is deferred until safe validated fetching and local caching exist. The route resolves the UUID to a transient station record before using existing playback.
 - Keep folders `isFolder=True`; station selections use `setResolvedUrl` through the deliberate play route. Use no click call for list construction or lookup.
 - Preserve paging and container cache disabled for mutable directory results.
 
@@ -179,7 +183,7 @@
 - [x] **Step 1: Add/complete package checks** proving settings/localization/map XML/assets ship and tests/fixtures/dev-only tools do not.
 - [x] **Step 2: Run** `python3 -m pytest -q`, `python3 -m compileall -q plugin.audio.kodi_donor_radio tests`, `git diff --check`, and the repository's package-check command; retain exact output/results.
 - [x] **Step 3: Build the installable add-on ZIP** and verify its manifest and contents.
-- [ ] **Step 4: Install/run with Kodi 21.3** on Estuary and one alternate skin; verify skin-mode root and nested listings, setup cancellation/completion, map launch from root and station menu, pin/rail D-pad navigation without wrapping, return focus, settings, playback and click count, and preview cancellation/no-click behavior. Record Kodi version, display resolution, input method, and observed focus behavior. **Unavailable: the fresh desktop check reported the Mac locked. Kodi 21.3 is installed; display resolution, input method, focus, rendering and end-to-end behavior were not observed.**
+- [ ] **Step 4: Install/run with Kodi 21.3** on Estuary and one alternate skin; verify skin-mode root and nested listings, setup cancellation/completion, map launch from root and station menu, pin/rail D-pad navigation without wrapping, return focus, settings, playback and click count, and preview cancellation/no-click behavior. Record Kodi version, display resolution, input method, and observed focus behavior. **Pending: prior desktop automation reported the Mac locked. Kodi 21.3 is installed; display resolution, input method, focus, rendering and end-to-end behavior were not observed.**
 - [x] **Step 5: If GUI access is unavailable**, record that explicitly and finish the automated/package checks without claiming end-to-end verification.
 - [x] **Step 6: Update user documentation** with implemented routes, settings, local setup, acceptance results, and any remaining known limitations.
 - [x] **Step 7: Commit** as `test: verify Kodi radio GUI package and flows`.
