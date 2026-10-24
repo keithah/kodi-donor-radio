@@ -90,6 +90,8 @@ def test_creative_preparation_failure_reports_resolved_vast_error_urls(
     session = AdSession.__new__(AdSession)
     session.config = SimpleNamespace(vast_url='http://127.0.0.1/vast')
     session.cancel = Event()
+    session._lock = RLock()
+    session._closed = False
     session.resolver = SimpleNamespace(resolve=lambda *_args: ad)
     def prepare(*_args):
         if preparation_error == 'ad-error':
@@ -113,11 +115,29 @@ def test_vast_resolution_failure_keeps_original_error_without_losing_its_urls():
     session = AdSession.__new__(AdSession)
     session.config = SimpleNamespace(vast_url='http://127.0.0.1/vast')
     session.cancel = Event()
+    session._lock = RLock()
+    session._closed = False
     session.resolver = SimpleNamespace(resolve=lambda *_args: (_ for _ in ()).throw(original))
     session.creative = SimpleNamespace(prepare=lambda *_args: pytest.fail('prepare after resolver error'))
     session.on_error = events.append
     assert session._prepare() is None
     assert events == [original]
+
+
+def test_closed_ad_session_suppresses_late_preparation_error_callback():
+    from ad_models import AdError
+    session = AdSession.__new__(AdSession)
+    session.config = SimpleNamespace(vast_url='http://127.0.0.1/vast')
+    session.cancel = Event()
+    session._lock = RLock()
+    session._closed = True
+    session.resolver = SimpleNamespace(resolve=lambda *_args: (_ for _ in ()).throw(
+        AdError(303, 'Wrapper failed')))
+    events = []
+    session.on_error = events.append
+
+    assert session._prepare() is None
+    assert events == []
 
 
 def test_source_download_does_not_hold_ad_session_state_lock(monkeypatch):

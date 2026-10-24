@@ -1,6 +1,6 @@
 # Kodi Radio POC Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Use `- [ ]` for planned work and `- [x]` for completed work.
 
 **Goal:** Deliver an installable Kodi radio addon that discovers stations, relays supported playback through embedded Python, and accurately logs stream cues, establishing the foundation for monetization.
 

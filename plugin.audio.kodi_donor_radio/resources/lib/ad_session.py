@@ -83,7 +83,10 @@ class AdSession:
                 raise error
         except Exception as error:
             if isinstance(error, AdError) and self.on_error is not None and not self.cancel.is_set():
-                self.on_error(error)
+                with self._lock:
+                    closed = self._closed
+                if not closed:
+                    self.on_error(error)
             return None
 
     def _prepare_midroll(self):

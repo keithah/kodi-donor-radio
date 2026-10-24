@@ -1,6 +1,6 @@
 # Validation record
 
-## Final review follow-up — 2026-10-24
+## Final review follow-up — second pass — 2026-10-24
 
 A fresh deep CodeRabbit review found that unreadable place/favorites files could
 hide GUI navigation, IPv6 reserved or multicast destinations could pass the URL
@@ -29,7 +29,7 @@ Steward and CodeRabbit must run again against the exact committed revision
 before updating the PR branch. Interactive Kodi GUI acceptance remains pending
 because the desktop is locked.
 
-## Final review follow-up — 2026-10-24
+## Final review follow-up — first pass — 2026-10-24
 
 A fresh deep CodeRabbit review on the preceding committed GUI branch identified
 map-station admission, unreadable marker-store preservation, source-cache

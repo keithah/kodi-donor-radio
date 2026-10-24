@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import threading
+import time
 import uuid
 
 
@@ -11,6 +12,8 @@ _registry_lock = threading.Lock()
 _path_locks = {}
 _path_intents = {}
 _lock_depths = threading.local()
+STOP_MARKER_MAX_AGE = 60.0
+STOP_MARKER_POLL_SECONDS = 0.05
 
 
 def _path_key(path):
@@ -100,6 +103,20 @@ class PlaybackStartArbiter:
             os.close(fd)
         return token
 
+    def _write_intent(self, value):
+        if self.lock_path is None:
+            with _registry_lock:
+                _path_intents[self._key] = value
+            return
+        intent_path = Path(str(self.lock_path) + '.intent')
+        fd = os.open(str(intent_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.chmod(str(intent_path), 0o600)
+            os.write(fd, value.encode('ascii'))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
     def _current_intent(self):
         if self.lock_path is None:
             with _registry_lock:
@@ -115,16 +132,43 @@ class PlaybackStartArbiter:
             return None
         return value if len(value) == 32 else None
 
+    def _stop_pending(self):
+        """Return whether a stop callback owns playback, expiring crash residue."""
+        if self.lock_path is None:
+            with _registry_lock:
+                value = _path_intents.get(self._key, '')
+        else:
+            try:
+                with open(str(self.lock_path) + '.intent', 'rb') as source:
+                    value = source.read(96).decode('ascii')
+            except (OSError, UnicodeDecodeError):
+                return False
+        if not value.startswith('!'):
+            return False
+        try:
+            started = float(value[1:])
+        except ValueError:
+            started = 0
+        if time.time() - started <= STOP_MARKER_MAX_AGE:
+            return True
+        self._write_intent('')
+        return False
+
     def start(self, callback):
-        """Record and run a deliberate add-on playback start under the lock."""
-        with self._locked():
-            token = self._record_intent()
-            callback()
-            return token
+        """Wait out a stop handoff, then start under the shared lock."""
+        while True:
+            with self._locked():
+                if not self._stop_pending():
+                    token = self._record_intent()
+                    callback()
+                    return token
+            time.sleep(STOP_MARKER_POLL_SECONDS)
 
     def start_if_available(self, can_start, callback):
         """Check Kodi state and start only while the shared lock is held."""
         with self._locked():
+            if self._stop_pending():
+                return None
             if not can_start():
                 return None
             token = self._record_intent()
@@ -132,14 +176,32 @@ class PlaybackStartArbiter:
             return token
 
     def stop_if_current(self, token, can_stop, callback):
-        """Stop playback only if no newer add-on start intent was recorded."""
+        """Run potentially blocking Kodi stop calls without holding the profile lock."""
+        marker = '!%.6f' % time.time()
         with self._locked():
+            if self._stop_pending():
+                return False
             if token is not None and self._current_intent() != token:
                 return False
             if not can_stop():
                 return False
+            self._write_intent(marker)
+        try:
             callback()
             return True
+        finally:
+            with self._locked():
+                if self.lock_path is None:
+                    with _registry_lock:
+                        current = _path_intents.get(self._key)
+                else:
+                    try:
+                        with open(str(self.lock_path) + '.intent', 'rb') as source:
+                            current = source.read(96).decode('ascii')
+                    except (OSError, UnicodeDecodeError):
+                        current = None
+                if current == marker:
+                    self._write_intent('')
 
     def is_current_intent(self, token):
         """Return whether this start remains the newest add-on playback intent."""

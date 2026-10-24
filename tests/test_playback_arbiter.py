@@ -75,3 +75,34 @@ def test_nested_arbiter_calls_reuse_the_outer_profile_file_lock(tmp_path):
     worker.join(1)
     assert not worker.is_alive()
     assert result == [True]
+
+
+def test_player_stop_callback_runs_without_shared_lock_and_blocks_new_starts(tmp_path):
+    module = load_module()
+    arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
+    intent = arbiter.start(lambda: None)
+    entered_stop, release_stop, start_finished = threading.Event(), threading.Event(), threading.Event()
+    stopped, started = [], []
+
+    def stop():
+        entered_stop.set()
+        assert release_stop.wait(2)
+        stopped.append(True)
+
+    stopper = threading.Thread(target=lambda: arbiter.stop_if_current(intent, lambda: True, stop))
+    stopper.start()
+    assert entered_stop.wait(1)
+
+    # A Kodi main-thread callback must be able to inspect intent while Player.stop
+    # is waiting for that thread to service the stop request.
+    assert not arbiter.is_current_intent(intent)
+
+    starter = threading.Thread(target=lambda: (
+        arbiter.start(lambda: started.append(True)), start_finished.set()))
+    starter.start()
+    assert not start_finished.wait(.05), 'new play must not race an in-flight stop'
+    release_stop.set()
+    stopper.join(1)
+    starter.join(1)
+    assert not stopper.is_alive() and not starter.is_alive()
+    assert stopped == [True] and started == [True]
