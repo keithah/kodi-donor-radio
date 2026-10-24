@@ -105,6 +105,18 @@ def test_package_checker_rejects_xml_dtd(package):
         checker(contents)
 
 
+def test_package_checker_rejects_python_that_parses_but_cannot_compile(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['default.py'] = b'# SPDX-License-Identifier: GPL-2.0-or-later\nreturn\n'
+    with pytest.raises(SyntaxError):
+        checker(contents)
+
+
 def test_package_ignores_unlisted_files_and_filesystem_metadata(tmp_path):
     source = tmp_path / ADDON
     shutil.copytree(ROOT / ADDON, source, ignore=shutil.ignore_patterns('__pycache__'))

@@ -167,6 +167,7 @@ def test_home_hides_test_streams_and_uses_localized_labels(kodi):
 
 def test_home_recovers_when_saved_places_are_unreadable(kodi, monkeypatch):
     runtime, state, profile = kodi
+    state.settings['guided_setup'] = True
     (profile / 'places.json').write_text('{invalid')
     route(runtime)
     assert [entry.label for _, entry, _ in state.items] == [
@@ -526,6 +527,18 @@ def test_map_view_centers_station_and_handles_antimeridian(kodi):
     view = runtime._map_view(station=station)
     assert view.west > view.east
     assert project(0, 179.8, view) == (500, 325)
+
+
+def test_map_view_requires_both_coordinates_and_falls_back_to_place(kodi):
+    from types import SimpleNamespace
+    runtime, _, _ = kodi
+    partial_station = SimpleNamespace(latitude=12, longitude=None)
+    place = SimpleNamespace(latitude=10, longitude=20, radius_km=50)
+    view = runtime._map_view(place=place, station=partial_station)
+    assert view.west < 20 < view.east
+    assert view.south < 10 < view.north
+    world = runtime._map_view(station=partial_station)
+    assert (world.north, world.south, world.west, world.east) == (90, -90, -180, 180)
 
 
 def test_cancelled_search_does_not_fetch(kodi,monkeypatch):

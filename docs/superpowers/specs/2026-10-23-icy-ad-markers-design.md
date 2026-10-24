@@ -30,7 +30,9 @@ without mistaking ordinary artist/title changes for ad breaks.
 - Do not treat arbitrary titles containing words such as “ad”, “promo”, or
   “commercial” as confirmed markers.
 - Do not infer the direction of a bare punctuation marker globally. `-`, `#`, and
-  `*` may only become active after explicit format semantics or listener labeling.
+  `*` may produce per-session inferred events only after the bounded sequence
+  rule below; explicit format semantics or listener labeling may establish an
+  exact station-scoped direction. No heuristic assigns a persistent direction.
 - Do not keep unbounded metadata history or infer an end after the five-minute
   observation window expires.
 - Do not replace live ICY audio in this phase. ICY observations arrive at metadata
@@ -92,7 +94,8 @@ SCTE-35 `DATERANGE` behavior remain as implemented.
 - Parse the documented TildeATS structure only when all required fields and the
   terminating caret are present; category `4` identifies an ad break, a following
   category `0` song indicates content resumed, and the `##` end-break interpretation
-  applies only to this provider format.
+  applies only to this provider format. This implementation supports only categories
+  `4` and `0`; category `11` and other categories remain unsupported.
 - Flag punctuation-only and otherwise non-track-looking metadata as candidates;
   infer a start/end only from the bounded sequence rule above. Marker-looking
   recognition uses exact token boundaries and bounded syntax; ordinary artist or
@@ -113,7 +116,9 @@ SCTE-35 `DATERANGE` behavior remain as implemented.
 - Known explicit marker formats produce exactly one correctly scoped observation.
 - Wrapped known commands and bounded, visibly delimited unknown marker values are
   recognized without broad substring matching. Bare `-`, `#`, and `*` remain
-  direction-neutral candidates.
+  direction-neutral until the bounded per-session sequence rule infers a boundary
+  or the listener labels that exact station/value; neither path creates a global
+  heuristic direction.
 - Unknown `-`, `#`, `*`, and suspicious title values produce inferred events only
   under the five-minute marker-to-track transition rule; manual labels take
   precedence for that exact station and value.

@@ -195,9 +195,14 @@ def test_kodi_smoke_accepts_only_loopback_relay_media_item():
 def test_kodi_smoke_menu_matches_expected_fixture_id(monkeypatch, source, fixture_id):
     expected = 'plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=' + fixture_id
     wrong = 'plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=fixture-30067'
-    monkeypatch.setattr(smoke_ad_kodi, 'rpc', lambda *_args, **_kwargs: {'files': [
-        {'file': wrong, 'label': 'Wrong fixture'}, {'file': expected, 'label': 'Expected fixture'}]})
+    requests = []
+    def rpc(method, params, **kwargs):
+        requests.append((method, params, kwargs))
+        return {'files': [{'file': wrong, 'label': 'Wrong fixture'},
+                          {'file': expected, 'label': 'Expected fixture'}]}
+    monkeypatch.setattr(smoke_ad_kodi, 'rpc', rpc)
     assert smoke_ad_kodi._menu_file(9090, source) == (expected, 'Expected fixture')
+    assert requests[0][1]['directory'] == 'plugin://plugin.audio.kodi_donor_radio/?mode=tests'
 
 
 def test_kodi_smoke_menu_rejects_unknown_source(monkeypatch):

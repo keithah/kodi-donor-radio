@@ -507,9 +507,9 @@ def _map_view(place=None, station=None):
     from radio_map import MapView
     center_lat = getattr(station, 'latitude', None) if station is not None else None
     center_lon = getattr(station, 'longitude', None) if station is not None else None
-    if center_lat is None and place is not None:
+    if (center_lat is None or center_lon is None) and place is not None:
         center_lat, center_lon = place.latitude, place.longitude
-    if center_lat is None:
+    if center_lat is None or center_lon is None:
         return MapView(90, -90, -180, 180, 1000, 650)
     radius_km = getattr(place, 'radius_km', 120) if place is not None else 120
     lat_span = max(0.5, min(45, radius_km / 80.0))
@@ -800,7 +800,13 @@ def run_plugin(argv):
         if not 0 <= offset <= MAX_OFFSET:
             raise ValueError('Invalid page')
         if action == 'home':
-            if xbmcaddon.Addon().getSettingBool('guided_setup') and not PlaceStore(profile_path()).list():
+            needs_setup = False
+            if xbmcaddon.Addon().getSettingBool('guided_setup'):
+                try:
+                    needs_setup = not PlaceStore(profile_path()).list()
+                except (OSError, ValueError, TypeError):
+                    pass  # The saved-place fallback row below reports this failure.
+            if needs_setup:
                 try:
                     _ui_transition('setup', {}, monitor, cancel, base)
                 except (Cancelled, OSError, ValueError, TypeError):

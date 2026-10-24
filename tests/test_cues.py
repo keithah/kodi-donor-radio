@@ -343,6 +343,17 @@ def test_daterange_malformed_basic_timezone_remains_invalid(offset):
     assert sink.events[0].details['classification'] == 'invalid'
 
 
+@pytest.mark.parametrize('start', [
+    '0001-01-01T00:00:00+0500',
+    '9999-12-31T23:59:59-0500',
+])
+def test_daterange_timezone_conversion_overflow_is_invalid(start):
+    t, sink = tracker()
+    t.observe(playlist(daterange(start=start)), 'a', 0)
+    assert kinds(sink) == ['cue_observed']
+    assert sink.events[0].details['classification'] == 'invalid'
+
+
 def test_later_explicit_in_ends_expired_break_once_with_original_id():
     t, sink = tracker()
     t.observe(playlist('#EXT-X-CUE-OUT:5\n'), 'a', 0)

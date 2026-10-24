@@ -112,7 +112,7 @@ def _menu_file(port, source):
     except KeyError as error:
         raise ValueError('Unknown controlled source: ' + str(source)) from error
     listing = rpc('Files.GetDirectory', {'directory':
-        'plugin://plugin.audio.kodi_donor_radio/?action=tests', 'media': 'music'}, port=port)
+        'plugin://plugin.audio.kodi_donor_radio/?mode=tests', 'media': 'music'}, port=port)
     for item in listing.get('files', []):
         query = parse_qs(urlsplit(item.get('file', '')).query)
         if query.get('mode') == ['play_fixture'] and query.get('id') == [expected_id]:

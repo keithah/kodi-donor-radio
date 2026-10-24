@@ -158,6 +158,21 @@ def test_wrapper_no_fill_control_blocks_empty_child(tmp_path, monkeypatch):
         assert beacons(base) == {}
 
 
+def test_wrapper_no_fill_reports_inherited_error_even_when_fallback_allowed(tmp_path, monkeypatch):
+    from vast import VastResolver
+    from ad_models import AdError
+    from tools import ad_fixture_server
+    original = ad_fixture_server.vast_xml
+    with origin_server(tmp_path) as (base, client):
+        monkeypatch.setattr(ad_fixture_server, 'vast_xml', lambda scenario, origin:
+            original('wrapped', origin).replace(b'/vast/direct', b'/vast/no-fill')
+            if scenario == 'wrapped' else original(scenario, origin))
+        with pytest.raises(AdError) as error:
+            VastResolver(client, base).resolve(base + '/vast/wrapped', threading.Event())
+        assert_ad_error(error, 303, 'VAST wrapper returned no ad')
+        assert error.value.error_urls == (base + '/track/placement-1/error?[ERRORCODE]',)
+
+
 def test_macros_are_encoded_and_unknown_endpoint_is_unusable(tmp_path, monkeypatch):
     from vast import VastResolver
     from tools import ad_fixture_server

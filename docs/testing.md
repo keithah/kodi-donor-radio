@@ -18,13 +18,14 @@ and the five-minute marker limit applies only to ad-start markers, not long
 song or end-break durations. Fixture-only beacons are experimental; production
 stations remain unmapped until the absolute presentation clock is validated.
 
-The focused GUI, store-locking, and marker regression set passed **304 tests**.
-The full suite passed **1,021 tests in 109.54s**. Compileall,
+The affected GUI, store, marker, packaging, cue, VAST, and smoke modules passed
+**443 tests** before this latest review wave; its 10 targeted regressions passed,
+and the full suite passed **1,026 tests in 108.81s**. Compileall,
 `git diff --check`, package creation, and `check_package.py` passed. Kodi add-on
 checker 0.0.36 on a fresh archive extraction reported no problems or warnings;
 its environment emitted the known LibreSSL/urllib3 compatibility warning. The
-ZIP has **37 files**, **455,320 bytes**, mode **0644**, SHA-256
-`fb6a2470479f9cfd94c4074e063f10f9d90dcaf27b73647096f6d05a6eac4304`.
+ZIP has **37 files**, **455,583 bytes**, mode **0644**, SHA-256
+`8034fe8a95978d228856dac6cd3b102d68f1ca589fe8f68d549e1e90ffd5aed0`.
 Steward and CodeRabbit must run again against the exact committed revision
 before updating the PR branch. Interactive Kodi GUI acceptance remains pending
 because the desktop is locked.

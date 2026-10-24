@@ -41,7 +41,10 @@ def _date(value):
     parsed = parse_iso_datetime(value)
     if 'T' not in value or parsed.tzinfo is None:
         raise ValueError('invalid_date')
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except OverflowError as error:
+        raise ValueError('invalid_date') from error
 
 
 def _payload(value, hex_only=False):

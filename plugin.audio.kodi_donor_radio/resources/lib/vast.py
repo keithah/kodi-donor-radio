@@ -127,7 +127,6 @@ class VastResolver:
         inherited_tracking, inherited_errors = [], []
         wrappers = 0
         follow = True
-        fallback = True
         try:
             while True:
                 current = self._url(url, self.fixture_origin)
@@ -142,7 +141,7 @@ class VastResolver:
                     base = response.final_url
                 ads = _children(root, 'Ad')
                 if not ads:
-                    if wrappers and not fallback:
+                    if wrappers:
                         raise AdError(303, 'VAST wrapper returned no ad')
                     return None
                 if len(ads) != 1 or ads[0].attrib.get('sequence'):
@@ -166,7 +165,6 @@ class VastResolver:
                     if wrapper.attrib.get('allowMultipleAds', 'false').lower() == 'true':
                         raise AdError(403, 'Unsupported VAST pod')
                     follow = wrapper.attrib.get('followAdditionalWrappers', 'true').lower() != 'false'
-                    fallback = wrapper.attrib.get('fallbackOnNoAd', 'true').lower() != 'false'
                     uri = _one(wrapper, 'VASTAdTagURI')
                     url = self._url(_text(uri), base)
                     continue

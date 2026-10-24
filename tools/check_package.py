@@ -114,7 +114,9 @@ def check_contents(contents):
             'Fanart must be 1280 x 720 JPEG')
     for name, content in contents.items():
         if name.endswith('.py'):
-            ast.parse(content.decode('utf-8'), filename=name, feature_version=(3, 8))
+            source = content.decode('utf-8')
+            ast.parse(source, filename=name, feature_version=(3, 8))
+            compile(source, name, 'exec', dont_inherit=True)
             require(b'SPDX-License-Identifier: GPL-2.0-or-later' in content,
                     'Python source missing project license notice')
 

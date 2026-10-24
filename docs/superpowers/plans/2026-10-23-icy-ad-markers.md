@@ -17,7 +17,7 @@
 - Never route ICY cues into the HLS composer, VAST success tracker, or monetization beacons.
 - Retain no more than 64 metadata observations and no longer than 300 seconds.
 - Unknown `-`, `#`, `*`, or suspicious titles are heuristic evidence only; an exact user label overrides the heuristic for that station.
-- Recognize wrapped known marker commands and bounded, visibly delimited unknown marker tokens as candidates; never assign a global direction to bare punctuation or match marker words as arbitrary substrings.
+- Recognize wrapped known marker commands and bounded, visibly delimited unknown marker tokens as candidates; bare punctuation can produce only bounded per-session inferred events, never a global direction, and marker words are not matched as arbitrary substrings.
 - Do not add Kodi core or skin changes, external dependencies, or internet-origin ad requests.
 - Keep control endpoints loopback-only and bearer-authenticated; reject origins and malformed or oversized inputs.
 
@@ -47,7 +47,7 @@
 - [x] **Step 2: Run `python3 -m pytest tests/test_icy_markers.py -q`** and verify the new parser tests fail because the module/API is absent.
 - [x] **Step 3: Implement the parser** in `icy_markers.py`. Parse only exact command formats and valid terminated TildeATS. Accept `AD_START_<seconds>` values from 1 through 300; reject 0, malformed values, and values above 300 rather than clamping them. Tests cover 300 and 301 seconds.
 - [x] **Step 4: Add failing state tests** for exact punctuation-only values and exact marker-vocabulary candidates (including `AD`, `AD BREAK`, `COMMERCIAL`, `SPOT`, and start/stop tokens), candidate-to-inferred-start, ordinary-track or reappearing marker inferred-end within 300 seconds, consecutive-duplicate suppression, unresolved expiry, exact learned override, and the 64-item bound. Do not classify broad substring matches such as a song title containing “ad”.
-- [x] **Step 5: Implement `IcyMarkerTracker`** with a five-minute monotonic window. Only exact punctuation-only values and exact marker-vocabulary tokens are candidates; generic short titles are not. A likely marker starts an inferred break; an ordinary track-like title or the same marker reappearing after intervening metadata ends it only inside the window. Consecutive duplicate titles do not act as a second marker. `expire(monotonic_at)` emits unresolved once and never a synthetic end.
+- [x] **Step 5: Implement `IcyMarkerTracker`** with a five-minute monotonic window. Only exact punctuation-only values and exact marker-vocabulary tokens are candidates; generic short titles are not. A likely marker starts an inferred break; an ordinary track-like title or the same marker reappearing after intervening metadata ends it only inside the window. These are session-local inferences; they never assign a persistent direction to bare punctuation. Consecutive duplicate titles do not act as a second marker. `expire(monotonic_at)` emits unresolved once and never a synthetic end.
 - [x] **Step 6: Run `python3 -m pytest tests/test_icy_markers.py -q`** and verify all parser/tracker cases pass.
 - [x] **Step 7: Commit** as `feat: classify ICY ad marker metadata`.
 
@@ -122,7 +122,7 @@
 - Modify: `plugin.audio.kodi_donor_radio/resources/lib/icy_markers.py`
 - Test: `tests/test_icy_markers.py`
 
-- [x] **Step 1: Add failing tests** for wrapped explicit commands such as `#AD_START#`, bounded unknown tokens visibly framed by marker punctuation, bare `-`/`#`/`*` remaining direction-neutral candidates, and ordinary artist/title metadata that contains marker words not being classified as a marker.
+- [x] **Step 1: Add failing tests** for wrapped explicit commands such as `#AD_START#`, bounded unknown tokens visibly framed by marker punctuation, bare `-`/`#`/`*` remaining direction-neutral candidates until a sequence-based session inference or manual label, and ordinary artist/title metadata that contains marker words not being classified as a marker. TildeATS support is restricted to categories `4` (ad break) and `0` (content); category `11` and others are unsupported.
 - [x] **Step 2: Implement exact wrapper normalization and bounded marker-like detection** using token boundaries and a strict value length; preserve the original bounded metadata as evidence. Unknown values remain candidates/inferred only, never explicit cues or replacement triggers.
 - [x] **Step 3: Run `python3 -m pytest tests/test_icy_markers.py -q`** and verify the new positive/negative cases pass.
 - [x] **Step 4: Commit** as `feat: recognize wrapped ICY marker values`.
