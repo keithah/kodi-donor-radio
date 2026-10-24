@@ -38,14 +38,14 @@
 - Test: `tests/test_icy_markers.py`
 
 **Interfaces:**
-- Produces `MarkerSignal(kind, marker, format, confidence, duration_seconds)` where `kind` is `start`, `end`, or `candidate` and confidence is `explicit`, `learned`, `inferred`, or `candidate`.
+- Parser/tracker classifications use `MarkerSignal(kind, marker, format, confidence, duration_seconds)` where `kind` is `start`, `end`, or `candidate` and confidence is `explicit`, `learned`, `inferred`, or `candidate`. `expire()` emits a separate `Event(kind='break_unresolved')` with `details.reason='timeout'`; unresolved is not a `MarkerSignal` kind.
 - Produces `IcyMarkerTracker(session_id, station_uuid, emit, learned_lookup)` with `observe(metadata, observed_at, monotonic_at)` and `latest_candidate()`. `learned_lookup(marker: str) -> Optional[str]` returns `start`, `end`, or `None` for that tracker’s station.
 - `IcyMarkerTracker.expire(monotonic_at)` emits an unresolved event when an open inferred break exceeds 300 seconds, even if no later ICY metadata arrives.
 - Keeps no more than 64 records; records older than 300 seconds are removed using monotonic time.
 
 - [x] **Step 1: Write failing parser tests** for `AD_START`, bounded `AD_START_<seconds>`, `AD_STOP`/`AD_END`, valid TildeATS category 4 start/category 0 end and `##` end-break forms, malformed variants, and exact case/whitespace normalization.
 - [x] **Step 2: Run `python3 -m pytest tests/test_icy_markers.py -q`** and verify the new parser tests fail because the module/API is absent.
-- [x] **Step 3: Implement the parser** in `icy_markers.py`. Parse only exact command formats and valid terminated TildeATS; reject invalid or excessive durations, and cap `AD_START_<seconds>` at 300 seconds.
+- [x] **Step 3: Implement the parser** in `icy_markers.py`. Parse only exact command formats and valid terminated TildeATS. Accept `AD_START_<seconds>` values from 1 through 300; reject 0, malformed values, and values above 300 rather than clamping them. Tests cover 300 and 301 seconds.
 - [x] **Step 4: Add failing state tests** for exact punctuation-only values and exact marker-vocabulary candidates (including `AD`, `AD BREAK`, `COMMERCIAL`, `SPOT`, and start/stop tokens), candidate-to-inferred-start, ordinary-track or reappearing marker inferred-end within 300 seconds, consecutive-duplicate suppression, unresolved expiry, exact learned override, and the 64-item bound. Do not classify broad substring matches such as a song title containing “ad”.
 - [x] **Step 5: Implement `IcyMarkerTracker`** with a five-minute monotonic window. Only exact punctuation-only values and exact marker-vocabulary tokens are candidates; generic short titles are not. A likely marker starts an inferred break; an ordinary track-like title or the same marker reappearing after intervening metadata ends it only inside the window. Consecutive duplicate titles do not act as a second marker. `expire(monotonic_at)` emits unresolved once and never a synthetic end.
 - [x] **Step 6: Run `python3 -m pytest tests/test_icy_markers.py -q`** and verify all parser/tracker cases pass.
@@ -138,5 +138,5 @@
 - [x] **Step 2: Run the focused marker/relay/runtime suite** and verify one event per transition and no ICY replacement/VAST beacon.
 - [x] **Step 3: Run `python3 -m pytest -q`**, `python3 -m compileall -q plugin.audio.kodi_donor_radio tests`, `git diff --check`, and the repository package-check command; record exact results.
 - [x] **Step 4: Update docs** with supported explicit conventions, inference rules, the five-minute/64-entry bounds, listener learning action, and ICY replacement limitation.
-- [ ] **Step 5: Verify Kodi UI manually when the Mac is available**; if it is locked/unavailable, leave the UI check pending and do not claim end-to-end validation.
+- [ ] **Step 5: Verify Kodi UI manually when the Mac is available**; this remains a pending acceptance item. If it is locked/unavailable, leave the plan incomplete and do not claim end-to-end validation.
 - [x] **Step 6: Commit** controlled fixtures and documentation, preserving separately requested anchor/spec work.

@@ -70,8 +70,13 @@ Expose a `Label latest ICY marker` add-on action that remains reachable while
 background audio continues. It shows the current candidate and lets the listener
 label it as start or end. The label changes behavior for the current session even
 if it is not remembered; choosing remember also stores that exact value for the
-station. The stock Kodi player OSD is not modified. Current-session labels expire
-with the session; remembered marker records are scoped to station UUID and exact
+station. The stock Kodi player OSD is not modified. The canonical marker value is
+the complete `StreamTitle` after trimming surrounding whitespace and uppercasing;
+punctuation and wrapper characters are preserved. Parser output, current-session
+candidate checks, label requests, and station-store lookups use this same value.
+Thus `#AD_START#` and `AD_START` are distinct learned keys even though both parse
+as the same explicit start command. Current-session labels expire with the
+session; remembered marker records are scoped to station UUID and exact
 normalized metadata. No broad substring matching is used.
 Duplicate metadata blocks are deduplicated, and a repeated start/end cannot create
 repeated transitions.

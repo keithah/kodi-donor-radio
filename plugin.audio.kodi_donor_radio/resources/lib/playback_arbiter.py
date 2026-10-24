@@ -10,6 +10,7 @@ import uuid
 _registry_lock = threading.Lock()
 _path_locks = {}
 _path_intents = {}
+_lock_depths = threading.local()
 
 
 def _path_key(path):
@@ -66,11 +67,22 @@ class PlaybackStartArbiter:
     @contextmanager
     def _locked(self):
         with self._thread_lock:
-            if self.lock_path is None:
-                yield
-            else:
-                with profile_file_lock(self.lock_path):
+            depths = getattr(_lock_depths, 'depths', None)
+            if depths is None:
+                depths = _lock_depths.depths = {}
+            depth = depths.get(self._key, 0)
+            depths[self._key] = depth + 1
+            try:
+                if self.lock_path is None or depth:
                     yield
+                else:
+                    with profile_file_lock(self.lock_path):
+                        yield
+            finally:
+                if depth:
+                    depths[self._key] = depth
+                else:
+                    del depths[self._key]
 
     def _record_intent(self):
         token = uuid.uuid4().hex

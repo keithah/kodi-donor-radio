@@ -54,3 +54,24 @@ def test_preview_start_rechecks_busy_state_under_shared_lock(tmp_path):
         lambda: not player['playing'],
         lambda: started.append('stale-preview'))
     assert started == ['preview'] and player['file'] == 'preview'
+
+
+def test_nested_arbiter_calls_reuse_the_outer_profile_file_lock(tmp_path):
+    module = load_module()
+    arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
+    completed = threading.Event()
+    result = []
+
+    def run():
+        def outer_callback():
+            nested = arbiter.start(lambda: None)
+            result.append(arbiter.is_current_intent(nested))
+        arbiter.start(outer_callback)
+        completed.set()
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert completed.wait(1), 'nested calls must not reacquire the file lock'
+    worker.join(1)
+    assert not worker.is_alive()
+    assert result == [True]

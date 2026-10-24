@@ -51,7 +51,11 @@ class IcyDecoder:
                     text = self._metadata.rstrip(b'\0').decode('utf-8', errors='replace')
                     self._metadata.clear()
                     self._audio_remaining = self._metaint
-                    self._on_metadata(dict(_FIELDS.findall(text)))
+                    try:
+                        self._on_metadata(dict(_FIELDS.findall(text)))
+                    except Exception:
+                        # Observation failures must never cost audio bytes.
+                        pass
             else:
                 self._metadata_remaining = chunk[position] * 16
                 position += 1

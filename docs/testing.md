@@ -1,5 +1,30 @@
 # Validation record
 
+## Final review follow-up — 2026-10-24
+
+A fresh deep CodeRabbit review on the preceding committed GUI branch identified
+map-station admission, unreadable marker-store preservation, source-cache
+retention, VAST assertion specificity, ICY metadata callback isolation, nested
+playback-arbiter locking, cancelled playlist responses, and stale specification
+details. The fixes now filter unsafe map rows before clustering, preserve unread
+marker files, expire inactive old routes under byte/segment pressure, assert
+specific VAST errors, keep observer failures from discarding audio, take the
+cross-process lock only at the outermost reentrant arbiter call, and answer
+cancelled playlist requests with 404. ICY docs now distinguish parser signals
+from unresolved events and define exact normalized marker identity. The PR
+source branch was independently verified as `codex/vast-controlled-ads`;
+Kodi desktop acceptance remains pending while the Mac is locked.
+
+After these changes, `python3 -m pytest -q` passed **1,003 tests in 108.14s**.
+`compileall`, `git diff --check`, package build, `check_package.py`, and the
+official Kodi add-on checker 0.0.36 on a fresh extraction passed. The checker
+reported no add-on problems or warnings; Python emitted only the host LibreSSL
+2.8.3 / urllib3 compatibility warning. The package has **37 files**, **452,897
+bytes**, mode **0644**, SHA-256
+`09e441b9b76120e5dfe3ac77ebd132b4a82e5583dba5ea2acb92f61150a8bfdda`.
+Steward and CodeRabbit must be rerun on the final committed revision before the
+PR branch is updated.
+
 ## GUI runtime edge verification — 2026-10-24
 
 The consolidated final fix wave separates passive Kodi pin notifications from

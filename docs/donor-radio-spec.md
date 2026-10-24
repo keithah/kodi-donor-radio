@@ -248,7 +248,10 @@ Acceptance on the target Kodi version must cover root and nested navigation; D-p
 
 ## Data — Radio Browser
 
-> Endpoint paths and field names below are from memory and should be checked against the current API docs before coding. The shape of the integration is the point here, not the exact spellings.
+The implemented client and request-parameter tests are in
+`plugin.audio.kodi_donor_radio/resources/lib/radio_browser.py` and
+`tests/test_radio_browser.py`. The calls below describe the current implementation
+and distinguish it from product targets that still need backend support.
 
 ### Server discovery
 
@@ -258,12 +261,16 @@ Radio Browser is a volunteer mirror pool with no single stable host. Resolve a m
 
 | View | Call | Notes |
 | --- | --- | --- |
-| A place's stations | Stations by geographic position, with a radius | Radius comes from the place record, not a constant |
-| Browse by genre | Tag list, then stations by tag | Cache the tag list hard; it barely moves |
-| Browse by country | Country list, then stations by country code | Same |
-| Search | Stations by name, tag, country or language | Which field depends on the scope chip |
-| Map pins | Stations with coordinates in the view window | Cluster to cities client-side |
+| A place's stations | **Product target:** stations within a geographic radius | Current code fetches bounded country pages with `has_geo_info=true`, then uses the saved place radius for the map view; no Radio Browser radius query is made |
+| Browse by genre | `GET /json/tags`, then `/json/stations/search` with exact tag and pagination parameters | Implemented and covered by request tests |
+| Browse by country | `GET /json/countries`, then `/json/stations/search` with country code and pagination parameters | Implemented and covered by request tests |
+| Search | `/json/stations/search` with name, country, tag, exact-filter, pagination, and `hidebroken` parameters as applicable | Language-scope search remains a product target |
+| Map pins | Bounded `/json/stations/search` pages with `has_geo_info=true`; pins are clustered and filtered against the local map view | Client-side map view filtering; not a backend radius query |
 | Favourites | None | Resolved from stored UUIDs |
+
+Station refresh uses `/json/stations/byuuid` with a UUID list, and deliberate
+playback may resolve a station URL through `/json/url/{uuid}`. These calls are
+also implemented in `RadioBrowser`.
 
 Order results by click count descending for anything the user did not explicitly sort. Filter out entries with a broken flag set, and drop any station whose stream URL is empty.
 

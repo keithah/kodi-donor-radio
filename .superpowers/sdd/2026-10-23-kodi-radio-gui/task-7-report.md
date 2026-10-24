@@ -21,7 +21,7 @@ Host: macOS ARM64; Python 3.9.6. Verification includes the consolidated correcti
 | `python3 -m compileall -q plugin.audio.kodi_donor_radio tests` | Exit 0, no output |
 | `python3 tools/package_addon.py --output dist` | Exit 0; installable ZIP built |
 | `python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip` | Exit 0, `Package OK` |
-| ZIP manifest/member inspection and fresh extraction | 36 approved files; both entry points; version 0.1.0; only xbmc.python 3.0.1 dependency |
+| ZIP manifest/member inspection and fresh extraction | Original Task 7 package: 36 approved files; both entry points; version 0.1.0; only xbmc.python 3.0.1 dependency. Later rebuilds contain 37 files. |
 | `.venv/checker/bin/kodi-addon-checker --branch omega --skip-dependency-checks` on the fresh extraction | Checker 0.0.36 exit 0: no add-on problems or warnings (dependency availability was checked on the preceding same-runtime package build) |
 | `git diff --check` | Exit 0, no output |
 

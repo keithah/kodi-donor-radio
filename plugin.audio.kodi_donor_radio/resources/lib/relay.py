@@ -251,7 +251,7 @@ class _Handler(BaseHTTPRequestHandler):
                     # Fetch order and observation order agree within one rendition.
                     with resource.playlist_lock:
                         if session.cancel.is_set():
-                            return
+                            return self._reply(404)
                         ad = session.ad
                         if ad is not None and ad.terminal:
                             return self._reply(503)

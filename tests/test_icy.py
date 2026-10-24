@@ -48,6 +48,14 @@ def test_invalid_encoding_does_not_interrupt_audio():
     assert metadata == [{'StreamTitle': 'bad\ufffd'}]
 
 
+def test_metadata_observer_failure_does_not_discard_audio():
+    def fail(_metadata):
+        raise RuntimeError('observer unavailable')
+
+    decoder = IcyDecoder(2, fail)
+    assert decoder.feed(b'ab' + block(b"StreamTitle='ad';") + b'cd') == b'abcd'
+
+
 @pytest.mark.parametrize('tail', [b'', b'\x01', b'\x02short'])
 def test_truncated_length_or_metadata_does_not_leak_into_audio(tail):
     metadata = []

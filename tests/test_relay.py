@@ -132,9 +132,9 @@ def relay(origin):
     server.close()
 
 
-def request(url, method='GET', body=None, headers=None):
+def request(url, method='GET', body=None, headers=None, timeout=3):
     parts = urlsplit(url)
-    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=3)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
     conn.request(method, parts.path + ('?' + parts.query if parts.query else ''), body, headers or {})
     response = conn.getresponse()
     result = response.status, dict(response.getheaders()), response.read()
@@ -172,6 +172,34 @@ def test_hls_same_fetch_observed_and_segment_hash_and_ranges(relay, origin):
     assert status == 206 and body == origin[2][2:6] and headers['Content-Range'].startswith('bytes 2-5/')
     status, headers, body = request(target, headers={'Range': 'bytes=99999-'})
     assert status == 416 and headers['Content-Range'].startswith('bytes */') and body == b''
+
+
+def test_cancelled_playlist_request_replies_without_waiting_for_client_timeout(relay, origin):
+    session = create(relay, origin, '/list')
+    resource = session._resources[session._root]
+    resource.playlist_lock.acquire()
+    results, errors = [], []
+
+    def fetch():
+        try:
+            results.append(request(session.playback_url, timeout=.5))
+        except Exception as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=fetch)
+    worker.start()
+    deadline = time.monotonic() + 1
+    while not resource.active and time.monotonic() < deadline:
+        time.sleep(.005)
+    try:
+        assert resource.active, 'request should be waiting on the playlist lock'
+        session.cancel.set()
+    finally:
+        resource.playlist_lock.release()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert errors == []
+    assert results and results[0][0] == 404
 
 
 def test_icy_headers_removed_metadata_event_and_sink_errors_do_not_break_audio(relay, origin):
