@@ -69,8 +69,9 @@ class IcyMarkerStore:
             marker = normalize_marker(marker)
         except (ValueError, UnicodeError):
             return None
-        with self._lock:
-            return self._stations.get(station_uuid, {}).get(marker)
+        # learn() publishes a fresh immutable snapshot by rebinding this field.
+        # Do not let slow profile I/O stall the relay's ICY metadata path.
+        return self._stations.get(station_uuid, {}).get(marker)
 
     def learn(self, station_uuid, marker, action):
         _safe_text(station_uuid)

@@ -70,6 +70,10 @@ successful empty folders. Kodi GUI playback acceptance remains outstanding.
 
 # Task 7 — Kodi adapter and explicit test settings
 
+> Historical record: Task 8 later enabled the fixture-only raw-clock mapper
+> described above. Statements in this section about disabled mapping and
+> success beacons describe the earlier Task 7 state only.
+
 ## Result
 
 - Added opt-in `ad_enabled`, `ad_preroll`, `ad_midroll`, and `ad_vast_url` settings. The VAST URL must be on the exact configured loopback fixture origin. Defaults disable insertion. General Radio Browser stations remain excluded by the session's fixture-origin and test-policy checks.

@@ -10,14 +10,18 @@ systems whose clock moves backward. A regression verifies a blocked stop cannot
 hold the profile lock or race a new playback start, and another verifies a
 future-dated marker is cleared.
 
-Closing an ad session suppresses late VAST preparation-error callbacks. The
-focused playback-arbiter/map tests passed **57 tests**; the full suite passed
-**1,032 tests in 112.01s**. `compileall`, package build, `check_package.py`, and
+Closing an ad session suppresses late VAST preparation-error callbacks. Station
+resolution now trusts a concrete audio MIME type and binary sniff over a playlist-like
+URL suffix. ICY learned-marker lookups use immutable snapshots and do not wait for
+profile writes. The README and radio-browser spec now use the actual Settings label
+and accurately distinguish stream resolution from click counting. The focused
+playback-arbiter/map tests passed **57 tests**; the full suite passed
+**1,034 tests in 112.16s**. `compileall`, package build, `check_package.py`, and
 `git diff --check` passed. Kodi add-on checker 0.0.36 on a fresh ZIP extraction
 reported no add-on problems or warnings with dependency checks skipped; its host
 Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
-**37 files**, **458,021 bytes**, mode **0644**, SHA-256
-`a61f85f94bf305175ee780fa5306992cd8fe693a107e30ecacd0d8e3a5cee20e`.
+**37 files**, **458,410 bytes**, mode **0644**, SHA-256
+`c6359aab49b8a9dd3125a37eec7b82c48e3f4508a56def0c8c03787ba6d377b0`.
 Live Kodi UI and playback remain unverified because desktop automation reports
 that the Mac is locked.
 

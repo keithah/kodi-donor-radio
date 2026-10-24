@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import json
 import os
+import threading
 
 import pytest
 
@@ -34,6 +35,33 @@ def test_atomic_failure_preserves_disk_and_memory(tmp_path, monkeypatch):
     assert store.lookup('one', '-') == 'start'
     assert (tmp_path / 'icy-markers.json').read_bytes() == previous
     assert sorted(p.name for p in tmp_path.iterdir()) == ['icy-markers.json']
+
+
+def test_lookup_uses_snapshot_without_waiting_for_marker_store_lock(tmp_path):
+    store = IcyMarkerStore(tmp_path)
+    store.learn('one', 'COMMERCIAL', 'start')
+    entered, release, done = threading.Event(), threading.Event(), threading.Event()
+    result = []
+
+    def hold_store_lock():
+        with store._lock:
+            entered.set()
+            assert release.wait(2)
+
+    holder = threading.Thread(target=hold_store_lock)
+    holder.start()
+    assert entered.wait(1)
+    reader = threading.Thread(target=lambda: (result.append(store.lookup('one', 'commercial')),
+                                              done.set()))
+    reader.start()
+    try:
+        assert done.wait(.5), 'metadata lookup must not wait for marker persistence'
+    finally:
+        release.set()
+        holder.join(1)
+        reader.join(1)
+    assert not holder.is_alive() and not reader.is_alive()
+    assert result == ['start']
 
 
 @pytest.mark.parametrize('marker', ['', ' ', '\n-', '-\r', '\x00', '\x7f', '\u0085',

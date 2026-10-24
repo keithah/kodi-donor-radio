@@ -133,6 +133,18 @@ def test_unknown_continuous_probe_transfers_prefix_without_reopen():
     source.response.close()
 
 
+def test_audio_mime_and_binary_sniff_override_playlist_like_url_suffix():
+    from station_resolver import resolve_station
+    stream = Reply(b'ID3audio payload', 'audio/mpeg',
+                   'https://radio.example/mount.m3u8')
+    source = resolve_station('https://radio.example/live', Transport([stream]),
+                             threading.Event())
+    assert source.protocol == 'continuous'
+    assert source.final_url.endswith('/mount.m3u8')
+    assert source.initial_bytes + source.response.read(100) == b'ID3audio payload'
+    source.response.close()
+
+
 def test_hls_sniffing_stops_at_manifest_and_closes_probe():
     from station_resolver import resolve_station
     response = Reply(b'#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\na.ts\n', 'audio/x-mpegurl')

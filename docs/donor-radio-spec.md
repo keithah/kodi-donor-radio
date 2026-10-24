@@ -268,9 +268,10 @@ Radio Browser is a volunteer mirror pool with no single stable host. Resolve a m
 | Map pins | Bounded `/json/stations/search` pages with `has_geo_info=true`; pins are clustered and filtered against the local map view | Client-side map view filtering; not a backend radius query |
 | Favourites | None | Resolved from stored UUIDs |
 
-Station refresh uses `/json/stations/byuuid` with a UUID list, and deliberate
-playback may resolve a station URL through `/json/url/{uuid}`. These calls are
-also implemented in `RadioBrowser`.
+Station refresh and deliberate-play resolution use `/json/stations/byuuid` with
+a UUID list. After successful resolution for deliberate Play, `/json/url/{uuid}`
+is called once as Radio Browser's click counter; its response is not used for
+playback. Both calls are implemented in `RadioBrowser`.
 
 Order results by click count descending for anything the user did not explicitly sort. Filter out entries with a broken flag set, and drop any station whose stream URL is empty.
 

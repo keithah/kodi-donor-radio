@@ -55,7 +55,7 @@ Play, Add to / Remove from favorites, Show on map, and Station info. Station
 routes contain UUIDs; playback resolves the current stream through the relay.
 Favorites retain safe display metadata and the last deliberate-play time.
 
-Choose **Set up Donor Radio** from the root or Settings. Native dialogs find
+Choose **Set up Donor Radio** from the root, or **Run setup** in Settings. Native dialogs find
 cities represented by a bounded Radio Browser station scan, then offer a radius
 of 10, 25, 60, 100, or 250 miles. Save one or more places at the final confirmation;
 cancelling leaves existing places unchanged. Place menus change the radius,
@@ -69,7 +69,7 @@ and service credentials are excluded.
 | Guided setup | Off | Run setup on opening the root when no places exist |
 | Offer setup at the top of the list | On | Show the root setup action |
 | Preview stations while browsing | On | Preview a station after 400 ms of stable focus in the map rail |
-| Set up Donor Radio | Action | Run the same setup dialogs from Settings |
+| Run setup | Action | Run the same setup dialogs from Settings |
 
 **Open the map** and **Show on map** launch the same custom window. It displays
 up to 60 city pins from a maximum 200-row discovery seed and up to 50 stations in
