@@ -31,6 +31,7 @@ def package(tmp_path):
 
 
 def test_package_is_installable_source_only(package):
+    assert stat.S_IMODE(package.stat().st_mode) == 0o644
     with zipfile.ZipFile(package) as archive:
         names = archive.namelist()
         assert {name.split('/')[0] for name in names} == {ADDON}

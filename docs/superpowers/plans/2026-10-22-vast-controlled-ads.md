@@ -162,5 +162,6 @@ Execute Tasks 1–5 in order. Task 6 depends on contracts from Tasks 1 and 4 and
 Covered spec sections: resolver/deadlines (2), media/cache (1/3), preroll/midroll and immutable output (4/5), tracking/errors (6), Kodi/controls (7), independent and real-runtime evidence (8), packaging/reviews (9). All five Review Focus conditions have explicit owning tests. Shared records and method names above are the contracts between subagents. Source-cache limits, XML bounds and sampling cadence make previously qualitative implementation details explicit without expanding the approved product scope.
 
 Execution method was selected as subagent-driven. This is the original implementation
-plan; implementation has proceeded. Its unchecked acceptance and release items remain
-open evidence work and do not indicate that implementation awaits user approval.
+plan; its checkboxes were not maintained during execution. Tasks 1–8 code is implemented
+and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`;
+Kodi clock-anchor acceptance, audible output, and Task 9 release checks remain open.
