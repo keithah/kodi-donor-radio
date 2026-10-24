@@ -451,3 +451,7 @@ msgstr ""
 msgctxt "#30161"
 msgid "ANTARCTICA"
 msgstr ""
+
+msgctxt "#30162"
+msgid "Local schematic view. Grid follows the displayed station/place bounds; not to scale."
+msgstr ""

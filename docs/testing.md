@@ -142,21 +142,24 @@ locked.
 ### Map context and final review follow-up — 2026-10-23
 
 An independent review noted that the first schematic map showed pins against a
-blank panel. The shared map now draws 30-degree latitude and 60-degree
+blank panel. The shared world map now draws 30-degree latitude and 60-degree
 longitude grid lines and labels the world regions beneath the coordinate pins;
-the footer states that it is schematic and not to scale. The map remains
-artwork-independent and the pins continue to use the directory's station
-coordinates. Also corrected the acceptance-record links, service-pass player
+local station and place views choose a readable grid from their own bounds and
+hide the world-region labels. The footer identifies the selected view and says
+that it is schematic and not to scale. The map remains artwork-independent
+and the pins continue to use the directory's station coordinates. Also
+corrected the acceptance-record links, service-pass player
 cleanup, the cancellation exception assertion, total source-segment fetch
 deadlines, HTTP/JSON control-response normalization, and retries after empty
 Radio Browser mirror discovery.
 
-The full suite passed **948 tests in 104.03s**; compileall, package creation,
+The full suite passed **951 tests in 107.17s** after adding world/local/dateline
+grid-rendering cases; compileall, package creation,
 `check_package.py`, and `git diff --check` passed. Kodi add-on checker 0.0.36
 reported no add-on problems or warnings, with only its environment's known
-LibreSSL/urllib3 warning. The final ZIP has **36 files**, is **444,210 bytes**,
+LibreSSL/urllib3 warning. The final ZIP has **36 files**, is **446,664 bytes**,
 and has SHA-256
-`ae43043b4642c447014e0b8f93f36d9072dd9384c9fe085f5289a17e774671b5`.
+`c40299208eefe0543e65fdebe29f7a041699c7da1d8b2d317c52617d963edba8`.
 Kodi's actual visual acceptance remains pending because the desktop is locked.
 
 ## Controlled VAST acceptance, 2026-10-22

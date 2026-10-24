@@ -52,7 +52,8 @@ class WindowXML:
     def __init__(self, *args):
         self.xml_args = args
         self.controls = {control_id: Control(control_id) for control_id in range(1000, 1060)}
-        self.controls.update({key: Control(key) for key in (10, 11, 12, 13, 2000, 3000, 3001, 3002)})
+        self.controls.update({key: Control(key) for key in (
+            10, 11, 12, 13, 2000, 3000, 3001, 3002, *range(20, 37))})
         self.focus_id = 1000
         self.closed = False
     def getControl(self, control_id): return self.controls[control_id]
@@ -216,6 +217,48 @@ def test_map_schematic_has_geographic_grid_and_region_labels():
     assert [labels[index] for index in range(30, 37)] == [
         '$LOCALIZE[%d]' % value for value in range(30155, 30162)]
     assert '$LOCALIZE[30148]' in [node.findtext('label') for node in xml.findall(".//control[@type='label']")]
+
+
+def test_map_graticule_follows_local_station_bounds_and_hides_world_regions(monkeypatch):
+    module = load_window(monkeypatch)
+    view = MapView(1, -1, -1, 1, 1000, 650)
+    window = make_window(module, view=view)
+    window.onInit()
+
+    horizontal = [window.controls[index] for index in range(20, 25)]
+    vertical = [window.controls[index] for index in range(25, 30)]
+    assert [control.visible for control in horizontal] == [True, True, True, False, False]
+    assert [control.position[1] for control in horizontal[:3]] == [293, 440, 587]
+    assert [control.visible for control in vertical] == [True, True, True, False, False]
+    assert [control.position[0] for control in vertical[:3]] == [333, 590, 847]
+    assert all(not window.controls[index].visible for index in range(30, 37))
+    assert window.controls[13].label == 'localized-30162'
+
+
+def test_world_map_keeps_world_regions_and_expected_graticule(monkeypatch):
+    module = load_window(monkeypatch)
+    view = MapView(90, -90, -180, 180, 1000, 650)
+    window = make_window(module, view=view)
+    window.onInit()
+
+    assert all(window.controls[index].visible for index in range(30, 37))
+    assert [window.controls[index].position[1] for index in range(20, 25)] == [243, 342, 440, 538, 637]
+    assert [window.controls[index].position[0] for index in range(25, 30)] == [247, 418, 590, 762, 933]
+    assert window.controls[13].label == 'localized-30148'
+
+
+def test_antimeridian_grid_uses_unwrapped_longitude_and_narrow_views_get_grid(monkeypatch):
+    module = load_window(monkeypatch)
+    across_dateline = make_window(module, view=MapView(2, -2, 170, -170, 1000, 650))
+    across_dateline.onInit()
+    longitudes = [across_dateline.controls[index] for index in range(25, 30)]
+    visible_longitudes = [control.position[0] for control in longitudes if control.visible]
+    assert visible_longitudes == [333, 590, 847]
+
+    narrow = make_window(module, view=MapView(.02, -.02, -.02, .02, 1000, 650))
+    narrow.onInit()
+    assert any(narrow.controls[index].visible for index in range(20, 25))
+    assert any(narrow.controls[index].visible for index in range(25, 30))
 
 
 def test_untrusted_remote_favicon_is_never_passed_to_kodi_art_loader(monkeypatch):

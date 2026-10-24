@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi 21.3 WindowXML adapter for the shared radio discovery map."""
 from urllib.parse import parse_qs, urlencode, urlsplit
+import math
 import os
 import threading
 import re
@@ -28,6 +29,21 @@ ACTION_IDS = {'left': 1, 'right': 2, 'up': 3, 'down': 4}
 BACK_ACTIONS = (10, 92)
 PENDING_PLAY_HANDOFF_SECONDS = 5.0
 PENDING_PLAY_POLL_SECONDS = 0.05
+_GRID_STEPS = (120, 90, 60, 45, 30, 20, 15, 10, 5, 2, 1, .5,
+               .25, .125, .0625, .01, .001)
+
+
+def _grid_values(start, end):
+    """Choose a bounded, readable set of evenly spaced graticule values."""
+    candidates = []
+    for step in _GRID_STEPS:
+        first = math.floor(start / step) + 1
+        last = math.ceil(end / step) - 1
+        values = [round(index * step, 8) for index in range(first, last + 1)
+                  if start < index * step < end]
+        if 1 <= len(values) <= 5:
+            candidates.append((abs(4 - len(values)), -len(values), -step, values))
+    return min(candidates)[3] if candidates else []
 
 
 def _valid_origin(route, plugin_base):
@@ -355,10 +371,13 @@ class RadioMapWindow(xbmcgui.WindowXML):
         super().__init__(xml_filename, script_path, default_skin, default_res, is_media)
 
     def onInit(self):
+        addon = xbmcaddon.Addon()
         self.getControl(PREVIEW_ID).setLabel(xbmcaddon.Addon().getLocalizedString(30145))
         self.getControl(BACK_ID).setLabel(xbmcaddon.Addon().getLocalizedString(30146))
         self.getControl(11).setLabel(xbmcaddon.Addon().getLocalizedString(30149))
-        self.getControl(13).setLabel(xbmcaddon.Addon().getLocalizedString(30148))
+        whole_world = self.view.full_longitude and self.view.north == 90 and self.view.south == -90
+        self.getControl(13).setLabel(addon.getLocalizedString(30148 if whole_world else 30162))
+        self._render_graticule(whole_world)
         self._selected_prefix = xbmcaddon.Addon().getLocalizedString(30150)
         self.getControl(PREVIEW_ID).setVisible(self.preview_enabled)
         if self.status_message:
@@ -385,6 +404,37 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 timer_factory=self._timer_factory, thread_factory=self._thread_factory,
                 playback_arbiter=self._playback_arbiter,
             )
+
+    def _render_graticule(self, whole_world):
+        """Fit the schematic grid to the map bounds; region names belong to world view."""
+        for control_id in range(30, 37):
+            self.getControl(control_id).setVisible(whole_world)
+
+        latitude_values = sorted(_grid_values(self.view.south, self.view.north), reverse=True)
+        for index in range(5):
+            control = self.getControl(20 + index)
+            if index >= len(latitude_values):
+                control.setVisible(False)
+                continue
+            latitude = latitude_values[index]
+            y = MAP_TOP + round((self.view.north - latitude) * MAP_HEIGHT /
+                                (self.view.north - self.view.south))
+            control.setPosition(MAP_LEFT, y)
+            control.setVisible(True)
+
+        west = -180 if self.view.full_longitude else self.view.west
+        longitude_values = _grid_values(west, west + self.view.longitude_span)
+        for index in range(5):
+            control = self.getControl(25 + index)
+            if index >= len(longitude_values):
+                control.setVisible(False)
+                continue
+            longitude = longitude_values[index]
+            ratio = ((longitude + 180) / 360 if self.view.full_longitude else
+                     (longitude - self.view.west) / self.view.longitude_span)
+            x = MAP_LEFT + round(ratio * MAP_WIDTH)
+            control.setPosition(x, MAP_TOP)
+            control.setVisible(True)
 
     def _pin_control(self, city_id):
         for index, city in enumerate(self.pins):
