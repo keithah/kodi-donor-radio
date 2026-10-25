@@ -346,10 +346,20 @@ def test_undelimited_url_key_with_absolute_value_still_fails_closed():
         parse(text)
 
 
+def test_undelimited_url_key_with_scheme_relative_value_fails_closed():
+    from hls import UnsupportedPlaylist
+    text = ('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+            '#EXT-X-DATERANGE:ID="x",START-DATE="2026-10-21T12:00:00Z",'
+            'X-SERVERURL="//upstream.example/x"\n#EXTINF:6,\nseg.aac\n')
+    with pytest.raises(UnsupportedPlaylist):
+        parse(text)
+
+
 @pytest.mark.parametrize('value', [
     'URI="../hidden"', 'X-URI-SUFFIX="../hidden"', 'OTHER=YES,URL="../hidden"',
     'OTHER=YES, X_URL_SUFFIX = "../hidden"', 'X.URL="../hidden"',
     'X-SERVERURL=https://upstream.example/hidden',
+    'X-SERVERURL="//upstream.example/hidden"',
     'NOTE="https://upstream.example/hidden"', 'NOTE="{$host}/hidden"',
 ])
 def test_unknown_tag_actual_references_still_fail_closed(value):

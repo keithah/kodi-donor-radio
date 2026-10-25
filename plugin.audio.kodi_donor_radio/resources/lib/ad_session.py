@@ -182,6 +182,8 @@ class AdSession:
                     raise CompositionFailure('session_closed')
                 if segment.uri in self._source:
                     continue
+            if origin(segment.uri) != origin(playlist.final_url):
+                raise CompositionFailure('source_origin_changed')
             deadline = time.monotonic() + SOURCE_FETCH_SECONDS
             try:
                 with self.client.open(segment.uri, {}, self.cancel, deadline=deadline,

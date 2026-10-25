@@ -85,7 +85,7 @@ _URI_TOKEN_KEY = re.compile(r'(?:^|[-_.])(?:URI|URL)(?:$|[-_.])', re.I)
 _URI_ANY_KEY = re.compile(r'(?:URI|URL)', re.I)
 # Skip quoted values; inspect only unquoted tokens followed by an assignment.
 _URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
-_URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*://|\{\$)', re.I)
+_URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*:)?//|\{\$', re.I)
 
 
 def _has_uri_assignment(value):

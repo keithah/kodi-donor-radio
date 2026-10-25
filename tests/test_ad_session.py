@@ -208,6 +208,29 @@ def test_source_transport_error_is_classified_as_retryable():
         session._cache_window(playlist)
 
 
+def test_cross_origin_source_segment_is_permanent_without_network_fetch():
+    from ad_session import CompositionFailure
+    from hls import Playlist, Segment
+
+    calls = []
+    class Client:
+        def open(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError('cross-origin source must be rejected before fetching')
+
+    session = AdSession.__new__(AdSession)
+    session._lock = RLock()
+    session.client, session.cancel = Client(), Event()
+    session._source, session._source_by_id, session._published = {}, {}, set()
+    session._limit, session.active_ids = 4, lambda: set()
+    session._closed = session._terminal = False
+    playlist = Playlist('http://fixture.test/index.m3u8', (), (), 0, 0, 6,
+                        (Segment(0, 0, 6, 0, 'http://other.test/segment.ts'),), (), False)
+    with pytest.raises(CompositionFailure, match='source_origin_changed'):
+        session._cache_window(playlist)
+    assert calls == []
+
+
 def test_source_segment_fetch_uses_one_total_deadline(monkeypatch):
     import ad_session as module
     from ad_session import SourceUnavailable
