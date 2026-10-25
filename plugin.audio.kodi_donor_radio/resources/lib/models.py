@@ -8,6 +8,7 @@ _DETAIL_FIELDS = frozenset({
     "cue_id", "duration", "media_sequence", "discontinuity", "rendition_id",
     "epoch", "media_position", "classification", "reason",
     "placement_id", "creative_id", "marker_format", "confidence",
+    "insertion_type",
 })
 
 

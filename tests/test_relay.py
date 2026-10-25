@@ -50,14 +50,25 @@ def origin():
                 body = b'#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\n/variant-a\n#EXT-X-STREAM-INF:BANDWIDTH=128000\n/variant-b\n'
                 headers['Content-Type'] = 'application/vnd.apple.mpegurl'
             elif self.path.startswith('/icy-markers/'):
-                titles = {
-                    'explicit': ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
-                    'inferred': ['-', '-', 'Artist - Track', 'Artist - Track'],
-                    'tracks': ['Artist - One', 'Artist - Two'],
-                }[self.path.rsplit('/', 1)[-1]]
+                scenario = self.path.rsplit('/', 1)[-1]
+                if scenario == 'adswizz':
+                    values = [
+                        {'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+                         'durationMilliseconds': '30000',
+                         'adswizzContext': 'opaque-tracking-context'},
+                        {'StreamTitle': '', 'adw_ad': 'false'},
+                    ]
+                else:
+                    titles = {
+                        'explicit': ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
+                        'inferred': ['-', '-', 'Artist - Track', 'Artist - Track'],
+                        'tracks': ['Artist - One', 'Artist - Two'],
+                    }[scenario]
+                    values = [{'StreamTitle': title} for title in titles]
                 chunks = []
-                for index, title in enumerate(titles):
-                    metadata = ("StreamTitle='%s';" % title).encode()
+                for index, fields in enumerate(values):
+                    metadata = ''.join("%s='%s';" % (key, value)
+                                       for key, value in fields.items()).encode()
                     metadata += b'\0' * (-len(metadata) % 16)
                     chunks.append(bytes([65 + index]) * 4 + bytes([len(metadata) // 16]) + metadata)
                 body = b''.join(chunks)
@@ -590,6 +601,28 @@ def test_icy_marker_observations_keep_metadata_and_exact_audio(
         assert markers[0].to_dict()['details'] == {
             'classification': 'explicit', 'marker_format': 'ad_command',
             'confidence': 'explicit', 'duration': 30}
+
+
+def test_adswizz_icy_fields_reach_tracker_through_relay(relay, origin):
+    session = create(relay, origin, '/icy-markers/adswizz')
+    status, headers, body = request(session.playback_url)
+
+    assert status == 200 and body == b'AAAABBBB'
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    events = relay[2].events
+    observed = [event for event in events if event.kind == 'metadata_observed']
+    assert len(observed) == 2
+    assert observed[0].evidence == {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000',
+    }
+    assert 'opaque-tracking-context' not in str([event.to_dict() for event in events])
+    markers = [event for event in events if event.source == 'icy_marker']
+    assert [(event.kind, event.details['marker_format'], event.details['classification'])
+            for event in markers] == [
+                ('break_start', 'adswizz', 'explicit'),
+                ('break_end', 'adswizz', 'explicit'),
+            ]
 
 
 def observe_marker(session, marker):

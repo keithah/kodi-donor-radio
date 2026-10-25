@@ -9,7 +9,8 @@ without mistaking ordinary artist/title changes for ad breaks.
 ## Goals
 
 - Parse explicit ICY marker formats, including `AD_START`, `AD_START_<seconds>`,
-  `AD_STOP`/`AD_END`, and documented provider-specific forms.
+  `AD_STOP`/`AD_END`, Adswizz's explicit `adw_ad` state and bounded duration/
+  insertion fields, and documented provider-specific forms.
 - Support Triton-style TildeATS category `4` as an ad-break signal and its `##`
   end-break convention, clearly scoped to that format.
 - Surface unusual ICY titles, including exact `-`, `#`, or `*` values and
@@ -82,6 +83,18 @@ session; remembered marker records are scoped to station UUID and exact
 normalized metadata. No broad substring matching is used.
 Duplicate metadata blocks are deduplicated, and a repeated start/end cannot create
 repeated transitions.
+
+For Adswizz ICY metadata, exact string values `adw_ad=true` and `adw_ad=false`
+are explicit start/end signals. A valid `durationMilliseconds` value from 1 to
+300000 is recorded as seconds in event details, and a bounded `insertionType` is
+retained as context. Changed true-signal fields while a break is open produce
+updates; identical metadata blocks are deduplicated while refreshing the active
+boundary timeout. Missing `adw_ad` fields do not close the break. A nonempty
+ordinary track title may close it as an inferred end, while explicit false
+closes it explicitly.
+Opaque `adswizzContext` and `adId` values are excluded from diagnostic evidence.
+These observations remain discovery data and never enable ICY replacement or
+VAST beacons.
 
 For this phase, confirmed ICY boundaries are discovery data only. They must not
 feed the HLS composer or VAST success tracker because the add-on has no proven

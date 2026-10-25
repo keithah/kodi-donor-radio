@@ -100,7 +100,7 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 | Input | POC behavior |
 | --- | --- |
 | Public HTTP/HTTPS continuous MP3/AAC | Bounded streaming relay; codec/demux playback needs Kodi validation |
-| ICY metadata | Remove framing without changing audio; classify explicit and cautious inferred markers on the same connection; never replace ICY audio or send VAST beacons |
+| ICY metadata | Remove framing without changing audio; classify explicit AD commands, Adswizz `adw_ad` fields, and cautious inferred markers on the same connection; never replace ICY audio or send VAST beacons |
 | M3U/PLS station indirection | Follow at most three indirections, with loop/size/redirect limits |
 | Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state |
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |

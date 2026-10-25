@@ -13,10 +13,20 @@ from url_policy import origin
 
 from cues import CueTracker
 from http_client import HttpClient
-from icy_markers import IcyMarkerTracker
+from icy_markers import IcyMarkerTracker, adswizz_evidence
 from icy_marker_store import normalize_marker
 from models import Event
 from station_resolver import resolve_station
+
+
+def _icy_diagnostic_evidence(metadata):
+    """Keep useful ICY fields but discard opaque Adswizz tracking context and IDs."""
+    if not isinstance(metadata, dict):
+        return {}
+    evidence = {key: value for key, value in metadata.items()
+                if isinstance(key, str) and key.lower() in ('streamtitle', 'streamurl')}
+    evidence.update(adswizz_evidence(metadata))
+    return evidence
 
 
 class ResourceLimit(ValueError):
@@ -100,7 +110,8 @@ class PlaybackSession:
     def observe_icy_metadata(self, metadata, observed_at, monotonic_at):
         with self._lock:
             self.sink.emit(Event('metadata_observed', self.id, self.station.uuid,
-                                 'icy', 'icy', metadata, observed_at, monotonic_at))
+                                 'icy', 'icy', _icy_diagnostic_evidence(metadata),
+                                 observed_at, monotonic_at))
             self.icy_tracker.observe(metadata, observed_at, monotonic_at)
 
     def latest_icy_candidate(self):

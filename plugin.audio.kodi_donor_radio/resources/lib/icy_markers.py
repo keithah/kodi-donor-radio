@@ -24,6 +24,8 @@ _WRAPPED_TOKEN = re.compile(
     r'(?P=frame)', re.ASCII)
 _MAX_MARKER_BYTES = 256
 _MAX_WRAPPED_TOKEN_CHARS = 64
+_ADSWIZZ_DURATION_MS = re.compile(r'[0-9]{1,6}', re.ASCII)
+_ADSWIZZ_INSERTION_TYPE = re.compile(r'[a-z][a-z0-9_-]{0,31}', re.ASCII)
 
 
 def _punctuation_only(value):
@@ -37,6 +39,51 @@ def _framed_token(value):
             or not re.search(r'[A-Z]', match.group('token'), re.ASCII)):
         return None
     return match
+
+
+def adswizz_insertion_type(value):
+    if not isinstance(value, str) or not _ADSWIZZ_INSERTION_TYPE.fullmatch(value.lower()):
+        return None
+    return value.lower()
+
+
+def adswizz_duration_ms(value):
+    if not isinstance(value, str) or not _ADSWIZZ_DURATION_MS.fullmatch(value):
+        return None
+    milliseconds = int(value)
+    return milliseconds if 1 <= milliseconds <= 300000 else None
+
+
+def adswizz_evidence(metadata):
+    """Return only validated Adswizz fields; omit opaque context and ad IDs."""
+    if not isinstance(metadata, dict):
+        return {}
+    evidence = {}
+    ad_flag = metadata.get('adw_ad')
+    if isinstance(ad_flag, str) and ad_flag.lower() in ('true', 'false'):
+        evidence['adw_ad'] = ad_flag.lower()
+    insertion_type = adswizz_insertion_type(metadata.get('insertionType'))
+    if insertion_type is not None:
+        evidence['insertionType'] = insertion_type
+    duration = adswizz_duration_ms(metadata.get('durationMilliseconds'))
+    if duration is not None:
+        evidence['durationMilliseconds'] = str(duration)
+    return evidence
+
+
+def _adswizz_signal(metadata):
+    """Recognize Adswizz's explicit ICY ad-state field, without its context token."""
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get('adw_ad')
+    if not isinstance(value, str) or value.lower() not in ('true', 'false'):
+        return None
+    duration = None
+    milliseconds = adswizz_duration_ms(metadata.get('durationMilliseconds'))
+    if milliseconds is not None:
+        duration = milliseconds / 1000.0
+    kind = 'start' if value.lower() == 'true' else 'end'
+    return MarkerSignal(kind, 'adw_ad=' + value.lower(), 'adswizz', 'explicit', duration)
 
 
 @dataclass(frozen=True)
@@ -97,16 +144,21 @@ class IcyMarkerTracker:
         self._candidate = None
         self._open_inferred = None
         self._last_title = None
+        self._last_adswizz = None
         self._last_boundary = None
         self._last_boundary_at = None
         self._session_overrides = OrderedDict()
 
     def _event(self, kind, metadata, observed_at, monotonic_at, signal,
                reason=None):
-        title = metadata.get('StreamTitle', '')
-        evidence = {'StreamTitle': title[:256] if isinstance(title, str) else ''}
+        title = metadata.get('StreamTitle')
+        evidence = {'StreamTitle': title[:256]} if isinstance(title, str) else {}
+        evidence.update(adswizz_evidence(metadata))
         details = {'classification': signal.confidence, 'marker_format': signal.format,
                    'confidence': signal.confidence, 'duration': signal.duration_seconds}
+        insertion_type = adswizz_insertion_type(metadata.get('insertionType'))
+        if signal.format == 'adswizz' and insertion_type is not None:
+            details['insertion_type'] = insertion_type.lower()
         if reason is not None:
             details['reason'] = reason
         self.emit(Event(kind, self.session_id, self.station_uuid, 'icy',
@@ -131,6 +183,20 @@ class IcyMarkerTracker:
             self._event('break_unresolved', metadata, observed_at, monotonic_at,
                         signal, reason='timeout')
             self._last_boundary = None
+
+    def _title_state(self, marker):
+        normalized = marker.upper()
+        learned = ((self._session_overrides.get(normalized) or self.learned_lookup(normalized))
+                   if marker else None)
+        signal = (MarkerSignal(learned, normalized, 'learned', 'learned', None)
+                  if learned in ('start', 'end') else parse_marker(marker))
+        framed = _framed_token(normalized) is not None
+        candidate = (signal is None and len(marker.encode('utf-8')) <= _MAX_MARKER_BYTES and
+                     (_punctuation_only(marker) or normalized in _CANDIDATES or framed))
+        classification = ((signal.kind, signal.format, signal.confidence)
+                          if signal is not None else ('candidate',) if candidate
+                          else ('ordinary',))
+        return normalized, signal, candidate, classification
 
     def latest_candidate(self):
         return self._candidate[1] if self._candidate else None
@@ -162,27 +228,54 @@ class IcyMarkerTracker:
 
     def observe(self, metadata, observed_at, monotonic_at):
         self.expire(monotonic_at)
+        adwizz = _adswizz_signal(metadata)
+        if adwizz is not None:
+            title = metadata.get('StreamTitle')
+            if isinstance(title, str):
+                normalized_title, _, _, title_classification = self._title_state(title.strip())
+                self._last_title = (monotonic_at, normalized_title, title_classification)
+            elif adwizz.kind == 'start':
+                self._last_title = None
+            insertion = metadata.get('insertionType', '')
+            duration = metadata.get('durationMilliseconds', '')
+            normalized = 'adswizz:%s:%s:%s' % (
+                adwizz.kind, insertion.lower() if isinstance(insertion, str) else '', duration)
+            classification = (adwizz.kind, adwizz.format, adwizz.confidence)
+            signature = (normalized, classification)
+            if self._last_adswizz == signature:
+                if adwizz.kind == 'end':
+                    return
+                if self._open_inferred is not None:
+                    self._open_inferred = (monotonic_at, metadata, observed_at, adwizz)
+                    self._last_boundary_at = monotonic_at
+                    return
+                if self._last_boundary == 'start':
+                    self._open_inferred = (monotonic_at, metadata, observed_at, adwizz)
+                    self._last_boundary_at = monotonic_at
+                    return
+            self._last_adswizz = signature
+            self.records.append((monotonic_at, normalized[:256]))
+            if adwizz.kind == 'start':
+                event_kind = 'break_update' if self._last_boundary == 'start' else 'break_start'
+                self._event(event_kind, metadata, observed_at, monotonic_at, adwizz)
+                self._last_boundary = 'start'
+                self._last_boundary_at = monotonic_at
+                self._open_inferred = (monotonic_at, metadata, observed_at, adwizz)
+            elif self._last_boundary == 'start':
+                self._event('break_end', metadata, observed_at, monotonic_at, adwizz)
+                self._last_boundary = 'end'
+                self._last_boundary_at = monotonic_at
+                self._open_inferred = None
+            return
         title = metadata.get('StreamTitle') if isinstance(metadata, dict) else None
         if not isinstance(title, str):
             return
         marker = title.strip()
-        normalized = marker.upper()
-        bounded_marker = len(marker.encode('utf-8')) <= _MAX_MARKER_BYTES
-        learned = ((self._session_overrides.get(normalized) or self.learned_lookup(normalized))
-                   if marker else None)
-        if learned in ('start', 'end'):
-            signal = MarkerSignal(learned, normalized, 'learned', 'learned', None)
-        else:
-            signal = parse_marker(marker)
-        framed = _framed_token(normalized) is not None
-        candidate = (signal is None and bounded_marker and
-                     (_punctuation_only(marker) or normalized in _CANDIDATES or framed))
-        classification = ((signal.kind, signal.format, signal.confidence)
-                          if signal is not None else ('candidate',) if candidate
-                          else ('ordinary',))
+        normalized, signal, candidate, classification = self._title_state(marker)
         if (self._last_title is not None
                 and (normalized, classification) == self._last_title[1:]):
             return
+        self._last_adswizz = None
         self._last_title = (monotonic_at, normalized, classification)
         self.records.append((monotonic_at, marker[:256]))
         if not marker:

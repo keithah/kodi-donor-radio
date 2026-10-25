@@ -89,6 +89,155 @@ def observe(instance, title, seconds):
     instance.observe({'StreamTitle': title}, '2026-10-23T00:00:00Z', seconds)
 
 
+def observe_metadata(instance, metadata, seconds):
+    instance.observe(metadata, '2026-10-23T00:00:00Z', seconds)
+
+
+def test_adswizz_start_carries_explicit_metadata_without_opaque_context():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30119', 'adswizzContext': 'opaque-value',
+    }, 1)
+
+    assert [event.kind for event in events] == ['break_start']
+    event = events[0]
+    assert event.details == {
+        'classification': 'explicit', 'marker_format': 'adswizz',
+        'confidence': 'explicit', 'duration': 30.119,
+        'insertion_type': 'midroll',
+    }
+    assert event.evidence == {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30119',
+    }
+    assert 'opaque-value' not in str(event.to_dict())
+
+
+def test_adswizz_absent_field_does_not_end_but_explicit_false_does():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'preroll',
+        'durationMilliseconds': '30000',
+    }, 1)
+    observe_metadata(instance, {'StreamTitle': ''}, 2)
+    assert [event.kind for event in events] == ['break_start']
+
+    observe_metadata(instance, {'StreamTitle': '', 'adw_ad': 'false'}, 3)
+    assert [event.kind for event in events] == ['break_start', 'break_end']
+    assert events[-1].details['marker_format'] == 'adswizz'
+    assert events[-1].details['classification'] == 'explicit'
+
+
+def test_unchanged_title_block_does_not_reset_adswizz_duplicate_suppression():
+    instance, events = tracker()
+    metadata = {'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll'}
+    observe_metadata(instance, metadata, 1)
+    observe_metadata(instance, {'StreamTitle': ''}, 2)
+    observe_metadata(instance, metadata, 3)
+    assert [event.kind for event in events] == ['break_start']
+
+
+def test_adswizz_repeated_updates_are_deduplicated_and_track_return_closes():
+    instance, events = tracker()
+    metadata = {'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+                'durationMilliseconds': '30000'}
+    observe_metadata(instance, metadata, 1)
+    observe_metadata(instance, metadata, 2)
+    assert [event.kind for event in events] == ['break_start']
+
+    observe_metadata(instance, {'StreamTitle': 'Host - News update'}, 3)
+    assert [event.kind for event in events] == ['break_start', 'break_end']
+    assert events[-1].details['classification'] == 'inferred'
+
+
+def test_adswizz_changed_ad_state_emits_break_update():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000',
+    }, 1)
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '15000',
+    }, 2)
+
+    assert [event.kind for event in events] == ['break_start', 'break_update']
+    assert events[-1].details['duration'] == 15.0
+
+
+def test_repeated_track_title_does_not_close_adswizz_break_but_false_does():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': 'News Desk', 'adw_ad': 'true', 'insertionType': 'midroll',
+    }, 1)
+    observe_metadata(instance, {'StreamTitle': 'News Desk'}, 2)
+    assert [event.kind for event in events] == ['break_start']
+
+    observe_metadata(instance, {'StreamTitle': 'News Desk', 'adw_ad': 'false'}, 3)
+    assert [event.kind for event in events] == ['break_start', 'break_end']
+    assert events[-1].details['classification'] == 'explicit'
+
+
+def test_titleless_adswizz_start_does_not_deduplicate_returning_track_title():
+    instance, events = tracker()
+    observe(instance, 'News Desk', 1)
+    observe_metadata(instance, {'adw_ad': 'true', 'insertionType': 'midroll'}, 2)
+    observe(instance, 'News Desk', 3)
+    assert [event.kind for event in events] == ['break_start', 'break_end']
+    assert events[-1].details['classification'] == 'inferred'
+
+
+def test_repeated_adswizz_active_signal_refreshes_timeout_and_can_restart_after_expiry():
+    instance, events = tracker()
+    metadata = {'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll'}
+    observe_metadata(instance, metadata, 1)
+    observe_metadata(instance, metadata, 299)
+    instance.expire(599)
+    assert [event.kind for event in events] == ['break_start']
+    instance.expire(600)
+    assert [event.kind for event in events] == ['break_start', 'break_unresolved']
+
+    observe_metadata(instance, metadata, 601)
+    observe_metadata(instance, {'StreamTitle': '', 'adw_ad': 'false'}, 602)
+    assert [event.kind for event in events] == [
+        'break_start', 'break_unresolved', 'break_start', 'break_end']
+
+
+@pytest.mark.parametrize('metadata', [
+    {'adw_ad': 'yes', 'insertionType': 'midroll'},
+    {'adw_ad': True, 'durationMilliseconds': '30000'},
+])
+def test_malformed_adswizz_fields_do_not_create_explicit_boundaries(metadata):
+    instance, events = tracker()
+    observe_metadata(instance, metadata, 1)
+    assert events == []
+
+
+def test_invalid_adswizz_duration_does_not_hide_explicit_boundary():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'durationMilliseconds': '301000',
+    }, 1)
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'false', 'durationMilliseconds': '0',
+    }, 2)
+
+    assert [event.kind for event in events] == ['break_start', 'break_end']
+    assert events[0].details['duration'] is None
+    assert 'durationMilliseconds' not in events[0].evidence
+
+
+def test_invalid_adswizz_insertion_type_is_excluded_from_event_evidence():
+    instance, events = tracker()
+    observe_metadata(instance, {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'x' * 100,
+    }, 1)
+    assert [event.kind for event in events] == ['break_start']
+    assert 'insertionType' not in events[0].evidence
+    assert 'insertion_type' not in events[0].to_dict().get('details', {})
+
+
 @pytest.mark.parametrize('title', ['-', '#', '*', '---', 'AD', 'AD BREAK',
                                    'COMMERCIAL', 'SPOT', 'START', 'STOP'])
 def test_exact_marker_vocabulary_or_punctuation_is_candidate(title):

@@ -169,3 +169,33 @@ def test_session_expire_markers_prunes_candidate_without_inventing_end(marker_se
     assert session.latest_icy_candidate() is None
     assert [event.kind for event in events] == [
         'metadata_observed', 'icy_marker_candidate', 'break_start', 'break_unresolved']
+
+
+def test_session_preserves_adswizz_boundary_fields_but_drops_tracking_context(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000', 'adId': 'creative-123',
+        'adswizzContext': 'opaque-tracking-context',
+    }, '2026-10-23T00:00:00Z', 10)
+
+    observed = events[0]
+    assert observed.kind == 'metadata_observed'
+    assert observed.evidence == {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000',
+    }
+    marker = events[1]
+    assert marker.kind == 'break_start'
+    assert marker.details['marker_format'] == 'adswizz'
+    assert marker.evidence['adw_ad'] == 'true'
+    assert 'opaque-tracking-context' not in str([event.to_dict() for event in events])
+
+
+def test_session_drops_invalid_adswizz_insertion_type_from_diagnostics(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'x' * 4000,
+    }, '2026-10-23T00:00:00Z', 10)
+    assert 'insertionType' not in events[0].evidence
+    assert 'insertionType' not in events[1].evidence

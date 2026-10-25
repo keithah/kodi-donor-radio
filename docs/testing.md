@@ -992,3 +992,30 @@ On the local Mac, Kodi 23.0-ALPHA1 (`20261021-434da3c`) ran from its isolated po
 - **Both placements enabled:** a separate 18-second run requested the direct VAST response and replacement media twice and recorded two impressions and two starts.
 
 The addon event log recorded the controlled HLS cue-out and cue-in and corresponding ad-tracking events. These results prove that Kodi drove each placement through the local VAST, HLS media, and beacon fixtures while its reported player clock advanced. They do not independently prove what was audible or establish production ad-position mapping; no audio capture or listening verification was performed. Radio Browser stations remain outside this loopback-only test configuration.
+
+## Radio Browser CDN/Adswizz stream inspection — 2026-10-25
+
+A read-only Radio Browser query returned 70,055 station records. Filtering the
+records locally by resolved hostname and `hls=1` found 8 `cdnstream1.com` HLS
+entries. Six top-level playlists were reachable; 5 exposed a readable media
+playlist. Four reachable media playlists contained segment paths under the
+AdsWizz delivery host: **100Hitz - 90s Alternative Hitz**, **GotRadio - Soft
+Rock Café**, **KMHD Adaptive AAC**, and **MIX 96 Sacramento**. KMHD also carried
+an opaque `adswizzContext` comment in `EXTINF`; no signed query or context value
+is retained here. The fetched manifests did not expose standard CUE-OUT/IN or
+SCTE-35 tags. Other entries included a broken IKIM FM endpoint and K-Love
+playlists whose child manifests required authorization. Radio Browser's HLS
+flag is directory metadata, not proof that a current child manifest is
+accessible.
+
+A simultaneous 20-minute ICY sample of the Radio Browser **MS NOW** (listed as
+MSNBC), **CNBC International**, and **CNN** feeds found explicit Adswizz fields
+on MS NOW and CNN at startup; MS NOW later emitted repeated midroll markers.
+CNBC produced no metadata transitions in the sample, and CNN had no observed
+midroll. The marker parser now recognizes exact string `adw_ad=true/false`,
+records a valid `durationMilliseconds` of 1–300000 as seconds, and preserves a
+bounded `insertionType`. It emits explicit start/end events, updates on changed
+ad state, and deduplicates identical metadata while refreshing the active
+boundary timeout. A missing field does not end a break. Opaque `adswizzContext`
+and `adId` values are dropped from diagnostics.
+This remains observation-only and does not feed VAST replacement or beacons.

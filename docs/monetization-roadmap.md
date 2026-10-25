@@ -50,8 +50,10 @@ have separate coverage; absence of HLS cues does not prove absence of ads.
 Determine whether a participating continuous source exposes sufficiently reliable
 boundaries and whether audio can be switched/rejoined without corrupting MP3/AAC
 frames or introducing unacceptable silence. ICY titles alone do not establish an
-ad break. Decide supported framing/codecs, a boundary signal contract, latency,
-no-fill behavior and whether demux/remux work fits the embedded-Python constraint.
+ad break. Explicit Adswizz `adw_ad=true/false` metadata is now logged as an ICY
+break observation, but does not enable ICY audio replacement or VAST beacons.
+Decide supported framing/codecs, a boundary signal contract, latency, no-fill
+behavior and whether demux/remux work fits the embedded-Python constraint.
 Do not silently depend on an external executable or hosted relay.
 
 Required evidence: controlled MP3/AAC/ICY streams with known tone transitions and
