@@ -963,21 +963,32 @@ Fixture generation also checks numbered source, preroll, and replacement segment
 for missing sequence numbers and exact 1,920-tick PTS continuity between
 segments, in addition to validating each segment on its own.
 
-## Kodi master startup follow-up — 2026-10-24
+## Initial Kodi master startup attempt — 2026-10-24
 
-I launched the locally built Kodi **23.0-ALPHA1**, Git `434da3c`, from an
-isolated portable profile on the same Mac. Kodi's add-on manager discovered
+An initial launch attempt used the locally built Kodi **23.0-ALPHA1**, Git `434da3c`, from an isolated portable profile on the same Mac. Kodi's add-on manager discovered
 `plugin.audio.kodi_donor_radio` v0.1.0, and JSON-RPC v14.1 initialized, but Kodi
 did not finish startup. A process sample of the main thread remained in
 `CPeripheralBusUSB::DeviceAttachCallback` and
 `IOUSBInterfaceClass::start`; the configured loopback JSON-RPC listener never
 opened. This prevented invoking the add-on route or testing playback on this
 master build. Desktop automation also reported that the Mac was locked, so no
-GUI screen inspection was possible. This is a host startup limitation, not an
-observed add-on route failure. A fresh Kodi 21.3 relaunch on this Mac showed
+GUI screen inspection was possible. This initial attempt was a host startup limitation, not an
+observed add-on route failure. The successful same-Mac launch and controlled
+VAST placement results are recorded in the 2026-10-25 section below. A fresh Kodi 21.3 relaunch on this Mac showed
 the same main-thread stack in `CPeripheralBusUSB::DeviceAttachCallback` and
 `IOUSBInterfaceClass::start` before opening its JSON-RPC listener. This
 reproduces a host startup blocker on both tested binaries; earlier Kodi 21.3
 playback observations remain historical and separate. The official Kodi
 add-on checker 0.0.36 also passed its Piers target on the current package,
 which is static package validation rather than a master-runtime test.
+
+
+## Separate Kodi VAST placement smoke, 2026-10-25
+
+On the local Mac, Kodi 23.0-ALPHA1 (`20261021-434da3c`) ran from its isolated portable profile with the addon enabled, test mode on, and an exact loopback-only fixture origin. The same controlled HLS source and player-clock observer were used for both runs. Both passed the requested-item identity check and bounded player-clock progress check.
+
+- **Preroll only:** Kodi requested `/vast/preroll`, `/ads/preroll.m3u8`, and both preroll transport-stream segments. The fixture recorded one impression, one start, and one first-quartile beacon. It also fetched the source manifest and programme segments.
+- **Midroll only:** Kodi requested `/vast/direct`, `/ads/replacement.m3u8`, and both replacement transport-stream segments after fetching the marked source stream. The fixture recorded one impression, one start, and one first-quartile beacon.
+- **Both placements enabled:** a separate 18-second run requested the direct VAST response and replacement media twice and recorded two impressions and two starts.
+
+The addon event log recorded the controlled HLS cue-out and cue-in and corresponding ad-tracking events. These results prove that Kodi drove each placement through the local VAST, HLS media, and beacon fixtures while its reported player clock advanced. They do not independently prove what was audible or establish production ad-position mapping; no audio capture or listening verification was performed. Radio Browser stations remain outside this loopback-only test configuration.
