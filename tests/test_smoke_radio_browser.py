@@ -44,6 +44,8 @@ def origin():
                 self.send_header('icy-metaint', 'nope')
             else:
                 self.send_response(status)
+            if route == '/zero-icy':
+                self.send_header('icy-metaint', '0')
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
@@ -70,6 +72,7 @@ def origin():
     ('/encrypted', 'unsupported', 'hls'),
     ('/offline', 'reachability_failure', None),
     ('/bad-icy', 'parser_failure', 'continuous'),
+    ('/zero-icy', 'reachable', 'continuous'),
 ])
 def test_probe_classifies_without_leaking_urls_or_counting_clicks(origin, route, outcome, protocol):
     module = load_tool()

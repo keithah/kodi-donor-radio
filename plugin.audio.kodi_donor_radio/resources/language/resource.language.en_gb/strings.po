@@ -88,6 +88,22 @@ msgctxt "#30027"
 msgid "Test: HLS malformed cue"
 msgstr ""
 
+msgctxt "#30045"
+msgid "Test ad: controlled break"
+msgstr ""
+
+msgctxt "#30046"
+msgid "Test ad: mutated source break"
+msgstr ""
+
+msgctxt "#30047"
+msgid "Test ad: advanced live window"
+msgstr ""
+
+msgctxt "#30048"
+msgid "Test ad: delayed source segment"
+msgstr ""
+
 msgctxt "#30030"
 msgid "Local diagnostics"
 msgstr ""
@@ -109,7 +125,7 @@ msgid "Enable test mode"
 msgstr ""
 
 msgctxt "#30035"
-msgid "Show controlled test streams and allow only the exact configured loopback origin. The service restarts when settings change."
+msgid "Show controlled test streams and allow only the exact configured loopback origin. Changing test mode or the fixture origin restarts the service."
 msgstr ""
 
 msgctxt "#30036"
@@ -118,4 +134,360 @@ msgstr ""
 
 msgctxt "#30037"
 msgid "Use http://127.0.0.1:PORT with the explicit port of your local fixture server. No path or trailing slash."
+msgstr ""
+
+msgctxt "#30038"
+msgid "Controlled advertising fixtures"
+msgstr ""
+
+msgctxt "#30039"
+msgid "Enable controlled ad insertion"
+msgstr ""
+
+msgctxt "#30040"
+msgid "Requires test mode, a fixture VAST URL on the configured loopback origin, and a controlled HLS station. Changes apply to the next session."
+msgstr ""
+
+msgctxt "#30041"
+msgid "Insert a preroll"
+msgstr ""
+
+msgctxt "#30042"
+msgid "Replace marked midroll breaks"
+msgstr ""
+
+msgctxt "#30043"
+msgid "Fixture VAST URL"
+msgstr ""
+
+msgctxt "#30044"
+msgid "Enter a VAST document URL on the exact configured fixture origin."
+msgstr ""
+
+msgctxt "#30050"
+msgid "Label latest ICY marker"
+msgstr ""
+
+msgctxt "#30051"
+msgid "Latest ICY marker:"
+msgstr ""
+
+msgctxt "#30052"
+msgid "Start of ad break"
+msgstr ""
+
+msgctxt "#30053"
+msgid "End of ad break"
+msgstr ""
+
+msgctxt "#30054"
+msgid "Cancel"
+msgstr ""
+
+msgctxt "#30055"
+msgid "How should this exact marker label be applied?"
+msgstr ""
+
+msgctxt "#30056"
+msgid "No current ICY marker is available. Keep listening and try again when a marker appears."
+msgstr ""
+
+msgctxt "#30057"
+msgid "The marker could not be labeled. The station or marker may have changed, or the service could not save it. Open Label latest ICY marker to try again."
+msgstr ""
+
+msgctxt "#30058"
+msgid "ICY marker labeled."
+msgstr ""
+
+msgctxt "#30059"
+msgid "Remember for this station"
+msgstr ""
+
+msgctxt "#30060"
+msgid "This listening session only"
+msgstr ""
+
+msgctxt "#30061"
+msgid "Test ICY: explicit AD commands"
+msgstr ""
+
+msgctxt "#30062"
+msgid "Test ICY: TildeATS markers"
+msgstr ""
+
+msgctxt "#30063"
+msgid "Test ICY: wrapped AD commands"
+msgstr ""
+
+msgctxt "#30064"
+msgid "Test ICY: return to track"
+msgstr ""
+
+msgctxt "#30065"
+msgid "Test ICY: paired marker"
+msgstr ""
+
+msgctxt "#30066"
+msgid "Test ICY: punctuation markers"
+msgstr ""
+
+msgctxt "#30067"
+msgid "Test ICY: unresolved break"
+msgstr ""
+
+msgctxt "#30068"
+msgid "Controlled ad settings are invalid; ads are disabled."
+msgstr ""
+
+msgctxt "#30100"
+msgid "Radio interface"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Guided setup"
+msgstr ""
+
+msgctxt "#30102"
+msgid "Pick the places you care about before you start. You can run setup again from Settings. Listings use your Kodi skin; themed screens and their settings will be added later."
+msgstr ""
+
+msgctxt "#30103"
+msgid "Offer setup at the top of the list"
+msgstr ""
+
+msgctxt "#30104"
+msgid "Show a Set up Donor Radio row above your places. Turn off once you are set up."
+msgstr ""
+
+msgctxt "#30105"
+msgid "Preview stations while browsing"
+msgstr ""
+
+msgctxt "#30106"
+msgid "Preview a station when you focus it on the map. Turn off on slow connections. This applies to the shared map while listings use your Kodi skin."
+msgstr ""
+
+msgctxt "#30110"
+msgid "Set up Donor Radio"
+msgstr ""
+
+msgctxt "#30111"
+msgid "Favorites"
+msgstr ""
+
+msgctxt "#30112"
+msgid "Open the map"
+msgstr ""
+
+msgctxt "#30113"
+msgid "No stations or categories found."
+msgstr ""
+
+msgctxt "#30114"
+msgid "This place has no coordinates. Run setup to choose a location."
+msgstr ""
+
+msgctxt "#30116"
+msgid "Showing a bounded directory scan, ranked by popularity. Choose Next page to scan more stations."
+msgstr ""
+
+msgctxt "#30107"
+msgid "Run setup"
+msgstr ""
+
+msgctxt "#30108"
+msgid "Choose places and radii with the same guided setup. Your places are saved together only when you choose Save."
+msgstr ""
+
+msgctxt "#30120"
+msgid "Play"
+msgstr ""
+
+msgctxt "#30121"
+msgid "Add to favorites"
+msgstr ""
+
+msgctxt "#30122"
+msgid "Remove from favorites"
+msgstr ""
+
+msgctxt "#30123"
+msgid "Show on map"
+msgstr ""
+
+msgctxt "#30124"
+msgid "Station info"
+msgstr ""
+
+msgctxt "#30125"
+msgid "kbps"
+msgstr ""
+
+msgctxt "#30126"
+msgid "Make default"
+msgstr ""
+
+msgctxt "#30127"
+msgid "Change radius"
+msgstr ""
+
+msgctxt "#30128"
+msgid "Remove place"
+msgstr ""
+
+msgctxt "#30129"
+msgid "Remove this saved place?"
+msgstr ""
+
+msgctxt "#30130"
+msgid "Find a place"
+msgstr ""
+
+msgctxt "#30131"
+msgid "Choose a country"
+msgstr ""
+
+msgctxt "#30132"
+msgid "Search within a country"
+msgstr ""
+
+msgctxt "#30133"
+msgid "Place, area, or coordinates"
+msgstr ""
+
+msgctxt "#30134"
+msgid "Choose a place based on listed stations"
+msgstr ""
+
+msgctxt "#30135"
+msgid "Choose a radius"
+msgstr ""
+
+msgctxt "#30136"
+msgid "miles"
+msgstr ""
+
+msgctxt "#30137"
+msgid "Add another place"
+msgstr ""
+
+msgctxt "#30138"
+msgid "Save places"
+msgstr ""
+
+msgctxt "#30139"
+msgid "No matching station locations with valid coordinates were found in this bounded directory scan. Try a country or a different location."
+msgstr ""
+
+msgctxt "#30140"
+msgid "The saved place limit has been reached."
+msgstr ""
+
+msgctxt "#30145"
+msgid "Preview station"
+msgstr ""
+
+msgctxt "#30146"
+msgid "Back to stations"
+msgstr ""
+
+msgctxt "#30147"
+msgid "No stations with valid map coordinates were found in this directory scan. Browse the directory or try another area."
+msgstr ""
+
+msgctxt "#30148"
+msgid "Schematic world map: labeled regions, 30° latitude and 60° longitude grid; not to scale. Pins use station coordinates reported by Radio Browser."
+msgstr ""
+
+msgctxt "#30149"
+msgid "Radio map"
+msgstr ""
+
+msgctxt "#30150"
+msgid "Selected"
+msgstr ""
+
+msgctxt "#30151"
+msgid "stations"
+msgstr ""
+
+msgctxt "#30166"
+msgid "station"
+msgstr ""
+
+msgctxt "#30152"
+msgid "Radio preview"
+msgstr ""
+
+msgctxt "#30153"
+msgid "Station area"
+msgstr ""
+
+msgctxt "#30154"
+msgid "Unknown location"
+msgstr ""
+
+msgctxt "#30155"
+msgid "NORTH AMERICA"
+msgstr ""
+
+msgctxt "#30156"
+msgid "SOUTH AMERICA"
+msgstr ""
+
+msgctxt "#30157"
+msgid "EUROPE"
+msgstr ""
+
+msgctxt "#30158"
+msgid "AFRICA"
+msgstr ""
+
+msgctxt "#30159"
+msgid "ASIA"
+msgstr ""
+
+msgctxt "#30160"
+msgid "OCEANIA"
+msgstr ""
+
+msgctxt "#30161"
+msgid "ANTARCTICA"
+msgstr ""
+
+msgctxt "#30162"
+msgid "Local schematic view. Grid follows the displayed station/place bounds; not to scale."
+msgstr ""
+
+msgctxt "#30163"
+msgid "The station map could not be loaded. Check your connection and try again."
+msgstr ""
+
+msgctxt "#30164"
+msgid "The selected station could not be refreshed. Showing available station information."
+msgstr ""
+
+msgctxt "#30165"
+msgid "Saved places could not be loaded. You can still browse stations, favorites, search, and the map."
+msgstr ""
+
+msgctxt "#30167"
+msgid "The action could not be completed. Return to the list and try again."
+msgstr ""
+
+msgctxt "#30168"
+msgid "Vote for station"
+msgstr ""
+
+msgctxt "#30169"
+msgid "Vote for this station on Radio Browser? Votes from your network address are limited to one per station every 10 minutes."
+msgstr ""
+
+msgctxt "#30170"
+msgid "Your vote was recorded."
+msgstr ""
+
+msgctxt "#30171"
+msgid "Radio Browser did not record the vote. You may need to wait before trying again."
 msgstr ""

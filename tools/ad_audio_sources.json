@@ -1,0 +1,152 @@
+{
+  "sample_rate": 48000,
+  "channels": 2,
+  "aac_frames_per_segment": 94,
+  "segments": {
+    "source000.ts": {
+      "section": "programme_a",
+      "tone_hz": 440,
+      "spoken": "Programme A"
+    },
+    "source001.ts": {
+      "section": "programme_a",
+      "tone_hz": 440,
+      "spoken": "Programme A"
+    },
+    "source002.ts": {
+      "section": "original_break",
+      "tone_hz": 660,
+      "spoken": "Original break"
+    },
+    "source003.ts": {
+      "section": "original_break",
+      "tone_hz": 660,
+      "spoken": "Original break"
+    },
+    "source004.ts": {
+      "section": "programme_b",
+      "tone_hz": 550,
+      "spoken": "Programme B"
+    },
+    "source005.ts": {
+      "section": "programme_b",
+      "tone_hz": 550,
+      "spoken": "Programme B"
+    },
+    "source003-mutated.ts": {
+      "section": "source_mutation",
+      "tone_hz": 720,
+      "spoken": "Mutated break"
+    },
+    "replacement000.ts": {
+      "section": "replacement",
+      "tone_hz": 880,
+      "spoken": "Replacement ad"
+    },
+    "replacement001.ts": {
+      "section": "replacement",
+      "tone_hz": 880,
+      "spoken": "Replacement ad"
+    },
+    "preroll000.ts": {
+      "section": "preroll",
+      "tone_hz": 990,
+      "spoken": "Pre roll ad"
+    },
+    "preroll001.ts": {
+      "section": "preroll",
+      "tone_hz": 990,
+      "spoken": "Pre roll ad"
+    },
+    "source006.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1120,
+      "spoken": "Programme B 6"
+    },
+    "source007.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1140,
+      "spoken": "Programme B 7"
+    },
+    "source008.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1160,
+      "spoken": "Programme B 8"
+    },
+    "source009.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1180,
+      "spoken": "Programme B 9"
+    },
+    "source010.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1200,
+      "spoken": "Programme B 10"
+    },
+    "source011.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1220,
+      "spoken": "Programme B 11"
+    },
+    "source012.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1240,
+      "spoken": "Programme B 12"
+    },
+    "source013.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1260,
+      "spoken": "Programme B 13"
+    },
+    "source014.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1280,
+      "spoken": "Programme B 14"
+    },
+    "source015.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1300,
+      "spoken": "Programme B 15"
+    },
+    "source016.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1320,
+      "spoken": "Programme B 16"
+    },
+    "source017.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1340,
+      "spoken": "Programme B 17"
+    },
+    "source018.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1360,
+      "spoken": "Programme B 18"
+    },
+    "source019.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1380,
+      "spoken": "Programme B 19"
+    },
+    "source020.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1400,
+      "spoken": "Programme B 20"
+    },
+    "source021.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1420,
+      "spoken": "Programme B 21"
+    },
+    "source022.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1440,
+      "spoken": "Programme B 22"
+    },
+    "source023.ts": {
+      "section": "programme_b_continuation",
+      "tone_hz": 1460,
+      "spoken": "Programme B 23"
+    }
+  }
+}

@@ -31,6 +31,7 @@ def package_addon(source, output):
                 info.external_attr = (stat.S_IFREG | 0o644) << 16
                 archive.writestr(info, data)
         check_package(temporary)
+        temporary.chmod(0o644)
         temporary.replace(destination)
     finally:
         if temporary.exists():

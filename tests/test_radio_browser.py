@@ -62,6 +62,13 @@ def test_countries_and_tags_are_bounded_and_paginated():
     assert parse_qs(urlsplit(transport.calls[2][0]).query) == {'offset': ['50'], 'limit': ['50']}
 
 
+def test_tag_page_uses_raw_row_count_for_continuation():
+    rows = [{'name': 'tag-%02d' % i} for i in range(49)] + [None]
+    rb, _ = browser([Reply(json.dumps(rows).encode())])
+    names, more = rb.tags_page(0, 50)
+    assert len(names) == 49 and more is True
+
+
 def test_click_one_attempt_per_selection_even_uncertain_delivery():
     rb, transport = browser([TimeoutError('delivery uncertain'), Reply(b'{"ok":true}')])
     rb.click('station-uuid')
@@ -69,6 +76,52 @@ def test_click_one_attempt_per_selection_even_uncertain_delivery():
     assert transport.calls[0][0] == 'https://one.example/json/url/station-uuid'
     rb.click('station-uuid')  # A later explicit selection is a distinct click.
     assert len(transport.calls) == 2
+
+
+def test_vote_uses_uuid_endpoint_validates_result_and_never_retries():
+    rb, transport = browser([Reply(b'{"ok":true,"message":"voted"}'),
+                             Reply(b'{"ok":false,"message":"wait"}'),
+                             TimeoutError('delivery uncertain')])
+    assert rb.vote('station-uuid') is True
+    assert rb.vote('station-uuid') is False
+    with pytest.raises(TimeoutError):
+        rb.vote('station-uuid')
+    assert len(transport.calls) == 3
+    assert all(call[0] == 'https://one.example/json/vote/station-uuid'
+               for call in transport.calls)
+    assert all(call[1]['User-Agent'] == 'kodi-donor-radio/0.1.0'
+               for call in transport.calls)
+
+
+def test_vote_rejects_invalid_uuid_and_unstructured_result():
+    rb, transport = browser([Reply(b'[]')])
+    with pytest.raises(ValueError, match='Invalid station identifier'):
+        rb.vote('../bad')
+    assert transport.calls == []
+    with pytest.raises(ValueError, match='Invalid vote response'):
+        rb.vote('station-uuid')
+    assert len(transport.calls) == 1
+
+
+def test_empty_mirror_discovery_is_not_cached_and_can_recover():
+    from http_client import HttpError
+    from radio_browser import RadioBrowser
+
+    lookups = iter(([], ['https://recovered.example']))
+    calls = []
+    def lookup():
+        calls.append(True)
+        return next(lookups)
+    transport = Transport([Reply(b'[]')])
+    rb = RadioBrowser(transport, mirror_lookup=lookup)
+
+    with pytest.raises(HttpError, match='No Radio Browser mirrors available'):
+        rb.countries()
+    assert rb._mirrors is None
+
+    assert rb.countries() == []
+    assert len(calls) == 2
+    assert transport.calls[0][0] == 'https://recovered.example/json/countries?limit=300'
 
 
 def test_dns_mirror_discovery_uses_forward_then_reverse(monkeypatch):
@@ -102,6 +155,18 @@ def test_unknown_continuous_probe_transfers_prefix_without_reopen():
     assert source.response is stream
     assert source.initial_bytes + source.response.read(100) == b'ID3audio payload'
     assert len(transport.calls) == 1 and not stream.closed
+    source.response.close()
+
+
+def test_audio_mime_and_binary_sniff_override_playlist_like_url_suffix():
+    from station_resolver import resolve_station
+    stream = Reply(b'ID3audio payload', 'audio/mpeg',
+                   'https://radio.example/mount.m3u8')
+    source = resolve_station('https://radio.example/live', Transport([stream]),
+                             threading.Event())
+    assert source.protocol == 'continuous'
+    assert source.final_url.endswith('/mount.m3u8')
+    assert source.initial_bytes + source.response.read(100) == b'ID3audio payload'
     source.response.close()
 
 
@@ -223,3 +288,114 @@ def test_selected_categories_are_exact_but_name_search_remains_partial(country,t
     query = parse_qs(urlsplit(transport.calls[0][0]).query, keep_blank_values=True)
     assert query == dict({'name':['Radio'], 'country':[country], 'tag':[tag],
                           'offset':['50'], 'limit':['25'], 'hidebroken':['true']}, **exact)
+
+
+def test_station_optional_metadata_is_parsed_and_bounded():
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live',
+           'country': 'France', 'countrycode': 'fr', 'state': 'State', 'city': 'City',
+           'language': 'French', 'tags': 'jazz,news', 'favicon': 'https://radio.example/icon.png',
+           'bitrate': 128, 'geo_lat': 48.5, 'geo_long': 2.5, 'clickcount': 12, 'votes': 3}
+    rb, _ = browser([Reply(json.dumps([row, dict(row, country='X'*1000, geo_lat=91,
+                             bitrate=-1, votes=True, favicon='file:///secret')]).encode())])
+    good, bad = rb.search('', '', '', 0)
+    assert (good.country, good.country_code, good.city, good.language, good.tags) == ('France', 'FR', 'City', 'French', 'jazz,news')
+    assert (good.latitude, good.longitude, good.bitrate, good.click_count, good.votes) == (48.5, 2.5, 128, 12, 3)
+    assert len(bad.country) <= 256
+    assert bad.latitude is None and bad.longitude is None
+    assert bad.bitrate == 0 and bad.votes == 0 and bad.favicon == ''
+
+
+def test_by_uuid_validated_lookup():
+    row = {'stationuuid': 'abc-123', 'name': 'Radio', 'url': 'https://radio.example/live', 'country': 'France'}
+    rb, transport = browser([Reply(json.dumps([row]).encode())])
+    assert rb.by_uuid('abc-123').country == 'France'
+    assert transport.calls[0][0] == 'https://one.example/json/stations/byuuid?uuids=abc-123'
+
+
+@pytest.mark.parametrize('body', [b'[]', b'{}', b'[null]', b'[{"stationuuid":"other","name":"Radio","url":"https://radio.example"}]'])
+def test_by_uuid_rejects_missing_or_malformed_station(body):
+    rb, _ = browser([Reply(body)])
+    with pytest.raises(ValueError):
+        rb.by_uuid('abc-123')
+
+
+@pytest.mark.parametrize('uuid', ['', 'a'*129, '../bad', 'bad,other', None])
+def test_by_uuid_rejects_invalid_identifiers_without_network(uuid):
+    rb, transport = browser([])
+    with pytest.raises(ValueError):
+        rb.by_uuid(uuid)
+    assert transport.calls == []
+
+
+def test_invalid_country_code_and_empty_normalized_name_are_not_persisted():
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live', 'countrycode': 'ßß'}
+    rb, _ = browser([Reply(json.dumps([row, dict(row, name='\n')]).encode())])
+    results = rb.search('', '', '', 0)
+    assert len(results) == 1
+    assert results[0].country_code == ''
+
+
+@pytest.mark.parametrize('raw_code, expected', [
+    ('fr', 'FR'), (' FR ', 'FR'), ('FRA', ''), ('GERMANY', ''), ('ßß', ''),
+])
+def test_country_code_requires_the_complete_trimmed_value_to_be_two_ascii_letters(raw_code, expected):
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live',
+           'countrycode': raw_code}
+    rb, _ = browser([Reply(json.dumps([row]).encode())])
+
+    results = rb.search('', '', '', 0)
+
+    assert len(results) == 1
+    assert results[0].country_code == expected
+
+
+def test_geographic_query_uses_only_documented_filters_and_tracks_raw_page_length():
+    row = {'stationuuid':'a','name':'Radio','url':'https://radio.example/live','geo_lat':0,'geo_long':0}
+    rb, transport = browser([Reply(json.dumps([None]*49+[row]).encode())])
+    stations, more = rb.geographic('FR', 50, 50)
+    assert [s.uuid for s in stations] == ['a'] and more is True
+    assert parse_qs(urlsplit(transport.calls[0][0]).query) == {
+        'countrycode':['FR'], 'has_geo_info':['true'], 'hidebroken':['true'],
+        'order':['clickcount'], 'reverse':['true'], 'offset':['50'], 'limit':['50']}
+
+
+def test_global_geo_fallback_omits_country_and_short_page_is_exhausted():
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.geographic('', 0, 50) == ([], False)
+    query = parse_qs(urlsplit(transport.calls[0][0]).query)
+    assert 'countrycode' not in query and query['has_geo_info'] == ['true']
+    assert not any(k in query for k in ('latitude','longitude','radius','distance'))
+
+
+def test_country_listing_preserves_names_and_codes_for_routes():
+    rb, _ = browser([Reply(b'[{"name":"France","iso_3166_1":"FR"},{"name":"Invalid","iso_3166_1":"123"}]')])
+    assert rb.country_entries() == [('France','FR')]
+
+
+def test_country_search_is_code_scoped_and_popularity_ordered():
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.search_country('FR', 50) == []
+    assert parse_qs(urlsplit(transport.calls[0][0]).query) == {'countrycode':['FR'],
+        'offset':['50'],'limit':['50'],'hidebroken':['true'],'order':['clickcount'],'reverse':['true']}
+
+
+@pytest.mark.parametrize('code', ['FRA','fr','../FR',None])
+def test_invalid_country_queries_never_reach_network(code):
+    rb, transport = browser([])
+    with pytest.raises(ValueError): rb.geographic(code, 0, 50)
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize('country_search', [False, True])
+def test_station_search_pages_keep_raw_continuation_after_malformed_rows(country_search):
+    row = {'stationuuid': 'station-1', 'name': 'Radio', 'url': 'https://radio.example/live'}
+    rb, transport = browser([Reply(json.dumps([None] + [row] * 49).encode()), Reply(b'[]')])
+    if country_search:
+        stations, has_more = rb.search_country_page('FR', 0)
+        next_stations, next_has_more = rb.search_country_page('FR', 50)
+    else:
+        stations, has_more = rb.search_page('', '', 'jazz', 0)
+        next_stations, next_has_more = rb.search_page('', '', 'jazz', 50)
+    assert len(stations) == 49 and has_more is True
+    assert next_stations == [] and next_has_more is False
+    assert parse_qs(urlsplit(transport.calls[-1][0]).query)['offset'] == ['50']

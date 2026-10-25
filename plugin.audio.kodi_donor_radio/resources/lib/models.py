@@ -7,6 +7,8 @@ from typing import Any, Dict, Mapping, Protocol
 _DETAIL_FIELDS = frozenset({
     "cue_id", "duration", "media_sequence", "discontinuity", "rendition_id",
     "epoch", "media_position", "classification", "reason",
+    "placement_id", "creative_id", "marker_format", "confidence",
+    "insertion_type",
 })
 
 
@@ -17,6 +19,18 @@ class Station:
     url: str
     codec: str
     hls: bool
+    country: str = ''
+    country_code: str = ''
+    state: str = ''
+    city: str = ''
+    language: str = ''
+    tags: str = ''
+    favicon: str = ''
+    bitrate: int = 0
+    latitude: Any = None
+    longitude: Any = None
+    click_count: int = 0
+    votes: int = 0
 
 
 @dataclass(frozen=True)

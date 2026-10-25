@@ -47,6 +47,39 @@ def server():
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
+            if self.path == '/deadline-redirect':
+                time.sleep(.08)
+                self.send_response(302)
+                self.send_header('Location', '/deadline-trickle')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            if self.path == '/delayed-header':
+                time.sleep(.3)
+                self.send_response(200)
+                self.send_header('Content-Length', '5')
+                self.end_headers()
+                self.wfile.write(b'hello')
+                return
+            if self.path == '/oversized-ad-redirect':
+                self.send_response(302)
+                self.send_header('Location', '/' + 'x' * 9000)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            if self.path == '/deadline-trickle':
+                self.send_response(200)
+                self.send_header('Content-Length', '100')
+                self.end_headers()
+                for _ in range(100):
+                    try:
+                        self.wfile.write(b'x')
+                        self.wfile.flush()
+                    except OSError:
+                        self.close_connection = True
+                        break
+                    time.sleep(.02)
+                return
             self.send_response(200)
             if self.path != '/close-delimited':
                 self.send_header('Content-Length', '100' if self.path == '/slow' else '5')
@@ -60,7 +93,10 @@ def server():
             elif self.path == '/truncated-fixed':
                 self.wfile.write(b'hi')
             else:
-                self.wfile.write(b'hello')
+                try:
+                    self.wfile.write(b'hello')
+                except (BrokenPipeError, ConnectionResetError):
+                    self.close_connection = True
         def log_message(self, *args):
             pass
     instance = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -102,11 +138,34 @@ def test_ipv4_embedding_cannot_bypass_public_destination_policy(address):
 
 
 @pytest.mark.parametrize('address', ['2606:4700:4700::1111', '2002:808:808::'])
-def test_public_native_and_6to4_ipv6_destinations_remain_usable(address):
-    from url_policy import UrlPolicy
+def test_ipv6_destination_policy_matches_runtime_global_classification(address):
+    import ipaddress
+    from url_policy import UrlPolicy, UnsafeUrl
     def resolve(host, port, **kwargs):
         return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
-    assert UrlPolicy(resolver=resolve).resolve('https://station.example/').addresses[0][3][0] == address
+    policy = UrlPolicy(resolver=resolve)
+    if ipaddress.ip_address(address).is_global:
+        assert policy.resolve('https://station.example/').addresses[0][3][0] == address
+    else:
+        with pytest.raises(UnsafeUrl):
+            policy.resolve('https://station.example/')
+
+
+@pytest.mark.parametrize('address', ['::a00:1', '::ffff:0:a00:1', 'ff02::1'])
+def test_reserved_and_multicast_ipv6_destinations_are_rejected(address):
+    from url_policy import UrlPolicy, UnsafeUrl
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', (address, port, 0, 0))]
+    with pytest.raises(UnsafeUrl):
+        UrlPolicy(resolver=resolve).resolve('https://station.example/')
+
+
+def test_fixture_origin_allowlist_still_allows_explicit_ipv6_test_destinations():
+    from url_policy import UrlPolicy
+    def resolve(host, port, **kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('ff02::1', port, 0, 0))]
+    assert UrlPolicy(resolver=resolve, test_origins={'https://fixture.example'}).resolve(
+        'https://fixture.example/live').addresses[0][3][0] == 'ff02::1'
 
 
 @pytest.mark.parametrize('status_line', [b'ICY 200 OK', b'HTTP/1.0 200 OK', b'HTTP/1.1 200 OK'])
@@ -186,6 +245,22 @@ def test_private_redirect_is_revalidated(server):
     assert len(server[1]) == 1
 
 
+def test_ad_origin_redirect_escape_rejected_before_follow(server):
+    from http_client import HttpError
+    client, base = local_client(server[0])
+    with pytest.raises(HttpError, match='Advertising origin rejected'):
+        client.open(base + '/redirect-host', {}, threading.Event(), allowed_origin=base)
+    assert [request[0] for request in server[1]] == ['/redirect-host']
+
+
+def test_ad_redirect_url_length_rejected(server):
+    from http_client import HttpError
+    client, base = local_client(server[0])
+    with pytest.raises(HttpError, match='Advertising URL exceeds limit'):
+        client.open(base + '/oversized-ad-redirect', {}, threading.Event(), allowed_origin=base)
+    assert [request[0] for request in server[1]] == ['/oversized-ad-redirect']
+
+
 def test_socket_uses_validated_address_without_dns_rebinding(server):
     from http_client import HttpClient
     from url_policy import UrlPolicy
@@ -263,6 +338,26 @@ def test_read_timeout(server):
     with client.open(origin + '/slow', {}, threading.Event()) as response:
         with pytest.raises(TimeoutError):
             response.read(10)
+
+
+def test_total_deadline_survives_redirects_and_trickle(server):
+    from http_client import read_bounded
+    client, base = local_client(server[0], read_timeout=1)
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        with client.open(base + '/deadline-redirect', {}, threading.Event(),
+                         deadline=started + .25) as response:
+            read_bounded(response, 256)
+    assert time.monotonic() - started < .7
+    assert [request[0] for request in server[1]] == ['/deadline-redirect', '/deadline-trickle']
+
+
+def test_response_read_uses_remaining_total_budget_after_connect(server):
+    from http_client import read_bounded
+    client, base = local_client(server[0], connect_timeout=.1, read_timeout=1)
+    deadline = time.monotonic() + 1
+    with client.open(base + '/delayed-header', {}, threading.Event(), deadline=deadline) as response:
+        assert read_bounded(response, 5) == b'hello'
 
 
 def test_cancellation_interrupts_read_and_closes(server):

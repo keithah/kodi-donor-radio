@@ -1,10 +1,13 @@
 # Kodi Donor Radio
 
-A GPL-2.0-or-later radio observation POC. Search Radio Browser, browse countries
-and tags, and play supported stations through a Python relay embedded in the
-addon service. Optional local diagnostics record ICY metadata and explicit HLS
-cue evidence from the stream delivered to Kodi. The POC preserves programme
-audio and does not insert ads, resolve VAST, or send remote analytics.
+A GPL-2.0-or-later Kodi radio and controlled monetization POC. Search Radio
+Browser, browse countries and tags, save places and favorites, and play supported
+stations through a Python relay embedded in the addon service. Native Kodi
+listings, sequential setup dialogs, and a shared schematic radio map are implemented.
+Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
+restricted to configured loopback HLS fixtures; general Radio Browser stations
+remain ad-free. Fixture success beacons use an experimental Kodi media-clock
+anchor and must not be treated as production-validated tracking.
 
 **Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
@@ -40,17 +43,66 @@ Copy the ZIP to the Kodi device. In Kodi, enable **Settings → System → Add-o
 Unknown sources**, then choose **Add-ons → Install from zip file** and select
 `plugin.audio.kodi_donor_radio-0.1.0.zip`. Find **Kodi Donor Radio** under music
 add-ons. Search or browse, select a station, and use Kodi's normal playback stop
-controls. Keep the bundled service enabled. Changing addon settings restarts the
-service and retires existing playback sessions.
+controls. Keep the bundled service enabled. Changing diagnostics, test mode, or
+the fixture origin restarts the service and retires existing playback sessions.
+Advertising settings apply to the next station selection without a restart.
+
+## Places, favorites, and map
+
+The root lists setup, saved places, Favorites, genre/country browsing, Search,
+Open the map, Settings, and the existing ICY marker action. Station menus provide
+Play, Add to / Remove from favorites, Show on map, Station info, and an explicit
+Vote for station action. Voting asks for confirmation, sends one non-retried
+Radio Browser vote, and does not count as a play. Station routes contain UUIDs;
+playback resolves the current stream through the relay. Favorites retain safe
+display metadata and the last deliberate-play time.
+
+Choose **Set up Donor Radio** from the root, or **Run setup** in Settings. Native dialogs ask
+for a country before browsing its bounded station scan or searching for a place
+within that country, then offer a radius
+of 10, 25, 60, 100, or 250 miles. Save one or more places at the final confirmation;
+cancelling leaves existing places unchanged. Place menus change the radius,
+choose the default, or remove the place. Nearby results are filtered locally
+from bounded country pages, so they are not a complete nearby-station catalog.
+`places.json` and `favorites.json` live in the add-on's Kodi profile; stream URLs
+and service credentials are excluded.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| Guided setup | Off | Offer setup once per Kodi session when opening the root with no saved places; the setup row and Settings action remain available after cancellation |
+| Offer setup at the top of the list | On | Show the root setup action |
+| Preview stations while browsing | On | Preview a station after 400 ms of stable focus in the map rail |
+| Run setup | Action | Run the same setup dialogs from Settings |
+
+**Open the map** and **Show on map** launch the same custom window. It displays
+up to 60 city pins from a maximum 200-row discovery seed and up to 50 stations in
+the selected city's rail. Directional navigation is intended to move between
+cities without wrapping, with rail, Preview, and Back controls. The map is a
+schematic pin view; the themed Home, Now playing, and other themed screens,
+`interface` selector, and `theme_open_on` setting are deferred.
+
+Map previews do not report Radio Browser clicks. A deliberate Play reports one
+best-effort click after successful resolution. Moving focus or closing the map
+cancels preview work and retires only its owned relay session. Add-on direct
+playback starts share a profile lock and intent token. Kodi UI actions, other
+add-ons, and native `setResolvedUrl` starts remain outside that lock and can
+race; the pending preview handoff is bounded to five seconds.
+
+The new GUI has automated and package coverage. Its Kodi 21.3 live acceptance is
+**partial**: listings, station-context and root map entry, preview inside the map,
+return selection, setup cancellation, and settings were observed. Reliable setup
+completion, the full D-pad/focus matrix, live click count, controlled-fixture and
+audible playback, and preview cancellation remain unverified.
+See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 
 ## Stream scope
 
 | Input | POC behavior |
 | --- | --- |
 | Public HTTP/HTTPS continuous MP3/AAC | Bounded streaming relay; codec/demux playback needs Kodi validation |
-| ICY metadata | Remove framing without changing audio; observe metadata on the same upstream connection |
+| ICY metadata | Remove framing without changing audio; classify explicit AD commands, Adswizz `adw_ad` fields, and cautious inferred markers on the same connection; never replace ICY audio or send VAST beacons |
 | M3U/PLS station indirection | Follow at most three indirections, with loop/size/redirect limits |
-| Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state |
+| Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state; log AdsWizz ad-break transitions only when an `adswizzContext` EXTINF field accompanies an `ad_*.aac` segment from the known AdsWizz delivery host |
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |
 | Encrypted HLS/DRM, low latency HLS, content steering, variable substitution, unsupported URI-bearing extensions | Fail closed; no direct upstream playback fallback |
 | Non-HTTP(S), credential-bearing, private/loopback station URLs | Reject; developer fixtures have a separate exact-origin test-mode exception |
@@ -84,28 +136,45 @@ smoke tool or fixture navigation.
 Generate playable authored 440 Hz tones and run the developer fixture server:
 
 ```sh
-python3 tools/generate_audio.py --ffmpeg /opt/homebrew/bin/ffmpeg
+python3 tools/generate_audio.py
 python3 tools/fixture_server.py --assets tests/generated-audio --port 8765
 ```
+
+The generator finds `ffmpeg` on `PATH`. If it is installed elsewhere, pass its
+location with `--ffmpeg /path/to/ffmpeg`.
 
 To decode MP3, ICY and normal HLS fixtures through an automatically started
 relay and origin, run after generating assets:
 
 ```sh
-python3 tools/smoke_relay_ffmpeg.py --ffmpeg /opt/homebrew/bin/ffmpeg
+python3 tools/smoke_relay_ffmpeg.py
 ```
 
 This developer smoke requires two seconds of nonzero decoded PCM audio from each
 fixture; it does not run Kodi.
 
-Use the actual developer FFmpeg path on your system. Generated MP3/AAC/HLS assets
-are ignored under `tests/generated-audio/` and excluded from the ZIP. In addon
+Both tools find `ffmpeg` on `PATH`; pass `--ffmpeg /path/to/ffmpeg` if it is
+installed elsewhere. Generated MP3/AAC/HLS assets are ignored under
+`tests/generated-audio/` and excluded from the ZIP. In addon
 settings enable test mode, set the exact origin `http://127.0.0.1:8765` without a
 trailing slash, and enable diagnostics. Open **Controlled test streams**. Restart
 the fixture server between scenarios so its three manifest windows begin fresh.
 Compare events with `/expected/{scenario}.json`, and record heard tone audio,
 stop/switch/restart behavior and cleanup timings in [docs/testing.md](docs/testing.md).
 See [fixture routes and timelines](tools/README-fixtures.md).
+
+Controlled ICY marker streams are available at `/icy/{scenario}.mp3`, with
+expected ordered observations at `/expected/icy/{scenario}.json`. They cover
+AD commands, TildeATS category 4/category 0 and `##` end forms, wrapped
+commands, punctuation candidates, inferred endings and unresolved timeout.
+With test mode enabled and the exact loopback origin configured, Kodi's
+controlled-stream menu includes one playable entry per ICY scenario, backed by
+the generated MP3 tone.
+Unknown values remain bounded evidence: at most 64 observations within 300
+seconds. Listener labels apply to the active station session; remembering a
+label stores that exact marker for that station. ICY remains observation-only,
+and its framing is removed without changing audio bytes. See the fixture guide
+for the supported conventions and limitations.
 
 For a bounded live read without synthetic click counts:
 

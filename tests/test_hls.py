@@ -76,6 +76,20 @@ def test_observations_keep_sequence_discontinuity_and_relative_timing():
     assert playlist.cues[2].attributes['ElapsedTime'] == '5.5'
 
 
+def test_adswizz_ad_segments_require_context_and_delivery_host_without_retaining_context():
+    playlist = parse(
+        '#EXTM3U\n#EXT-X-TARGETDURATION:5\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_0.aac?token=secret\n'
+        '#EXTINF:4.1,comment="ordinary"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_1.aac\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://radio.example/path/ad_123_2.aac\n')
+
+    assert [segment.is_adswizz_ad for segment in playlist.segments] == [True, False, False]
+    assert all(not hasattr(segment, 'adswizz_context_value') for segment in playlist.segments)
+
+
 @pytest.mark.parametrize('tag', [
     '#EXT-X-KEY:METHOD=AES-128,URI="key"',
     '#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"',
@@ -99,6 +113,13 @@ def test_unsupported_features_fail_closed(tag):
         parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n' + tag + '\n#EXTINF:6,\nseg.aac\n')
 
 
+def test_bare_uri_bearing_cue_out_fails_closed():
+    from hls import UnsupportedPlaylist
+    with pytest.raises(UnsupportedPlaylist, match='URI-bearing cue'):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+              '#EXT-X-CUE-OUT:https://upstream.example/cue\n#EXTINF:6,\nseg.aac\n')
+
+
 @pytest.mark.parametrize('text', [
     '', 'seg.aac\n', '#EXTM3U\nseg.aac\n', '#EXTM3U\n#EXTINF:6,\nseg.aac\n',
     '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\n',
@@ -118,6 +139,34 @@ def test_malformed_playlists_rejected(text):
     from hls import InvalidPlaylist
     with pytest.raises(InvalidPlaylist):
         parse(text)
+
+
+@pytest.mark.parametrize('separator', ['\x85', '\u2028', '\u2029'])
+def test_unicode_separators_in_extinf_title_are_not_hls_line_breaks(separator):
+    playlist = parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+                     '#EXTINF:6,Title' + separator + 'Artist\nsegment.aac\n')
+    assert len(playlist.segments) == 1
+    assert playlist.segments[0].uri.endswith('/segment.aac')
+    assert playlist.lines[2].endswith('Title' + separator + 'Artist\n')
+
+
+def test_bare_carriage_return_is_not_an_hls_line_ending():
+    from hls import InvalidPlaylist
+    with pytest.raises(InvalidPlaylist, match='Invalid playlist characters'):
+        parse('#EXTM3U\n#EXT-X-TARGETDURATION:6\r#EXTINF:6,Title\nsegment.aac\n')
+
+
+def test_empty_quoted_hls_metadata_values_are_valid_but_empty_uri_is_not():
+    from hls import InvalidPlaylist, parse_playlist
+    playlist = parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",'
+                               'LANGUAGE="",CHARACTERISTICS=""\n', 'https://radio.example/master.m3u8')
+    assert playlist.is_master
+    with pytest.raises(InvalidPlaylist, match='Invalid resource URI'):
+        parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",URI=""\n',
+                       'https://radio.example/master.m3u8')
+    with pytest.raises(InvalidPlaylist, match='Empty attribute'):
+        parse_playlist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",LANGUAGE=\n',
+                       'https://radio.example/master.m3u8')
 
 
 def test_oversized_playlist_rejected_by_shared_byte_limit():
@@ -285,6 +334,9 @@ def test_fractional_timestamp_does_not_hide_invalid_date_or_syntax(timestamp):
 @pytest.mark.parametrize('tag', [
     '#EXT-X-VENDOR:Security information from Curl',
     '#EXT-X-SCTE35:CUE="/DAuRl=="',
+    '#EXT-OATCLS-SCTE35:/DAuRl//abc==',
+    '#EXT-X-SCTE35:CUE=/DAuRl//abc==',
+    '#EXT-X-SCTE35:CUE="/DAuRl//abc=="',
     '#EXT-X-VENDOR:NOTE="URI=ordinary text",MARKER=YES',
     '#EXT-X-CUE-OUT-CONT:Security',
 ])
@@ -294,9 +346,37 @@ def test_non_reference_vendor_text_is_preserved(tag):
     assert tag in rewrite_playlist(parse(text), lambda uri: '/opaque/media')
 
 
+
+def test_url_substring_in_metadata_key_is_allowed_without_uri_value():
+    text = ('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+            '#EXT-X-DATERANGE:ID="x",START-DATE="2026-10-21T12:00:00Z",'
+            'X-MATURITY-RATING="G"\n#EXTINF:6,\nseg.aac\n')
+    assert len(parse(text).segments) == 1
+
+
+def test_undelimited_url_key_with_absolute_value_still_fails_closed():
+    from hls import UnsupportedPlaylist
+    text = ('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+            '#EXT-X-DATERANGE:ID="x",START-DATE="2026-10-21T12:00:00Z",'
+            'X-SERVERURL="https://upstream.example/x"\n#EXTINF:6,\nseg.aac\n')
+    with pytest.raises(UnsupportedPlaylist):
+        parse(text)
+
+
+def test_undelimited_url_key_with_scheme_relative_value_fails_closed():
+    from hls import UnsupportedPlaylist
+    text = ('#EXTM3U\n#EXT-X-TARGETDURATION:6\n'
+            '#EXT-X-DATERANGE:ID="x",START-DATE="2026-10-21T12:00:00Z",'
+            'X-SERVERURL="//upstream.example/x"\n#EXTINF:6,\nseg.aac\n')
+    with pytest.raises(UnsupportedPlaylist):
+        parse(text)
+
+
 @pytest.mark.parametrize('value', [
     'URI="../hidden"', 'X-URI-SUFFIX="../hidden"', 'OTHER=YES,URL="../hidden"',
     'OTHER=YES, X_URL_SUFFIX = "../hidden"', 'X.URL="../hidden"',
+    'X-SERVERURL=https://upstream.example/hidden',
+    'X-SERVERURL="//upstream.example/hidden"',
     'NOTE="https://upstream.example/hidden"', 'NOTE="{$host}/hidden"',
 ])
 def test_unknown_tag_actual_references_still_fail_closed(value):

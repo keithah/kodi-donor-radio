@@ -2,6 +2,7 @@
 """Bounded Radio Browser reads and deliberately non-retried click counting."""
 import json
 import random
+import re
 import socket
 import threading
 import time
@@ -9,6 +10,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from http_client import Cancelled, HttpClient, HttpError, USER_AGENT, bounded_lookup, read_bounded
 from models import Station
+from radio_ui import bounded_text, coordinates, safe_favicon, station_identifier
 
 
 def discover_mirrors(cancel=None, timeout=5):
@@ -45,13 +47,22 @@ class RadioBrowser:
         self._mirrors = None
         self._preferred = None
 
+    @property
+    def mirror_urls(self):
+        """Return a snapshot of mirrors discovered by this browser, if any."""
+        return tuple(self._mirrors or ())
+
     def _servers(self):
         if self._mirrors is None:
             if self.mirror_lookup is None:
                 mirrors = discover_mirrors(self.cancel, self.connect_timeout)
             else:
                 mirrors = bounded_lookup(self.mirror_lookup, self.connect_timeout, self.cancel)
-            self._mirrors = list(dict.fromkeys(mirrors))
+            discovered = list(dict.fromkeys(mirrors))
+            # Cache only successful discovery. An empty DNS result can be a
+            # transient outage, and must not poison this browser instance.
+            if discovered:
+                self._mirrors = discovered
         if not self._mirrors:
             raise HttpError('No Radio Browser mirrors available')
         return ([self._preferred] if self._preferred else []) + [m for m in self._mirrors if m != self._preferred]
@@ -80,11 +91,15 @@ class RadioBrowser:
 
     @staticmethod
     def _page(offset, limit):
-        if offset < 0 or limit < 1 or limit > 50:
+        if (type(offset) is not int or type(limit) is not int or
+                not 0 <= offset <= 10000000 or not 1 <= limit <= 50):
             raise ValueError('Invalid directory page')
         return {'offset': offset, 'limit': limit}
 
     def search(self, name, country, tag, offset, limit=50):
+        return self.search_page(name, country, tag, offset, limit)[0]
+
+    def search_page(self, name, country, tag, offset, limit=50):
         params = {'name': name, 'country': country, 'tag': tag}
         if country:
             params['countryExact'] = 'true'
@@ -93,6 +108,56 @@ class RadioBrowser:
         params.update(self._page(offset, limit))
         params['hidebroken'] = 'true'
         rows = self._json('/json/stations/search', params)
+        return self._stations(rows), len(rows) >= limit
+
+    @staticmethod
+    def _country_code(code, optional=False):
+        if not isinstance(code, str) or not (optional and code == '' or re.fullmatch(r'[A-Z]{2}', code)):
+            raise ValueError('Invalid country code')
+        return code
+
+    def search_country(self, code, offset, limit=50):
+        return self.search_country_page(code, offset, limit)[0]
+
+    def search_country_page(self, code, offset, limit=50):
+        params = {'countrycode': self._country_code(code), 'hidebroken': 'true',
+                  'order': 'clickcount', 'reverse': 'true'}
+        params.update(self._page(offset, limit))
+        rows = self._json('/json/stations/search', params)
+        return self._stations(rows), len(rows) >= limit
+
+    def geographic(self, code, offset, limit=50):
+        """One directory page, not a radius query; retain the raw cursor on malformed rows."""
+        self._country_code(code, optional=True)
+        params = {'has_geo_info': 'true', 'hidebroken': 'true',
+                  'order': 'clickcount', 'reverse': 'true'}
+        if code:
+            params['countrycode'] = code
+        params.update(self._page(offset, limit))
+        rows = self._json('/json/stations/search', params)
+        stations = self._stations(rows)
+        return stations[:limit], len(rows) >= limit
+
+    def country_entries(self):
+        rows = self._json('/json/countries', {'limit': 300})
+        if not isinstance(rows, list):
+            raise ValueError('Invalid country list')
+        entries = []
+        for row in rows[:300]:
+            if not isinstance(row, dict):
+                continue
+            code = row.get('iso_3166_1')
+            try:
+                self._country_code(code)
+            except ValueError:
+                continue
+            name = bounded_text(row.get('name'), 256)
+            if name.strip():
+                entries.append((name, code))
+        return entries
+
+    @staticmethod
+    def _stations(rows):
         if not isinstance(rows, list):
             raise ValueError('Invalid station list')
         stations = []
@@ -110,14 +175,49 @@ class RadioBrowser:
                     continue
             except ValueError:
                 continue
-            stations.append(Station(uuid, title, url, codec, bool(hls)))
+            try:
+                station_identifier(uuid)
+            except ValueError:
+                continue
+            latitude, longitude = row.get('geo_lat'), row.get('geo_long')
+            try:
+                coordinates(latitude, longitude)
+            except ValueError:
+                latitude = longitude = None
+            metadata = {name: bounded_text(row.get(source), limit) for name, source, limit in (
+                ('country', 'country', 256), ('country_code', 'countrycode', 8),
+                ('state', 'state', 256), ('city', 'city', 256), ('language', 'language', 256),
+                ('tags', 'tags', 1024))}
+            code = metadata['country_code'].strip().upper()
+            metadata['country_code'] = code if len(code) == 2 and code.isascii() and code.isalpha() else ''
+            title = bounded_text(title, 512)
+            if not title.strip():
+                continue
+            for name, source, maximum in (('bitrate', 'bitrate', 100000),
+                                          ('click_count', 'clickcount', 2147483647),
+                                          ('votes', 'votes', 2147483647)):
+                value = row.get(source, 0)
+                metadata[name] = value if type(value) is int and 0 <= value <= maximum else 0
+            stations.append(Station(uuid, bounded_text(title, 512), url,
+                                    bounded_text(codec, 64), bool(hls),
+                                    favicon=safe_favicon(row.get('favicon', '')),
+                                    latitude=latitude, longitude=longitude, **metadata))
         return stations
 
-    def _names(self, path, params):
+    def by_uuid(self, station_uuid):
+        station_identifier(station_uuid)
+        stations = self._stations(self._json('/json/stations/byuuid', {'uuids': station_uuid}))
+        for station in stations:
+            if station.uuid == station_uuid:
+                return station
+        raise ValueError('Station not found')
+
+    def _names(self, path, params, with_more=False):
         rows = self._json(path, params)
         if not isinstance(rows, list):
             raise ValueError('Invalid directory list')
-        return [row['name'] for row in rows if isinstance(row, dict) and isinstance(row.get('name'), str)]
+        names = [row['name'] for row in rows if isinstance(row, dict) and isinstance(row.get('name'), str)]
+        return (names, len(rows) >= params.get('limit', len(rows))) if with_more else names
 
     def countries(self):
         return self._names('/json/countries', {'limit': 300})
@@ -125,9 +225,20 @@ class RadioBrowser:
     def tags(self, offset, limit=50):
         return self._names('/json/tags', self._page(offset, limit))
 
+    def tags_page(self, offset, limit=50):
+        return self._names('/json/tags', self._page(offset, limit), with_more=True)
+
     def click(self, uuid):
         """One invocation per user selection; uncertain delivery is never retried."""
         try:
             self._json('/json/url/' + quote(uuid, safe=''), retry=False)
         except (OSError, ValueError):
             pass  # Click counting cannot prevent listening.
+
+    def vote(self, station_uuid):
+        """Submit one deliberate vote; never retry an uncertain public mutation."""
+        station_identifier(station_uuid)
+        result = self._json('/json/vote/' + quote(station_uuid, safe=''), retry=False)
+        if not isinstance(result, dict) or type(result.get('ok')) is not bool:
+            raise ValueError('Invalid vote response')
+        return result['ok']

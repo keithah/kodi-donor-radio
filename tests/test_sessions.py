@@ -24,6 +24,247 @@ def station():
     return Station('station', 'Radio', 'http://radio.example/live', 'MP3', False)
 
 
+def test_new_map_preview_replaces_an_old_preview_but_marks_deliberate_sessions():
+    sessions = manager()
+    first = sessions.create_preview(station())
+
+    second = sessions.create_preview(Station(
+        'another-station', 'Another Radio', 'http://radio.example/another', 'MP3', False))
+
+    assert first.cancel.is_set()
+    assert first.source.response.closed
+    assert first.is_preview is True
+    assert sessions.get(first.id) is None
+    assert second.is_preview is True
+    assert sessions.get(second.id) is second
+    sessions.close()
+
+
+def test_deliberate_sessions_are_not_replaceable_by_map_previews():
+    sessions = manager()
+    deliberate = sessions.create(station())
+
+    with pytest.raises(RuntimeError):
+        sessions.create_preview(station())
+
+    assert deliberate.is_preview is False
+    assert sessions.get(deliberate.id) is deliberate
+    sessions.close()
+
+
+def test_ad_config_is_snapshotted_per_session_and_errors_survive_preparation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from ad_models import AdConfig, AdError
+    from sessions import SessionManager
+    from url_policy import UrlPolicy
+    import ad_session
+    origin = 'http://127.0.0.1:8765'
+    configs = []
+    class FakeAdSession:
+        def __init__(self, config, client, root, cancel, limit, source, on_error):
+            configs.append(config)
+            assert root == tmp_path
+            on_error(AdError(403, 'No supported VAST media', (origin + '/error',)))
+            self.preroll_available = False
+        def close(self): pass
+    monkeypatch.setattr(ad_session, 'AdSession', FakeAdSession)
+    client = SimpleNamespace(policy=UrlPolicy(test_origins={origin}))
+    first = AdConfig(True, True, True, origin + '/first.xml', origin)
+    second = AdConfig(True, True, True, origin + '/second.xml', origin)
+    manager = SessionManager(client=client, resolver=lambda *args: ResolvedSource(
+        origin + '/hls/index.m3u8', 'hls'), ad_config=first, cache_root=tmp_path)
+    session = manager.create(Station('fixture-1', 'Fixture', origin + '/hls/index.m3u8', 'AAC', True))
+    manager.ad_config = second
+    assert configs == [first]
+    assert len(session.take_ad_errors()) == 1
+    assert session.take_ad_errors() == []
+    manager.create(Station('fixture-2', 'Fixture', origin + '/hls/index.m3u8', 'AAC', True))
+    assert configs == [first, second]
+    manager.close()
+
+
+def test_presentation_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+
+    ad = type('Ad', (), {'presentation': lambda self: 'current'})()
+
+    class Session:
+        reads = 0
+
+        @property
+        def ad(self):
+            self.reads += 1
+            return ad if self.reads == 1 else None
+
+    session = Session()
+    assert PlaybackSession.presentation(session) == 'current'
+    assert session.reads == 1
+
+
+def test_retire_cached_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+    from collections import OrderedDict
+
+    resource = type('Resource', (), {'id': 'cached-resource', 'active': 0})()
+    class Session:
+        def __init__(self):
+            self.reads = 0
+            self._lock = threading.RLock()
+            self._cache_routes = {'cache-id': resource}
+            self._resources = OrderedDict([(resource.id, resource)])
+        @property
+        def ad(self):
+            self.reads += 1
+            return type('Ad', (), {'published_ids': set()})() if self.reads == 1 else None
+
+    session = Session()
+    PlaybackSession.retire_cached(session)
+    assert session.reads == 1
+    assert not session._cache_routes
+    assert not session._resources
+
+
+def test_close_uses_one_ad_reference_during_concurrent_disable():
+    from sessions import PlaybackSession
+    class Ad:
+        def __init__(self): self.closed = False
+        def close(self): self.closed = True
+    ad = Ad()
+    class Tracker:
+        def __init__(self): self.reason = None
+        def finish(self, reason): self.reason = reason
+    class Session:
+        def __init__(self):
+            self.reads = 0
+            self.cancel = threading.Event()
+            self.source = type('Source', (), {'response': None})()
+            self.tracker = Tracker()
+        @property
+        def ad(self):
+            self.reads += 1
+            return ad if self.reads == 1 else None
+    session = Session()
+    PlaybackSession.close(session)
+    assert session.reads == 1 and ad.closed
+    assert session.tracker.reason == 'session_stopped'
+
+
+def test_inflight_create_keeps_settings_from_selection_time(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from ad_models import AdConfig
+    from sessions import SessionManager
+    from url_policy import UrlPolicy
+    import ad_session
+    origin = 'http://127.0.0.1:8765'
+    entered, release = threading.Event(), threading.Event()
+    configs = []
+    class FakeAdSession:
+        def __init__(self, config, *args):
+            configs.append(config)
+            self.preroll_available = False
+        def close(self): pass
+    monkeypatch.setattr(ad_session, 'AdSession', FakeAdSession)
+    def resolve(*args):
+        entered.set()
+        release.wait(1)
+        return ResolvedSource(origin + '/source.m3u8', 'hls')
+    initial = AdConfig(True, True, True, origin + '/initial.xml', origin)
+    later = AdConfig(True, True, True, origin + '/later.xml', origin)
+    manager = SessionManager(client=SimpleNamespace(policy=UrlPolicy(test_origins={origin})),
+                             resolver=resolve, ad_config=initial, cache_root=tmp_path)
+    worker = threading.Thread(target=lambda: manager.create(Station(
+        'fixture-1', 'Fixture', origin + '/source.m3u8', 'AAC', True)))
+    worker.start()
+    assert entered.wait(1)
+    manager.ad_config = later
+    release.set()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert configs == [initial]
+    manager.close()
+
+
+def test_session_preparation_does_not_hold_manager_lock(monkeypatch):
+    import sessions
+    from sessions import SessionManager
+
+    preparing, release, lookup_finished = threading.Event(), threading.Event(), threading.Event()
+    original = sessions.PlaybackSession
+    created, errors = [], []
+
+    def delayed_session(*args, **kwargs):
+        preparing.set()
+        assert release.wait(2)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sessions, 'PlaybackSession', delayed_session)
+    manager = SessionManager(resolver=lambda *args: ResolvedSource(
+        'http://radio.example/live', 'continuous', Probe(), b'a'))
+
+    def create():
+        try:
+            created.append(manager.create(station()))
+        except Exception as error:
+            errors.append(error)
+
+    creator = threading.Thread(target=create)
+    creator.start()
+    assert preparing.wait(1)
+    lookup = threading.Thread(target=lambda: (manager.get('missing'), lookup_finished.set()))
+    lookup.start()
+    try:
+        assert lookup_finished.wait(.5), 'Session preparation blocked manager lookups'
+    finally:
+        release.set()
+        creator.join(2)
+        lookup.join(2)
+        manager.close()
+    assert not creator.is_alive() and not lookup.is_alive()
+    assert not errors and len(created) == 1
+
+
+def test_close_cancels_session_preparation_and_closes_unpublished_session(monkeypatch):
+    import sessions
+    from sessions import SessionManager
+
+    preparing, release, closed, close_finished = (threading.Event() for _ in range(4))
+    errors = []
+
+    class PreparedSession:
+        def close(self, *args):
+            closed.set()
+
+    def delayed_session(*args, **kwargs):
+        preparing.set()
+        assert release.wait(2)
+        return PreparedSession()
+
+    monkeypatch.setattr(sessions, 'PlaybackSession', delayed_session)
+    manager = SessionManager(resolver=lambda *args: ResolvedSource(
+        'http://radio.example/live', 'continuous', Probe(), b'a'))
+
+    def create():
+        try:
+            manager.create(station())
+        except Exception as error:
+            errors.append(error)
+
+    creator = threading.Thread(target=create)
+    creator.start()
+    assert preparing.wait(1)
+    closer = threading.Thread(target=lambda: (manager.close(), close_finished.set()))
+    closer.start()
+    try:
+        assert close_finished.wait(.5), 'Shutdown blocked while session preparation was running'
+    finally:
+        release.set()
+        creator.join(2)
+        closer.join(2)
+    assert not creator.is_alive() and not closer.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], RuntimeError)
+    assert closed.is_set()
+
+
 def test_switch_cancels_previous_and_invalidates_opaque_urls():
     m = manager()
     first = m.create(station())
@@ -49,6 +290,18 @@ def test_resource_limit_evicts_inactive_but_keeps_active_and_batch_atomic():
         with pytest.raises(ResourceLimit):
             s.register_many(['http://a/4', 'http://a/5', 'http://a/6'])
         assert s.resource_count == 4
+    m.close()
+
+
+def test_generic_resource_eviction_keeps_cached_route_index_consistent():
+    m = manager(resource_limit=3)
+    s = m.create(station())
+    cached = s.cached_route('cache-id')
+    s.register_many(['http://a/1'])
+    s.register_many(['http://a/2'])
+    resource = s.cached_route('cache-id')
+    assert resource == cached
+    assert s.lookup(resource) is not None
     m.close()
 
 
@@ -81,9 +334,12 @@ def test_close_cancels_inflight_resolution_without_waiting_for_create_lock():
         stopped.set()
         raise OSError('cancelled')
     m = SessionManager(resolver=resolve)
+    errors = []
     def create():
-        with pytest.raises(OSError):
+        try:
             m.create(station())
+        except Exception as error:
+            errors.append(error)
     worker = threading.Thread(target=create)
     worker.start()
     assert entered.wait(1)
@@ -91,6 +347,7 @@ def test_close_cancels_inflight_resolution_without_waiting_for_create_lock():
     assert stopped.wait(1)
     worker.join(1)
     assert not worker.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], OSError)
 
 
 @pytest.mark.parametrize('selections', [2, 3])
@@ -161,3 +418,46 @@ def test_newest_selection_cancels_running_and_queued_creates(selections,close_ma
         m.close()
         for worker in workers: worker.join(3)
     assert all(probe.closed for probe in probes)
+
+
+def test_ad_cache_setup_failure_falls_back_before_publication(monkeypatch, tmp_path):
+    from ad_models import AdConfig
+    from ad_session import AdSession
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    origin = 'http://127.0.0.1:8766'
+    def fail_setup(*args, **kwargs):
+        raise OSError('profile unavailable')
+    monkeypatch.setattr(AdSession, '__init__', fail_setup)
+    probe = Probe()
+    from sessions import SessionManager
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin})),
+                             resolver=lambda *args: ResolvedSource(origin + '/index.m3u8', 'hls', probe, b''),
+                             ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
+                             cache_root=tmp_path)
+    try:
+        session = manager.create(station())
+        assert session.presentation() is None
+        assert manager.get(session.id) is session
+        assert not probe.closed
+    finally:
+        manager.close()
+
+
+def test_ad_config_does_not_activate_on_non_test_origin_hls(tmp_path):
+    from ad_models import AdConfig
+    from http_client import HttpClient
+    from url_policy import UrlPolicy
+    fixture = 'http://127.0.0.1:8766'
+    from sessions import SessionManager
+    probe = Probe()
+    manager = SessionManager(HttpClient(UrlPolicy(test_origins={fixture})),
+                             resolver=lambda *args: ResolvedSource('https://radio.example/index.m3u8', 'hls', probe, b''),
+                             ad_config=AdConfig(True, True, False, fixture + '/vast/preroll', fixture),
+                             cache_root=tmp_path)
+    try:
+        session = manager.create(station())
+        assert session.presentation() is None
+        assert not (tmp_path / 'controlled-ad-creative-cache').exists()
+    finally:
+        manager.close()

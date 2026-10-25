@@ -32,6 +32,17 @@ def origin():
             if self.path == '/truncated-list':
                 body = b'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-CUE-OUT:20\n#EXTINF:2,\n/segment\n'
                 headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            elif self.path == '/adswizz-hls':
+                body = (
+                    '#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:100\n'
+                    '#EXTINF:4.1,ordinary\nhttps://radio.example/content/100.aac\n'
+                    '#EXTINF:4.1,comment="adswizzContext=private-context"\n'
+                    'https://delivery-cdn-cf.adswizz.com/adswizz/test/ad_123_0.aac?token=secret\n'
+                    '#EXTINF:4.1,comment="adswizzContext=private-context"\n'
+                    'https://delivery-cdn-cf.adswizz.com/adswizz/test/ad_123_1.aac\n'
+                    '#EXTINF:4.1,ordinary\nhttps://radio.example/content/103.aac\n'
+                ).encode()
+                headers['Content-Type'] = 'application/vnd.apple.mpegurl'
             elif self.path == '/empty-segment':
                 body = b''
             elif self.path == '/truncated-segment':
@@ -49,10 +60,37 @@ def origin():
             elif self.path == '/master':
                 body = b'#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\n/variant-a\n#EXT-X-STREAM-INF:BANDWIDTH=128000\n/variant-b\n'
                 headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            elif self.path.startswith('/icy-markers/'):
+                scenario = self.path.rsplit('/', 1)[-1]
+                if scenario == 'adswizz':
+                    values = [
+                        {'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+                         'durationMilliseconds': '30000',
+                         'adswizzContext': 'opaque-tracking-context'},
+                        {'StreamTitle': '', 'adw_ad': 'false'},
+                    ]
+                else:
+                    titles = {
+                        'explicit': ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
+                        'inferred': ['-', '-', 'Artist - Track', 'Artist - Track'],
+                        'tracks': ['Artist - One', 'Artist - Two'],
+                    }[scenario]
+                    values = [{'StreamTitle': title} for title in titles]
+                chunks = []
+                for index, fields in enumerate(values):
+                    metadata = ''.join("%s='%s';" % (key, value)
+                                       for key, value in fields.items()).encode()
+                    metadata += b'\0' * (-len(metadata) % 16)
+                    chunks.append(bytes([65 + index]) * 4 + bytes([len(metadata) // 16]) + metadata)
+                body = b''.join(chunks)
+                headers.update({'Content-Type': 'audio/mpeg', 'icy-metaint': '4'})
             elif self.path == '/icy':
                 metadata = b"StreamTitle='token=secret';".ljust(32, b'\0')
                 body = b'abcd' + b'\2' + metadata + b'efgh' + b'\0'
                 headers.update({'Content-Type': 'audio/mpeg', 'icy-metaint': '4'})
+            elif self.path.startswith('/icy-interval/'):
+                headers.update({'Content-Type': 'audio/mpeg',
+                                'icy-metaint': self.path.rsplit('/', 1)[-1]})
             elif self.path == '/nominated':
                 headers.update({'Content-Type': 'audio/mpeg', 'Connection': 'content-type', 'Set-Cookie': 'token=upstream-secret'})
             elif self.path == '/bad-range':
@@ -116,9 +154,9 @@ def relay(origin):
     server.close()
 
 
-def request(url, method='GET', body=None, headers=None):
+def request(url, method='GET', body=None, headers=None, timeout=3):
     parts = urlsplit(url)
-    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=3)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
     conn.request(method, parts.path + ('?' + parts.query if parts.query else ''), body, headers or {})
     response = conn.getresponse()
     result = response.status, dict(response.getheaders()), response.read()
@@ -158,6 +196,34 @@ def test_hls_same_fetch_observed_and_segment_hash_and_ranges(relay, origin):
     assert status == 416 and headers['Content-Range'].startswith('bytes */') and body == b''
 
 
+def test_cancelled_playlist_request_replies_without_waiting_for_client_timeout(relay, origin):
+    session = create(relay, origin, '/list')
+    resource = session._resources[session._root]
+    resource.playlist_lock.acquire()
+    results, errors = [], []
+
+    def fetch():
+        try:
+            results.append(request(session.playback_url, timeout=.5))
+        except Exception as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=fetch)
+    worker.start()
+    deadline = time.monotonic() + 1
+    while not resource.active and time.monotonic() < deadline:
+        time.sleep(.005)
+    try:
+        assert resource.active, 'request should be waiting on the playlist lock'
+        session.cancel.set()
+    finally:
+        resource.playlist_lock.release()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert errors == []
+    assert results and results[0][0] == 404
+
+
 def test_icy_headers_removed_metadata_event_and_sink_errors_do_not_break_audio(relay, origin):
     s = create(relay, origin, '/icy')
     def emit(event):
@@ -172,6 +238,22 @@ def test_icy_headers_removed_metadata_event_and_sink_errors_do_not_break_audio(r
     assert event.evidence == {'StreamTitle': 'token=secret'}
 
 
+def test_zero_icy_interval_forwards_unframed_audio_unchanged(relay, origin):
+    session = create(relay, origin, '/icy-interval/0')
+    status, headers, body = request(session.playback_url)
+    assert status == 200 and body == origin[2]
+    assert headers['Content-Type'] == 'audio/mpeg'
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    assert not relay[2].events
+
+
+@pytest.mark.parametrize('interval', ['-1', 'oops', '1.5', '99999999999'])
+def test_malformed_icy_interval_rejected_before_audio_headers(relay, origin, interval):
+    session = create(relay, origin, '/icy-interval/' + interval)
+    status, _, body = request(session.playback_url)
+    assert status == 502 and body != origin[2]
+
+
 def test_control_auth_health_forgery_and_switch(relay, origin):
     base = 'http://127.0.0.1:%s' % relay[3].port
     assert request(base + '/health')[0] == 200
@@ -179,6 +261,9 @@ def test_control_auth_health_forgery_and_switch(relay, origin):
     payload = json.dumps({'uuid': 'id', 'name': 'Radio', 'url': origin[0] + '/audio', 'codec': '', 'hls': False})
     assert request(base + '/sessions', 'POST', payload)[0] == 401
     auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    untrusted = json.dumps({'uuid': 'id', 'name': 'Radio', 'url': origin[0] + '/list',
+                            'codec': '', 'hls': True, 'ads': {'enabled': True}})
+    assert request(base + '/sessions', 'POST', untrusted, auth)[0] == 400
     status, _, body = request(base + '/sessions', 'POST', payload, auth)
     assert status == 201
     first = json.loads(body)
@@ -315,6 +400,18 @@ def test_control_client_and_credential_headers_not_forwarded(relay, origin):
     assert 'Authorization' not in origin[3][-1] and 'Cookie' not in origin[3][-1]
     control.stop(s.id)
     assert request(result['playback_url'])[0] == 404
+
+
+def test_preview_create_cannot_replace_an_existing_deliberate_session(relay, origin):
+    from control import ControlClient
+    control = ControlClient(relay[3])
+    deliberate = control.create(Station('deliberate', 'Chosen radio', origin[0] + '/list', '', True))
+    active = relay[1].get(deliberate['id'])
+    assert request(deliberate['playback_url'])[0] == 200
+    with pytest.raises(OSError):
+        control.create_preview(Station('preview', 'Preview radio', origin[0] + '/list', '', True))
+    assert relay[1].get(deliberate['id']) is active
+    assert not active.cancel.is_set()
 
 
 def test_hop_headers_and_invalid_range_never_forwarded_as_success(relay, origin):
@@ -483,3 +580,354 @@ def test_loopback_relay_start_does_not_resolve_hostname(monkeypatch):
         assert request('http://127.0.0.1:%s/health' % descriptor.port)[0] == 200
     finally:
         server.close()
+
+
+@pytest.mark.parametrize('scenario,titles,audio,boundaries', [
+    ('explicit', ['AD_START_30', 'AD_START_30', 'AD_STOP', 'AD_STOP'],
+     b'AAAABBBBCCCCDDDD', [('break_start', 'explicit'), ('break_end', 'explicit')]),
+    ('inferred', ['-', '-', 'Artist - Track', 'Artist - Track'],
+     b'AAAABBBBCCCCDDDD', [('break_start', 'inferred'), ('break_end', 'inferred')]),
+    ('tracks', ['Artist - One', 'Artist - Two'], b'AAAABBBB', []),
+])
+def test_icy_marker_observations_keep_metadata_and_exact_audio(
+        relay, origin, scenario, titles, audio, boundaries):
+    session = create(relay, origin, '/icy-markers/' + scenario)
+    status, headers, body = request(session.playback_url)
+    assert status == 200 and body == audio
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    events = relay[2].events
+    metadata = [event for event in events if event.kind == 'metadata_observed']
+    assert [event.evidence['StreamTitle'] for event in metadata] == titles
+    assert all(event.source == 'icy' for event in metadata)
+    markers = [event for event in events if event.source == 'icy_marker']
+    assert [(event.kind, event.details['classification']) for event in markers
+            if event.kind.startswith('break_')] == boundaries
+    assert all(event.session_id == session.id and event.station_uuid == 'id'
+               and event.protocol == 'icy' for event in markers)
+    assert session.ad is None and not session.ad_enabled
+    candidates = [event for event in markers if event.kind == 'icy_marker_candidate']
+    assert [event.evidence['StreamTitle'] for event in candidates] == (
+        ['-'] if scenario == 'inferred' else [])
+    if scenario == 'explicit':
+        assert markers[0].to_dict()['details'] == {
+            'classification': 'explicit', 'marker_format': 'ad_command',
+            'confidence': 'explicit', 'duration': 30}
+
+
+def test_adswizz_icy_fields_reach_tracker_through_relay(relay, origin):
+    session = create(relay, origin, '/icy-markers/adswizz')
+    status, headers, body = request(session.playback_url)
+
+    assert status == 200 and body == b'AAAABBBB'
+    assert not any(key.lower() == 'icy-metaint' for key in headers)
+    events = relay[2].events
+    observed = [event for event in events if event.kind == 'metadata_observed']
+    assert len(observed) == 2
+    assert observed[0].evidence == {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000',
+    }
+    assert 'opaque-tracking-context' not in str([event.to_dict() for event in events])
+    markers = [event for event in events if event.source == 'icy_marker']
+    assert [(event.kind, event.details['marker_format'], event.details['classification'])
+            for event in markers] == [
+                ('break_start', 'adswizz', 'explicit'),
+                ('break_end', 'adswizz', 'explicit'),
+            ]
+
+
+def test_adswizz_hls_segments_reach_tracker_through_relay_without_private_fields(relay, origin):
+    session = create(relay, origin, '/adswizz-hls')
+    status, _, body = request(session.playback_url)
+
+    assert status == 200 and b'#EXTM3U' in body
+    markers = [event for event in relay[2].events if event.source == 'adswizz_hls']
+    assert [event.kind for event in markers] == ['break_start', 'break_end']
+    assert markers[0].details['media_sequence'] == 101
+    assert markers[1].details['media_sequence'] == 103
+    serialized = str([event.to_dict() for event in relay[2].events])
+    assert 'private-context' not in serialized
+    assert 'delivery-cdn-cf' not in serialized
+    assert 'secret' not in serialized
+
+
+def observe_marker(session, marker):
+    session.observe_icy_metadata({'StreamTitle': marker}, '2026-10-23T00:00:00Z', time.monotonic())
+
+
+def test_icy_control_requires_auth_rejects_origins_and_caps_body(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'})
+    for headers in ({}, {'Authorization': 'Bearer wrong'}, dict(auth, Origin='https://evil.example'),
+                    dict(auth, Origin='')):
+        assert request(base + '/icy-marker/candidate', headers=headers)[0] == 401
+        assert request(base + '/icy-marker/learn', 'POST', payload, headers)[0] == 401
+    assert request(base + '/icy-marker/learn', 'POST', ' ' * 4097, auth)[0] == 400
+    for data in ('[]', '{}', '{', json.dumps({'session_id': session.id, 'marker': '-', 'action': 'bad'}),
+                 json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end', 'station_uuid': 'other'})):
+        assert request(base + '/icy-marker/learn', 'POST', data, auth)[0] == 400
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+
+
+def test_icy_client_learning_is_exact_station_scoped_and_overrides_next_metadata(relay, origin, tmp_path):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    client = ControlClient(relay[3])
+    assert client.current_icy_candidate() is None
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    assert client.current_icy_candidate() == {'session_id': session.id, 'station_uuid': 'id', 'marker': '-'}
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, ' - ', 'end')
+    client.learn_icy_marker(session.id, '-', 'end')
+    assert IcyMarkerStore(tmp_path).lookup('id', '-') == 'end'
+    observe_marker(session, '-')  # same title, newly learned meaning must take precedence
+    assert [(e.kind, e.details['classification']) for e in relay[2].events
+            if e.source == 'icy_marker' and e.kind == 'break_end'] == [('break_end', 'learned')]
+    other = relay[1].create(Station('other', 'Other', origin[0] + '/icy', '', False))
+    observe_marker(other, '-')
+    assert relay[2].events[-1].details['classification'] == 'inferred'
+    restored = relay[1].create(Station('id', 'Radio', origin[0] + '/icy', '', False))
+    observe_marker(restored, '-')
+    assert relay[2].events[-1].details['classification'] == 'learned'
+    assert restored.ad is None
+
+
+def test_icy_learning_rejects_stale_candidate_session_and_stop(relay, origin, tmp_path):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    observe_marker(session, '#')
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '-', 'end')
+    replacement = relay[1].create(Station('other', 'Other', origin[0] + '/icy', '', False))
+    observe_marker(replacement, '#')
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '#', 'end')
+    relay[1].stop(replacement.id)
+    assert client.current_icy_candidate() is None
+    with pytest.raises(OSError):
+        client.learn_icy_marker(replacement.id, '#', 'end')
+    assert not (tmp_path / 'icy-markers.json').exists()
+
+
+def test_icy_marker_store_write_does_not_hold_relay_or_session_locks(relay, origin, tmp_path, monkeypatch):
+    from icy_marker_store import IcyMarkerStore
+
+    store = IcyMarkerStore(tmp_path)
+    relay[1].icy_marker_store = store
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    entered_write = threading.Event()
+    finish_write = threading.Event()
+    original_learn = store.learn
+
+    def slow_learn(*args):
+        entered_write.set()
+        assert finish_write.wait(2)
+        return original_learn(*args)
+
+    monkeypatch.setattr(store, 'learn', slow_learn)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        labeling = pool.submit(relay[1].label_icy_marker, session.id, '-', 'end', True)
+        try:
+            assert entered_write.wait(1)
+            lookup = pool.submit(relay[1].get, session.id)
+            assert lookup.result(timeout=0.5) is session
+        finally:
+            finish_write.set()
+        assert labeling.result(timeout=2) is True
+
+
+@pytest.mark.parametrize('change', ['candidate', 'session'])
+def test_icy_marker_rule_persists_when_playback_changes_during_write(
+        relay, origin, tmp_path, monkeypatch, change):
+    from icy_marker_store import IcyMarkerStore
+
+    store = IcyMarkerStore(tmp_path)
+    relay[1].icy_marker_store = store
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    entered_write = threading.Event()
+    finish_write = threading.Event()
+    original_learn = store.learn
+
+    def slow_learn(*args):
+        entered_write.set()
+        assert finish_write.wait(2)
+        return original_learn(*args)
+
+    monkeypatch.setattr(store, 'learn', slow_learn)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        labeling = pool.submit(relay[1].label_icy_marker, session.id, '-', 'end', True)
+        assert entered_write.wait(1)
+        def change_playback():
+            if change == 'candidate':
+                with session._lock:
+                    session.icy_tracker._candidate = (time.monotonic(), '#')
+            else:
+                relay[1].stop(session.id)
+
+        replacement = pool.submit(change_playback)
+        try:
+            replacement.result(timeout=0.5)
+        finally:
+            finish_write.set()
+        assert labeling.result(timeout=2) is True
+
+    assert store.lookup('id', '-') == 'end'
+    assert not any(event.kind == 'icy_marker_labeled' for event in relay[2].events)
+
+
+def test_icy_control_does_not_expose_unsafe_or_oversized_candidate(relay, origin):
+    from control import ControlClient
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    for candidate in ('token=secret', 'https://radio.example/', '\n-', 'é' * 129):
+        # Exercise the trust boundary even if future parser variants nominate unsafe data.
+        with session._lock:
+            session.icy_tracker._candidate = (time.monotonic(), candidate)
+        assert client.current_icy_candidate() is None
+
+
+def test_icy_learning_body_boundary_and_invalid_framing(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    path = '/icy-marker/learn'
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'})
+    assert request(base + path, 'POST', payload.ljust(4096), auth)[0] == 204
+    for extra in ('Content-Length: 2\r\nContent-Length: 2\r\n',
+                  'Content-Length: -1\r\n', 'Content-Length: invalid\r\n', '',
+                  'Transfer-Encoding: chunked\r\n'):
+        client = socket.create_connection(('127.0.0.1', relay[3].port))
+        client.settimeout(2)
+        try:
+            client.sendall(('POST %s HTTP/1.1\r\nHost: localhost\r\nAuthorization: %s\r\n%s\r\n{}' % (
+                path, auth['Authorization'], extra)).encode())
+            response = http.client.HTTPResponse(client)
+            response.begin()
+            assert response.status == (401 if 'Transfer-Encoding' in extra else 400)
+            response.read()
+        finally:
+            client.close()
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_icy_candidate_expires_and_disk_failure_does_not_apply_label(relay, origin, tmp_path, monkeypatch, legacy):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    import os
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    client = ControlClient(relay[3])
+    observe_marker(session, '-')
+    def fail(*args):
+        raise OSError('private filesystem failure')
+    monkeypatch.setattr(os, 'replace', fail)
+    previous_events = list(relay[2].events)
+    with pytest.raises(OSError):
+        if legacy:
+            client.learn_icy_marker(session.id, '-', 'end')
+        else:
+            client.label_icy_marker(session.id, '-', 'end', True)
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+    assert relay[2].events == previous_events
+    assert not (tmp_path / 'icy-markers.json').exists()
+    observe_marker(session, '#')
+    observe_marker(session, '-')
+    assert relay[2].events[-1].kind == 'break_end'
+    assert relay[2].events[-1].details['classification'] == 'inferred'
+    client.label_icy_marker(session.id, '-', 'end', False)
+    assert relay[2].events[-1].kind == 'icy_marker_labeled'
+    assert relay[1].icy_marker_store.lookup('id', '-') is None
+    assert not (tmp_path / 'icy-markers.json').exists()
+    with session._lock:
+        session.icy_tracker._candidate = (time.monotonic() - 301, '-')
+    assert client.current_icy_candidate() is None
+    with pytest.raises(OSError):
+        client.learn_icy_marker(session.id, '-', 'end')
+
+
+def test_icy_learning_rejects_truncated_json_body_even_when_json_is_complete(relay, origin, tmp_path):
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    payload = json.dumps({'session_id': session.id, 'marker': '-', 'action': 'end'}).encode()
+    client = socket.create_connection(('127.0.0.1', relay[3].port))
+    client.settimeout(2)
+    try:
+        headers = ('POST /icy-marker/learn HTTP/1.1\r\nHost: localhost\r\n'
+                   'Authorization: Bearer %s\r\nContent-Length: %d\r\n\r\n' % (
+                       relay[3].control_token, len(payload) + 10))
+        client.sendall(headers.encode() + payload)
+        client.shutdown(socket.SHUT_WR)
+        response = http.client.HTTPResponse(client)
+        response.begin()
+        assert response.status == 400
+        assert relay[1].icy_marker_store.lookup('id', '-') is None
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize('remember', [False, True])
+def test_icy_label_applies_now_and_only_persists_when_requested(relay, origin, tmp_path, remember):
+    from control import ControlClient
+    from icy_marker_store import IcyMarkerStore
+    relay[1].icy_marker_store = IcyMarkerStore(tmp_path)
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    client = ControlClient(relay[3])
+    client.label_icy_marker(session.id, '-', 'end', remember)
+    events = relay[2].events
+    assert [event.kind for event in events][-2:] == ['icy_marker_labeled', 'break_end']
+    assert events[-1].details['classification'] == 'learned'
+    assert (tmp_path / 'icy-markers.json').exists() == remember
+    assert IcyMarkerStore(tmp_path).lookup('id', '-') == ('end' if remember else None)
+    count = len([event for event in events if event.source == 'icy_marker'])
+    observe_marker(session, '-')
+    assert len([event for event in events if event.source == 'icy_marker']) == count
+    replacement = create(relay, origin, '/icy')
+    observe_marker(replacement, '-')
+    assert events[-1].details['classification'] == ('learned' if remember else 'inferred')
+
+
+def test_icy_transient_label_needs_no_store_and_rejects_stale_values(relay, origin):
+    from control import ControlClient
+    client = ControlClient(relay[3])
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    client.label_icy_marker(session.id, '-', 'start', False)
+    assert relay[2].events[-1].kind == 'icy_marker_labeled'
+    observe_marker(session, '#')
+    for session_id, marker in ((session.id, '-'), (session.id, ' # '), ('a' * 48, '#')):
+        with pytest.raises(OSError):
+            client.label_icy_marker(session_id, marker, 'end', False)
+    assert relay[2].events[-1].kind != 'icy_marker_labeled'
+
+
+def test_icy_label_route_preserves_auth_origins_body_bounds_and_boolean_type(relay, origin):
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    base = 'http://127.0.0.1:%d' % relay[3].port
+    auth = {'Authorization': 'Bearer ' + relay[3].control_token}
+    data = {'session_id': session.id, 'marker': '-', 'action': 'end', 'remember': False}
+    for headers in ({}, dict(auth, Origin=''), dict(auth, Origin='https://evil.example')):
+        assert request(base + '/icy-marker/label', 'POST', json.dumps(data), headers)[0] == 401
+    assert request(base + '/icy-marker/label', 'POST', ' ' * 4097, auth)[0] == 400
+    for value in (0, 1, None, 'false'):
+        assert request(base + '/icy-marker/label', 'POST', json.dumps(dict(data, remember=value)), auth)[0] == 400
+    assert not any(event.kind == 'icy_marker_labeled' for event in relay[2].events)

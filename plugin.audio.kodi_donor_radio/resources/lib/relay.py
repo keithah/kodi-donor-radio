@@ -18,6 +18,7 @@ from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse,
 from icy import IcyDecoder
 from models import Event, Station
 from sessions import ResourceLimit, SessionManager
+from ad_session import CompositionFailure, SourceUnavailable
 
 
 _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-control',
@@ -109,7 +110,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _authorized(self):
         value = self.headers.get('Authorization', '')
         expected = 'Bearer ' + self.server.relay.descriptor.control_token
-        return (not self.headers.get('Origin') and not self.headers.get('Transfer-Encoding')
+        return ('Origin' not in self.headers and 'Transfer-Encoding' not in self.headers
                 and hmac.compare_digest(value.encode(), expected.encode()))
 
     def do_HEAD(self):
@@ -130,6 +131,13 @@ class _Handler(BaseHTTPRequestHandler):
                 headers = session.source.response.headers
             elif resource.kind in ('hls', 'playlist'):
                 headers = {'content-type': 'application/vnd.apple.mpegurl'}
+            elif resource.kind == 'cached':
+                ad = session.ad
+                if ad is not None:
+                    data = ad.read(resource.cache_id)
+                    self._headers(200, {'content-type': 'video/mp2t'}, len(data))
+                    return
+                return self._reply(405)  # Segment/map metadata is not retained.
             else:
                 return self._reply(405)  # Segment/map metadata is not retained.
             # HEAD ignores Range; no transformed body length is known here.
@@ -140,10 +148,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path != '/sessions':
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
+        if self.path in ('/icy-marker/learn', '/icy-marker/label'):
+            return self._learn_icy_marker()
         try:
             lengths = self.headers.get_all('Content-Length', [])
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
@@ -155,7 +165,11 @@ class _Handler(BaseHTTPRequestHandler):
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
                 return self._reply(400)
-            session = self.server.relay.manager.create(Station(**data))
+            station = Station(**data)
+            if self.path == '/preview-sessions':
+                session = self.server.relay.manager.create_preview(station)
+            else:
+                session = self.server.relay.manager.create(station)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:
@@ -167,6 +181,32 @@ class _Handler(BaseHTTPRequestHandler):
             mime = 'application/octet-stream'
         self._reply(201, {'id': session.id, 'playback_url': session.playback_url,
                           'mime_type': mime})
+
+    def _learn_icy_marker(self):
+        try:
+            lengths = self.headers.get_all('Content-Length', [])
+            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 4096:
+                return self._reply(400)
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
+            data = json.loads(body)
+            labeling = self.path == '/icy-marker/label'
+            expected = {'session_id', 'marker', 'action'} | ({'remember'} if labeling else set())
+            if (not isinstance(data, dict) or set(data) != expected
+                    or not all(isinstance(data[key], str) for key in ('session_id', 'marker', 'action'))
+                    or (labeling and type(data['remember']) is not bool)
+                    or not re.fullmatch(r'[a-f0-9]{48}', data['session_id'])):
+                return self._reply(400)
+            if labeling:
+                learned = self.server.relay.manager.label_icy_marker(**data)
+            else:
+                learned = self.server.relay.manager.learn_icy_marker(**data)
+        except (ValueError, UnicodeError, RecursionError):
+            return self._reply(400)
+        except OSError:
+            return self._reply(502)
+        self._reply(204 if learned else 409)
 
     def do_DELETE(self):
         match = _SESSION.fullmatch(self.path) if self._valid_target() else None
@@ -181,6 +221,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._started = False
         if not self._valid_target():
             return self._reply(404)
+        if self.path == '/icy-marker/candidate':
+            if not self._authorized():
+                return self._reply(401)
+            return self._reply(200, self.server.relay.manager.current_icy_candidate())
         if self.path == '/health':
             return self._reply(200, {'status': 'ok', 'instance_id': self.server.relay.descriptor.instance_id})
         match = _MEDIA.fullmatch(self.path)
@@ -207,8 +251,13 @@ class _Handler(BaseHTTPRequestHandler):
                     # Fetch order and observation order agree within one rendition.
                     with resource.playlist_lock:
                         if session.cancel.is_set():
-                            return
+                            return self._reply(404)
+                        ad = session.ad
+                        if ad is not None and ad.terminal:
+                            return self._reply(503)
                         self._resource(session, resource)
+                elif resource.kind == 'cached':
+                    self._cached(session, resource)
                 else:
                     self._resource(session, resource)
         except KeyError:
@@ -261,9 +310,11 @@ class _Handler(BaseHTTPRequestHandler):
             if not re.fullmatch('[0-9]{1,10}', metaint):
                 raise ValueError('Invalid ICY interval')
             def metadata(value):
-                session.sink.emit(Event('metadata_observed', session.id, session.station.uuid,
-                                        'icy', 'icy', value, datetime.now(timezone.utc).isoformat(), time.monotonic()))
-            decoder = IcyDecoder(int(metaint), metadata)
+                session.observe_icy_metadata(value, datetime.now(timezone.utc).isoformat(),
+                                             time.monotonic())
+            # A zero interval denotes an unframed audio body (no metadata).
+            if int(metaint) > 0:
+                decoder = IcyDecoder(int(metaint), metadata)
         self._headers(response.status, response.headers)
         block = session.source.initial_bytes
         try:
@@ -278,6 +329,34 @@ class _Handler(BaseHTTPRequestHandler):
         finally:
             if decoder is not None:
                 decoder.finish()
+
+    def _cached(self, session, resource):
+        ad = session.ad
+        if ad is None:
+            return self._reply(404)
+        data = ad.read(resource.cache_id)
+        size = len(data)
+        value = self.headers.get('Range')
+        status, start, end = 200, 0, size - 1
+        if value is not None:
+            match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', value)
+            suffix = re.fullmatch(r'bytes=-([0-9]+)', value)
+            if match:
+                start = int(match.group(1))
+                end = min(size - 1, int(match.group(2))) if match.group(2) else size - 1
+            elif suffix and int(suffix.group(1)) > 0:
+                start = max(0, size - int(suffix.group(1)))
+            else:
+                start = size
+            if start > end or start >= size:
+                self._headers(416, {'content-range': 'bytes */%d' % size}, 0)
+                return
+            status = 206
+        headers = {'content-type': 'video/mp2t', 'accept-ranges': 'bytes'}
+        if status == 206:
+            headers['content-range'] = 'bytes %d-%d/%d' % (start, end, size)
+        self._headers(status, headers, end - start + 1)
+        self.wfile.write(data[start:end + 1])
 
     def _resource(self, session, resource):
         headers = {'User-Agent': USER_AGENT}
@@ -310,10 +389,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError('Partial playlist unsupported')
                 body = read_bounded(response, BODY_BYTES)
                 playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
-                routes = session.register_many([ref.url for ref in playlist.uri_references],
-                                               [ref.kind for ref in playlist.uri_references])
-                registered = dict(zip([ref.url for ref in playlist.uri_references], routes))
-                rewritten = rewrite_playlist(playlist, registered.__getitem__).encode('utf-8')
+                ad = session.ad
                 if playlist.segments:
                     # A backwards window that still overlaps is not a restart.
                     if (resource.first_sequence is not None
@@ -321,6 +397,33 @@ class _Handler(BaseHTTPRequestHandler):
                         resource.epoch += 1
                     resource.first_sequence = playlist.segments[0].sequence
                 session.tracker.observe(playlist, resource.id, resource.epoch)
+                if ad is not None and resource.kind == 'hls' and not playlist.is_master:
+                    try:
+                        rendered = ad.render(playlist, session.cached_route)
+                    except SourceUnavailable:
+                        if ad.committed:
+                            # A transient fetch must not destroy an already
+                            # published ad timeline; Kodi can reload it.
+                            return self._reply(503)
+                        ad.close()
+                        if session.ad is ad:
+                            session.ad = None
+                    except Exception:
+                        if ad.committed:
+                            ad.terminate()
+                            return self._reply(503)
+                        ad.close()
+                        if session.ad is ad:
+                            session.ad = None
+                    else:
+                        session.retire_cached()
+                        self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rendered))
+                        self.wfile.write(rendered)
+                        return
+                routes = session.register_many([ref.url for ref in playlist.uri_references],
+                                               [ref.kind for ref in playlist.uri_references])
+                registered = dict(zip([ref.url for ref in playlist.uri_references], routes))
+                rewritten = rewrite_playlist(playlist, registered.__getitem__).encode('utf-8')
                 self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rewritten))
                 self.wfile.write(rewritten)
             else:

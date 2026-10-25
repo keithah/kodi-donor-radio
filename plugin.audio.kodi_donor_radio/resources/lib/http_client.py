@@ -55,16 +55,21 @@ class IncompleteResponse(HttpError):
 
 
 class _Lifetime:
-    def __init__(self, connection, sock, cancel):
-        self.connection, self.sock, self.cancel = connection, sock, cancel
+    def __init__(self, connection, sock, cancel, deadline=None):
+        self.connection, self.sock, self.cancel, self.deadline = connection, sock, cancel, deadline
         self.stopped = threading.Event()
         self.closed = False
+        self.timed_out = False
         self.watcher = threading.Thread(target=self._watch, daemon=True)
         self.watcher.start()
 
     def _watch(self):
         while not self.stopped.wait(.02):
             if self.cancel.is_set():
+                self.close()
+                return
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                self.timed_out = True
                 self.close()
                 return
 
@@ -99,10 +104,14 @@ class Response:
         try:
             if self._lifetime.cancel.is_set():
                 raise Cancelled('Request cancelled')
+            if getattr(self._lifetime, 'deadline', None) is not None and time.monotonic() >= self._lifetime.deadline:
+                raise TimeoutError('HTTP deadline exceeded')
             # read1 returns available audio without waiting for an entire chunk.
             result = self._raw.read1(min(size, CHUNK_BYTES))
             if self._lifetime.cancel.is_set():
                 raise Cancelled('Request cancelled')
+            if getattr(self._lifetime, 'timed_out', False) or (getattr(self._lifetime, 'deadline', None) is not None and time.monotonic() >= self._lifetime.deadline):
+                raise TimeoutError('HTTP deadline exceeded')
             # read1 deliberately avoids full-chunk buffering, but unlike read()
             # it does not raise when a fixed-length body ends prematurely.
             if not result and size and self._raw.length not in (None, 0):
@@ -112,6 +121,8 @@ class Response:
             self.close()
             if self._lifetime.cancel.is_set():
                 raise Cancelled('Request cancelled') from error
+            if getattr(self._lifetime, 'timed_out', False) or (getattr(self._lifetime, 'deadline', None) is not None and time.monotonic() >= self._lifetime.deadline):
+                raise TimeoutError('HTTP deadline exceeded') from error
             if isinstance(error, socket.timeout):
                 raise TimeoutError('HTTP read timed out') from error
             if isinstance(error, http.client.IncompleteRead):
@@ -188,7 +199,7 @@ class HttpClient:
         if not self.ssl_context.check_hostname or self.ssl_context.verify_mode != ssl.CERT_REQUIRED:
             raise ValueError('TLS certificate and hostname verification are required')
 
-    def open(self, url, headers, cancel):
+    def open(self, url, headers, cancel, deadline=None, allowed_origin=None):
         outgoing = {k: v for k, v in headers.items() if k.lower() not in ('host', 'connection', 'accept-encoding')}
         outgoing.setdefault('User-Agent', USER_AGENT)
         outgoing['Accept-Encoding'] = 'identity'
@@ -196,11 +207,18 @@ class HttpClient:
         for redirect in range(self.max_redirects + 1):
             if cancel.is_set():
                 raise Cancelled('Request cancelled')
-            deadline = time.monotonic() + self.connect_timeout
-            destination = self._resolve(url, cancel, deadline)
+            if allowed_origin is not None:
+                if len(url) > 8192:
+                    raise HttpError('Advertising URL exceeds limit')
+                if origin(url) != origin(allowed_origin):
+                    raise HttpError('Advertising origin rejected')
+            connect_deadline = time.monotonic() + self.connect_timeout
+            if deadline is not None:
+                connect_deadline = min(connect_deadline, deadline)
+            destination = self._resolve(url, cancel, connect_deadline)
             if cancel.is_set():
                 raise Cancelled('Request cancelled')
-            response = self._request(url, destination, outgoing, cancel, deadline)
+            response = self._request(url, destination, outgoing, cancel, connect_deadline, deadline)
             if response.status not in (301, 302, 303, 307, 308):
                 return response
             location = response.headers.get('location')
@@ -218,7 +236,7 @@ class HttpClient:
         return bounded_lookup(lambda: self.policy.resolve(url),
                               max(0, deadline - time.monotonic()), cancel)
 
-    def _request(self, url, destination, headers, cancel, deadline):
+    def _request(self, url, destination, headers, cancel, deadline, total_deadline=None):
         last_error = None
         for family, socktype, proto, sockaddr in destination.addresses:
             if cancel.is_set():
@@ -234,7 +252,7 @@ class HttpClient:
             request_started = False
             try:
                 sock = self.socket_factory(family, socktype, proto)
-                lifetime = _Lifetime(conn, sock, cancel)
+                lifetime = _Lifetime(conn, sock, cancel, total_deadline)
                 sock.settimeout(remaining)
                 sock.connect(sockaddr)  # Numeric address only; never resolve hostname again.
                 if destination.scheme == 'https':
@@ -244,7 +262,16 @@ class HttpClient:
                     sock.settimeout(remaining)
                     sock = self.ssl_context.wrap_socket(sock, server_hostname=destination.hostname)
                     lifetime.sock = sock
-                sock.settimeout(self.read_timeout)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('HTTP connection timed out')
+                if total_deadline is not None:
+                    total_remaining = total_deadline - time.monotonic()
+                    if total_remaining <= 0:
+                        raise TimeoutError('HTTP deadline exceeded')
+                    sock.settimeout(min(self.read_timeout, total_remaining))
+                else:
+                    sock.settimeout(self.read_timeout)
                 conn.sock = sock
                 parts = urlsplit(url)
                 path = urlunsplit(('', '', parts.path or '/', parts.query, ''))
@@ -255,6 +282,10 @@ class HttpClient:
                 request_started = True
                 conn.request('GET', path, headers=headers)
                 raw = conn.getresponse()
+                if cancel.is_set():
+                    raise Cancelled('Request cancelled')
+                if total_deadline is not None and time.monotonic() >= total_deadline:
+                    raise TimeoutError('HTTP deadline exceeded')
                 return Response(raw, lifetime, url)
             except Exception as error:
                 if lifetime is not None:
@@ -263,6 +294,8 @@ class HttpClient:
                     conn.close()
                 if cancel.is_set():
                     raise Cancelled('Request cancelled') from error
+                if total_deadline is not None and time.monotonic() >= total_deadline:
+                    raise TimeoutError('HTTP deadline exceeded') from error
                 if isinstance(error, socket.timeout):
                     last_error = TimeoutError('HTTP request timed out')
                 elif isinstance(error, http.client.HTTPException):

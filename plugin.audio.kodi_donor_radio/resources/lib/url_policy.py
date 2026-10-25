@@ -60,7 +60,9 @@ class UrlPolicy:
             addresses = []
             for family, socktype, proto, _, sockaddr in records:
                 address = ipaddress.ip_address(sockaddr[0])
-                if not allowed and (not address.is_global or _unsafe_embedded_ipv4(address)):
+                if not allowed and (
+                        not address.is_global or _unsafe_embedded_ipv4(address)
+                        or (address.version == 6 and (address.is_reserved or address.is_multicast))):
                     raise UnsafeUrl('Non-public destination')
                 if family in (socket.AF_INET, socket.AF_INET6):
                     entry = (family, socktype, proto, sockaddr)

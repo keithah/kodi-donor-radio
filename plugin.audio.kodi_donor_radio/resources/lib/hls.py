@@ -39,6 +39,21 @@ class Segment:
     duration: float
     media_position: float
     uri: str
+    adswizz_context_present: bool = False
+
+    @property
+    def is_adswizz_ad(self):
+        """Require both the observed AdsWizz EXTINF field and ad segment route."""
+        if not self.adswizz_context_present:
+            return False
+        try:
+            parsed = urlsplit(self.uri)
+        except ValueError:
+            return False
+        name = parsed.path.rsplit('/', 1)[-1]
+        return (parsed.hostname is not None
+                and parsed.hostname.lower() == 'delivery-cdn-cf.adswizz.com'
+                and re.fullmatch(r'ad_[A-Za-z0-9._-]{1,240}\.aac', name, re.I) is not None)
 
 
 @dataclass(frozen=True)
@@ -80,15 +95,33 @@ _ATTR_TAGS = frozenset({'EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-STREAM-INF',
                          'EXT-X-I-FRAME-STREAM-INF', 'EXT-X-DATERANGE',
                          'EXT-X-KEY', 'EXT-X-START', 'EXT-X-SESSION-DATA'})
 _ATTR_NAME = re.compile(r'([A-Za-z0-9-]+)=')
-_URI_KEY = re.compile(r'(?:URI|URL)', re.I)
+# Treat URI/URL as a reference token when separated from descriptive words.
+_URI_TOKEN_KEY = re.compile(r'(?:^|[-_.])(?:URI|URL)(?:$|[-_.])', re.I)
+_URI_ANY_KEY = re.compile(r'(?:URI|URL)', re.I)
 # Skip quoted values; inspect only unquoted tokens followed by an assignment.
 _URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
-_URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*://|\{\$)', re.I)
+_URI_VALUE = re.compile(r'[a-z][a-z0-9+.-]*://|\{\$', re.I)
+_URI_ATTR_VALUE = re.compile(r'^\s*//|[a-z][a-z0-9+.-]*://|\{\$', re.I)
+_ADSWIZZ_CONTEXT = re.compile(
+    r'(?i)(?<![a-z0-9_-])adswizzContext\s*=\s*[^,\s\"]{1,512}')
 
 
 def _has_uri_assignment(value):
-    return any(match.group('equals') and _URI_KEY.search(match.group('key'))
-               for match in _URI_TOKENS.finditer(value))
+    matches = list(_URI_TOKENS.finditer(value))
+    for index, match in enumerate(matches):
+        key = match.group('key')
+        if not match.group('equals') or key is None:
+            continue
+        if _URI_TOKEN_KEY.search(key):
+            return True
+        if not _URI_ANY_KEY.search(key) or index + 1 >= len(matches):
+            continue
+        attr_value = matches[index + 1].group(0)
+        if attr_value.startswith('"') and attr_value.endswith('"'):
+            attr_value = attr_value[1:-1]
+        if _URI_ATTR_VALUE.search(attr_value):
+            return True
+    return False
 
 
 def _attributes(value):
@@ -129,7 +162,7 @@ def _attributes(value):
                     raise InvalidPlaylist('Malformed unquoted attribute')
                 i += 1
             end, decoded = i, value[start:i]
-        if not decoded:
+        if not decoded and not quoted:
             raise InvalidPlaylist('Empty attribute')
         attrs[key], spans[key] = decoded, (start, end, quoted)
         if i < len(value):
@@ -206,15 +239,22 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
     """
     if len(text.encode('utf-8')) > BODY_BYTES:
         raise InvalidPlaylist('Playlist exceeds size limit')
-    if any(ord(c) < 32 and c not in '\r\n' for c in text) or '\ufeff' in text:
+    if (any(ord(c) < 32 and c not in '\r\n' for c in text) or '\ufeff' in text
+            or re.search(r'\r(?!\n)', text)):
         raise InvalidPlaylist('Invalid playlist characters')
-    lines = tuple(text.splitlines(keepends=True))
+    # HLS uses LF or CRLF line endings. str.splitlines() also treats Unicode
+    # separators inside EXTINF title text as line boundaries, unlike Kodi.
+    parts = text.split('\n')
+    lines = tuple(part + '\n' for part in parts[:-1])
+    if parts[-1]:
+        lines += (parts[-1],)
     if not lines or lines[0].rstrip('\r\n') != '#EXTM3U':
         raise InvalidPlaylist('Missing HLS signature')
     _resolve(final_url, final_url)
     refs, segments, cues = [], [], []
     sequence, disc_base, disc, position = 0, 0, 0, 0.0
     target, pending_duration, pending_variant = None, None, False
+    pending_adswizz_context = False
     pending_range, previous_ranged_url = None, None
     master, media, seen = False, False, set()
     for index, raw in enumerate(lines[1:], 1):
@@ -231,9 +271,11 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                     raise InvalidPlaylist('Implicit byte range needs preceding subrange of same resource')
                 previous_ranged_url = url if pending_range is not None else None
                 pending_range = None
-                segments.append(Segment(sequence + len(segments), disc, pending_duration, position, url))
+                segments.append(Segment(sequence + len(segments), disc, pending_duration,
+                                        position, url, pending_adswizz_context))
                 position += pending_duration
                 pending_duration = None
+                pending_adswizz_context = False
             else:
                 raise InvalidPlaylist('URI without segment or variant declaration')
             refs.append(UriReference(index, 0, len(line), url, kind))
@@ -254,7 +296,12 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         if tag in _ATTR_TAGS:
             attrs, spans = _attributes(value)
         elif tag == 'EXT-X-CUE-OUT':
-            attrs = _attributes(value)[0] if '=' in value else ({'DURATION': value} if value else {})
+            if '=' in value:
+                attrs = _attributes(value)[0]
+            else:
+                if _URI_VALUE.search(value):
+                    raise UnsupportedPlaylist('Unsupported URI-bearing cue')
+                attrs = {'DURATION': value} if value else {}
         elif tag == 'EXT-X-CUE-OUT-CONT':
             if '=' in value:
                 attrs = _attributes(value)[0]
@@ -264,8 +311,11 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 attrs = {'RAW': value}
         allowed_uri = 'URI' if tag in ('EXT-X-MEDIA', 'EXT-X-MAP', 'EXT-X-I-FRAME-STREAM-INF') else None
         if attrs:
-            for key in attrs:
-                if key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or (_URI_KEY.search(key) and key != allowed_uri):
+            for key, attr_value in attrs.items():
+                if (key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or
+                        (key != allowed_uri and _URI_TOKEN_KEY.search(key)) or
+                        (key != allowed_uri and _URI_ANY_KEY.search(key) and
+                         _URI_ATTR_VALUE.search(attr_value))):
                     raise UnsupportedPlaylist('Unsupported URI-bearing attribute')
         elif tag not in _MEDIA and tag not in ('EXT-X-VERSION', 'EXT-X-INDEPENDENT-SEGMENTS'):
             if _has_uri_assignment(value) or _URI_VALUE.search(value):
@@ -295,7 +345,9 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         elif tag == 'EXTINF':
             if pending_duration is not None or ',' not in value:
                 raise InvalidPlaylist('Malformed segment duration')
-            pending_duration = _duration(value.split(',', 1)[0])
+            pending_duration, title = value.split(',', 1)
+            pending_duration = _duration(pending_duration)
+            pending_adswizz_context = _ADSWIZZ_CONTEXT.search(title) is not None
         elif tag == 'EXT-X-STREAM-INF':
             if pending_variant or 'BANDWIDTH' not in attrs:
                 raise InvalidPlaylist('Malformed variant')

@@ -41,7 +41,10 @@ def _date(value):
     parsed = parse_iso_datetime(value)
     if 'T' not in value or parsed.tzinfo is None:
         raise ValueError('invalid_date')
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except OverflowError as error:
+        raise ValueError('invalid_date') from error
 
 
 def _payload(value, hex_only=False):
@@ -119,6 +122,76 @@ class CueTracker:
         for record in self._breaks.values():
             if record.rendition == rendition and predicate(record):
                 self._unresolved(record, reason)
+
+    def _adswizz_segment_event(self, kind, rendition, epoch, sequence, disc,
+                               position=None, duration=None, reason=None):
+        now = self.utc_now()
+        if isinstance(now, datetime):
+            now = now.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+        self.sink.emit(Event(
+            kind, self.session_id, self.station_uuid, 'hls', 'adswizz_hls',
+            {'marker': 'adswizz_segment'}, now, self.monotonic_now(),
+            {'rendition_id': rendition, 'epoch': epoch, 'media_sequence': sequence,
+             'discontinuity': disc, 'media_position': position, 'duration': duration,
+             'classification': 'observed_segment', 'marker_format': 'adswizz_hls',
+             'reason': reason}))
+
+    def _resolve_adswizz_segment_break(self, state, rendition, epoch, reason):
+        if not state.get('adswizz_active'):
+            return
+        if state.get('adswizz_emit_events'):
+            self._adswizz_segment_event(
+                'break_unresolved', rendition, epoch,
+                state['adswizz_last_sequence'], state['adswizz_last_disc'],
+                state.get('adswizz_last_position'), reason=reason)
+        state['adswizz_active'] = False
+        state['adswizz_start_position'] = None
+        state['adswizz_emit_events'] = False
+
+    def _observe_adswizz_segments(self, playlist, rendition, epoch, state, offset):
+        cue_sources = {'EXT-X-CUE-OUT', 'EXT-X-CUE-OUT-CONT', 'EXT-X-CUE-IN'}
+        has_cue_evidence = any(
+            cue.source in cue_sources or
+            (cue.source == 'EXT-X-DATERANGE' and any(
+                key.upper() in ('SCTE35-OUT', 'SCTE35-IN', 'SCTE35-CMD')
+                for key in cue.attributes))
+            for cue in playlist.cues)
+        has_active_cue = any(
+            record.rendition == rendition and record.epoch == epoch
+            and record.family in ('cue', 'daterange') and not record.closed
+            for record in self._breaks.values())
+        for segment in playlist.segments:
+            last_sequence = state['adswizz_last_sequence']
+            if last_sequence is not None and segment.sequence <= last_sequence:
+                continue
+            position = (offset + segment.media_position if offset is not None else None)
+            if (last_sequence is not None and segment.sequence > last_sequence + 1
+                    and state['adswizz_active']):
+                self._resolve_adswizz_segment_break(
+                    state, rendition, epoch, 'adswizz_segment_gap')
+            if segment.is_adswizz_ad and not state['adswizz_active']:
+                state['adswizz_active'] = True
+                state['adswizz_start_position'] = position
+                state['adswizz_emit_events'] = not (has_cue_evidence or has_active_cue)
+                if state['adswizz_emit_events']:
+                    self._adswizz_segment_event(
+                        'break_start', rendition, epoch, segment.sequence,
+                        segment.discontinuity, position=position)
+            elif not segment.is_adswizz_ad and state['adswizz_active']:
+                start_position = state.get('adswizz_start_position')
+                duration = (position - start_position
+                            if position is not None and start_position is not None
+                            and position >= start_position else None)
+                if state.get('adswizz_emit_events'):
+                    self._adswizz_segment_event(
+                        'break_end', rendition, epoch, segment.sequence,
+                        segment.discontinuity, position=position, duration=duration)
+                state['adswizz_active'] = False
+                state['adswizz_start_position'] = None
+                state['adswizz_emit_events'] = False
+            state['adswizz_last_sequence'] = segment.sequence
+            state['adswizz_last_disc'] = segment.discontinuity
+            state['adswizz_last_position'] = position
 
     def _remember(self, key):
         if key in self._seen:
@@ -216,9 +289,15 @@ class CueTracker:
             if state is not None and epoch < state['epoch']:
                 return  # A late response from a retired caller epoch cannot revive it.
             if state is None or state['epoch'] != epoch:
+                if state is not None:
+                    self._resolve_adswizz_segment_break(
+                        state, rendition_id, state['epoch'], 'epoch_changed')
                 self._close_matching(rendition_id, 'epoch_changed')
                 state = {'epoch': epoch, 'disc': -1, 'last': None, 'end': None,
-                         'positions': OrderedDict()}
+                         'positions': OrderedDict(), 'adswizz_last_sequence': None,
+                         'adswizz_last_disc': 0, 'adswizz_last_position': None,
+                         'adswizz_active': False, 'adswizz_start_position': None,
+                         'adswizz_emit_events': False}
                 self._streams[rendition_id] = state
                 if len(self._streams) > STREAM_LIMIT:
                     retired, _ = self._streams.popitem(last=False)
@@ -249,6 +328,7 @@ class CueTracker:
                         # Expected expiry is evidence of a missing boundary,
                         # not terminal: a later published IN can still match.
                         self._unresolved(record, 'expected_duration_elapsed', terminal=False)
+            self._observe_adswizz_segments(playlist, rendition_id, epoch, state, offset)
 
     def _observe_cue(self, cue, rendition, epoch, state, offset):
         position = (cue.media_position + offset
@@ -337,6 +417,8 @@ class CueTracker:
             self._finished = True
             for record in self._breaks.values():
                 self._unresolved(record, reason)
+            for rendition, state in self._streams.items():
+                self._resolve_adswizz_segment_break(state, rendition, state['epoch'], reason)
             self._streams.clear()
             self._seen.clear()
             self._breaks.clear()

@@ -57,9 +57,14 @@ def resolve_station(url, client, cancel):
                 prefix += block
                 text = prefix.decode('utf-8-sig', errors='replace').lstrip()
             extension = urlsplit(final_url).path.lower()
-            is_playlist = (mime in ('audio/x-mpegurl', 'application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/x-scpls')
+            playlist_mimes = ('audio/x-mpegurl', 'application/x-mpegurl',
+                              'application/vnd.apple.mpegurl', 'audio/mpegurl',
+                              'audio/x-scpls')
+            audio_mime = mime.startswith('audio/') and mime not in (
+                'audio/x-mpegurl', 'audio/mpegurl', 'audio/x-scpls')
+            is_playlist = (mime in playlist_mimes
                            or text.startswith('#EXTM3U') or text.lower().startswith('[playlist]')
-                           or extension.endswith(('.m3u', '.m3u8', '.pls')))
+                           or (not audio_mime and extension.endswith(('.m3u', '.m3u8', '.pls'))))
             if not is_playlist:
                 transferred = True
                 return ResolvedSource(final_url, 'continuous', response, prefix)

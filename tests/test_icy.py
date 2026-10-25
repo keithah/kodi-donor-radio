@@ -48,6 +48,20 @@ def test_invalid_encoding_does_not_interrupt_audio():
     assert metadata == [{'StreamTitle': 'bad\ufffd'}]
 
 
+def test_metadata_observer_failure_is_logged_once_without_discarding_audio(caplog):
+    def fail(_metadata):
+        raise RuntimeError('private response body')
+
+    decoder = IcyDecoder(2, fail)
+    wire = (b'ab' + block(b"StreamTitle='ad';") + b'cd' +
+            block(b"StreamTitle='more';") + b'ef')
+    assert decoder.feed(wire) == b'abcdef'
+    warnings = [record for record in caplog.records
+                if record.getMessage() == 'ICY metadata observer failed']
+    assert len(warnings) == 1
+    assert 'private response body' not in caplog.text
+
+
 @pytest.mark.parametrize('tail', [b'', b'\x01', b'\x02short'])
 def test_truncated_length_or_metadata_does_not_leak_into_audio(tail):
     metadata = []
@@ -89,3 +103,99 @@ def test_advertisement_title_only_emits_metadata_observation():
     decoder.finish()
     assert [event.kind for event in events] == ['metadata_observed']
     assert events[0].evidence == {'StreamTitle': 'advertisement'}
+
+
+@pytest.fixture
+def marker_session():
+    from types import SimpleNamespace
+    from models import Station
+    from sessions import SessionManager
+    from station_resolver import ResolvedSource
+    events = []
+    manager = SessionManager(
+        sink=SimpleNamespace(emit=events.append), idle_timeout=1000,
+        resolver=lambda *args: ResolvedSource('http://radio.example/live', 'continuous'))
+    session = manager.create(Station('station', 'Radio', 'http://radio.example/live', '', False))
+    yield manager, session, events
+    manager.close()
+
+
+@pytest.mark.parametrize('length,expected', [(256, '*' * 256), (257, None), (4000, None)])
+def test_session_latest_candidate_is_bounded_and_isolated(marker_session, length, expected):
+    manager, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '*' * length}, '2026-10-23T00:00:00Z', 10)
+    assert session.latest_icy_candidate() == expected
+    assert events[0].kind == 'metadata_observed'
+    assert events[0].evidence['StreamTitle'] == '*' * length
+    marker_events = [event for event in events if event.source == 'icy_marker']
+    if length == 256:
+        assert marker_events[0].kind == 'icy_marker_candidate'
+        assert marker_events[0].evidence == {'StreamTitle': '*' * 256}
+    else:
+        assert marker_events == []
+    replacement = manager.create(session.station)
+    assert replacement.latest_icy_candidate() is None
+    replacement.observe_icy_metadata({'StreamTitle': ' ad break '}, 'now', 11)
+    assert replacement.latest_icy_candidate() == 'AD BREAK'
+    assert events[-1].session_id == replacement.id
+
+
+def test_service_tick_expires_markers_during_active_audio(marker_session, monkeypatch):
+    import sessions
+    from types import SimpleNamespace
+    manager, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '-'}, 'start', 10)
+    clock = SimpleNamespace(monotonic=lambda: 310)
+    monkeypatch.setattr(sessions, 'time', clock)
+    with session.acquire(session.playback_url):
+        manager.expire()
+        assert not any(event.kind == 'break_unresolved' for event in events)
+        clock.monotonic = lambda: 311
+        manager.expire()
+        manager.expire()
+        assert not session.cancel.is_set()
+        assert session.latest_icy_candidate() is None
+    unresolved = [event for event in events if event.kind == 'break_unresolved']
+    assert len(unresolved) == 1
+    assert unresolved[0].details['reason'] == 'timeout'
+    assert unresolved[0].monotonic_at == 311
+    assert not any(event.kind == 'break_end' for event in events)
+
+
+def test_session_expire_markers_prunes_candidate_without_inventing_end(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({'StreamTitle': '#'}, 'start', 10)
+    session.expire_icy_markers(311)
+    assert session.latest_icy_candidate() is None
+    assert [event.kind for event in events] == [
+        'metadata_observed', 'icy_marker_candidate', 'break_start', 'break_unresolved']
+
+
+def test_session_preserves_adswizz_boundary_fields_but_drops_tracking_context(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000', 'adId': 'creative-123',
+        'adswizzContext': 'opaque-tracking-context',
+    }, '2026-10-23T00:00:00Z', 10)
+
+    observed = events[0]
+    assert observed.kind == 'metadata_observed'
+    assert observed.evidence == {
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'midroll',
+        'durationMilliseconds': '30000',
+    }
+    marker = events[1]
+    assert marker.kind == 'break_start'
+    assert marker.details['marker_format'] == 'adswizz'
+    assert marker.evidence['adw_ad'] == 'true'
+    assert 'opaque-tracking-context' not in str([event.to_dict() for event in events])
+
+
+def test_session_drops_invalid_adswizz_insertion_type_from_diagnostics(marker_session):
+    _, session, events = marker_session
+    session.observe_icy_metadata({
+        'StreamTitle': '', 'adw_ad': 'true', 'insertionType': 'x' * 4000,
+    }, '2026-10-23T00:00:00Z', 10)
+    assert 'insertionType' not in events[0].evidence
+    assert 'insertionType' not in events[1].evidence

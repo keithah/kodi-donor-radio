@@ -48,6 +48,20 @@ def test_known_context_is_preserved_and_extra_fields_are_omitted():
     assert "private" not in json.dumps(record)
 
 
+def test_ad_diagnostics_allow_opaque_ids_and_fixed_reason_but_redact_urls(tmp_path):
+    debug = []
+    JsonEventSink(tmp_path, True, debug.append).emit(observation(details={
+        "placement_id": "7d8e4c2a4b6d99ff", "creative_id": "0112abcd3434ffff",
+        "reason": "queued", "url": "https://private.test/?token=secret",
+    }))
+    record = json.loads(debug[0])
+    assert record["details"] == {
+        "placement_id": "7d8e4c2a4b6d99ff", "creative_id": "0112abcd3434ffff",
+        "reason": "queued",
+    }
+    assert "secret" not in debug[0]
+
+
 def test_log_redacts_nested_credentials(tmp_path):
     secrets = ["user123", "pass123", "query123", "fragment123", "auth123", "cookie123", "api123"]
     metadata = {

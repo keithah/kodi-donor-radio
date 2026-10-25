@@ -4,11 +4,13 @@
 The caller handles plain streams without icy-metaint and downstream headers.
 Metadata callbacks carry observations only; titles never classify ad breaks.
 """
+import logging
 import re
 from typing import Callable
 
 
 _FIELDS = re.compile(r"(?:^|;)\s*([A-Za-z][A-Za-z0-9_-]*)='(.*?)'(?=;|$)", re.DOTALL)
+_LOGGER = logging.getLogger(__name__)
 
 
 class IcyDecoder:
@@ -29,6 +31,7 @@ class IcyDecoder:
         self._metadata_remaining = 0
         self._metadata = bytearray()
         self._finished = False
+        self._observer_error_reported = False
 
     def feed(self, chunk: bytes) -> bytes:
         """Return audio immediately; buffer only an incomplete metadata block."""
@@ -51,7 +54,14 @@ class IcyDecoder:
                     text = self._metadata.rstrip(b'\0').decode('utf-8', errors='replace')
                     self._metadata.clear()
                     self._audio_remaining = self._metaint
-                    self._on_metadata(dict(_FIELDS.findall(text)))
+                    try:
+                        self._on_metadata(dict(_FIELDS.findall(text)))
+                    except Exception:
+                        # Observation failures must never cost audio bytes.
+                        # Do not include untrusted metadata or exception text.
+                        if not self._observer_error_reported:
+                            self._observer_error_reported = True
+                            _LOGGER.warning('ICY metadata observer failed')
             else:
                 self._metadata_remaining = chunk[position] * 16
                 position += 1

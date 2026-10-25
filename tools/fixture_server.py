@@ -18,6 +18,133 @@ import time
 
 
 SCENARIOS = ('normal', 'mid-break', 'missing-end', 'malformed-cue', 'no-cue')
+ICY_METAINT = 4096
+ICY_SCENARIOS = ('explicit', 'tildeats', 'wrapped', 'return-to-track',
+                 'paired-marker', 'punctuation', 'unresolved')
+ICY_TITLES = {
+    'explicit': ('AD_START_30', 'AD_STOP'),
+    'tildeats': ('Station ~ Track ~ 30 ~ 4 ~ I ~ 30 ^',
+                 'Station ~ Track ~ 30 ~ 0 ^',
+                 'Station ~ Track ~ 30 ~ 4 ^', '##Station ~ Track ~ 30 ~ 4 ^'),
+    'wrapped': ('#AD_START#', '#AD_END#'),
+    'return-to-track': ('-', 'Artist - Track'),
+    'paired-marker': ('#', '*', '#'),
+    'punctuation': ('-', '#', '*', 'Artist - Track'),
+    'unresolved': ('#',),
+}
+ICY_EXPECTED = {
+    'explicit': [('break_start', 'explicit'), ('break_end', 'explicit')],
+    'tildeats': [('break_start', 'explicit'), ('break_end', 'explicit'),
+                 ('break_start', 'explicit'), ('break_end', 'explicit')],
+    'wrapped': [('break_start', 'explicit'), ('break_end', 'explicit')],
+    'return-to-track': [('icy_marker_candidate', 'candidate'),
+                        ('break_start', 'inferred'), ('break_end', 'inferred')],
+    'paired-marker': [('icy_marker_candidate', 'candidate'),
+                      ('break_start', 'inferred'),
+                      ('icy_marker_candidate', 'candidate'),
+                      ('icy_marker_candidate', 'candidate'),
+                      ('break_end', 'inferred')],
+    'punctuation': [('icy_marker_candidate', 'candidate'),
+                    ('break_start', 'inferred'),
+                    ('icy_marker_candidate', 'candidate'),
+                    ('icy_marker_candidate', 'candidate'),
+                    ('break_end', 'inferred')],
+    'unresolved': [('icy_marker_candidate', 'candidate'),
+                   ('break_start', 'inferred'), ('break_unresolved', 'inferred')],
+}
+
+
+def icy_metadata(scenario):
+    if scenario not in ICY_SCENARIOS:
+        raise ValueError('Unknown ICY fixture scenario')
+    return ICY_TITLES[scenario]
+
+
+def icy_observation_times(scenario):
+    return tuple(index * 0.25 for index, _ in enumerate(icy_metadata(scenario)))
+
+
+def icy_audio_bytes(scenario, source=None):
+    """Repeat valid generated MP3 frame bytes to fill every ICY audio interval."""
+    count = len(icy_metadata(scenario)) * ICY_METAINT
+    if source is None:
+        # Small deterministic unit-test payload; the HTTP endpoint requires tone.mp3.
+        source = b''.join(bytes([65 + index]) * ICY_METAINT
+                          for index, _ in enumerate(icy_metadata(scenario)))
+    source = bytes(source)
+    if not source:
+        raise ValueError('ICY fixture audio source cannot be empty')
+    return (source * ((count + len(source) - 1) // len(source)))[:count]
+
+
+def icy_stream_frames(scenario, audio=None):
+    """Return complete audio-interval/metadata frames for a controlled ICY stream."""
+    titles = icy_metadata(scenario)
+    audio = icy_audio_bytes(scenario) if audio is None else audio
+    if len(audio) != len(titles) * ICY_METAINT:
+        raise ValueError('ICY fixture audio must contain one interval per title')
+    frames = []
+    for index, title in enumerate(titles):
+        metadata = ("StreamTitle='%s';" % title).encode('utf-8')
+        padded = metadata.ljust(((len(metadata) + 15) // 16) * 16, b'\0')
+        interval = audio[index * ICY_METAINT:(index + 1) * ICY_METAINT]
+        frames.append(interval + bytes([len(padded) // 16]) + padded)
+    return tuple(frames)
+
+
+def icy_stream_bytes(scenario, audio=None):
+    """Frame a finite controlled ICY stream; only metadata framing is added."""
+    return b''.join(icy_stream_frames(scenario, audio))
+
+
+def mp3_frame_payload(path):
+    """Drop file-level ID3 tags so repeating generated MP3 frames stays streamable."""
+    data = Path(path).read_bytes()
+    if data.startswith(b'ID3') and len(data) >= 10:
+        size_bytes = data[6:10]
+        if any(value & 0x80 for value in size_bytes):
+            raise ValueError('Invalid ID3v2 size in fixture MP3')
+        size = ((size_bytes[0] << 21) | (size_bytes[1] << 14)
+                | (size_bytes[2] << 7) | size_bytes[3])
+        footer = 10 if data[5] & 0x10 else 0
+        data = data[10 + size + footer:]
+    if len(data) >= 128 and data[-128:-125] == b'TAG':
+        data = data[:-128]
+    if not data:
+        raise ValueError('Generated fixture MP3 has no frame data')
+    return data
+
+
+def expected_icy(scenario):
+    if scenario not in ICY_SCENARIOS:
+        raise ValueError('Unknown ICY fixture scenario')
+    return ICY_EXPECTED[scenario]
+
+
+def send_fixture_response(handler, body, mime, status=200, ranges=False):
+    """Send a finite fixture response; shared with the controlled ad origin."""
+    headers = {}
+    if ranges and handler.headers.get('Range'):
+        match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', handler.headers['Range'])
+        if match:
+            start = int(match.group(1))
+            end = min(int(match.group(2)) if match.group(2) else len(body) - 1, len(body) - 1)
+            if start <= end:
+                headers['Content-Range'] = 'bytes %s-%s/%s' % (start, end, len(body))
+                body, status = body[start:end + 1], 206
+            else:
+                headers['Content-Range'] = 'bytes */%s' % len(body)
+                body, status = b'', 416
+        else:
+            headers['Content-Range'] = 'bytes */%s' % len(body)
+            body, status = b'', 416
+    handler.send_response(status)
+    handler.send_header('Content-Type', mime)
+    handler.send_header('Content-Length', str(len(body)))
+    for key, value in headers.items():
+        handler.send_header(key, value)
+    handler.end_headers()
+    handler.wfile.write(body)
 
 
 def manifest(scenario, version):
@@ -71,6 +198,37 @@ def make_server(assets, host='127.0.0.1', port=8765):
             match = re.fullmatch('/expected/([^/]+).json', self.path)
             if match and match.group(1) in SCENARIOS:
                 return self.respond(json.dumps(expected(match.group(1))).encode(), 'application/json')
+            match = re.fullmatch(r'/expected/icy/([^/]+)\.json', self.path)
+            if match and match.group(1) in ICY_SCENARIOS:
+                rows = [{'kind': kind, 'classification': classification}
+                        for kind, classification in expected_icy(match.group(1))]
+                return self.respond(json.dumps(rows).encode(), 'application/json')
+            match = re.fullmatch(r'/icy/([^/]+)\.mp3', self.path)
+            if match and match.group(1) in ICY_SCENARIOS:
+                scenario = match.group(1)
+                tone_path = assets / 'tone.mp3'
+                if not tone_path.is_file():
+                    return self.respond(b'Generate audio assets first\n', 'text/plain', 404)
+                audio = icy_audio_bytes(scenario, mp3_frame_payload(tone_path))
+                frames = icy_stream_frames(scenario, audio)
+                content_length = sum(len(frame) for frame in frames)
+                self.send_response(200)
+                self.send_header('Content-Type', 'audio/mpeg')
+                self.send_header('icy-metaint', str(ICY_METAINT))
+                self.send_header('Content-Length', str(content_length))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.close_connection = True
+                try:
+                    # Pace complete metadata frames; block sizes vary with the title.
+                    for index, frame in enumerate(frames):
+                        self.wfile.write(frame)
+                        self.wfile.flush()
+                        if index + 1 < len(frames):
+                            self.server.stopping.wait(.25)
+                except OSError:
+                    pass
+                return
             match = re.fullmatch('/hls/([^/]+)/index.m3u8', self.path)
             if match and match.group(1) in SCENARIOS:
                 scenario = match.group(1)
@@ -119,28 +277,7 @@ def make_server(assets, host='127.0.0.1', port=8765):
             self.respond(b'', 'text/plain', 404)
 
         def respond(self, body, mime, status=200, ranges=False):
-            headers = {}
-            if ranges and self.headers.get('Range'):
-                match = re.fullmatch(r'bytes=([0-9]+)-([0-9]*)', self.headers['Range'])
-                if match:
-                    start = int(match.group(1))
-                    end = min(int(match.group(2)) if match.group(2) else len(body) - 1, len(body) - 1)
-                    if start <= end:
-                        headers['Content-Range'] = 'bytes %s-%s/%s' % (start, end, len(body))
-                        body, status = body[start:end + 1], 206
-                    else:
-                        headers['Content-Range'] = 'bytes */%s' % len(body)
-                        body, status = b'', 416
-                else:
-                    headers['Content-Range'] = 'bytes */%s' % len(body)
-                    body, status = b'', 416
-            self.send_response(status)
-            self.send_header('Content-Type', mime)
-            self.send_header('Content-Length', str(len(body)))
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.end_headers()
-            self.wfile.write(body)
+            send_fixture_response(self, body, mime, status, ranges)
 
         def log_message(self, *args):
             pass
@@ -153,7 +290,7 @@ def make_server(assets, host='127.0.0.1', port=8765):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--assets', type=Path, default=Path('tests/generated-audio'), help='Generated fixture assets directory')
-    parser.add_argument('--host', default='127.0.0.1', help='Bind address; use an explicitly reachable public test host for addon playback')
+    parser.add_argument('--host', default='127.0.0.1', help='Bind address; addon test mode accepts only numeric 127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
     server = make_server(args.assets, args.host, args.port)

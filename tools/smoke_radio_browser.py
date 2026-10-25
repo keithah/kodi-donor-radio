@@ -8,6 +8,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import sys
 import threading
 from urllib.parse import urlsplit
@@ -74,9 +75,12 @@ def probe_station(station, client=None, timeout=15):
             sample = source.initial_bytes
             metaint = source.response.headers.get('icy-metaint')
             if metaint is not None:
-                decoder = IcyDecoder(int(metaint), lambda metadata: None)
-                sample = decoder.feed(sample)
-                decoder.finish()
+                if not re.fullmatch(r'[0-9]{1,10}', metaint):
+                    raise ValueError('Invalid ICY interval')
+                if int(metaint) > 0:
+                    decoder = IcyDecoder(int(metaint), lambda metadata: None)
+                    sample = decoder.feed(sample)
+                    decoder.finish()
             if not sample:
                 raise HttpError('Empty continuous sample')
             size = len(sample)

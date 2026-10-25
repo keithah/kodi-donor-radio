@@ -1,5 +1,324 @@
 # Validation record
 
+## Playback arbiter GUI follow-up — 2026-10-24
+
+The Kodi preview stop path now marks its playback intent and releases the shared
+profile lock before calling `Player.stop()`. Add-on starts wait for that bounded
+handoff, while GUI-thread intent checks remain responsive. Abandoned stop markers
+expire after one minute using a cross-process monotonic clock; future-dated markers
+are stale after a reboot. Regressions verify a blocked stop cannot hold the profile
+lock or race a new playback start, and wall-clock changes do not expire an active
+marker.
+
+Closing an ad session suppresses late VAST preparation-error callbacks. Station
+resolution now trusts a concrete audio MIME type and binary sniff over a playlist-like
+URL suffix. ICY learned-marker lookups use immutable snapshots and do not wait for
+profile writes. The README and radio-browser spec now use the actual Settings label and
+accurately distinguish stream resolution from click counting. Setup asks for a
+country before either browsing or filtering a free-text place query, so search is
+scoped to that country rather than the global top 200 stations. HLS line parsing
+splits only at LF/CRLF so Unicode separators inside EXTINF titles cannot desynchronize
+the relay parser from Kodi. The repository tree separates the packaged add-on from
+root-level development tests and tools. Focused playback/HLS/marker/resolution checks
+passed **205 tests**; the full suite passed
+**1,040 tests in 116.51s**. `compileall`, package build, `check_package.py`, and
+`git diff --check` passed. Kodi add-on checker 0.0.36 on a fresh ZIP extraction
+reported no add-on problems or warnings with dependency checks skipped; its host
+Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
+**37 files**, **457,688 bytes**, mode **0644**, SHA-256
+`b999d864219e1d8d9e1fb0fb7f9601c0b196413ecd5dc4994b80a8a6d889d75d`.
+This was the initial GUI attempt. A later Kodi GUI follow-up is recorded below;
+this paragraph does not describe that later partial acceptance.
+
+## Final review follow-up — second pass — 2026-10-24
+
+A fresh deep CodeRabbit review found that unreadable place/favorites files could
+hide GUI navigation, IPv6 reserved or multicast destinations could pass the URL
+policy, fixture beaconing defaulted to enabled without explicit session opt-in,
+and creative-preparation failures did not retain resolved VAST Error URLs. These
+paths now degrade safely or fail closed, with regression tests. Test-origin
+client disconnects are also silenced without hiding unrelated handler errors,
+and the VAST checkpoint now documents bounded media retention accurately. Map
+and station-info screens also tolerate unreadable favorites/places. The
+directory smoke probe accepts ICY interval zero as unframed audio, while
+rejecting malformed interval values. Several threaded and timing tests now
+assert their outcomes outside worker callbacks and avoid read-scheduling flakes.
+Favorites and saved places now lock read-modify-write across Kodi invocations,
+and the five-minute marker limit applies only to ad-start markers, not long
+song or end-break durations. Fixture-only beacons are experimental; production
+stations remain unmapped until the absolute presentation clock is validated.
+
+The package and HLS regression set passed **141 tests**; the full suite passed
+**1,029 tests in 112.69s**. Compileall,
+`git diff --check`, package creation, and `check_package.py` passed. Kodi add-on
+checker 0.0.36 on a fresh archive extraction reported no problems or warnings;
+its environment emitted the known LibreSSL/urllib3 compatibility warning. The
+ZIP has **37 files**, **455,598 bytes**, mode **0644**, SHA-256
+`6d70b23769c9be458660c12c505351deb7adf72601544e9faa467c7c433e2baf`.
+Steward and CodeRabbit must run again against the exact committed revision
+before updating the PR branch. Interactive Kodi GUI acceptance remains pending
+because the desktop is locked.
+
+## Final review follow-up — first pass — 2026-10-24
+
+A fresh deep CodeRabbit review on the preceding committed GUI branch identified
+map-station admission, unreadable marker-store preservation, source-cache
+retention, VAST assertion specificity, ICY metadata callback isolation, nested
+playback-arbiter locking, cancelled playlist responses, and stale specification
+details. The fixes now filter unsafe map rows before clustering, preserve unread
+marker files, expire inactive old routes under byte/segment pressure, assert
+specific VAST errors, keep observer failures from discarding audio, take the
+cross-process lock only at the outermost reentrant arbiter call, and answer
+cancelled playlist requests with 404. ICY docs now distinguish parser signals
+from unresolved events and define exact normalized marker identity. The PR
+source branch was independently verified as `codex/vast-controlled-ads`;
+Kodi desktop acceptance remains pending while the Mac is locked.
+
+After these changes, `python3 -m pytest -q` passed **1,003 tests in 108.14s**.
+`compileall`, `git diff --check`, package build, `check_package.py`, and the
+official Kodi add-on checker 0.0.36 on a fresh extraction passed. The checker
+reported no add-on problems or warnings; Python emitted only the host LibreSSL
+2.8.3 / urllib3 compatibility warning. The package has **37 files**, **452,897
+bytes**, mode **0644**. Its previously recorded checksum had an invalid length;
+the original archive is no longer available to recompute it.
+Steward and CodeRabbit must be rerun on the final committed revision before the
+PR branch is updated.
+
+## GUI runtime edge verification — 2026-10-24
+
+The consolidated final fix wave separates passive Kodi pin notifications from
+explicit focus requests, restores rail endpoints after Kodi's native list wraps,
+and preserves/selects a context station within the 50-row rail. Network failures
+have distinct localized states and retain valid selected/cached display records.
+Optional origin-query rejection falls back to a validated home route, and preview
+cleanup now runs after native modal return or abort. The settings scope statement
+matches the approved slice. A zero ICY interval forwards unframed audio unchanged;
+positive interval parsing, ad eligibility, and beacon behavior are preserved.
+
+The focused map/runtime/relay set passed **282 tests in 34.53s** with clean output.
+The full `python3 -m pytest -q` run passed **995 tests in 107.56s**. It emitted the
+previously documented intermittent loopback HTTP-handler exception banner. A
+final `python3 -m pytest -q -s` diagnostic run passed **995 tests in 107.71s** and
+captured the traceback: `BrokenPipeError: [Errno 32] Broken pipe` at the shared
+transport-test origin's `tests/test_transport.py:96` body write after its client
+closed. No test failed; full-suite output is not claimed to be pristine. The
+diagnostic log is `/tmp/kodi-final-fix-pytest-full.log`.
+
+Compileall, package build, `check_package.py`, and `git diff --check` exited 0.
+Kodi add-on checker **0.0.36**, invoked with `--branch omega` on the fresh ZIP
+extraction in `dist/checker-gui-final-CECTfo/`, exited 0 and reported **no add-on
+problems or warnings**. Its Python environment emitted the known host LibreSSL
+2.8.3 / urllib3 warning. The final ZIP has **37 files**, **450,757 bytes**, mode
+**0644**, and SHA-256
+`681ea71ef5cc9312d19bad51ff2d406b91c308734ad92af2b9d2a2c22d6aa9e1`.
+
+Kodi GUI acceptance remains unverified because the desktop is locked. Queued
+focus and native movement-before-callback fakes cover the reported ordering;
+they do not establish live rendering, focus delivery, audible output, or setup
+interaction. The live acceptance table below remains pending.
+
+## GUI package verification — initial Task 7 run, 2026-10-23
+
+The first GUI slice implements native skin listings, saved places/favorites,
+sequential native setup, station/place actions, and one shared schematic map.
+Themed Home/Now playing/other themed windows and their interface selectors remain
+deferred. This initial record covers the package built at that point; earlier Kodi playback
+records below predate these changes and do not establish GUI acceptance.
+
+Development verification used macOS ARM64 and Python 3.9.6. The focused GUI and
+package command was:
+
+```sh
+python3 -m pytest tests/test_package.py tests/test_kodi_runtime.py tests/test_kodi_radio_map.py tests/test_radio_map.py tests/test_radio_ui.py tests/test_playback_arbiter.py -q
+```
+
+It passed **249 tests in 9.17s**, with clean output. The full suite passed
+**920 tests in 103.55s**. That full run emitted the previously documented local
+HTTP-handler exception banner (`Exception occurred during processing of request`
+for a loopback client), without a retained traceback; no test failed, but the
+output was not pristine. The exact emitting test was not established in this run.
+
+Archive-level assertions
+check the three GUI toggle defaults and setup action, settings/map localization
+references, all 60 pin IDs and the station rail, profile/map/arbiter modules,
+and the fallback PNG. Eight tampered archives each omit a different required
+GUI resource and are rejected. Unlisted fixture manifests/audio, development
+tools, hidden workflow files, secrets and caches are excluded. No runtime code
+was changed during this verification task.
+
+Build and validate from the repository root:
+
+```sh
+python3 -m pytest -q
+python3 -m compileall -q plugin.audio.kodi_donor_radio tests
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+git diff --check
+python3 -m zipfile -e dist/plugin.audio.kodi_donor_radio-0.1.0.zip dist/checker-gui-task7
+.venv/checker/bin/kodi-addon-checker --branch omega dist/checker-gui-task7/plugin.audio.kodi_donor_radio
+```
+
+The official checker is a development-only installation; it is not required by
+the add-on. Version **0.0.36** exited 0 and reported **no add-on problems and no
+warnings** on the fresh ZIP extraction. Its Python environment separately emitted
+the known `urllib3` warning about host LibreSSL 2.8.3. Compilation, package build,
+and the repository package check exited 0. The inspected ZIP contains **36 files**,
+**427,329 bytes**, one `plugin.audio.kodi_donor_radio/` root, version **0.1.0**,
+both plugin/service entries, and only the `xbmc.python` **3.0.1** dependency.
+SHA-256: `bdc73eaedab1602445b8498df2b5c73de5e57e9fa7ad7c0c4471b3f8d42c8734`.
+
+### Live GUI acceptance remains unavailable
+
+Kodi **21.3 Omega** is installed. A fresh Task 7 `cua.getState()` check returned
+no native apps and reported: “The Mac is locked and automatic unlock could not
+unlock it.” No interactive acceptance was performed for this
+GUI build. Display resolution and input method were not observed; no focus
+behavior was observed. Automated Kodi adapters and geometry tests do not prove
+real rendering, audio, focus, or click delivery.
+
+| Check on this GUI build | Status |
+| --- | --- |
+| ZIP install dialog; Estuary root/nested listings | Unverified |
+| Alternate-skin root/nested listings and shared map rendering | Unverified |
+| Setup cancellation/completion and settings interaction | Unverified |
+| Root/context map launch and return to the originating selection | Unverified |
+| Pin/rail/control D-pad reachability, non-wrapping and focus restoration | Unverified |
+| Real station and controlled-fixture playback; audible output | Unverified |
+| One Radio Browser click per deliberate Play; no preview clicks | Unverified live; adapter tests cover the dispatch boundary |
+| Preview debounce, cancellation, session retirement and competing playback | Unverified live; deterministic adapter tests cover ordering |
+
+When the desktop is accessible, install the ZIP in a backed-up isolated profile
+and record exact Kodi version, display resolution, active skin and input device.
+Exercise root and nested listings in Estuary and one alternate skin; run setup
+from both entry points, cancel at each stage, save multiple places and change
+their radius/default. Open the map from the root and station menu, move through
+pins/rail/Preview/Back, check no directional wrap and record the restored listing
+selection. Test real and loopback fixture playback, deliberate click count,
+400 ms preview debounce, rapid focus changes, Back during pending lookup,
+preview disabled, and competing playback. Capture observed focus defects and
+heard audio separately from player-clock or request evidence.
+
+Setup candidates and map pins come from a bounded four-page station scan,
+not a complete city catalog. Place filtering uses local radius checks against
+bounded country pages. Map limits are 200 seed rows, 60 pins and 50 rail rows.
+Preview direct starts and add-on direct Play starts share a profile file lock
+and start-intent token; ownership-aware cancellation retires only the preview's
+relay. External Kodi UI actions, other add-ons, and native `setResolvedUrl` do not
+participate in that lock and can still race. The pending preview handoff is
+bounded to five seconds; a later Kodi acknowledgment can fail. There is no atomic
+Kodi-wide compare-and-play guarantee. Profile safety, UUID-only routes, live
+Radio Browser discovery, exact loopback fixtures and ICY/ad behavior remain
+covered by the full automated suite.
+
+### Consolidated review follow-up — 2026-10-23
+
+The follow-up review fixes preserve Kodi's required native WindowXML allocation,
+prevent preview preparation from replacing an active deliberate session, and
+keep artwork local. The additional UI and portability fixes give map pins and
+Preview/Back obvious focused textures, use localized map-title text, apply
+portable path-based profile-file permissions, and read the session's ad object
+once during cache retirement. The smoke test now identifies controlled entries
+by the add-on's exact fixture ID instead of parsing an assumed embedded station
+object; VAST macro coverage verifies that its error-URL assertion has a fixture
+to inspect. The spec now records the actual `radius_km` storage field and miles
+conversion.
+
+Verification on this follow-up: **116 targeted tests passed** and the full suite
+passed **937 tests in 103.37s** with clean pytest output. `compileall`, archive
+creation, `check_package.py`, and `git diff --check` passed. Kodi add-on checker
+0.0.36 reported no add-on problems or warnings; its Python environment emitted
+the known host LibreSSL/urllib3 warning. The fresh archive contains 36 files,
+is 439,141 bytes, and has SHA-256
+`8a281b988801c505e1f6559501a54da3511f818c797b1da6e28f4002b472c8b6`.
+
+Kodi GUI acceptance is still unavailable because the desktop is locked. These
+automated checks do not establish live rendering, D-pad focus, click delivery,
+playback audio, or interactive setup behavior.
+
+### CodeRabbit follow-up fixes — 2026-10-23
+
+The follow-up addressed six CodeRabbit findings across the full branch. An
+unmatched explicit ICY start now releases duplicate suppression after five
+minutes without inventing an end event. Bare URI-bearing HLS cue-out values
+fail closed. Session shutdown snapshots the ad reference once; guided setup
+cancellation or network failure still renders the normal local root menu; the
+package checker parses the shared map XML; and each fetched HLS playlist is
+observed once. Regression coverage exercises each case.
+
+The focused regression set passed **408 tests**. The full suite passed **943
+tests in 104.10s**; pytest printed a loopback HTTP-handler exception banner
+without a retained traceback, as seen in earlier runs. Compileall, package
+creation, `check_package.py`, and `git diff --check` passed. Kodi add-on checker
+0.0.36 reported no add-on problems or warnings; its environment emitted the
+known host LibreSSL/urllib3 warning. The package has SHA-256
+`15770f1b0a2102a7d6a47ad0d7739397271fc420f2db29390609e87f88892804`.
+
+Live Kodi interface acceptance remains pending while the Mac desktop is
+locked.
+
+### Map context and final review follow-up — 2026-10-23
+
+An independent review noted that the first schematic map showed pins against a
+blank panel. The shared world map now draws 30-degree latitude and 60-degree
+longitude grid lines and labels the world regions beneath the coordinate pins;
+local station and place views choose a readable grid from their own bounds and
+hide the world-region labels. The footer identifies the selected view and says
+that it is schematic and not to scale. The map remains artwork-independent
+and the pins continue to use the directory's station coordinates. Also
+corrected the acceptance-record links, service-pass player
+cleanup, the cancellation exception assertion, total source-segment fetch
+deadlines, HTTP/JSON control-response normalization, and retries after empty
+Radio Browser mirror discovery.
+
+At this 2026-10-23 checkpoint, the full suite passed **957 tests in 104.76s** after adding world/local/dateline
+grid-rendering, density-count, package-localization, repeated-initialization,
+invalid-tag, and preview-mirror-reuse cases; compileall, package creation,
+`check_package.py`, and `git diff --check` passed. Kodi add-on checker 0.0.36
+reported no add-on problems or warnings, with only its environment's known
+LibreSSL/urllib3 warning. That checkpoint ZIP has **37 files**, is **448,136 bytes**,
+and has SHA-256
+`7115aa80854501daf9ad0c4f9ab3b2f043428ad3d642aaed4cf1659acb98fd1c`.
+Kodi's actual visual acceptance remains pending because the desktop is locked.
+
+### Final GUI review fixes — 2026-10-24
+
+Tag browsing now keeps its next-page row when malformed Radio Browser rows are
+filtered, place scans only show the bounded-scan notice when no results were
+found, and cache eviction no longer inverts the session/ad-session lock order.
+The package checker rejects XML DTD/entity declarations, and package rejection
+tests assert their specific reasons. The ZIP publisher sets the final artifact
+mode to `0644` before atomic rename. Failures while cleaning an abandoned ad
+cache are non-fatal to ordinary radio-service startup. Redirected VAST manifests
+resolve relative segments from the final manifest URL, cached media routes are
+excluded from unrelated resource eviction, and the source deadline test uses an
+isolated monotonic clock. Both profile-file locking paths share one helper.
+
+The final suite passed **966 tests in 104.43s**. Compileall, package build and
+internal package validation passed. Kodi add-on checker 0.0.36 on a fresh ZIP
+extraction reported no add-on problems or warnings; its host emitted the known
+LibreSSL/urllib3 warning. The current ZIP has **37 files**, is **448,567 bytes**,
+mode `0644`, and has SHA-256
+`0dae8fbe601e48de4a64973a81b24a03d75377d4fa04bfa5df4fe6e7ec421475`.
+Live Kodi interface acceptance remains pending because the Mac desktop is locked.
+
+## Controlled VAST acceptance, 2026-10-22
+
+Target: unpatched Kodi `23.0-ALPHA1` Git `434da3c` on macOS 26.6.2 arm64, using an isolated portable profile. The pre-test profile was backed up outside the repository. Reports named `task8-*.json` in the test report directory contain the raw JSON-RPC samples and fixture counters without relay session URLs or tokens. The audible signal was not captured or confirmed by listening.
+
+The original six-segment live fixture stopped producing new media after sequence 005. Kodi then plateaued near `getTime=1.35s` for 16-second runs, including direct source playback without an ad. A finite `#EXT-X-ENDLIST` control with the same AAC files advanced to 9.95 seconds in ten seconds; the composed finite relay advanced across both ad discontinuities and ended near its 16.042-second duration. The fixture was therefore extended to 24 contiguous-PTS source segments, with a six-segment live window driven by monotonic media time rather than manifest request count. Direct Kodi playback of this repaired source advanced to 16.34 seconds in 18 seconds. See `task8-true-live-direct-kodi.json` and `task8-finite-relay-kodi.json`.
+
+On the repaired fixture, `tools/smoke_ad_relay.py` independently decoded every published segment in five runs. The combined preroll/midroll result was replacement twice, programme A twice, replacement twice, programme B twice; preroll-only, no-fill, and missing media preserved their expected source sections; wrong-duration VAST used the validated 4.010667-second AAC media duration rather than its nine-second declaration. Each segment decoded to 94 AAC frames/96,256 samples, and no original break leaked into the successful replacement trace. `task8-relay-smoke-final.json` records sample boundaries and collector counts. The relay-only checker rejects every success beacon because decoded media and HTTP requests do not establish playback evidence, even if a trace claims a mapping.
+
+The actual addon service was then run against the repaired loopback origin in the backed-up portable profile. Normal, advanced-window, and mutation entries all opened, requested new source segments through at least sequence 012, and advanced Kodi's player clock to roughly 14.6–14.8 seconds over 16 seconds. A normal-to-mutation rapid switch reset the player clock and the new stream continued advancing. Stop succeeded and left collector success beacons empty. The later identity-gated rerun is `task8-addon-identity-kodi.json`; it compares Kodi’s active item file with the requested addon item and requires bounded clock advancement.
+
+Kodi JSON-RPC `Player.PlayPause` and `Player.Seek` returned `Failed to execute method` for the active live HLS player (`canseek=false`). `Input.ExecuteAction(pause)` returned OK but the clock advanced by about one second during the following wall second; it did not pause playback. In the isolated delayed-segment run, the addon-owned player requested the delayed `source006.ts` and its clock held at 1.370 seconds from wall 3.026–8.424 seconds while `Player.Caching=false`. It then jumped from 1.370 to 7.770 seconds between adjacent 260 ms samples as `Player.Caching` became true; caching stayed true until wall 10.756 seconds and cleared by 11.011 seconds. `cachepercentage` remained 100 and speed remained one. The earlier run showed a similar 6.441-second jump; see `task8-buffer-stall-caching-kodi.json` and `task8-buffer-stall-kodi.json`. Normal live playback also showed up to 1.214-second jumps after short plateaus. The jump crosses the preroll completion boundary at 4.011 seconds without proof that those samples were presented, so a caching-only gate is insufficient. The absolute composed-media epoch at a sliding-window start is not exposed by Kodi, and segment requests show availability rather than decoded position. This is why the initial Kodi run did not emit success tracking. The fixture-only raw-clock mapper and its observed stall behavior are recorded below; production mapping still lacks a verified absolute anchor. The acceptance milestone remains incomplete pending anchor and rendered-audio verification. Missing/early-end playback remains unverified on target Kodi.
+
+After the user approved a fixture-only mapper, the adapter mapped raw `getTime()` only when test mode supplied an exact `127.0.0.1` origin and the session had ads enabled. Ordinary station sessions received no mapper. A fresh five-scenario Kodi run delivered impression/start/quartile/completion events on advancing fixture playback; the delayed stall emitted impression/start/firstQuartile before the long jump, with no midpoint, third-quartile, or completion across it. Its report is `task8-fixture-tracking-enabled-kodi.json`.
+
+The 2026-10-23 candidate anchor now treats the composed session's sample zero as a fixed origin, requests `EXT-X-START:TIME-OFFSET=0,PRECISE=YES` on the initial ad-enabled manifest, and never resets its mapping to a later HLS window. Seek or backward Kodi-clock reset disables mapping for the rest of that session. A forward ambiguous clock jump, or a stationary clock lasting at least 750 ms, permanently taints only the placements it intersects; later untouched placements can be tracked after their own continuous start. Unit tests cover these rules. A fresh Kodi run of this candidate anchor has not yet been made, so stable mapping is not yet target-verified; audible output and missing/early-end playback also remain outstanding. Ordinary Radio Browser sessions continue to have no ad mapper.
+
+Kodi's log also exposed an invalid empty `ad_vast_url` default. The setting now explicitly allows empty values; a fresh addon invocation on the target no longer logged that warning. Advertising remains opt-in through test mode, an enabled ad choice, and an explicit fixture URL.
+
 ## Runtime target and requirements
 
 Target: **Kodi 21.3 Omega**, the latest stable release found in the official
@@ -10,8 +329,8 @@ The minimum declared dependency is **`xbmc.python` 3.0.1**, as supplied by the
 This is a Kodi addon API version, not an embedded CPython version.
 
 **Tested Kodi runtime: 21.3 Omega**, revision `20251031-a3a448d26b`,
-macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. The host is
-`mbpdev`. A process-local USB restriction was required to complete Kodi startup;
+macOS 26.6.2 (25G83), ARM64, embedded CPython **3.11.7**. A process-local USB
+restriction was required to complete Kodi startup;
 see the runtime record below. All eight controlled streams produced advancing
 Kodi player time. HLS cue schedules matched exactly. Audible output was not
 independently confirmed; other Kodi platforms remain untested.
@@ -239,9 +558,10 @@ Targeted review found an intentionally disconnected request in `tests/test_trans
 
 Verified and fixed the URL-policy bypass through IPv4-embedded IPv6: standard
 NAT64 prefixes and mapped IPv4 remain blocked; 6to4 and both Teredo endpoints
-are checked for non-global IPv4 addresses. Deterministic resolver regressions
-also preserve public native IPv6, public 6to4, and the exact fixture-origin
-exception. Radio Browser click reporting now runs once after successful Kodi
+are checked for non-global IPv4 addresses. 6to4 eligibility follows the
+embedded Python runtime's global-address classification. Deterministic resolver
+regressions preserve public native IPv6 and the exact fixture-origin exception.
+Radio Browser click reporting now runs once after successful Kodi
 resolution, outside playback failure cleanup; reporting errors cannot stop or
 revoke the resolved session. Existing startup/create cancellation tests still
 pass, and ordering/failure-isolation regressions cover the new boundary. Fixture
@@ -496,3 +816,215 @@ suite passed 79 tests; the no-DNS bind regression first failed on an unexpected
 loopback health request. Package creation and `check_package.py` passed.
 ZIP SHA-256:
 `9db622bc949ff42df6a28b2e6d526dcf329d0d3db036ff3c6b035d1e336964b2`.
+
+## Controlled ICY marker scenarios — 2026-10-23
+
+The fixture server now provides finite, paced streams at
+`/icy/{scenario}.mp3` and expected ordered marker events at
+`/expected/icy/{scenario}.json`. Scenarios cover explicit AD commands,
+TildeATS category 4/category 0 and `##` end-break forms, wrapped commands,
+bare punctuation candidates, inferred return-to-track and paired-marker ends,
+and an unresolved break after 300 seconds. Tests drive the last timeout with a
+synthetic monotonic timestamp, so they do not sleep five minutes.
+Each finite HTTP stream now uses generated MP3 frame payloads and paces complete
+audio-plus-metadata frames. In test mode with the exact configured loopback
+origin, the Kodi controlled-stream menu exposes a localized entry for each
+scenario. Automated RelayServer coverage exercises the paired-marker stream
+through the actual session path and verifies the stripped audio bytes and
+observation-only events.
+
+Automated fixture validation decodes the framed stream through `IcyDecoder`,
+checks each event kind and classification against the fixture schedule, and
+compares every output audio byte with the original generated interval bytes.
+It also confirms that marker observations produce no replacement, VAST, or
+beacon event. Tracker history is limited to 64 observations in 300 seconds;
+unknown marker candidates are bounded and direction-neutral until inference or
+a listener's exact label provides context. A remembered label is scoped to the
+station and its exact ICY title. ICY remains observation-only: preroll and
+midroll replacement/beacon behavior apply only to eligible HLS sessions.
+
+Run the fixture-focused suite with
+`python3 -m pytest tests/test_fixtures.py tests/test_icy_markers.py tests/test_relay.py tests/test_kodi_runtime.py -q`.
+This validation is not a Kodi UI playback run; the controlled sequences are
+verified as bounded stream/decoder/tracker fixtures, and any separate Kodi
+menu or audible-playback check must be recorded independently.
+
+## Live GUI follow-up — 2026-10-24
+
+The Kodi desktop became available after the earlier locked-session attempts.
+Kodi reports **21.3.0** (21.3 Omega); `system_profiler` reports **macOS 26.6.2**,
+Apple **MacBookPro18,2**, and a **3840×2160** display. Input was keyboard events
+sent through desktop automation. Kodi's current Interface settings screen shows
+**Estuary**. Earlier in this same GUI acceptance effort, Confluence was installed
+and exercised for station listings, station context actions, map rendering, and
+return to the selected station; these observations are summarized in the table
+below and in Step 4 of `docs/superpowers/plans/2026-10-23-kodi-radio-gui.md`.
+
+| GUI acceptance check | Result |
+| --- | --- |
+| Kodi skin setting | Estuary shown in Interface settings |
+| Alternate skin | Confluence station-list/context-map path observed earlier; see Step 4 of the Task 7 plan |
+| Station listing and context menu | Observed; station rows and addon plus Kodi standard actions rendered |
+| Map from station context | Observed in Confluence: Guadeloupe heading, two-station rail, selected city pin, and complete wrapped map note |
+| Preview while map is open | Observed after installing the `windowed=True` preview change: focus reached the station rail and map remained visible |
+| Return selection | Escape from map returned to the originating station list with the same Guadeloupe station selected |
+| D-pad boundary exit | From the selected city pin, Left reached the map's Back control; this confirms an available exit, not exhaustive no-wrap behavior in every region |
+| Root map entry | Observed in Estuary: selected **Open the map** from the add-on root; the map opened with the Lagos pin and station rail |
+| Guided setup cancellation | Observed in Estuary: opened the setup country picker, pressed Back, and returned to the add-on root without saving a place |
+| Guided setup completion | Partial: selected Toronto, ON (43.577, -79.343) and the 25-mile radius; the flow displayed “Add another place / Save places.” A second run through the country selector returned “No stations or categories found” and exited to an empty root. A saved Toronto row was visible after the first run, but the final post-save map/use path was not confirmed. |
+| Empty-location handling | Observed: selecting Andorra returned the bounded-scan “No matching station locations with valid coordinates” message and saved no place. |
+| Settings | Observed in Estuary: add-on settings opened; Run setup, Guided setup, setup-row visibility, preview, diagnostics, and fixture settings were visible |
+| Controlled test stream directory | Observed in Estuary: the add-on displayed its controlled MP3/AAC tone, ICY metadata, HLS cue, missing/malformed cue, controlled-break, mutated-source, advanced-window, delayed-segment, explicit ICY command, and TildeATS fixture entries. The Mac locked when opening a fixture, before playback or marker output could be observed. |
+| Preview cancellation, zero click count, competing playback | Not verified live; adapter tests cover the dispatch and lifecycle boundaries |
+| Controlled fixture, actual playback click count, audible output | Not verified live in this GUI follow-up |
+
+The map rail remained visible while a real Radio Browser station preview was
+started. This establishes the GUI behavior, not audible output or a Radio Browser
+click count. Focused adapter tests assert that preview uses a separate route and
+does not send click reports. The map's single-station heading also exposed a
+pluralization defect (`1 stations`); the UI now uses localized singular and
+plural labels, covered by adapter tests. The approved first-slice GUI acceptance
+is therefore **partial**, not complete; themed windows stay deferred until the
+remaining live checks are covered.
+The corrected script and localization file were copied into Kodi's profile for
+verification, but the Mac locked before the map could be reopened to confirm the
+updated heading on screen.
+
+## Kodi player smoke through JSON-RPC — 2026-10-25
+
+Kodi 21.3 remained running with the add-on's controlled stream menu available
+over local JSON-RPC 13.5. Desktop automation still reported the Mac locked, so
+this run observed the player and fixture requests without a screen inspection.
+The five normal, stop, expired-window, mutated-source, and delayed-segment
+scenarios all matched the requested add-on item and passed the corrected clock
+check. The final rerun reached 14.309 seconds on normal playback, 10.093 seconds
+on the expired-window source, and 12.141 seconds on the mutation source. In the
+delayed-segment case it stayed at zero through about 8.3 seconds, then advanced
+to 8.184 seconds; Kodi reported `Player.Caching=false` and `cachepercentage=100`
+through the sample window. The Stop action succeeded. Pause, resume, and seek
+were rejected for this live stream, which reported `canseek=false`.
+
+The Kodi profile had test mode enabled and the loopback fixture origin set, with
+no VAST URL configured. No beacons were recorded. VAST preroll and midroll
+replacement remains validated by the independent relay decode run; this player
+smoke does not claim live Kodi ad replacement, audible output, or a visual GUI
+inspection. The JSON-RPC observation is stored as
+`kodi-player-acceptance-2026-10-25.json` with the local review reports.
+
+## Kodi ICY marker smoke through JSON-RPC — 2026-10-25
+
+With the diagnostic log enabled, Kodi opened each of the seven finite ICY
+fixtures from its **Controlled test streams** directory. For every scenario,
+the expected fixture item transition and one fixture-source request were
+observed, and the new entries in the Kodi profile's `events.jsonl` matched the
+fixture's ordered marker events:
+
+| Fixture | Kodi marker log result |
+| --- | --- |
+| `explicit` | `AD_START_30` produced an explicit break start; `AD_STOP` produced an explicit end |
+| `tildeats` | TildeATS category 4/category 0 pairs and `##` end values produced two explicit breaks |
+| `wrapped` | `#AD_START#` and `#AD_END#` produced an explicit break |
+| `return-to-track` | Bare `-` was a candidate and the later track title closed an inferred break |
+| `paired-marker` | `#`, `*`, `#` produced candidate observations and an inferred break |
+| `punctuation` | `-`, `#`, `*`, then a track title produced candidate observations and an inferred break |
+| `unresolved` | Bare `#` produced a candidate and inferred start; the five-minute unresolved timeout was not awaited |
+
+This verifies marker observation and classification on Kodi's actual add-on
+playback path. The locked desktop still prevented screen inspection, and the
+finite tone fixtures were not listened to or captured independently.
+
+## Spec-alignment follow-up — explicit station voting
+
+Station context menus now include **Vote for station**, as required by the
+radio-browser specification. Kodi asks the user to confirm before sending a
+vote. The add-on validates the station identifier and response shape, makes one
+Radio Browser request without retrying an uncertain mutation, and keeps voting
+separate from playback and click accounting. Tests cover confirmation and
+cancellation, endpoint construction, invalid input and response, success and
+rate-limited rejection, and one-attempt behavior. The corrected spec also
+matches the delivered Kodi input dialog, station metadata API, place rows, and
+saved `country_code` field. The GUI plan now identifies the map entry points as
+skin-mode scope and leaves themed-mode navigation as future work.
+
+On this revision, `python3 -m pytest -q` passed **1,087 tests in 118.67s**.
+`python3 -m compileall -q plugin.audio.kodi_donor_radio/resources/lib tests tools`,
+`git diff --check`, package creation, and the package manifest checker passed.
+Kodi add-on checker **0.0.36** on a fresh extraction for Omega reported no
+problems or warnings; its host Python emitted the known LibreSSL/urllib3
+compatibility warning. The Mac is still reported locked by desktop automation,
+so this run adds no new visual or audible acceptance evidence. Existing live
+GUI, Kodi player, and ICY observations remain limited to the evidence recorded
+above; live VAST beacon delivery and audible output are not claimed.
+
+The same pass also rejects a malformed MPEG-TS PAT/PMT packet whose adaptation
+field consumes the pointer byte; it now raises the normal bounded `AdError`
+instead of leaking an `IndexError` during controlled-ad validation.
+Fixture generation also checks numbered source, preroll, and replacement segments
+for missing sequence numbers and exact 1,920-tick PTS continuity between
+segments, in addition to validating each segment on its own.
+
+## Initial Kodi master startup attempt — 2026-10-24
+
+An initial launch attempt used the locally built Kodi **23.0-ALPHA1**, Git `434da3c`, from an isolated portable profile on the same Mac. Kodi's add-on manager discovered
+`plugin.audio.kodi_donor_radio` v0.1.0, and JSON-RPC v14.1 initialized, but Kodi
+did not finish startup. A process sample of the main thread remained in
+`CPeripheralBusUSB::DeviceAttachCallback` and
+`IOUSBInterfaceClass::start`; the configured loopback JSON-RPC listener never
+opened. This prevented invoking the add-on route or testing playback on this
+master build. Desktop automation also reported that the Mac was locked, so no
+GUI screen inspection was possible. This initial attempt was a host startup limitation, not an
+observed add-on route failure. The successful same-Mac launch and controlled
+VAST placement results are recorded in the 2026-10-25 section below. A fresh Kodi 21.3 relaunch on this Mac showed
+the same main-thread stack in `CPeripheralBusUSB::DeviceAttachCallback` and
+`IOUSBInterfaceClass::start` before opening its JSON-RPC listener. This
+reproduces a host startup blocker on both tested binaries; earlier Kodi 21.3
+playback observations remain historical and separate. The official Kodi
+add-on checker 0.0.36 also passed its Piers target on the current package,
+which is static package validation rather than a master-runtime test.
+
+
+## Separate Kodi VAST placement smoke, 2026-10-25
+
+On the local Mac, Kodi 23.0-ALPHA1 (`20261021-434da3c`) ran from its isolated portable profile with the addon enabled, test mode on, and an exact loopback-only fixture origin. The same controlled HLS source and player-clock observer were used for both runs. Both passed the requested-item identity check and bounded player-clock progress check.
+
+- **Preroll only:** Kodi requested `/vast/preroll`, `/ads/preroll.m3u8`, and both preroll transport-stream segments. The fixture recorded one impression, one start, and one first-quartile beacon. It also fetched the source manifest and programme segments.
+- **Midroll only:** Kodi requested `/vast/direct`, `/ads/replacement.m3u8`, and both replacement transport-stream segments after fetching the marked source stream. The fixture recorded one impression, one start, and one first-quartile beacon.
+- **Both placements enabled:** a separate 18-second run requested the direct VAST response and replacement media twice and recorded two impressions and two starts.
+
+The addon event log recorded the controlled HLS cue-out and cue-in and corresponding ad-tracking events. These results prove that Kodi drove each placement through the local VAST, HLS media, and beacon fixtures while its reported player clock advanced. They do not independently prove what was audible or establish production ad-position mapping; no audio capture or listening verification was performed. Radio Browser stations remain outside this loopback-only test configuration.
+
+## Radio Browser CDN/Adswizz stream inspection — 2026-10-25
+
+A read-only Radio Browser query returned 70,055 station records. Filtering the
+records locally by resolved hostname and `hls=1` found 8 `cdnstream1.com` HLS
+entries. Six top-level playlists were reachable; 5 exposed a readable media
+playlist. Four reachable media playlists contained segment paths under the
+AdsWizz delivery host: **100Hitz - 90s Alternative Hitz**, **GotRadio - Soft
+Rock Café**, **KMHD Adaptive AAC**, and **MIX 96 Sacramento**. KMHD also carried
+an opaque `adswizzContext` comment in `EXTINF`; no signed query or context value
+is retained here. The fetched manifests did not expose standard CUE-OUT/IN or
+SCTE-35 tags. Other entries included a broken IKIM FM endpoint and K-Love
+playlists whose child manifests required authorization. Radio Browser's HLS
+flag is directory metadata, not proof that a current child manifest is
+accessible.
+
+The KMHD playlist was also fetched during implementation: its `EXTINF` comment
+contained `adswizzContext`, and consecutive AAC segments used the AdsWizz
+delivery hostname with `ad_` basenames. The HLS parser now records only whether
+that context field was present. The cue tracker emits one observation-only
+`break_start`/`break_end` pair for the contiguous segment run, carries upstream
+media positions, deduplicates overlapping windows, and reports a sequence gap
+as unresolved. A relay-path test verifies that neither the context value nor
+segment URL or query string reaches diagnostics.
+
+A simultaneous 20-minute ICY sample of the Radio Browser **MS NOW** (listed as
+MSNBC), **CNBC International**, and **CNN** feeds found explicit Adswizz fields
+on MS NOW and CNN at startup; MS NOW later emitted repeated midroll markers.
+CNBC produced no metadata transitions in the sample, and CNN had no observed
+midroll. The marker parser now recognizes exact string `adw_ad=true/false`,
+records a valid `durationMilliseconds` of 1–300000 as seconds, and preserves a
+bounded `insertionType`. It emits explicit start/end events, updates on changed
+ad state, and deduplicates identical metadata while refreshing the active
+boundary timeout. A missing field does not end a break. Opaque `adswizzContext`
+and `adId` values are dropped from diagnostics.
+This remains observation-only and does not feed VAST replacement or beacons.
