@@ -136,6 +136,16 @@ def test_kodi_smoke_rejects_unrelated_item_even_with_advancing_clock():
     assert any('item' in item for item in smoke_ad_kodi.validate_observation(result))
 
 
+def test_kodi_smoke_ignores_previous_player_until_requested_fixture_starts():
+    result = {'source': 'normal', 'fixture': {'requests': {'/source/normal/index.m3u8': 1}},
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': False, 'time_seconds': 5.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.2},
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.4, 'at': 0.6},
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.8, 'at': 1.0}]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
 def test_kodi_smoke_rejects_frozen_clock_on_expected_item():
     result = {'source': 'normal', 'timeline': [
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0},

@@ -131,7 +131,10 @@ def validate_observation(result):
     """Require the requested Kodi item and locally advancing player time."""
     active = [sample for sample in result['timeline'] if sample.get('playing')]
     failures = []
-    if not active or any(sample.get('item_matches_expected') is not True for sample in active):
+    first_expected = next((index for index, sample in enumerate(active)
+                           if sample.get('item_matches_expected') is True), None)
+    if first_expected is None or any(
+            sample.get('item_matches_expected') is not True for sample in active[first_expected:]):
         failures.append('active Kodi item did not consistently match requested fixture')
     fixture = result.get('fixture')
     if isinstance(fixture, dict) and isinstance(fixture.get('requests'), dict):
