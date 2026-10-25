@@ -481,7 +481,7 @@ msgid "Vote for station"
 msgstr ""
 
 msgctxt "#30169"
-msgid "Vote for this station on Radio Browser? Votes from this connection are limited to one per station every 10 minutes."
+msgid "Vote for this station on Radio Browser? Votes from your network address are limited to one per station every 10 minutes."
 msgstr ""
 
 msgctxt "#30170"

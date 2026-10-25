@@ -143,7 +143,7 @@ def install_map_window(monkeypatch):
 
 
 class Directory:
-    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]; self.votes=[]
+    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]; self.votes=[]; self.vote_result=True
     def search(self, name, country, tag, offset, limit=50):
         self.searches.append((name,country,tag,offset,limit)); return [STATION] * 50
     def search_page(self, name, country, tag, offset, limit=50):
@@ -155,7 +155,7 @@ class Directory:
         names = self.tags(offset, limit)
         return names, len(names) >= limit
     def click(self, uuid): self.clicks.append(uuid)
-    def vote(self, uuid): self.votes.append(uuid); return True
+    def vote(self, uuid): self.votes.append(uuid); return self.vote_result
     def by_uuid(self, uuid): self.lookups.append(uuid); return STATION
     def country_entries(self): return [('Canada', 'CA'), ('France', 'FR')]
     def search_country(self, code, offset, limit=50):
@@ -1451,6 +1451,17 @@ def test_station_vote_requires_explicit_confirmation_and_does_not_count_a_play(k
     assert browser.clicks == browser.lookups == []
     assert state.messages[-1] == 'localized-30170'
     assert state.ended[-1] == {'succeeded': False, 'cacheToDisc': False}
+
+
+def test_station_vote_reports_rate_limited_response_without_counting_a_play(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.vote_result = False
+    state.remember = True
+    route(runtime, mode='vote', uuid='station-1')
+    assert browser.votes == ['station-1']
+    assert browser.clicks == browser.lookups == []
+    assert state.messages[-1] == 'localized-30171'
 
 
 def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(kodi, monkeypatch):

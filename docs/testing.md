@@ -946,7 +946,7 @@ matches the delivered Kodi input dialog, station metadata API, place rows, and
 saved `country_code` field. The GUI plan now identifies the map entry points as
 skin-mode scope and leaves themed-mode navigation as future work.
 
-On this revision, `python3 -m pytest -q` passed **1,084 tests in 118.12s**.
+On this revision, `python3 -m pytest -q` passed **1,085 tests in 118.47s**.
 `python3 -m compileall -q plugin.audio.kodi_donor_radio/resources/lib tests tools`,
 `git diff --check`, package creation, and the package manifest checker passed.
 Kodi add-on checker **0.0.36** on a fresh extraction for Omega reported no
