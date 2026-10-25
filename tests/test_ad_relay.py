@@ -7,6 +7,7 @@ import math
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
@@ -21,6 +22,9 @@ from url_policy import UrlPolicy
 
 
 ASSETS = None
+_SOURCE_SEGMENTS = json.loads((Path(__file__).resolve().parents[1] /
+                               'tools' / 'ad_audio_sources.json').read_text())['segments']
+_TONES = tuple(sorted({segment['tone_hz'] for segment in _SOURCE_SEGMENTS.values()}))
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -50,13 +54,14 @@ def decode_tone(data):
     samples = array.array('f'); samples.frombytes(pcm)
     # A narrow Goertzel scan makes the assertion about decoded sound, not TS bytes.
     def power(freq):
-        n = min(24000, len(samples))
+        start = min(57600, max(0, len(samples) - 19200))
+        window = samples[start:start + 19200]
         coeff = 2 * math.cos(2 * math.pi * freq / 48000)
         a = b = 0.0
-        for sample in samples[3000:3000+n]:
+        for sample in window:
             a, b = sample + coeff*a - b, a
         return a*a + b*b - coeff*a*b
-    return max((220, 330, 440, 550, 660, 770, 880), key=power)
+    return max(_TONES, key=power)
 
 
 @NEEDS_FFMPEG
@@ -83,7 +88,8 @@ def test_preroll_is_first_published_audio_and_cached_gets_are_stable(tmp_path):
         first = get(base + routes[0]); second = get(base + routes[1])
         assert first[0] == second[0] == 200
         assert inspect_ts(first[2]).samples == 96256
-        assert decode_tone(first[2]) != decode_tone(get(base + routes[4])[2])
+        assert decode_tone(first[2]) == 990
+        assert decode_tone(get(base + routes[4])[2]) == 660
         assert get(base + routes[0])[2] == first[2]
         assert get(base + routes[0], headers={'Range': 'bytes=0-187'})[2] == first[2][:188]
         assert get(base + routes[0], headers={'Range': 'bytes=999999-'})[0] == 416
