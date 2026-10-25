@@ -928,8 +928,10 @@ def run_plugin(argv):
         listing_succeeded = False
     except (OSError, ValueError, TypeError):
         listing_succeeded = False
-        _error(30012)
-        if action not in _ACTION_ROUTES:
+        if action in _ACTION_ROUTES:
+            _error(30167)
+        else:
+            _error(30012)
             item(text(30006), **retry)
             listing_succeeded = True  # A rendered Retry directory completed successfully.
     finally:

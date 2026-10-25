@@ -471,3 +471,7 @@ msgstr ""
 msgctxt "#30165"
 msgid "Saved places could not be loaded. You can still browse stations, favorites, search, and the map."
 msgstr ""
+
+msgctxt "#30167"
+msgid "The action could not be completed. Return to the list and try again."
+msgstr ""

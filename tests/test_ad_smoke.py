@@ -151,11 +151,53 @@ def test_kodi_smoke_accepts_expected_item_with_advancing_clock():
     assert smoke_ad_kodi.validate_observation(result) == []
 
 
+def test_kodi_smoke_requires_the_requested_loopback_source_manifest():
+    result = {'source': 'normal', 'fixture': {'requests': {'/source/mutation/index.m3u8': 1}},
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.6, 'at': 0.6},
+              ]}
+    assert any('expected fixture source' in item
+               for item in smoke_ad_kodi.validate_observation(result))
+
+
 def test_kodi_smoke_uses_wall_time_for_slow_json_rpc_samples():
     result = {'source': 'normal', 'timeline': [
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.0},
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.2, 'at': 1.2},
         {'playing': True, 'item_matches_expected': True, 'time_seconds': 2.4, 'at': 2.4}]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_accumulates_elapsed_time_across_clock_poll_plateaus():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.25},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.5},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0, 'at': 0.75},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0, 'at': 1.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0, 'at': 1.25},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 2.0, 'at': 1.5},
+    ]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_ignores_negative_startup_clock_samples():
+    result = {'source': 'normal', 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': -0.09, 'at': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.25},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.5},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.75, 'at': 1.0},
+    ]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_accepts_requested_item_when_successful_stop_precedes_clock_progress():
+    result = {'source': 'normal', 'actions': [{'action': 'stop', 'accepted': True}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.5},
+                  {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.75},
+              ]}
     assert smoke_ad_kodi.validate_observation(result) == []
 
 
@@ -184,6 +226,9 @@ def test_kodi_smoke_accepts_only_loopback_relay_media_item():
     expected = 'plugin://plugin.audio.kodi_donor_radio/?action=play'
     route = 'http://127.0.0.1:8767/media/' + 'a' * 48 + '/' + 'b' * 48 + '.ts'
     assert _item_matches_expected(route, expected)
+    assert not _item_matches_expected(expected, expected, previous_file=expected)
+    assert not _item_matches_expected(route, expected, previous_file=route)
+    assert _item_matches_expected(route, expected, previous_file='http://127.0.0.1:8767/old-item')
     assert not _item_matches_expected(route.replace('127.0.0.1', 'example.com'), expected)
     assert not _item_matches_expected('http://127.0.0.1:8767/media/not-an-id', expected)
 

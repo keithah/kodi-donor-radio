@@ -59,20 +59,20 @@ def _time(value):
 _RELAY_MEDIA_PATH = re.compile(r'/media/[0-9a-f]{48}/[0-9a-f]{48}(?:\.[a-z0-9]+)?')
 
 
-def _item_matches_expected(item_file, expected_file):
+def _item_matches_expected(item_file, expected_file, previous_file=None):
     if item_file == expected_file:
-        return True
+        return item_file != previous_file
     parts = urlsplit(item_file or '')
     try:
         port = parts.port
     except ValueError:
         return False
-    return (parts.scheme == 'http' and parts.hostname == '127.0.0.1'
+    return (item_file != previous_file and parts.scheme == 'http' and parts.hostname == '127.0.0.1'
             and parts.username is None and port is not None
             and _RELAY_MEDIA_PATH.fullmatch(parts.path) is not None)
 
 
-def sample(port, expected_file):
+def sample(port, expected_file, previous_file=None):
     active = rpc('Player.GetActivePlayers', port=port)
     if not active:
         return {'playing': False}
@@ -83,7 +83,8 @@ def sample(port, expected_file):
     conditions = rpc('XBMC.GetInfoBooleans',
                      {'booleans': ['Player.Caching', 'Player.Paused']}, port=port)
     return {'playing': True, 'playerid': playerid, 'time_seconds': _time(props.get('time')),
-            'item_matches_expected': _item_matches_expected(item.get('file'), expected_file),
+            'item_matches_expected': _item_matches_expected(item.get('file'), expected_file,
+                                                             previous_file),
             'total_seconds': _time(props.get('totaltime')), 'speed': props.get('speed'),
             'cachepercentage': props.get('cachepercentage'), 'live': props.get('live'),
             'canseek': props.get('canseek'), 'player_caching': conditions.get('Player.Caching'),
@@ -103,6 +104,12 @@ _SOURCE_FIXTURE_IDS = {
     'mutation': 'fixture-30046',
     'expired-window': 'fixture-30047',
     'stall': 'fixture-30048',
+}
+_SOURCE_FIXTURE_PATHS = {
+    'normal': '/source/normal/index.m3u8',
+    'mutation': '/source/mutation/index.m3u8',
+    'expired-window': '/source/expired-window/index.m3u8',
+    'stall': '/source/stall/index.m3u8',
 }
 
 
@@ -126,18 +133,49 @@ def validate_observation(result):
     failures = []
     if not active or any(sample.get('item_matches_expected') is not True for sample in active):
         failures.append('active Kodi item did not consistently match requested fixture')
-    matched = [(sample.get('at'), sample['time_seconds']) for sample in active
-               if sample.get('item_matches_expected') is True
-               and sample.get('time_seconds') is not None]
+    fixture = result.get('fixture')
+    if isinstance(fixture, dict) and isinstance(fixture.get('requests'), dict):
+        expected_path = _SOURCE_FIXTURE_PATHS.get(result.get('source'))
+        if expected_path and fixture['requests'].get(expected_path, 0) < 1:
+            failures.append('controlled fixture origin did not receive the expected fixture source request')
+    matched = []
+    for index, sample in enumerate(active):
+        position = sample.get('time_seconds')
+        if (sample.get('item_matches_expected') is not True
+                or not isinstance(position, (int, float))
+                or isinstance(position, bool) or not math.isfinite(position)
+                or position < 0):
+            # Kodi can expose a short negative millisecond component while the
+            # player starts. It is not a valid media-clock anchor.
+            continue
+        observed_at = sample.get('at')
+        if (not isinstance(observed_at, (int, float)) or isinstance(observed_at, bool)
+                or not math.isfinite(observed_at)):
+            observed_at = index * .25
+        matched.append((observed_at, position))
     bounded_progress = 0
-    for earlier, later in zip(matched, matched[1:]):
-        elapsed = (later[0] - earlier[0]
-                   if all(isinstance(value, (int, float)) and math.isfinite(value)
-                          for value in (earlier[0], later[0])) else .25)
-        delta = later[1] - earlier[1]
-        if 0 < delta <= max(0, elapsed) + .5:
-            bounded_progress += delta
-    if bounded_progress < .5:
+    last_progress = None
+    for observed_at, position in matched:
+        if last_progress is None:
+            last_progress = (observed_at, position)
+            continue
+        prior_at, prior_position = last_progress
+        elapsed = max(0, observed_at - prior_at)
+        delta = position - prior_position
+        if delta > 0:
+            if delta <= elapsed + .5:
+                bounded_progress += delta
+            # Even an oversized jump becomes the next anchor, but is not
+            # credited. Later smooth progress can still be observed.
+            last_progress = (observed_at, position)
+        elif delta < 0:
+            # A backward clock change starts a new observation epoch. Equal
+            # positions deliberately keep the old wall anchor so coarse Kodi
+            # clock updates can accrue elapsed time across repeated polls.
+            last_progress = (observed_at, position)
+    stopped_as_requested = any(action.get('action') == 'stop' and action.get('accepted') is True
+                               for action in result.get('actions', []))
+    if bounded_progress < .5 and not stopped_as_requested:
         failures.append('requested Kodi item did not show 0.5s of bounded clock advance')
     return failures
 
@@ -146,6 +184,11 @@ def observe(origin, port, source, duration, actions):
     with urlopen(origin + '/reset', timeout=3):
         pass
     file, label = _menu_file(port, source)
+    previous_file = None
+    active = rpc('Player.GetActivePlayers', port=port)
+    if active:
+        previous_file = rpc('Player.GetItem', {'playerid': active[0]['playerid'],
+            'properties': ['file']}, port=port)['item'].get('file')
     rpc('Player.Open', {'item': {'file': file}}, port=port)
     start = time.monotonic()
     timeline, action_results = [], []
@@ -171,7 +214,7 @@ def observe(origin, port, source, duration, actions):
                 action_results.append({'at': round(elapsed, 3), 'action': action,
                                        'accepted': False, 'error': type(error).__name__})
         try:
-            observation = sample(port, file)
+            observation = sample(port, file, previous_file)
         except (OSError, RuntimeError) as error:
             observation = {'rpc_error': type(error).__name__}
         observation['at'] = round(time.monotonic() - start, 3)

@@ -184,6 +184,8 @@ def test_packaged_gui_settings_and_map_have_localized_resources(package):
         settings = ET.fromstring(archive.read(root + 'settings.xml'))
         po = archive.read(root + 'language/resource.language.en_gb/strings.po').decode()
         translations = dict(re.findall(r'msgctxt "#(\d+)"\nmsgid "([^"\n]+)"', po))
+        assert translations.get('30167') == (
+            'The action could not be completed. Return to the list and try again.')
         for setting_id, default in [('guided_setup', 'false'), ('offer_setup_row', 'true'),
                                     ('preview_on_browse', 'true')]:
             setting = settings.find(".//setting[@id='%s']" % setting_id)

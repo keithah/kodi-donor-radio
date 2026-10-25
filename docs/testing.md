@@ -888,3 +888,46 @@ remaining live checks are covered.
 The corrected script and localization file were copied into Kodi's profile for
 verification, but the Mac locked before the map could be reopened to confirm the
 updated heading on screen.
+
+## Kodi player smoke through JSON-RPC — 2026-10-25
+
+Kodi 21.3 remained running with the add-on's controlled stream menu available
+over local JSON-RPC 13.5. Desktop automation still reported the Mac locked, so
+this run observed the player and fixture requests without a screen inspection.
+The five normal, stop, expired-window, mutated-source, and delayed-segment
+scenarios all matched the requested add-on item and passed the corrected clock
+check. The final rerun reached 14.309 seconds on normal playback, 10.093 seconds
+on the expired-window source, and 12.141 seconds on the mutation source. In the
+delayed-segment case it stayed at zero through about 8.3 seconds, then advanced
+to 8.184 seconds; Kodi reported `Player.Caching=false` and `cachepercentage=100`
+through the sample window. The Stop action succeeded. Pause, resume, and seek
+were rejected for this live stream, which reported `canseek=false`.
+
+The Kodi profile had test mode enabled and the loopback fixture origin set, with
+no VAST URL configured. No beacons were recorded. VAST preroll and midroll
+replacement remains validated by the independent relay decode run; this player
+smoke does not claim live Kodi ad replacement, audible output, or a visual GUI
+inspection. The JSON-RPC observation is stored as
+`kodi-player-acceptance-2026-10-25.json` with the local review reports.
+
+## Kodi ICY marker smoke through JSON-RPC — 2026-10-25
+
+With the diagnostic log enabled, Kodi opened each of the seven finite ICY
+fixtures from its **Controlled test streams** directory. For every scenario,
+the expected fixture item transition and one fixture-source request were
+observed, and the new entries in the Kodi profile's `events.jsonl` matched the
+fixture's ordered marker events:
+
+| Fixture | Kodi marker log result |
+| --- | --- |
+| `explicit` | `AD_START_30` produced an explicit break start; `AD_STOP` produced an explicit end |
+| `tildeats` | TildeATS category 4/category 0 pairs and `##` end values produced two explicit breaks |
+| `wrapped` | `#AD_START#` and `#AD_END#` produced an explicit break |
+| `return-to-track` | Bare `-` was a candidate and the later track title closed an inferred break |
+| `paired-marker` | `#`, `*`, `#` produced candidate observations and an inferred break |
+| `punctuation` | `-`, `#`, `*`, then a track title produced candidate observations and an inferred break |
+| `unresolved` | Bare `#` produced a candidate and inferred start; the five-minute unresolved timeout was not awaited |
+
+This verifies marker observation and classification on Kodi's actual add-on
+playback path. The locked desktop still prevented screen inspection, and the
+finite tone fixtures were not listened to or captured independently.

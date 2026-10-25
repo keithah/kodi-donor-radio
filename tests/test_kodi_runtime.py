@@ -1807,7 +1807,7 @@ def test_setup_failure_after_pending_place_does_not_write_and_abort_is_respected
     route(runtime, mode='setup')
     assert not (profile / 'places.json').exists()
     assert state.builtins == state.items == state.resolved == browser.clicks == []
-    assert 'localized-30012' in state.messages
+    assert 'localized-30167' in state.messages
 
 
 def test_settings_setup_action_and_guided_first_run_use_same_flow(kodi, monkeypatch):
@@ -1889,7 +1889,7 @@ def test_action_routes_reject_unsafe_or_fixture_identity_without_listing_replace
     route(runtime, mode=mode, **params)
     assert state.items == state.resolved == state.builtins == browser.lookups == browser.clicks == []
     assert state.ended == [{'succeeded':False,'cacheToDisc':False}]
-    assert 'localized-30012' in state.messages
+    assert 'localized-30167' in state.messages
 
 
 def playback_client(runtime, monkeypatch):
