@@ -320,6 +320,9 @@ def test_fractional_timestamp_does_not_hide_invalid_date_or_syntax(timestamp):
 @pytest.mark.parametrize('tag', [
     '#EXT-X-VENDOR:Security information from Curl',
     '#EXT-X-SCTE35:CUE="/DAuRl=="',
+    '#EXT-OATCLS-SCTE35:/DAuRl//abc==',
+    '#EXT-X-SCTE35:CUE=/DAuRl//abc==',
+    '#EXT-X-SCTE35:CUE="/DAuRl//abc=="',
     '#EXT-X-VENDOR:NOTE="URI=ordinary text",MARKER=YES',
     '#EXT-X-CUE-OUT-CONT:Security',
 ])

@@ -85,12 +85,26 @@ _URI_TOKEN_KEY = re.compile(r'(?:^|[-_.])(?:URI|URL)(?:$|[-_.])', re.I)
 _URI_ANY_KEY = re.compile(r'(?:URI|URL)', re.I)
 # Skip quoted values; inspect only unquoted tokens followed by an assignment.
 _URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
-_URI_VALUE = re.compile(r'(?:[a-z][a-z0-9+.-]*:)?//|\{\$', re.I)
+_URI_VALUE = re.compile(r'[a-z][a-z0-9+.-]*://|\{\$', re.I)
+_URI_ATTR_VALUE = re.compile(r'^\s*//|[a-z][a-z0-9+.-]*://|\{\$', re.I)
 
 
 def _has_uri_assignment(value):
-    return any(match.group('equals') and _URI_TOKEN_KEY.search(match.group('key'))
-               for match in _URI_TOKENS.finditer(value))
+    matches = list(_URI_TOKENS.finditer(value))
+    for index, match in enumerate(matches):
+        key = match.group('key')
+        if not match.group('equals') or key is None:
+            continue
+        if _URI_TOKEN_KEY.search(key):
+            return True
+        if not _URI_ANY_KEY.search(key) or index + 1 >= len(matches):
+            continue
+        attr_value = matches[index + 1].group(0)
+        if attr_value.startswith('"') and attr_value.endswith('"'):
+            attr_value = attr_value[1:-1]
+        if _URI_ATTR_VALUE.search(attr_value):
+            return True
+    return False
 
 
 def _attributes(value):
@@ -281,7 +295,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                 if (key.upper() in ('X-ASSET-LIST', 'X-ASSET-URI') or
                         (key != allowed_uri and _URI_TOKEN_KEY.search(key)) or
                         (key != allowed_uri and _URI_ANY_KEY.search(key) and
-                         _URI_VALUE.search(attr_value))):
+                         _URI_ATTR_VALUE.search(attr_value))):
                     raise UnsupportedPlaylist('Unsupported URI-bearing attribute')
         elif tag not in _MEDIA and tag not in ('EXT-X-VERSION', 'EXT-X-INDEPENDENT-SEGMENTS'):
             if _has_uri_assignment(value) or _URI_VALUE.search(value):
