@@ -34,6 +34,27 @@ def test_fixture_schedules_match_expected_observations():
         assert events == module.expected(scenario)
 
 
+def test_mp3_frame_payload_strips_id3_footer_and_v1_and_rejects_invalid_tags(tmp_path):
+    spec = importlib.util.spec_from_file_location('fixture_server', TOOLS / 'fixture_server.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    path = tmp_path / 'tone.mp3'
+    frames = b'\xff\xfb\x90\x00' * 8
+    id3v2 = b'ID3\x04\x00\x10\x00\x00\x00\x04' + b'abcd'
+    footer = b'3DI\x04\x00\x10\x00\x00\x00\x04'
+    id3v1 = b'TAG' + b'\0' * 125
+    path.write_bytes(id3v2 + footer + frames + id3v1)
+    assert module.mp3_frame_payload(path) == frames
+
+    path.write_bytes(b'ID3\x04\x00\x00\x00\x00\x00\x80' + frames)
+    with pytest.raises(ValueError, match='Invalid ID3v2 size'):
+        module.mp3_frame_payload(path)
+
+    path.write_bytes(b'ID3\x04\x00\x00\x00\x00\x00\x00')
+    with pytest.raises(ValueError, match='no frame data'):
+        module.mp3_frame_payload(path)
+
+
 def test_fixture_tool_help_documents_scenarios_and_audio_generator():
     for filename in ('fixture_server.py', 'generate_audio.py'):
         result = subprocess.run([sys.executable, str(TOOLS / filename), '--help'], capture_output=True, text=True)

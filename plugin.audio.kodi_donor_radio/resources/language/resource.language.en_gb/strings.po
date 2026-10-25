@@ -475,3 +475,19 @@ msgstr ""
 msgctxt "#30167"
 msgid "The action could not be completed. Return to the list and try again."
 msgstr ""
+
+msgctxt "#30168"
+msgid "Vote for station"
+msgstr ""
+
+msgctxt "#30169"
+msgid "Vote for this station on Radio Browser? Votes from this connection are limited to one per station every 10 minutes."
+msgstr ""
+
+msgctxt "#30170"
+msgid "Your vote was recorded."
+msgstr ""
+
+msgctxt "#30171"
+msgid "Radio Browser did not record the vote. You may need to wait before trying again."
+msgstr ""

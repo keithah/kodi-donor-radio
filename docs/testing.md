@@ -932,3 +932,26 @@ fixture's ordered marker events:
 This verifies marker observation and classification on Kodi's actual add-on
 playback path. The locked desktop still prevented screen inspection, and the
 finite tone fixtures were not listened to or captured independently.
+
+## Spec-alignment follow-up — explicit station voting
+
+Station context menus now include **Vote for station**, as required by the
+radio-browser specification. Kodi asks the user to confirm before sending a
+vote. The add-on validates the station identifier and response shape, makes one
+Radio Browser request without retrying an uncertain mutation, and keeps voting
+separate from playback and click accounting. Tests cover confirmation and
+cancellation, endpoint construction, invalid input and response, success and
+rate-limited rejection, and one-attempt behavior. The corrected spec also
+matches the delivered Kodi input dialog, station metadata API, place rows, and
+saved `country_code` field. The GUI plan now identifies the map entry points as
+skin-mode scope and leaves themed-mode navigation as future work.
+
+On this revision, `python3 -m pytest -q` passed **1,084 tests in 118.12s**.
+`python3 -m compileall -q plugin.audio.kodi_donor_radio/resources/lib tests tools`,
+`git diff --check`, package creation, and the package manifest checker passed.
+Kodi add-on checker **0.0.36** on a fresh extraction for Omega reported no
+problems or warnings; its host Python emitted the known LibreSSL/urllib3
+compatibility warning. The Mac is still reported locked by desktop automation,
+so this run adds no new visual or audible acceptance evidence. Existing live
+GUI, Kodi player, and ICY observations remain limited to the evidence recorded
+above; live VAST beacon delivery and audible output are not claimed.

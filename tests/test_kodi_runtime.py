@@ -143,7 +143,7 @@ def install_map_window(monkeypatch):
 
 
 class Directory:
-    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]
+    def __init__(self, cancel=None): self.cancel=cancel; self.searches=[]; self.clicks=[]; self.lookups=[]; self.votes=[]
     def search(self, name, country, tag, offset, limit=50):
         self.searches.append((name,country,tag,offset,limit)); return [STATION] * 50
     def search_page(self, name, country, tag, offset, limit=50):
@@ -155,6 +155,7 @@ class Directory:
         names = self.tags(offset, limit)
         return names, len(names) >= limit
     def click(self, uuid): self.clicks.append(uuid)
+    def vote(self, uuid): self.votes.append(uuid); return True
     def by_uuid(self, uuid): self.lookups.append(uuid); return STATION
     def country_entries(self): return [('Canada', 'CA'), ('France', 'FR')]
     def search_country(self, code, offset, limit=50):
@@ -1431,11 +1432,25 @@ def test_station_display_metadata_safe_artwork_and_uuid_links(kodi, monkeypatch)
     assert item.music_info.comment == 'San Mateo · jazz,news'
     assert item.info == {}
     assert item.props['IsPlayable'] == 'true' and folder is False and item.folder is False
+    assert any('mode=vote' in command for _, command in item.context)
     fallback = state.items[1][1].art['thumb']
     assert Path(fallback).parts[-2:] == ('resources', 'station-monogram.png')
     assert Path(fallback).is_file()
     assert all('secret' not in url for url, _, _ in state.items)
     assert browser.clicks == browser.lookups == []
+
+
+def test_station_vote_requires_explicit_confirmation_and_does_not_count_a_play(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='vote', uuid='station-1')
+    assert browser.votes == []
+    state.remember = True
+    route(runtime, mode='vote', uuid='station-1')
+    assert browser.votes == ['station-1']
+    assert browser.clicks == browser.lookups == []
+    assert state.messages[-1] == 'localized-30170'
+    assert state.ended[-1] == {'succeeded': False, 'cacheToDisc': False}
 
 
 def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(kodi, monkeypatch):
@@ -1625,9 +1640,10 @@ def test_station_context_actions_are_uuid_only_and_favorite_state_is_current(kod
     assert [context_params(command) for _, command in menus] == [
         {'mode': 'play', 'uuid': 'station-1'}, {'mode': 'favorite_add', 'uuid': 'station-1'},
         {'mode': 'map', 'uuid': 'station-1', 'origin': map_origin},
-        {'mode': 'station_info', 'uuid': 'station-1'}]
+        {'mode': 'station_info', 'uuid': 'station-1'},
+        {'mode': 'vote', 'uuid': 'station-1'}]
     assert all(STATION.url not in command for _, command in menus)
-    assert [label for label, _ in menus] == ['localized-30120', 'localized-30121', 'localized-30123', 'localized-30124']
+    assert [label for label, _ in menus] == ['localized-30120', 'localized-30121', 'localized-30123', 'localized-30124', 'localized-30168']
     FavoriteStore(profile).add(StationSummary.from_station(STATION))
     state.items.clear()
     route(runtime, mode='favorites')

@@ -4,7 +4,7 @@
 
 **Goal:** Deliver the first usable Kodi Donor Radio GUI slice: skin-native discovery listings, saved places and favorites, guided setup, and one shared map window, while preserving deliberate playback/click accounting and existing observation-only ICY behavior.
 
-**Architecture:** Pure Python modules own bounded profile persistence, station display records, place filtering, and map projection/navigation. The Kodi plugin layer builds native directory items, settings and dialogs, while a single Kodi `WindowXML` map is launched from either interface mode and reuses station/action routes. Persist station UUIDs and safe display metadata only; resolve stream URLs through the existing deliberate-play route.
+**Architecture:** Pure Python modules own bounded profile persistence, station display records, place filtering, and map projection/navigation. The Kodi plugin layer builds native directory items, settings and dialogs, while one Kodi `WindowXML` map is launched from the skin-mode root entry or station context action and reuses station/action routes. A themed-mode entry remains future scope. Persist station UUIDs and safe display metadata only; resolve stream URLs through the existing deliberate-play route.
 
 **Tech Stack:** Python 3.8+ standard library, Kodi 21.3 Python API, Kodi settings/localization XML, pytest.
 

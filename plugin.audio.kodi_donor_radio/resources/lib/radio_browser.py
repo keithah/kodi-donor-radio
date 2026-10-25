@@ -234,3 +234,11 @@ class RadioBrowser:
             self._json('/json/url/' + quote(uuid, safe=''), retry=False)
         except (OSError, ValueError):
             pass  # Click counting cannot prevent listening.
+
+    def vote(self, station_uuid):
+        """Submit one deliberate vote; never retry an uncertain public mutation."""
+        station_identifier(station_uuid)
+        result = self._json('/json/vote/' + quote(station_uuid, safe=''), retry=False)
+        if not isinstance(result, dict) or type(result.get('ok')) is not bool:
+            raise ValueError('Invalid vote response')
+        return result['ok']

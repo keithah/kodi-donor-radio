@@ -51,9 +51,11 @@ Advertising settings apply to the next station selection without a restart.
 
 The root lists setup, saved places, Favorites, genre/country browsing, Search,
 Open the map, Settings, and the existing ICY marker action. Station menus provide
-Play, Add to / Remove from favorites, Show on map, and Station info. Station
-routes contain UUIDs; playback resolves the current stream through the relay.
-Favorites retain safe display metadata and the last deliberate-play time.
+Play, Add to / Remove from favorites, Show on map, Station info, and an explicit
+Vote for station action. Voting asks for confirmation, sends one non-retried
+Radio Browser vote, and does not count as a play. Station routes contain UUIDs;
+playback resolves the current stream through the relay. Favorites retain safe
+display metadata and the last deliberate-play time.
 
 Choose **Set up Donor Radio** from the root, or **Run setup** in Settings. Native dialogs ask
 for a country before browsing its bounded station scan or searching for a place

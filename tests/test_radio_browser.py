@@ -78,6 +78,31 @@ def test_click_one_attempt_per_selection_even_uncertain_delivery():
     assert len(transport.calls) == 2
 
 
+def test_vote_uses_uuid_endpoint_validates_result_and_never_retries():
+    rb, transport = browser([Reply(b'{"ok":true,"message":"voted"}'),
+                             Reply(b'{"ok":false,"message":"wait"}'),
+                             TimeoutError('delivery uncertain')])
+    assert rb.vote('station-uuid') is True
+    assert rb.vote('station-uuid') is False
+    with pytest.raises(TimeoutError):
+        rb.vote('station-uuid')
+    assert len(transport.calls) == 3
+    assert all(call[0] == 'https://one.example/json/vote/station-uuid'
+               for call in transport.calls)
+    assert all(call[1]['User-Agent'] == 'kodi-donor-radio/0.1.0'
+               for call in transport.calls)
+
+
+def test_vote_rejects_invalid_uuid_and_unstructured_result():
+    rb, transport = browser([Reply(b'[]')])
+    with pytest.raises(ValueError, match='Invalid station identifier'):
+        rb.vote('../bad')
+    assert transport.calls == []
+    with pytest.raises(ValueError, match='Invalid vote response'):
+        rb.vote('station-uuid')
+    assert len(transport.calls) == 1
+
+
 def test_empty_mirror_discovery_is_not_cached_and_can_recover():
     from http_client import HttpError
     from radio_browser import RadioBrowser

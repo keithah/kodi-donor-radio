@@ -120,14 +120,15 @@ always-present actions. Test mode adds a controlled test streams row at the end.
 | Favorites | `?mode=favorites` | Saved stations in user order | Yes |
 | Browse by genre | `?mode=tags` | Tag list, then `?mode=tag&tag=<name>` | Yes |
 | Browse by country | `?mode=countries` | Country list, then `?mode=country&code=<iso>` | Yes |
-| Search… | `?mode=search` | Opens `xbmc.Keyboard`, then results | Yes |
+| Search… | `?mode=search` | Opens Kodi's native input dialog, then results | Yes |
 | Open the map | `?mode=map` | Launches the map `WindowXML`, returns no items | No |
 | Settings | `?mode=settings` | `Addon.OpenSettings` | No |
 | Label latest ICY marker | `?mode=label_icy_marker` | Opens marker/action and station-memory dialogs | No |
 | Controlled test streams | `?mode=tests` | Lists local marker and ad fixtures; test mode only | Yes |
 
-The setup row is hidden when `offer_setup_row` is false. Place rows carry their
-station count in `label2`.
+The setup row is hidden when `offer_setup_row` is false. The current root listing
+shows each saved place by name; showing its station count in `label2` remains a
+product target.
 
 When `guided_setup` is enabled and there are no saved places, the automatic setup
 dialog is offered once per Kodi session. Cancelling it returns to the root without
@@ -140,13 +141,13 @@ setup row when `offer_setup_row` is false.
 - `label` — station name. Keep the frequency if the name has one; do not synthesise it.
 - `label2` — city, then codec and bitrate. `San Mateo · AAC 64`.
 - `art` — use the bundled generic “DR” tile for this first GUI slice. Do not pass a directory-provided favicon URL to Kodi: its native artwork loader bypasses this add-on's destination and redirect validation. Remote favicons may be enabled after bounded validated fetching and local caching are implemented.
-- `setInfo('music', ...)` — `title`, `genre` from tags, `comment` for the plot panel.
+- `getMusicInfoTag()` — `setTitle`, `setGenres` from tags, and `setComment` for the plot panel.
 - `setProperty('IsPlayable', 'true')` and `setIsFolder(False)`, so the skin treats it as a track.
 - Station URL: resolve through `?mode=play&uuid=<stationuuid>` and `setResolvedUrl`, never hand the skin the raw stream URL. The indirection is where the click report and the favourite's last-played timestamp happen.
 
 ### Context menu
 
-Every station item gets `addContextMenuItems` with: Play, Add to / Remove from favorites, Show on map, Station info. The same four actions appear in the themed mode's own context dialog, so write them once and share them.
+Every station item gets `addContextMenuItems` with: Play, Add to / Remove from favorites, Show on map, Station info, and Vote for station. The same five actions are a product target for the themed mode's context dialog, which remains deferred.
 
 Place and folder rows get: Make default, Change radius, Remove.
 
@@ -318,7 +319,7 @@ Four things persist, all in the add-on's profile directory rather than in `setti
 
 | Store | Holds | Notes |
 | --- | --- | --- |
-| `places.json` | id, display name, lat, lon, `radius_km`, `is_default` | Radius is stored in kilometers; the UI accepts miles and converts with 1 mile = 1.609344 km. Order is the order they appear on Home |
+| `places.json` | id, display name, lat, lon, `country_code`, `radius_km`, `is_default` | Country code is retained for bounded geographic lookup. Radius is stored in kilometers; the UI accepts miles and converts with 1 mile = 1.609344 km. Order is the order they appear on Home |
 | `favorites.json` | station UUID, name cached, added timestamp, user order | Name is cached so the list renders offline |
 | `recent_searches.json` | query string, scope, timestamp | Capped at 10, most recent first |
 | `history.json` | station UUID, play count, last played | Drives Most played and Recently played |

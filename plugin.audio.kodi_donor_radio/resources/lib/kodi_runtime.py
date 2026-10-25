@@ -327,7 +327,7 @@ def _place_stations(browser, place, offset, cancel):
 
 
 _RADIUS_MILES = (10, 25, 60, 100, 250)
-_ACTION_ROUTES = frozenset(('setup', 'map', 'station_info', 'settings', 'label_icy_marker',
+_ACTION_ROUTES = frozenset(('setup', 'map', 'station_info', 'vote', 'settings', 'label_icy_marker',
                             'favorite_add', 'favorite_remove', 'place_default',
                             'place_radius', 'place_remove'))
 
@@ -473,6 +473,15 @@ def _station_info(browser, params, monitor, cancel):
     if summary.latitude is not None and summary.longitude is not None:
         details.append('%.3f, %.3f' % (summary.latitude, summary.longitude))
     xbmcgui.Dialog().ok(text(30124), '\n'.join(details))
+
+
+def _vote(browser, params, monitor, cancel):
+    station_uuid = _real_station_uuid(params.get('uuid', ''))
+    dialog = xbmcgui.Dialog()
+    if not dialog.yesno(text(30168), text(30169)):
+        return
+    accepted = _operation(lambda: browser.vote(station_uuid), monitor, cancel)
+    dialog.ok(text(30168), text(30170 if accepted else 30171))
 
 
 def _profile_action(mode, params, browser, monitor, cancel):
@@ -660,6 +669,8 @@ def _ui_transition(mode, params, monitor, cancel, base='plugin://plugin.audio.ko
         _guided_setup(RadioBrowser(cancel=cancel), monitor, cancel)
     elif mode == 'station_info':
         _station_info(RadioBrowser(cancel=cancel), params, monitor, cancel)
+    elif mode == 'vote':
+        _vote(RadioBrowser(cancel=cancel), params, monitor, cancel)
     elif mode == 'map':
         _open_map(params, monitor, cancel, base)
 
@@ -725,7 +736,7 @@ def run_plugin(argv):
             **({'origin': originating_route()} if target == 'map' else {})))
             for label, target in ((30120, 'play'),
                 (30122 if favorite else 30121, 'favorite_remove' if favorite else 'favorite_add'),
-                (30123, 'map'), (30124, 'station_info'))])
+                (30123, 'map'), (30124, 'station_info'), (30168, 'vote'))])
         xbmcplugin.addDirectoryItem(handle, url(mode='play', uuid=summary.station_uuid), entry, isFolder=False)
     if action in ('play', 'play_fixture'):
         client, session = None, None
@@ -843,7 +854,7 @@ def run_plugin(argv):
         elif action == 'settings':
             xbmcaddon.Addon().openSettings()
             listing_succeeded = False
-        elif action in ('setup', 'map', 'station_info'):
+        elif action in ('setup', 'map', 'station_info', 'vote'):
             _ui_transition(action, params, monitor, cancel, base)
             listing_succeeded = False
         elif action in ('favorite_add', 'favorite_remove', 'place_default', 'place_radius', 'place_remove'):
