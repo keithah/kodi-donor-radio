@@ -12,11 +12,11 @@
 
 **Status:** User-approved design and implemented first slice: skin-native listings,
 sequential Kodi setup dialogs, and the shared map. Automated and package checks are
-complete; Kodi 21.3 live acceptance is partial (listings, station-context map,
-preview staying in the map, and return selection observed). Setup completion,
-root-map launch, full D-pad/focus matrix, playback/click accounting, and controlled
-fixture audio remain pending. Themed windows remain deferred until first-slice
-acceptance is complete.
+complete; Kodi 21.3 live acceptance is partial (listings, station-context and
+root map launch, preview staying in the map, and return selection observed).
+Setup completion, full D-pad/focus matrix, playback/click accounting, and
+controlled fixture audio remain pending. Themed windows remain deferred until
+first-slice acceptance is complete.
 
 ## Global Constraints
 
@@ -187,7 +187,7 @@ acceptance is complete.
 - [x] **Step 1: Add/complete package checks** proving settings/localization/map XML/assets ship and tests/fixtures/dev-only tools do not.
 - [x] **Step 2: Run** `python3 -m pytest -q`, `python3 -m compileall -q plugin.audio.kodi_donor_radio tests`, `git diff --check`, and the repository's package-check command; retain exact output/results.
 - [x] **Step 3: Build the installable add-on ZIP** and verify its manifest and contents.
-- [ ] **Step 4: Install/run with Kodi 21.3** on Estuary and one alternate skin; verify skin-mode root and nested listings, setup cancellation/completion, map launch from root and station menu, pin/rail D-pad navigation without wrapping, return focus, settings, playback and click count, and preview cancellation/no-click behavior. Record Kodi version, display resolution, input method, and observed focus behavior. **Partial live result (2026-10-24):** Kodi 21.3.0, macOS 26.6.2 on MacBookPro18,2, 3840×2160 system display, keyboard via desktop automation. Estuary showed the root map entry and opened the map; Back returned to the same selected root row on repeat. Guided setup opened and cancellation returned to root without saving. A Toronto candidate and 25-mile radius were selected, with the place shown in the root listing, but a subsequent country-picker run ended with “No stations or categories found” and an empty root; end-to-end setup completion remains unverified. Andorra's no-coordinate scan displayed its expected no-location message. The add-on settings screen rendered its interface, preview, diagnostics, and fixture options. Earlier Confluence checks covered station listings/context actions, the station-context map with two Guadeloupe stations, wrapped note text, preview in the map, return to the selected station, and one D-pad edge to Back. Still pending: reliable guided-setup completion, exhaustive pin/rail/control boundaries and focus restoration, live click count, controlled-fixture and audible playback, and preview cancellation/no-click/competing-playback checks. Kodi log reports `mbpdev.local`; this evidence alone does not establish that the running Kodi process is on a separate host from mbpdev.**
+- [ ] **Step 4: Install/run with Kodi 21.3** on Estuary and one alternate skin; verify skin-mode root and nested listings, setup cancellation/completion, map launch from root and station menu, pin/rail D-pad navigation without wrapping, return focus, settings, playback and click count, and preview cancellation/no-click behavior. Record Kodi version, display resolution, input method, and observed focus behavior. **Partial live result (2026-10-24):** Kodi 21.3.0, macOS 26.6.2 on MacBookPro18,2, 3840×2160 system display, keyboard via desktop automation. Estuary showed the root map entry and opened the map; Back returned to the same selected root row on repeat. Guided setup opened and cancellation returned to root without saving. A Toronto candidate and 25-mile radius were selected, with the place shown in the root listing, but a subsequent country-picker run ended with “No stations or categories found” and an empty root; end-to-end setup completion remains unverified. Andorra's no-coordinate scan displayed its expected no-location message. The add-on settings screen rendered its interface, preview, diagnostics, and fixture options. Earlier Confluence checks covered station listings/context actions, the station-context map with two Guadeloupe stations, wrapped note text, preview in the map, return to the selected station, and one D-pad edge to Back. Still pending: reliable guided-setup completion, exhaustive pin/rail/control boundaries and focus restoration, live click count, controlled-fixture and audible playback, and preview cancellation/no-click/competing-playback checks.**
 - [x] **Step 5: If GUI access is unavailable**, record that explicitly and finish the automated/package checks without claiming end-to-end verification.
 - [x] **Step 6: Update user documentation** with implemented routes, settings, local setup, acceptance results, and any remaining known limitations.
 - [x] **Step 7: Commit** as `test: verify Kodi radio GUI package and flows`.

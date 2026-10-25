@@ -880,13 +880,11 @@ return to the selected station; see the 2026-10-23 live observation notes above.
 The map rail remained visible while a real Radio Browser station preview was
 started. This establishes the GUI behavior, not audible output or a Radio Browser
 click count. Focused adapter tests assert that preview uses a separate route and
-does not send click reports. The application log identifies `mbpdev.local`; this
-log identity does not independently establish that the running process is on a
-different host from mbpdev. The map's single-station heading also exposed a
+does not send click reports. The map's single-station heading also exposed a
 pluralization defect (`1 stations`); the UI now uses localized singular and
 plural labels, covered by adapter tests. The approved first-slice GUI acceptance
 is therefore **partial**, not complete; themed windows stay deferred until the
 remaining live checks are covered.
 The corrected script and localization file were copied into Kodi's profile for
-verification, but the Mac locked before I could reopen the map and confirm the
+verification, but the Mac locked before the map could be reopened to confirm the
 updated heading on screen.

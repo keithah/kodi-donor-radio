@@ -661,6 +661,69 @@ def test_icy_learning_rejects_stale_candidate_session_and_stop(relay, origin, tm
     assert not (tmp_path / 'icy-markers.json').exists()
 
 
+def test_icy_marker_store_write_does_not_hold_relay_or_session_locks(relay, origin, tmp_path, monkeypatch):
+    from icy_marker_store import IcyMarkerStore
+
+    store = IcyMarkerStore(tmp_path)
+    relay[1].icy_marker_store = store
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    entered_write = threading.Event()
+    finish_write = threading.Event()
+    original_learn = store.learn
+
+    def slow_learn(*args):
+        entered_write.set()
+        assert finish_write.wait(2)
+        return original_learn(*args)
+
+    monkeypatch.setattr(store, 'learn', slow_learn)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        labeling = pool.submit(relay[1].label_icy_marker, session.id, '-', 'end', True)
+        try:
+            assert entered_write.wait(1)
+            lookup = pool.submit(relay[1].get, session.id)
+            assert lookup.result(timeout=0.5) is session
+        finally:
+            finish_write.set()
+        assert labeling.result(timeout=2) is True
+
+
+def test_icy_marker_rule_persists_but_stale_candidate_is_not_labeled(relay, origin, tmp_path, monkeypatch):
+    from icy_marker_store import IcyMarkerStore
+
+    store = IcyMarkerStore(tmp_path)
+    relay[1].icy_marker_store = store
+    session = create(relay, origin, '/icy')
+    observe_marker(session, '-')
+    entered_write = threading.Event()
+    finish_write = threading.Event()
+    original_learn = store.learn
+
+    def slow_learn(*args):
+        entered_write.set()
+        assert finish_write.wait(2)
+        return original_learn(*args)
+
+    monkeypatch.setattr(store, 'learn', slow_learn)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        labeling = pool.submit(relay[1].label_icy_marker, session.id, '-', 'end', True)
+        assert entered_write.wait(1)
+        def replace_candidate():
+            with session._lock:
+                session.icy_tracker._candidate = (time.monotonic(), '#')
+
+        replacement = pool.submit(replace_candidate)
+        try:
+            replacement.result(timeout=0.5)
+        finally:
+            finish_write.set()
+        assert labeling.result(timeout=2) is False
+
+    assert store.lookup('id', '-') == 'end'
+    assert not any(event.kind == 'icy_marker_labeled' for event in relay[2].events)
+
+
 def test_icy_control_does_not_expose_unsafe_or_oversized_candidate(relay, origin):
     from control import ControlClient
     client = ControlClient(relay[3])

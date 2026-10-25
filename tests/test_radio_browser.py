@@ -310,6 +310,20 @@ def test_invalid_country_code_and_empty_normalized_name_are_not_persisted():
     assert results[0].country_code == ''
 
 
+@pytest.mark.parametrize('raw_code, expected', [
+    ('fr', 'FR'), (' FR ', 'FR'), ('FRA', ''), ('GERMANY', ''), ('ßß', ''),
+])
+def test_country_code_requires_the_complete_trimmed_value_to_be_two_ascii_letters(raw_code, expected):
+    row = {'stationuuid': 'a', 'name': 'Radio', 'url': 'https://radio.example/live',
+           'countrycode': raw_code}
+    rb, _ = browser([Reply(json.dumps([row]).encode())])
+
+    results = rb.search('', '', '', 0)
+
+    assert len(results) == 1
+    assert results[0].country_code == expected
+
+
 def test_geographic_query_uses_only_documented_filters_and_tracks_raw_page_length():
     row = {'stationuuid':'a','name':'Radio','url':'https://radio.example/live','geo_lat':0,'geo_long':0}
     rb, transport = browser([Reply(json.dumps([None]*49+[row]).encode())])

@@ -90,11 +90,12 @@ def check_contents(contents):
     require(map_xml.tag == 'window', 'Invalid map skin root')
     map_textures = {element.text for element in map_xml.iter()
                     if element.tag in ('texture', 'texturefocus', 'texturenofocus') and element.text}
+    addon_texture_prefix = 'special://home/addons/%s/' % ADDON_ID
     for texture in map_textures:
-        if texture == ('special://home/addons/%s/resources/skins/Default/media/radio-white.png'
-                       % ADDON_ID):
-            require('resources/skins/Default/media/radio-white.png' in contents,
-                    'Map texture missing from skin media directory')
+        if texture.startswith(addon_texture_prefix):
+            package_path = texture[len(addon_texture_prefix):]
+            require(package_path in contents,
+                    'Map texture missing from package: ' + texture)
     po = contents['resources/language/resource.language.en_gb/strings.po'].decode('utf-8')
     localized = set(re.findall(r'^msgctxt "#(\d+)"$', po, re.M))
     require('30000' in localized and 'Content-Type: text/plain; charset=UTF-8' in po,

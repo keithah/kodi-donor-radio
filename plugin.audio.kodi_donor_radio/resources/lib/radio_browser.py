@@ -185,10 +185,10 @@ class RadioBrowser:
             except ValueError:
                 latitude = longitude = None
             metadata = {name: bounded_text(row.get(source), limit) for name, source, limit in (
-                ('country', 'country', 256), ('country_code', 'countrycode', 2),
+                ('country', 'country', 256), ('country_code', 'countrycode', 8),
                 ('state', 'state', 256), ('city', 'city', 256), ('language', 'language', 256),
                 ('tags', 'tags', 1024))}
-            code = metadata['country_code'].upper()
+            code = metadata['country_code'].strip().upper()
             metadata['country_code'] = code if len(code) == 2 and code.isascii() and code.isalpha() else ''
             title = bounded_text(title, 512)
             if not title.strip():

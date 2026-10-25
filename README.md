@@ -86,12 +86,12 @@ playback starts share a profile lock and intent token. Kodi UI actions, other
 add-ons, and native `setResolvedUrl` starts remain outside that lock and can
 race; the pending preview handoff is bounded to five seconds.
 
-The new GUI has automated and package coverage, but its Kodi 21.3 visual and
-end-to-end acceptance is **unverified**: the 2026-10-23 desktop check reported this
-Mac locked. Estuary/alternate-skin rendering, setup interaction, D-pad/focus
-restoration, real playback, click count, and preview behavior still require an
-accessible Kodi desktop. Earlier playback evidence above predates this GUI.
-See [the current GUI acceptance record](docs/testing.md#gui-package-verification--initial-task-7-run-2026-10-23).
+The new GUI has automated and package coverage. Its Kodi 21.3 live acceptance is
+**partial**: listings, station-context and root map entry, preview inside the map,
+return selection, setup cancellation, and settings were observed. Reliable setup
+completion, the full D-pad/focus matrix, live click count, controlled-fixture and
+audible playback, and preview cancellation remain unverified.
+See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 
 ## Stream scope
 

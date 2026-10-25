@@ -219,6 +219,7 @@ def test_checker_rejects_missing_gui_resource(package, tmp_path, resource):
     ('short_license', 'Full GPL version 2 license text required'),
     ('missing_localization', 'English localization missing'),
     ('bad_artwork', 'Invalid PNG icon'),
+    ('missing_map_texture', 'Map texture missing from package'),
     ('extra_secret', 'Unexpected, missing, or unsafe ZIP paths'),
     ('extra_root', 'Unexpected, missing, or unsafe ZIP paths'),
     ('traversal', 'Unexpected, missing, or unsafe ZIP paths'),
@@ -248,6 +249,11 @@ def test_checker_rejects_invalid_distribution(package, tmp_path, mutation, messa
         contents[map_path] = contents[map_path].replace(b'$LOCALIZE[30148]', b'$LOCALIZE[39999]')
     elif mutation == 'bad_artwork':
         contents[root + 'resources/icon.png'] = b'not a picture'
+    elif mutation == 'missing_map_texture':
+        map_path = root + 'resources/skins/Default/1080i/map.xml'
+        contents[map_path] = contents[map_path].replace(
+            b'resources/skins/Default/media/radio-white.png',
+            b'resources/skins/Default/media/not-packaged.png')
     elif mutation == 'extra_secret':
         contents[root + '.env'] = b'token=secret'
     elif mutation == 'extra_root':

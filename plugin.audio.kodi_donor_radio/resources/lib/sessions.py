@@ -380,7 +380,6 @@ class SessionManager:
         if action not in ('start', 'end') or type(remember) is not bool:
             raise ValueError('Invalid marker label')
         self.expire()
-        # Selection and observation cannot change ownership/candidate while writing.
         with self._lock:
             session = self._session
             if session is None or session.id != session_id or session.cancel.is_set():
@@ -391,12 +390,22 @@ class SessionManager:
                 session.expire_icy_markers(monotonic_at)
                 if marker != session.latest_icy_candidate():
                     return False
-                if remember:
-                    if self.icy_marker_store is None:
-                        raise ValueError('Marker store unavailable')
-                    self.icy_marker_store.learn(session.station.uuid, marker, action)
-                # Use the acceptance instant: a slow write cannot expire a label
-                # after it has already been persisted while ownership is locked.
+        if remember:
+            if self.icy_marker_store is None:
+                raise ValueError('Marker store unavailable')
+            # Persist without relay/session locks so slow profile I/O cannot
+            # interrupt the continuous audio path or block other requests.
+            self.icy_marker_store.learn(session.station.uuid, marker, action)
+        with self._lock:
+            if (self._session is not session or session.id != session_id or
+                    session.cancel.is_set()):
+                return False
+            with session._lock:
+                session.expire_icy_markers(monotonic_at)
+                if marker != session.latest_icy_candidate():
+                    return False
+                # Keep the original acceptance time: disk latency must not
+                # expire a marker that was current when the user accepted it.
                 return session.label_icy_marker(marker, action, observed_at, monotonic_at)
 
     def get(self, session_id):
