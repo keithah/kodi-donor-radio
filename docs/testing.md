@@ -857,12 +857,13 @@ Apple **MacBookPro18,2**, and a **3840×2160** display. Input was keyboard event
 sent through desktop automation. Kodi's current Interface settings screen shows
 **Estuary**. Earlier in this same GUI acceptance effort, Confluence was installed
 and exercised for station listings, station context actions, map rendering, and
-return to the selected station; see the 2026-10-23 live observation notes above.
+return to the selected station; these observations are summarized in the table
+below and in Step 4 of `docs/superpowers/plans/2026-10-23-kodi-radio-gui.md`.
 
 | GUI acceptance check | Result |
 | --- | --- |
 | Kodi skin setting | Estuary shown in Interface settings |
-| Alternate skin | Confluence station-list/context-map path observed earlier; see historical live notes |
+| Alternate skin | Confluence station-list/context-map path observed earlier; see Step 4 of the Task 7 plan |
 | Station listing and context menu | Observed; station rows and addon plus Kodi standard actions rendered |
 | Map from station context | Observed in Confluence: Guadeloupe heading, two-station rail, selected city pin, and complete wrapped map note |
 | Preview while map is open | Observed after installing the `windowed=True` preview change: focus reached the station rail and map remained visible |

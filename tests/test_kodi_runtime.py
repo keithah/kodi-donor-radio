@@ -274,7 +274,8 @@ def test_icy_marker_scenarios_are_selectable_with_localized_labels_and_exact_ori
     state.items.clear()
     state.settings['test_origin'] = 'http://127.0.0.2:58416'
     route(runtime, action='tests')
-    assert not any('station=' in url for url, _, _ in state.items)
+    assert not any(parse_qs(urlsplit(url).query).get('mode') == ['play_fixture']
+                   for url, _, _ in state.items)
 
 
 @pytest.mark.parametrize('params,expected', [
