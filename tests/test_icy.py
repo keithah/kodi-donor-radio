@@ -48,12 +48,18 @@ def test_invalid_encoding_does_not_interrupt_audio():
     assert metadata == [{'StreamTitle': 'bad\ufffd'}]
 
 
-def test_metadata_observer_failure_does_not_discard_audio():
+def test_metadata_observer_failure_is_logged_once_without_discarding_audio(caplog):
     def fail(_metadata):
-        raise RuntimeError('observer unavailable')
+        raise RuntimeError('private response body')
 
     decoder = IcyDecoder(2, fail)
-    assert decoder.feed(b'ab' + block(b"StreamTitle='ad';") + b'cd') == b'abcd'
+    wire = (b'ab' + block(b"StreamTitle='ad';") + b'cd' +
+            block(b"StreamTitle='more';") + b'ef')
+    assert decoder.feed(wire) == b'abcdef'
+    warnings = [record for record in caplog.records
+                if record.getMessage() == 'ICY metadata observer failed']
+    assert len(warnings) == 1
+    assert 'private response body' not in caplog.text
 
 
 @pytest.mark.parametrize('tail', [b'', b'\x01', b'\x02short'])

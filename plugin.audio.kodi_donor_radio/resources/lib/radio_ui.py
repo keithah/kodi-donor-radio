@@ -38,8 +38,15 @@ def bounded_text(value, limit):
 
 
 def _number(value, low, high):
-    if (isinstance(value, bool) or not isinstance(value, (int, float)) or
-            not math.isfinite(value) or not low <= value <= high):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError('Invalid numeric value')
+    # Compare integers before calling isfinite: JSON can contain arbitrarily
+    # large integers, and math.isfinite() raises OverflowError when converting
+    # those to a C double. Floats still need the explicit NaN/inf check.
+    if isinstance(value, int):
+        if not low <= value <= high:
+            raise ValueError('Invalid numeric value')
+    elif not math.isfinite(value) or not low <= value <= high:
         raise ValueError('Invalid numeric value')
     return value
 

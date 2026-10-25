@@ -9,6 +9,7 @@ import struct
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 ADDON_ID = 'plugin.audio.kodi_donor_radio'
 VERSION = '0.1.0'
@@ -43,6 +44,65 @@ def parse_xml(data):
     require('<!DOCTYPE' not in upper and '<!ENTITY' not in upper,
             'XML DTDs are not allowed')
     return ET.fromstring(text)
+
+
+def png_info(data):
+    """Validate the bundled non-interlaced 8-bit RGB/RGBA PNG assets."""
+    if len(data) < 45 or data[:8] != b'\x89PNG\r\n\x1a\n':
+        return None
+    offset = 8
+    dimensions = color_type = None
+    image_data = bytearray()
+    saw_header = saw_data = saw_end = False
+    while offset + 12 <= len(data):
+        length = struct.unpack('>I', data[offset:offset + 4])[0]
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if end > len(data):
+            return None
+        payload = data[offset + 8:offset + 8 + length]
+        checksum = struct.unpack('>I', data[offset + 8 + length:end])[0]
+        if zlib.crc32(kind + payload) & 0xffffffff != checksum:
+            return None
+        if not saw_header:
+            if kind != b'IHDR' or length != 13:
+                return None
+            width, height = struct.unpack('>II', payload[:8])
+            bit_depth, color_type, compression, filtering, interlace = payload[8:]
+            if (not width or not height or bit_depth != 8 or color_type not in (2, 6)
+                    or compression != 0 or filtering != 0 or interlace != 0):
+                return None
+            # Keep malformed package assets from expanding into an unbounded
+            # allocation when their compressed IDAT payload is small.
+            channels = 3 if color_type == 2 else 4
+            expected_size = height * (1 + width * channels)
+            if expected_size > 8 * 1024 * 1024:
+                return None
+            dimensions = (width, height)
+            saw_header = True
+        elif kind == b'IDAT':
+            image_data.extend(payload)
+            saw_data = True
+        elif kind == b'IEND':
+            if length != 0 or not saw_data or end != len(data):
+                return None
+            saw_end = True
+            break
+        offset = end
+    if not (saw_header and saw_data and saw_end):
+        return None
+    channels = 3 if color_type == 2 else 4
+    width, height = dimensions
+    expected_size = height * (1 + width * channels)
+    try:
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(bytes(image_data), expected_size + 1)
+    except zlib.error:
+        return None
+    if (len(decoded) != expected_size or not decompressor.eof or
+            decompressor.unused_data or decompressor.unconsumed_tail):
+        return None
+    return dimensions, color_type
 
 
 def jpeg_dimensions(data):
@@ -115,10 +175,16 @@ def check_contents(contents):
             and 'How to Apply These Terms to Your New Programs' in license_text,
             'Full GPL version 2 license text required')
     icon = contents['resources/icon.png']
-    require(len(icon) >= 33 and icon[:8] == b'\x89PNG\r\n\x1a\n'
-            and icon[12:16] == b'IHDR', 'Invalid PNG icon')
-    require(struct.unpack('>II', icon[16:24]) == (512, 512), 'Icon must be 512 x 512')
-    require(icon[24:26] == bytes((8, 2)) and b'tRNS' not in icon, 'Icon must be opaque RGB')
+    icon_info = png_info(icon)
+    require(icon_info is not None, 'Invalid PNG icon')
+    require(icon_info[0] == (512, 512), 'Icon must be 512 x 512')
+    require(icon_info[1] == 2 and b'tRNS' not in icon, 'Icon must be opaque RGB')
+    for name, dimensions, color_type in (
+            ('resources/station-monogram.png', (256, 256), 2),
+            ('resources/skins/Default/media/white.png', (1, 1), 6),
+            ('resources/skins/Default/media/radio-white.png', (1, 1), 6)):
+        image_info = png_info(contents[name])
+        require(image_info == (dimensions, color_type), 'Invalid PNG GUI resource: ' + name)
     require(jpeg_dimensions(contents['resources/fanart.jpg']) == (1280, 720),
             'Fanart must be 1280 x 720 JPEG')
     for name, content in contents.items():

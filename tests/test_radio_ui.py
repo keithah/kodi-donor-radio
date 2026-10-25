@@ -154,6 +154,11 @@ def test_invalid_places_never_write(tmp_path, lat, lon, radius):
     assert not (tmp_path / 'places.json').exists()
 
 
+def test_huge_json_integer_is_rejected_as_invalid_numeric_value():
+    with pytest.raises(ValueError, match='Invalid numeric value'):
+        ui().coordinates(10 ** 1000, 0)
+
+
 def test_radius_edges_missing_coordinates_and_antimeridian(tmp_path):
     from models import Station
     m = ui()

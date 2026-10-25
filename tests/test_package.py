@@ -5,10 +5,12 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 import pytest
 
@@ -91,6 +93,21 @@ def test_package_checker_rejects_missing_map_localization(package):
         'resources/skins/Default/1080i/map.xml'].replace(b'$LOCALIZE[30148]', b'$LOCALIZE[39999]')
     with pytest.raises(ValueError, match='Map references missing localization'):
         checker(contents)
+
+
+def test_png_checker_bounds_decompressed_gui_texture_data():
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['png_info']
+
+    def chunk(kind, payload):
+        return (struct.pack('>I', len(payload)) + kind + payload +
+                struct.pack('>I', zlib.crc32(kind + payload) & 0xffffffff))
+
+    header = struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0)
+    image = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) +
+             chunk(b'IDAT', zlib.compress(b'\x00' * (1024 * 1024))) +
+             chunk(b'IEND', b''))
+    assert checker(image) is None
 
 
 def test_package_checker_rejects_xml_dtd(package):
@@ -219,6 +236,7 @@ def test_checker_rejects_missing_gui_resource(package, tmp_path, resource):
     ('short_license', 'Full GPL version 2 license text required'),
     ('missing_localization', 'English localization missing'),
     ('bad_artwork', 'Invalid PNG icon'),
+    ('bad_gui_texture', 'Invalid PNG GUI resource'),
     ('missing_map_texture', 'Map texture missing from package'),
     ('extra_secret', 'Unexpected, missing, or unsafe ZIP paths'),
     ('extra_root', 'Unexpected, missing, or unsafe ZIP paths'),
@@ -249,6 +267,8 @@ def test_checker_rejects_invalid_distribution(package, tmp_path, mutation, messa
         contents[map_path] = contents[map_path].replace(b'$LOCALIZE[30148]', b'$LOCALIZE[39999]')
     elif mutation == 'bad_artwork':
         contents[root + 'resources/icon.png'] = b'not a picture'
+    elif mutation == 'bad_gui_texture':
+        contents[root + 'resources/skins/Default/media/radio-white.png'] = b'not a picture'
     elif mutation == 'missing_map_texture':
         map_path = root + 'resources/skins/Default/1080i/map.xml'
         contents[map_path] = contents[map_path].replace(
