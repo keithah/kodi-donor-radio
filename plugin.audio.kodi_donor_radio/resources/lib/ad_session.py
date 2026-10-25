@@ -48,6 +48,7 @@ class AdSession:
         self._terminal = False
         self._closed = False
         self.active_ids = lambda: set()
+        self._resource_limit = resource_limit
         # Reserve one cache window for new source data and two for recent output.
         self._limit = min(SOURCE_SEGMENTS // 3, max(1, resource_limit - 1))
         self._midroll = None
@@ -260,7 +261,8 @@ class AdSession:
         # Keep enough published IDs for the current output window plus an
         # incoming source window, while allowing old source bytes and creative
         # pins to be released during long-running radio sessions.
-        retention_limit = max(1, min(2 * self._limit, SOURCE_SEGMENTS - self._limit))
+        retention_limit = max(1, min(2 * self._limit, SOURCE_SEGMENTS - self._limit,
+                                     self._resource_limit - 1))
         while len(self._published_order) > retention_limit:
             self._published_order.popitem(last=False)
         self._published = set(self._published_order)

@@ -1741,6 +1741,36 @@ def test_setup_saves_multiple_valid_city_candidates_once_then_refreshes(kodi, mo
     assert browser.clicks == browser.lookups == state.resolved == []
 
 
+def test_guided_setup_preserves_pending_places_after_empty_country(kodi, monkeypatch):
+    import radio_ui
+    runtime, state, profile = kodi
+    browser = setup_directory(monkeypatch, runtime)
+    browser.country_entries = lambda: [('France', 'FR'), ('Japan', 'JP'), ('Spain', 'ES')]
+
+    def geographic(code, offset, limit):
+        browser.geo_calls.append((code, offset, limit))
+        if code == 'FR':
+            return [Station('paris', 'Paris Radio', 'https://secret.example/stream', 'MP3', False,
+                            city='Paris', country='France', country_code='FR',
+                            latitude=48.8, longitude=2.3)], False
+        if code == 'ES':
+            return [Station('madrid', 'Madrid Radio', 'https://secret.example/stream', 'MP3', False,
+                            city='Madrid', country='Spain', country_code='ES',
+                            latitude=40.4, longitude=-3.7)], False
+        return [], False
+
+    browser.geographic = geographic
+    state.dialog_choices = [0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1]
+
+    route(runtime, mode='setup')
+
+    places = radio_ui.PlaceStore(profile).list()
+    assert [place.name for place in places] == ['Paris', 'Madrid']
+    assert browser.geo_calls == [('FR', 0, 50), ('JP', 0, 50), ('ES', 0, 50)]
+    assert 'localized-30139' in state.messages
+    assert state.builtins == ['Container.Refresh']
+
+
 def test_setup_uses_truthful_station_area_when_official_schema_has_no_city(kodi, monkeypatch):
     import radio_ui
     from radio_browser import RadioBrowser

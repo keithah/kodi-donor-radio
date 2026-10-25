@@ -429,7 +429,9 @@ def _guided_setup(browser, monitor, cancel):
         candidates = _operation(lambda: _setup_candidates(browser, country_code, query, cancel), monitor, cancel)
         if not candidates:
             _error(30139)
-            return
+            if not pending:
+                return
+            continue
         choice = _dialog_choice(dialog, 30134, [
             '%s%s (%.3f, %.3f)' % (c['name'], ' · ' + c['country'] if c['country'] else '',
                                    c['latitude'], c['longitude']) for c in candidates], monitor, cancel)

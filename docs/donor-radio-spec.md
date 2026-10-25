@@ -280,7 +280,7 @@ Radio Browser is a volunteer mirror pool with no single stable host. Resolve a m
 
 | View | Call | Notes |
 | --- | --- | --- |
-| A place's stations | **Product target:** stations within a geographic radius | Current code fetches bounded country pages with `has_geo_info=true`, then uses the saved place radius for the map view; no Radio Browser radius query is made |
+| A place's stations | **Product target:** stations within a geographic radius | Current code fetches up to four bounded country pages with `has_geo_info=true` and filters them locally by the saved place radius; no Radio Browser radius query is made |
 | Browse by genre | `GET /json/tags`, then `/json/stations/search` with exact tag and pagination parameters | Implemented and covered by request tests |
 | Browse by country | `GET /json/countries`, then `/json/stations/search` with country code and pagination parameters | Implemented and covered by request tests |
 | Search | `/json/stations/search` with name, country, tag, exact-filter, pagination, and `hidebroken` parameters as applicable | Language-scope search remains a product target |

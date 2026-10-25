@@ -58,6 +58,7 @@ def test_published_route_retention_is_limited_to_two_output_windows(monkeypatch)
     session = AdSession.__new__(AdSession)
     session._lock = RLock()
     session._limit = 7
+    session._resource_limit = 100
     session._published_order = OrderedDict()
     session._published = set()
     session._source = {}

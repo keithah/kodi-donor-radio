@@ -321,7 +321,9 @@ def test_stop_during_retained_source_invalidates_routes_and_removes_cache(tmp_pa
         relay.close(); fixture.shutdown(); fixture.server_close(); thread.join(2)
 
 
-def test_published_route_retention_is_bounded_without_stopping_long_playback(tmp_path, monkeypatch):
+@pytest.mark.parametrize('resource_limit', [7, 20])
+def test_published_route_retention_is_bounded_without_stopping_long_playback(
+        tmp_path, monkeypatch, resource_limit):
     from ad_models import AdConfig
     import ad_session
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -352,7 +354,7 @@ def test_published_route_retention_is_bounded_without_stopping_long_playback(tmp
     origin = 'http://127.0.0.1:%d' % fixture.server_port
     manager = SessionManager(HttpClient(UrlPolicy(test_origins={origin, source_origin})),
                              ad_config=AdConfig(True, True, False, origin + '/vast/preroll', origin),
-                             cache_root=tmp_path, resource_limit=20)
+                             cache_root=tmp_path, resource_limit=resource_limit)
     relay = RelayServer(manager); relay.start()
     try:
         session = manager.create(Station('id', 'Sliding', source_origin + '/index.m3u8', '', True))
@@ -366,7 +368,10 @@ def test_published_route_retention_is_bounded_without_stopping_long_playback(tmp
         assert get(old_route)[2] == (ASSETS / 'source000.ts').read_bytes()
         statuses = [get(session.playback_url)[0] for _ in range(20)]
         assert statuses == [200] * 20
-        assert len(session.ad.published_ids) <= 8
+        expected_retention = max(1, min(2 * session.ad._limit,
+                                        ad_session.SOURCE_SEGMENTS - session.ad._limit,
+                                        resource_limit - 1))
+        assert len(session.ad.published_ids) <= expected_retention
         assert len(session.ad._source) <= 12
         assert get(old_route)[0] == 404
     finally:
