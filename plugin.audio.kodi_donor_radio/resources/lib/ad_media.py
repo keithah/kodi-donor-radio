@@ -147,6 +147,8 @@ def inspect_ts(data: bytes, _check=None) -> MediaInfo:
         continuity[pid] = cc
         if pid in (0, pmt_pid):
             if pusi:
+                if offset >= 188:
+                    _bad('Invalid transport pointer')
                 pointer = packet[offset]
                 offset += 1 + pointer
                 if offset > 188:

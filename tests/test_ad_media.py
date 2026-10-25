@@ -40,6 +40,13 @@ def test_null_packets_with_arbitrary_continuity_counters_are_ignored():
     assert inspect_ts(padded) == inspect_ts(original)
 
 
+def test_ts_rejects_pusi_when_adaptation_field_consumes_pointer_byte():
+    packet = bytes((0x47, 0x40, 0x00, 0x30, 183, 0)) + b'\xff' * 182
+    assert len(packet) == 188
+    with pytest.raises(AdError, match='Invalid transport pointer'):
+        inspect_ts(packet)
+
+
 def test_ts_rejects_truncation_continuity_and_extra_stream():
     original = segment()
     with pytest.raises(AdError):

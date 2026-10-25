@@ -946,7 +946,7 @@ matches the delivered Kodi input dialog, station metadata API, place rows, and
 saved `country_code` field. The GUI plan now identifies the map entry points as
 skin-mode scope and leaves themed-mode navigation as future work.
 
-On this revision, `python3 -m pytest -q` passed **1,085 tests in 118.47s**.
+On this revision, `python3 -m pytest -q` passed **1,086 tests in 118.35s**.
 `python3 -m compileall -q plugin.audio.kodi_donor_radio/resources/lib tests tools`,
 `git diff --check`, package creation, and the package manifest checker passed.
 Kodi add-on checker **0.0.36** on a fresh extraction for Omega reported no
@@ -955,3 +955,7 @@ compatibility warning. The Mac is still reported locked by desktop automation,
 so this run adds no new visual or audible acceptance evidence. Existing live
 GUI, Kodi player, and ICY observations remain limited to the evidence recorded
 above; live VAST beacon delivery and audible output are not claimed.
+
+The same pass also rejects a malformed MPEG-TS PAT/PMT packet whose adaptation
+field consumes the pointer byte; it now raises the normal bounded `AdError`
+instead of leaking an `IndexError` during controlled-ad validation.
