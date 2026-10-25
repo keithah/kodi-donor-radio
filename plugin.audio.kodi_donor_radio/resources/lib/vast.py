@@ -152,9 +152,9 @@ class VastResolver:
                 if (wrapper is None) == (inline is None):
                     raise AdError(100, 'Invalid VAST ad')
                 container = wrapper if wrapper is not None else inline
+                inherited_errors.extend(self._errors(container, base))
                 if _children(container, 'AdVerifications') or _children(container, 'InteractiveCreativeFile'):
                     raise AdError(403, 'Unsupported required VAST feature')
-                inherited_errors.extend(self._errors(container, base))
                 inherited_tracking.extend(self._tracking(container, base))
                 if wrapper is not None:
                     if not follow:

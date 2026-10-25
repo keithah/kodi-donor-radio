@@ -20,6 +20,21 @@ def test_distinct_addon_instances_serialize_idle_check_and_start(tmp_path):
     first = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
     second = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
     entered_start, release_start, second_started = (threading.Event() for _ in range(3))
+
+    class ContentionLock:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.contended = threading.Event()
+        def __enter__(self):
+            if not self.lock.acquire(blocking=False):
+                self.contended.set()
+                self.lock.acquire()
+            return self
+        def __exit__(self, *_args):
+            self.lock.release()
+
+    shared_lock = ContentionLock()
+    first._thread_lock = second._thread_lock = shared_lock
     state = {'playing': False}
 
     def preview_start():
@@ -34,7 +49,7 @@ def test_distinct_addon_instances_serialize_idle_check_and_start(tmp_path):
     preview.start()
     assert entered_start.wait(2)
     direct.start()
-    direct.join(0.05)
+    assert shared_lock.contended.wait(2), 'direct start must reach the shared lock'
     assert not second_started.is_set()
     release_start.set()
     preview.join(2)
@@ -83,7 +98,17 @@ def test_player_stop_callback_runs_without_shared_lock_and_blocks_new_starts(tmp
     arbiter = module.PlaybackStartArbiter(tmp_path / 'playback.lock')
     intent = arbiter.start(lambda: None)
     entered_stop, release_stop, start_finished = threading.Event(), threading.Event(), threading.Event()
+    stop_marker_observed = threading.Event()
     stopped, started = [], []
+    original_stop_pending = arbiter._stop_pending
+
+    def observe_stop_marker():
+        pending = original_stop_pending()
+        if pending:
+            stop_marker_observed.set()
+        return pending
+
+    arbiter._stop_pending = observe_stop_marker
 
     def stop():
         entered_stop.set()
@@ -101,7 +126,8 @@ def test_player_stop_callback_runs_without_shared_lock_and_blocks_new_starts(tmp
     starter = threading.Thread(target=lambda: (
         arbiter.start(lambda: started.append(True)), start_finished.set()))
     starter.start()
-    assert not start_finished.wait(.05), 'new play must not race an in-flight stop'
+    assert stop_marker_observed.wait(1), 'new start must inspect the active stop marker'
+    assert not start_finished.is_set(), 'new play must not race an in-flight stop'
     release_stop.set()
     stopper.join(1)
     starter.join(1)

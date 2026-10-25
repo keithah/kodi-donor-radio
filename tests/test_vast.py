@@ -259,4 +259,5 @@ def test_wrapper_required_verification_is_rejected(tmp_path, monkeypatch):
         with pytest.raises(AdError) as error:
             VastResolver(client, base).resolve(base + '/vast/wrapped', threading.Event())
         assert_ad_error(error, 403, 'Unsupported required VAST feature')
+        assert error.value.error_urls == (base + '/track/placement-1/error?[ERRORCODE]',)
         assert beacons(base) == {}
