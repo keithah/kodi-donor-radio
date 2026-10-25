@@ -27,8 +27,8 @@ reported no add-on problems or warnings with dependency checks skipped; its host
 Python emitted the known LibreSSL/urllib3 compatibility warning. The ZIP has
 **37 files**, **457,688 bytes**, mode **0644**, SHA-256
 `b999d864219e1d8d9e1fb0fb7f9601c0b196413ecd5dc4994b80a8a6d889d75d`.
-Live Kodi UI and playback remain unverified because desktop automation reports
-that the Mac is locked.
+This was the initial GUI attempt. A later Kodi GUI follow-up is recorded below;
+this paragraph does not describe that later partial acceptance.
 
 ## Final review follow-up — second pass — 2026-10-24
 

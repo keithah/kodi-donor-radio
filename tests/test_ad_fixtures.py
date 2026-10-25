@@ -8,8 +8,24 @@ import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 import xml.etree.ElementTree as ET
+import subprocess
 
 import pytest
+
+from conftest import generate_ad_assets
+
+
+def test_ad_asset_generation_has_a_bounded_timeout(monkeypatch, tmp_path):
+    calls = []
+
+    def timeout(*args, **kwargs):
+        calls.append(kwargs)
+        raise subprocess.TimeoutExpired(args[0], kwargs['timeout'])
+
+    monkeypatch.setattr(subprocess, 'run', timeout)
+    with pytest.raises(pytest.fail.Exception, match='Ad fixture generation timed out'):
+        generate_ad_assets(tmp_path, tmp_path / 'assets')
+    assert calls[0]['timeout'] == 300
 
 
 @contextmanager

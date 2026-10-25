@@ -689,7 +689,9 @@ def test_icy_marker_store_write_does_not_hold_relay_or_session_locks(relay, orig
         assert labeling.result(timeout=2) is True
 
 
-def test_icy_marker_rule_persists_but_stale_candidate_is_not_labeled(relay, origin, tmp_path, monkeypatch):
+@pytest.mark.parametrize('change', ['candidate', 'session'])
+def test_icy_marker_rule_persists_when_playback_changes_during_write(
+        relay, origin, tmp_path, monkeypatch, change):
     from icy_marker_store import IcyMarkerStore
 
     store = IcyMarkerStore(tmp_path)
@@ -709,16 +711,19 @@ def test_icy_marker_rule_persists_but_stale_candidate_is_not_labeled(relay, orig
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         labeling = pool.submit(relay[1].label_icy_marker, session.id, '-', 'end', True)
         assert entered_write.wait(1)
-        def replace_candidate():
-            with session._lock:
-                session.icy_tracker._candidate = (time.monotonic(), '#')
+        def change_playback():
+            if change == 'candidate':
+                with session._lock:
+                    session.icy_tracker._candidate = (time.monotonic(), '#')
+            else:
+                relay[1].stop(session.id)
 
-        replacement = pool.submit(replace_candidate)
+        replacement = pool.submit(change_playback)
         try:
             replacement.result(timeout=0.5)
         finally:
             finish_write.set()
-        assert labeling.result(timeout=2) is False
+        assert labeling.result(timeout=2) is True
 
     assert store.lookup('id', '-') == 'end'
     assert not any(event.kind == 'icy_marker_labeled' for event in relay[2].events)

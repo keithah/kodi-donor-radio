@@ -407,11 +407,15 @@ class SessionManager:
         with self._lock:
             if (self._session is not session or session.id != session_id or
                     session.cancel.is_set()):
-                return False
+                # A remembered station rule is durable even if playback ended
+                # while its profile write was in progress. Report that durable
+                # success to the caller; transient labels still require the
+                # original session to remain active.
+                return remember
             with session._lock:
                 session.expire_icy_markers(monotonic_at)
                 if marker != session.latest_icy_candidate():
-                    return False
+                    return remember
                 # Keep the original acceptance time: disk latency must not
                 # expire a marker that was current when the user accepted it.
                 return session.label_icy_marker(marker, action, observed_at, monotonic_at)
