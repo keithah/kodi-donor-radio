@@ -416,7 +416,7 @@ def _guided_setup(browser, monitor, cancel):
         source = _dialog_choice(dialog, 30130, [text(30131), text(30132)], monitor, cancel)
         countries = _operation(browser.country_entries, monitor, cancel)
         if not countries:
-            _error(30139)
+            _error(30012)
             return
         choice = _dialog_choice(dialog, 30002, [name for name, _ in countries], monitor, cancel)
         country_code = countries[choice][1]

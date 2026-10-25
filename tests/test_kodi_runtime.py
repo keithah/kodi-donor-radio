@@ -1848,6 +1848,19 @@ def test_setup_candidates_merge_nearby_same_named_places_but_keep_distant_ones(k
     assert (candidates[1]['latitude'], candidates[1]['longitude']) == (49.0, 2.4)
 
 
+def test_guided_setup_uses_directory_error_when_country_list_is_empty(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = setup_directory(monkeypatch, runtime)
+    browser.country_entries = lambda: []
+    state.dialog_choices = [0]
+
+    route(runtime, mode='setup')
+
+    assert 'localized-30012' in state.messages
+    assert 'localized-30139' not in state.messages
+    assert not (profile / 'places.json').exists()
+
+
 def test_setup_failure_after_pending_place_does_not_write_and_abort_is_respected(kodi, monkeypatch):
     runtime, state, profile = kodi
     browser = setup_directory(monkeypatch, runtime)
