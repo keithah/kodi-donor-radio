@@ -96,6 +96,14 @@ Opaque `adswizzContext` and `adId` values are excluded from diagnostic evidence.
 These observations remain discovery data and never enable ICY replacement or
 VAST beacons.
 
+For clear HLS, a segment is treated as AdsWizz ad evidence only when its
+`EXTINF` title contains a bounded `adswizzContext` field and its resolved URI
+matches the observed AdsWizz delivery host plus an `ad_*.aac` basename. The
+parser retains only a boolean context-presence flag; event evidence contains no
+context value, segment URL, or query string. Consecutive ad segments produce a
+single break start/end pair across overlapping windows. A sequence gap resolves
+an open observation as unresolved. These events do not authorize replacement.
+
 For this phase, confirmed ICY boundaries are discovery data only. They must not
 feed the HLS composer or VAST success tracker because the add-on has no proven
 sample-accurate ICY replacement clock. HLS `CUE-OUT`/`CUE-IN`, continuation, and

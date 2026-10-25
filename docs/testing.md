@@ -1008,6 +1008,15 @@ playlists whose child manifests required authorization. Radio Browser's HLS
 flag is directory metadata, not proof that a current child manifest is
 accessible.
 
+The KMHD playlist was also fetched during implementation: its `EXTINF` comment
+contained `adswizzContext`, and consecutive AAC segments used the AdsWizz
+delivery hostname with `ad_` basenames. The HLS parser now records only whether
+that context field was present. The cue tracker emits one observation-only
+`break_start`/`break_end` pair for the contiguous segment run, carries upstream
+media positions, deduplicates overlapping windows, and reports a sequence gap
+as unresolved. A relay-path test verifies that neither the context value nor
+segment URL or query string reaches diagnostics.
+
 A simultaneous 20-minute ICY sample of the Radio Browser **MS NOW** (listed as
 MSNBC), **CNBC International**, and **CNN** feeds found explicit Adswizz fields
 on MS NOW and CNN at startup; MS NOW later emitted repeated midroll markers.

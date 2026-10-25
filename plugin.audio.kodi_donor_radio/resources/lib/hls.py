@@ -39,6 +39,21 @@ class Segment:
     duration: float
     media_position: float
     uri: str
+    adswizz_context_present: bool = False
+
+    @property
+    def is_adswizz_ad(self):
+        """Require both the observed AdsWizz EXTINF field and ad segment route."""
+        if not self.adswizz_context_present:
+            return False
+        try:
+            parsed = urlsplit(self.uri)
+        except ValueError:
+            return False
+        name = parsed.path.rsplit('/', 1)[-1]
+        return (parsed.hostname is not None
+                and parsed.hostname.lower() == 'delivery-cdn-cf.adswizz.com'
+                and re.fullmatch(r'ad_[A-Za-z0-9._-]{1,240}\.aac', name, re.I) is not None)
 
 
 @dataclass(frozen=True)
@@ -87,6 +102,8 @@ _URI_ANY_KEY = re.compile(r'(?:URI|URL)', re.I)
 _URI_TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|(?P<key>[^,\s"=]+)\s*(?P<equals>=)?')
 _URI_VALUE = re.compile(r'[a-z][a-z0-9+.-]*://|\{\$', re.I)
 _URI_ATTR_VALUE = re.compile(r'^\s*//|[a-z][a-z0-9+.-]*://|\{\$', re.I)
+_ADSWIZZ_CONTEXT = re.compile(
+    r'(?i)(?<![a-z0-9_-])adswizzContext\s*=\s*[^,\s\"]{1,512}')
 
 
 def _has_uri_assignment(value):
@@ -237,6 +254,7 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
     refs, segments, cues = [], [], []
     sequence, disc_base, disc, position = 0, 0, 0, 0.0
     target, pending_duration, pending_variant = None, None, False
+    pending_adswizz_context = False
     pending_range, previous_ranged_url = None, None
     master, media, seen = False, False, set()
     for index, raw in enumerate(lines[1:], 1):
@@ -253,9 +271,11 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
                     raise InvalidPlaylist('Implicit byte range needs preceding subrange of same resource')
                 previous_ranged_url = url if pending_range is not None else None
                 pending_range = None
-                segments.append(Segment(sequence + len(segments), disc, pending_duration, position, url))
+                segments.append(Segment(sequence + len(segments), disc, pending_duration,
+                                        position, url, pending_adswizz_context))
                 position += pending_duration
                 pending_duration = None
+                pending_adswizz_context = False
             else:
                 raise InvalidPlaylist('URI without segment or variant declaration')
             refs.append(UriReference(index, 0, len(line), url, kind))
@@ -325,7 +345,9 @@ def parse_playlist(text: str, final_url: str) -> Playlist:
         elif tag == 'EXTINF':
             if pending_duration is not None or ',' not in value:
                 raise InvalidPlaylist('Malformed segment duration')
-            pending_duration = _duration(value.split(',', 1)[0])
+            pending_duration, title = value.split(',', 1)
+            pending_duration = _duration(pending_duration)
+            pending_adswizz_context = _ADSWIZZ_CONTEXT.search(title) is not None
         elif tag == 'EXT-X-STREAM-INF':
             if pending_variant or 'BANDWIDTH' not in attrs:
                 raise InvalidPlaylist('Malformed variant')

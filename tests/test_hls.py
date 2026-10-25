@@ -76,6 +76,20 @@ def test_observations_keep_sequence_discontinuity_and_relative_timing():
     assert playlist.cues[2].attributes['ElapsedTime'] == '5.5'
 
 
+def test_adswizz_ad_segments_require_context_and_delivery_host_without_retaining_context():
+    playlist = parse(
+        '#EXTM3U\n#EXT-X-TARGETDURATION:5\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_0.aac?token=secret\n'
+        '#EXTINF:4.1,comment="ordinary"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_1.aac\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://radio.example/path/ad_123_2.aac\n')
+
+    assert [segment.is_adswizz_ad for segment in playlist.segments] == [True, False, False]
+    assert all(not hasattr(segment, 'adswizz_context_value') for segment in playlist.segments)
+
+
 @pytest.mark.parametrize('tag', [
     '#EXT-X-KEY:METHOD=AES-128,URI="key"',
     '#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"',

@@ -32,6 +32,17 @@ def origin():
             if self.path == '/truncated-list':
                 body = b'#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXT-X-CUE-OUT:20\n#EXTINF:2,\n/segment\n'
                 headers['Content-Type'] = 'application/vnd.apple.mpegurl'
+            elif self.path == '/adswizz-hls':
+                body = (
+                    '#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:100\n'
+                    '#EXTINF:4.1,ordinary\nhttps://radio.example/content/100.aac\n'
+                    '#EXTINF:4.1,comment="adswizzContext=private-context"\n'
+                    'https://delivery-cdn-cf.adswizz.com/adswizz/test/ad_123_0.aac?token=secret\n'
+                    '#EXTINF:4.1,comment="adswizzContext=private-context"\n'
+                    'https://delivery-cdn-cf.adswizz.com/adswizz/test/ad_123_1.aac\n'
+                    '#EXTINF:4.1,ordinary\nhttps://radio.example/content/103.aac\n'
+                ).encode()
+                headers['Content-Type'] = 'application/vnd.apple.mpegurl'
             elif self.path == '/empty-segment':
                 body = b''
             elif self.path == '/truncated-segment':
@@ -623,6 +634,21 @@ def test_adswizz_icy_fields_reach_tracker_through_relay(relay, origin):
                 ('break_start', 'adswizz', 'explicit'),
                 ('break_end', 'adswizz', 'explicit'),
             ]
+
+
+def test_adswizz_hls_segments_reach_tracker_through_relay_without_private_fields(relay, origin):
+    session = create(relay, origin, '/adswizz-hls')
+    status, _, body = request(session.playback_url)
+
+    assert status == 200 and b'#EXTM3U' in body
+    markers = [event for event in relay[2].events if event.source == 'adswizz_hls']
+    assert [event.kind for event in markers] == ['break_start', 'break_end']
+    assert markers[0].details['media_sequence'] == 101
+    assert markers[1].details['media_sequence'] == 103
+    serialized = str([event.to_dict() for event in relay[2].events])
+    assert 'private-context' not in serialized
+    assert 'delivery-cdn-cf' not in serialized
+    assert 'secret' not in serialized
 
 
 def observe_marker(session, marker):

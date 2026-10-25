@@ -61,6 +61,73 @@ def test_explicit_cue_out_in_repeated_windows_and_observation_clocks():
     assert start.protocol == 'hls' and start.session_id == 'session'
 
 
+def test_adswizz_hls_segments_create_one_break_across_overlapping_windows():
+    t, sink = tracker()
+    def ad_manifest(sequence, segments):
+        body = ''.join(
+            '#EXTINF:4.1,%s\n%s\n' % (
+                'comment="adswizzContext=opaque-value"' if is_ad else 'ordinary',
+                ('https://delivery-cdn-cf.adswizz.com/path/ad_123_%d.aac' % n
+                 if is_ad else 'https://radio.example/path/song_%d.aac' % n))
+            for n, is_ad in segments)
+        return parse_playlist(
+            '#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:%d\n%s' %
+            (sequence, body), 'https://radio.example/live.m3u8')
+
+    t.observe(ad_manifest(10, [(10, False), (11, True), (12, True)]), 'audio', 0)
+    t.observe(ad_manifest(11, [(11, True), (12, True), (13, False)]), 'audio', 0)
+
+    assert kinds(sink) == ['break_start', 'break_end']
+    start, end = sink.events
+    assert start.source == end.source == 'adswizz_hls'
+    assert start.details['classification'] == end.details['classification'] == 'observed_segment'
+    assert start.details['media_sequence'] == 11
+    assert start.details['media_position'] == 4.1
+    assert end.details['media_sequence'] == 13
+    assert end.details['media_position'] == pytest.approx(12.3)
+    assert end.details['duration'] == pytest.approx(8.2)
+    assert start.evidence == end.evidence == {'marker': 'adswizz_segment'}
+    assert 'opaque-value' not in str([event.to_dict() for event in sink.events])
+    assert 'delivery-cdn-cf' not in str([event.to_dict() for event in sink.events])
+
+
+def test_adswizz_hls_gap_reports_unresolved_instead_of_joining_breaks():
+    t, sink = tracker()
+    def ad_manifest(sequence, is_ad):
+        title = 'comment="adswizzContext=opaque-value"' if is_ad else 'ordinary'
+        uri = ('https://delivery-cdn-cf.adswizz.com/path/ad_123.aac' if is_ad
+               else 'https://radio.example/song.aac')
+        return parse_playlist(
+            '#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:%d\n'
+            '#EXTINF:5,%s\n%s\n' % (sequence, title, uri),
+            'https://radio.example/live.m3u8')
+
+    t.observe(ad_manifest(10, True), 'audio', 0)
+    t.observe(ad_manifest(12, False), 'audio', 0)
+
+    assert kinds(sink) == ['break_start', 'break_unresolved']
+    assert sink.events[-1].details['reason'] == 'adswizz_segment_gap'
+
+
+def test_explicit_hls_cues_prevent_duplicate_adswizz_segment_break_events():
+    t, sink = tracker()
+    manifest = parse_playlist(
+        '#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXT-X-MEDIA-SEQUENCE:10\n'
+        '#EXT-X-CUE-OUT:8.2\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_0.aac\n'
+        '#EXTINF:4.1,comment="adswizzContext=opaque-value"\n'
+        'https://delivery-cdn-cf.adswizz.com/path/ad_123_1.aac\n'
+        '#EXT-X-CUE-IN\n'
+        '#EXTINF:4.1,ordinary\nhttps://radio.example/song.aac\n',
+        'https://radio.example/live.m3u8')
+
+    t.observe(manifest, 'audio', 0)
+
+    assert kinds(sink) == ['cue_observed', 'break_start', 'cue_observed', 'break_end']
+    assert all(event.source != 'adswizz_hls' for event in sink.events)
+
+
 def test_join_mid_break_does_not_invent_start():
     t, sink = tracker()
     t.observe(playlist('#EXT-X-CUE-OUT-CONT:ElapsedTime=10,Duration=30\n'), 'a', 0)

@@ -56,6 +56,12 @@ Decide supported framing/codecs, a boundary signal contract, latency, no-fill
 behavior and whether demux/remux work fits the embedded-Python constraint.
 Do not silently depend on an external executable or hosted relay.
 
+Current AdsWizz HLS discovery is also observation-only: an `adswizzContext`
+EXTINF comment paired with an `ad_*.aac` segment on the observed AdsWizz delivery
+host creates segment-derived break boundaries. The opaque context and segment URL
+are not written to diagnostics. A skipped sequence while a break is open is
+reported unresolved; this evidence does not enable ad replacement or VAST beacons.
+
 Required evidence: controlled MP3/AAC/ICY streams with known tone transitions and
 split metadata, measured audible boundary accuracy, stop/switch/restart and
 network-failure cleanup, and a demonstrated source-preserving fallback. If the

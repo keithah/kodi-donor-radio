@@ -102,7 +102,7 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 | Public HTTP/HTTPS continuous MP3/AAC | Bounded streaming relay; codec/demux playback needs Kodi validation |
 | ICY metadata | Remove framing without changing audio; classify explicit AD commands, Adswizz `adw_ad` fields, and cautious inferred markers on the same connection; never replace ICY audio or send VAST beacons |
 | M3U/PLS station indirection | Follow at most three indirections, with loop/size/redirect limits |
-| Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state |
+| Ordinary clear HLS master/media playlists | Rewrite supported playlist/segment/map references; preserve signed relative URLs and rendition state; log AdsWizz ad-break transitions only when an `adswizzContext` EXTINF field accompanies an `ad_*.aac` segment from the known AdsWizz delivery host |
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |
 | Encrypted HLS/DRM, low latency HLS, content steering, variable substitution, unsupported URI-bearing extensions | Fail closed; no direct upstream playback fallback |
 | Non-HTTP(S), credential-bearing, private/loopback station URLs | Reject; developer fixtures have a separate exact-origin test-mode exception |
