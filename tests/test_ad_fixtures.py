@@ -28,6 +28,28 @@ def test_ad_asset_generation_has_a_bounded_timeout(monkeypatch, tmp_path):
     assert calls[0]['timeout'] == 300
 
 
+def test_fixture_generator_rejects_gaps_and_noncontiguous_adjacent_segment_pts():
+    from tools.generate_ad_audio import validate_segment_timeline
+
+    segments = {
+        'source000.ts': {'first_pts': 0, 'last_pts': 93 * 1920},
+        'source001.ts': {'first_pts': 94 * 1920, 'last_pts': 187 * 1920},
+        'source002.ts': {'first_pts': 188 * 1920, 'last_pts': 281 * 1920},
+        'source002-mutated.ts': {'first_pts': 188 * 1920, 'last_pts': 281 * 1920},
+        'replacement000.ts': {'first_pts': 0, 'last_pts': 93 * 1920},
+        'replacement001.ts': {'first_pts': 94 * 1920, 'last_pts': 187 * 1920},
+    }
+    validate_segment_timeline(segments)
+
+    segments['source002.ts'] = {'first_pts': 188 * 1920 + 1, 'last_pts': 281 * 1920 + 1}
+    with pytest.raises(ValueError, match='PTS is not contiguous'):
+        validate_segment_timeline(segments)
+
+    del segments['source001.ts']
+    with pytest.raises(ValueError, match='sequence is not contiguous'):
+        validate_segment_timeline(segments)
+
+
 @contextmanager
 def fixture_origin(assets):
     from tools.ad_fixture_server import make_server

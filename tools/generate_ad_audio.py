@@ -60,6 +60,27 @@ def validate_probe(info, path):
         raise ValueError('%s: expected contiguous 1920-tick PTS steps' % path)
 
 
+def validate_segment_timeline(segments):
+    """Require numbered source/ad TS segments to form a continuous PTS timeline."""
+    previous = {}
+    for filename, info in sorted(segments.items()):
+        match = re.fullmatch(r'([A-Za-z_-]+)(\d{3})\.ts', filename)
+        if not match:
+            continue  # e.g. the deliberately mutated source003 fixture.
+        prefix, sequence = match.group(1), int(match.group(2))
+        prior = previous.get(prefix)
+        if prior is None:
+            if sequence != 0:
+                raise ValueError('%s: segment sequence is not contiguous from zero' % filename)
+        else:
+            prior_sequence, prior_last_pts = prior
+            if sequence != prior_sequence + 1:
+                raise ValueError('%s: segment sequence is not contiguous' % filename)
+            if info['first_pts'] != prior_last_pts + 1920:
+                raise ValueError('%s: PTS is not contiguous with previous segment' % filename)
+        previous[prefix] = (sequence, info['last_pts'])
+
+
 def decoded_tone(path, ffmpeg, choices):
     # This is an independent decode of the encoded transport stream. Speech is
     # placed at the start, so inspect a later 0.4 s window for the steady tone.
@@ -110,6 +131,7 @@ def generate(assets, ffmpeg, ffprobe, espeak):
                 raise ValueError('%s: decoded tone did not match source description' % filename)
             metadata['assets'][filename] = info
             metadata['tone_intervals_hz'][item['section']] = item['tone_hz']
+    validate_segment_timeline(metadata['assets'])
     run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi',
          '-i', 'sine=frequency=330:sample_rate=48000:duration=1', '-c:a', 'aac',
          str(assets / 'unsupported.mp4')])

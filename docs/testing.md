@@ -946,7 +946,7 @@ matches the delivered Kodi input dialog, station metadata API, place rows, and
 saved `country_code` field. The GUI plan now identifies the map entry points as
 skin-mode scope and leaves themed-mode navigation as future work.
 
-On this revision, `python3 -m pytest -q` passed **1,086 tests in 118.35s**.
+On this revision, `python3 -m pytest -q` passed **1,087 tests in 118.67s**.
 `python3 -m compileall -q plugin.audio.kodi_donor_radio/resources/lib tests tools`,
 `git diff --check`, package creation, and the package manifest checker passed.
 Kodi add-on checker **0.0.36** on a fresh extraction for Omega reported no
@@ -959,3 +959,25 @@ above; live VAST beacon delivery and audible output are not claimed.
 The same pass also rejects a malformed MPEG-TS PAT/PMT packet whose adaptation
 field consumes the pointer byte; it now raises the normal bounded `AdError`
 instead of leaking an `IndexError` during controlled-ad validation.
+Fixture generation also checks numbered source, preroll, and replacement segments
+for missing sequence numbers and exact 1,920-tick PTS continuity between
+segments, in addition to validating each segment on its own.
+
+## Kodi master startup follow-up — 2026-10-24
+
+I launched the locally built Kodi **23.0-ALPHA1**, Git `434da3c`, from an
+isolated portable profile on the same Mac. Kodi's add-on manager discovered
+`plugin.audio.kodi_donor_radio` v0.1.0, and JSON-RPC v14.1 initialized, but Kodi
+did not finish startup. A process sample of the main thread remained in
+`CPeripheralBusUSB::DeviceAttachCallback` and
+`IOUSBInterfaceClass::start`; the configured loopback JSON-RPC listener never
+opened. This prevented invoking the add-on route or testing playback on this
+master build. Desktop automation also reported that the Mac was locked, so no
+GUI screen inspection was possible. This is a host startup limitation, not an
+observed add-on route failure. A fresh Kodi 21.3 relaunch on this Mac showed
+the same main-thread stack in `CPeripheralBusUSB::DeviceAttachCallback` and
+`IOUSBInterfaceClass::start` before opening its JSON-RPC listener. This
+reproduces a host startup blocker on both tested binaries; earlier Kodi 21.3
+playback observations remain historical and separate. The official Kodi
+add-on checker 0.0.36 also passed its Piers target on the current package,
+which is static package validation rather than a master-runtime test.
