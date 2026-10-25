@@ -95,6 +95,19 @@ def test_package_checker_rejects_missing_map_localization(package):
         checker(contents)
 
 
+def test_package_checker_rejects_missing_relative_map_texture(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['resources/skins/Default/1080i/map.xml'] = contents[
+        'resources/skins/Default/1080i/map.xml'].replace(b'radio-white.png', b'not-packaged.png')
+    with pytest.raises(ValueError, match='Map texture missing from package'):
+        checker(contents)
+
+
 def test_png_checker_bounds_decompressed_gui_texture_data():
     import runpy
     checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['png_info']
@@ -274,8 +287,7 @@ def test_checker_rejects_invalid_distribution(package, tmp_path, mutation, messa
     elif mutation == 'missing_map_texture':
         map_path = root + 'resources/skins/Default/1080i/map.xml'
         contents[map_path] = contents[map_path].replace(
-            b'resources/skins/Default/media/radio-white.png',
-            b'resources/skins/Default/media/not-packaged.png')
+                b'radio-white.png', b'not-packaged.png')
     elif mutation == 'extra_secret':
         contents[root + '.env'] = b'token=secret'
     elif mutation == 'extra_root':

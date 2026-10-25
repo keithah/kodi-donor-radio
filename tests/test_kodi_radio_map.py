@@ -344,7 +344,7 @@ def test_map_pins_and_actions_have_visible_distinct_focus_styles():
     controls = {int(node.get('id')): node for node in ET.parse(root).findall(".//control[@type='button']")}
     pins = [controls[index] for index in range(1000, 1060)]
     for pin in pins:
-        assert pin.findtext('texturefocus', '').endswith('/resources/skins/Default/media/radio-white.png')
+        assert pin.findtext('texturefocus') == 'radio-white.png'
         assert pin.findtext('texturenofocus') == pin.findtext('texturefocus')
         assert pin.find('texturenofocus').get('colordiffuse') == '00FFFFFF'
         assert pin.findtext('colordiffuse') == '7044A8D8'
@@ -399,11 +399,10 @@ def test_map_texture_paths_resolve_from_window_directory():
     root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i'
     xml = ET.parse(root / 'map.xml')
     textures = {node.text for node in xml.iter()
-                if node.tag in ('texture', 'texturefocus', 'texturenofocus') and node.text}
-    for texture in textures:
-        if texture.endswith('/resources/skins/Default/media/radio-white.png'):
-            assert texture.startswith('special://home/addons/plugin.audio.kodi_donor_radio/')
-            assert (root.parent / 'media/radio-white.png').is_file()
+                if node.tag in ('texture', 'texturefocus', 'texturenofocus') and node.text
+                and not node.text.startswith('$')}
+    assert textures == {'radio-white.png'}
+    assert (root.parent / 'media/radio-white.png').is_file()
 
 
 def test_map_graticule_follows_local_station_bounds_and_hides_world_regions(monkeypatch):

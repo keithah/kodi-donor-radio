@@ -151,9 +151,14 @@ def check_contents(contents):
     map_textures = {element.text for element in map_xml.iter()
                     if element.tag in ('texture', 'texturefocus', 'texturenofocus') and element.text}
     addon_texture_prefix = 'special://home/addons/%s/' % ADDON_ID
+    addon_media_dir = 'resources/skins/Default/media/'
     for texture in map_textures:
         if texture.startswith(addon_texture_prefix):
             package_path = texture[len(addon_texture_prefix):]
+            require(package_path in contents,
+                    'Map texture missing from package: ' + texture)
+        elif not texture.startswith('$') and '://' not in texture:
+            package_path = addon_media_dir + texture
             require(package_path in contents,
                     'Map texture missing from package: ' + texture)
     po = contents['resources/language/resource.language.en_gb/strings.po'].decode('utf-8')
