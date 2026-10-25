@@ -34,7 +34,8 @@ def kodi(monkeypatch, tmp_path):
                             input='jazz', cancel=False, abort=False, waits=0, players=[], action=None,
                             player_paused=False, player_caching=False, selections=[], confirmations=[],
                             dialog_choices=None, dialog_inputs=None, builtins=[], contents=[],
-                            selection=-1, remember=False, memory_selection=None, on_select=None, on_confirm=None)
+                            selection=-1, remember=False, memory_selection=None, on_select=None, on_confirm=None,
+                            window_properties={})
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
@@ -99,6 +100,10 @@ def kodi(monkeypatch, tmp_path):
         def getSettingBool(self, key): return state.settings.get(key, False)
         def getSetting(self, key): return state.settings.get(key, '')
         def openSettings(self): state.settings_opened = True
+    class Window:
+        def __init__(self, window_id): self.window_id = window_id
+        def getProperty(self, key): return state.window_properties.get(key, '')
+        def setProperty(self, key, value): state.window_properties[key] = value
     modules = {
         'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
                                 getCondVisibility=lambda condition: state.player_paused if condition == 'Player.Paused' else state.player_caching,
@@ -106,7 +111,7 @@ def kodi(monkeypatch, tmp_path):
                                 log=lambda value, level: state.logs.append(value)),
         'xbmcaddon': SimpleNamespace(Addon=Addon),
         'xbmcgui': SimpleNamespace(ListItem=Item, Dialog=Dialog, DialogProgress=Progress,
-                                  NOTIFICATION_ERROR='error'),
+                                  Window=Window, NOTIFICATION_ERROR='error'),
         'xbmcplugin': SimpleNamespace(
             addDirectoryItem=lambda handle, url, listitem, isFolder=False: state.items.append((url,listitem,isFolder)),
             endOfDirectory=lambda handle, **kwargs: state.ended.append(kwargs),
@@ -1835,6 +1840,20 @@ def test_guided_setup_cancel_or_offline_still_renders_root(kodi, monkeypatch, fa
     assert 'localized-30111' in labels
     assert 'localized-30001' in labels
     assert state.ended == [{'succeeded': True, 'cacheToDisc': False}]
+
+
+def test_cancelled_automatic_setup_is_offered_once_per_Kodi_session(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    state.settings['guided_setup'] = True
+    offered = []
+    monkeypatch.setattr(runtime, '_ui_transition', lambda mode, *_args: offered.append(mode))
+
+    route(runtime)
+    route(runtime)
+
+    assert offered == ['setup']
+    assert state.window_properties['kodi_donor_radio.setup_offered'] == 'true'
+    assert state.ended == [{'succeeded': True, 'cacheToDisc': False}] * 2
 
 
 def test_station_info_uses_safe_cached_metadata_offline_without_clicks(kodi, monkeypatch):

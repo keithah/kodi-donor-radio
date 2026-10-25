@@ -24,6 +24,34 @@ def station():
     return Station('station', 'Radio', 'http://radio.example/live', 'MP3', False)
 
 
+def test_new_map_preview_replaces_an_old_preview_but_marks_deliberate_sessions():
+    sessions = manager()
+    first = sessions.create_preview(station())
+
+    second = sessions.create_preview(Station(
+        'another-station', 'Another Radio', 'http://radio.example/another', 'MP3', False))
+
+    assert first.cancel.is_set()
+    assert first.source.response.closed
+    assert first.is_preview is True
+    assert sessions.get(first.id) is None
+    assert second.is_preview is True
+    assert sessions.get(second.id) is second
+    sessions.close()
+
+
+def test_deliberate_sessions_are_not_replaceable_by_map_previews():
+    sessions = manager()
+    deliberate = sessions.create(station())
+
+    with pytest.raises(RuntimeError):
+        sessions.create_preview(station())
+
+    assert deliberate.is_preview is False
+    assert sessions.get(deliberate.id) is deliberate
+    sessions.close()
+
+
 def test_ad_config_is_snapshotted_per_session_and_errors_survive_preparation(monkeypatch, tmp_path):
     from types import SimpleNamespace
     from ad_models import AdConfig, AdError

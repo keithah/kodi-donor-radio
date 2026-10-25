@@ -67,7 +67,7 @@ and service credentials are excluded.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| Guided setup | Off | Run setup on opening the root when no places exist |
+| Guided setup | Off | Offer setup once per Kodi session when opening the root with no saved places; the setup row and Settings action remain available after cancellation |
 | Offer setup at the top of the list | On | Show the root setup action |
 | Preview stations while browsing | On | Preview a station after 400 ms of stable focus in the map rail |
 | Run setup | Action | Run the same setup dialogs from Settings |

@@ -123,6 +123,11 @@ The root listing is the whole information architecture. Fixed entries appear in 
 
 The setup row is hidden when `offer_setup_row` is false. Place rows carry their station count in `label2`.
 
+When `guided_setup` is enabled and there are no saved places, the automatic setup
+dialog is offered once per Kodi session. Cancelling it returns to the root without
+reopening the dialog on each navigation refresh; the setup row and Settings action
+remain available for another attempt.
+
 ### What each station ListItem carries
 
 - `label` — station name. Keep the frequency if the name has one; do not synthesise it.

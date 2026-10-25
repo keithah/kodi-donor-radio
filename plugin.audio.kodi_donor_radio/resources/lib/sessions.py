@@ -64,6 +64,7 @@ class PlaybackSession:
         self.playback_url = base_url + self.route(root.id)
         self.last_used = time.monotonic()
         self._claimed = False
+        self.is_preview = False
         self.tracker = CueTracker(self.id, station.uuid, sink,
                                   lambda: datetime.now(timezone.utc), time.monotonic)
         self.icy_tracker = IcyMarkerTracker(self.id, station.uuid, self.sink.emit,
@@ -301,6 +302,7 @@ class SessionManager:
                                           ad_config, self.client, self.cache_root,
                                           lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
                                           if self.icy_marker_store is not None else None)
+                session.is_preview = False
                 with self._lock:
                     if self._closed or self._pending is not cancel or cancel.is_set():
                         session.close('station_changed')
@@ -327,12 +329,17 @@ class SessionManager:
         """
         with self._create_lock:
             with self._lock:
-                if self._closed or self._session is not None or self._pending is not None:
+                current = self._session
+                if (self._closed or self._pending is not None or
+                        (current is not None and not current.is_preview)):
                     raise RuntimeError('Preview unavailable while a station is selected')
+                self._session = None
                 cancel = self._pending = threading.Event()
                 ad_config = self.ad_config
             source = None
             try:
+                if current is not None:
+                    current.close('station_changed')
                 if cancel.is_set():
                     raise RuntimeError('Preview cancelled')
                 source = self.resolver(station.url, self.client, cancel)
@@ -341,6 +348,7 @@ class SessionManager:
                                           self.client, self.cache_root,
                                           lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
                                           if self.icy_marker_store is not None else None)
+                session.is_preview = True
                 with self._lock:
                     if self._closed or self._pending is not cancel or cancel.is_set() or self._session is not None:
                         session.close('station_changed')

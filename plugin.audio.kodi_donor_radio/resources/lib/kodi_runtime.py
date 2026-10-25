@@ -802,12 +802,15 @@ def run_plugin(argv):
             raise ValueError('Invalid page')
         if action == 'home':
             needs_setup = False
-            if xbmcaddon.Addon().getSettingBool('guided_setup'):
+            home_window = xbmcgui.Window(10000)
+            if (xbmcaddon.Addon().getSettingBool('guided_setup') and
+                    not home_window.getProperty('kodi_donor_radio.setup_offered')):
                 try:
                     needs_setup = not PlaceStore(profile_path()).list()
                 except (OSError, ValueError, TypeError):
                     pass  # The saved-place fallback row below reports this failure.
             if needs_setup:
+                home_window.setProperty('kodi_donor_radio.setup_offered', 'true')
                 try:
                     _ui_transition('setup', {}, monitor, cancel, base)
                 except (Cancelled, OSError, ValueError, TypeError):
