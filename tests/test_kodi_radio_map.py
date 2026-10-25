@@ -20,9 +20,11 @@ class Control:
         self.control_id = control_id
         self.visible, self.position, self.label = True, (0, 0), ''
         self.enabled = True
+        self.width, self.height = 300, 42
         self.items, self.selected = [], 0
     def setVisible(self, value): self.visible = value
     def setPosition(self, x, y): self.position = (x, y)
+    def setWidth(self, value): self.width = value
     def setLabel(self, value): self.label = value
     def setEnabled(self, value): self.enabled = value
     def reset(self): self.items, self.selected = [], 0
@@ -154,6 +156,27 @@ def test_map_keeps_only_the_focused_city_name_on_the_pin_layer(monkeypatch):
     window.focus_city(by_city['Lagos'].city_id)
     assert lagos_control.label == 'Lagos'
     assert newark_control.label == '•'
+
+
+def test_map_pin_dot_is_centered_and_edge_label_only_is_clamped(monkeypatch):
+    module = load_window(monkeypatch)
+    west = station('west', 'West Radio', 0, -180, city='West')
+    east = station('east', 'East Radio', 0, 180, city='East')
+    window = make_window(module, stations=[west, east], selected_uuid='west',
+                         view=MapView(90, -90, -180, 180, 1030, 590))
+    window.onInit()
+
+    selected = window.controls[window._pin_control(window.selected_city_id)]
+    east_city = next(city for city in window.pins if city.city == 'East')
+    unselected = window.controls[window._pin_control(east_city.city_id)]
+    assert selected.width == 300
+    assert selected.position[0] == module.MAP_LEFT
+    assert selected.position[1] == module.MAP_TOP + module.MAP_HEIGHT // 2 - 21
+    assert unselected.width == 42
+    east_x = module.MAP_LEFT + module.MAP_WIDTH
+    assert unselected.position == (east_x - 21,
+                                   module.MAP_TOP + module.MAP_HEIGHT // 2 - 21)
+    assert unselected.position[0] + unselected.width // 2 == east_x
 
 
 @pytest.mark.parametrize(('stations', 'expected'), [

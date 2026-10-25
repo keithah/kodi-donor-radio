@@ -495,9 +495,12 @@ class RadioMapWindow(xbmcgui.WindowXML):
             # directory is dense. Keep compact dots for the map and promote
             # only the focused city to a label; the station rail carries detail.
             label = (city.city or self._unknown_location) if selected else '•'
-            left = x - 150
-            control.setPosition(min(MAP_LEFT + MAP_WIDTH - 300, max(MAP_LEFT, left)),
-                                min(MAP_TOP + MAP_HEIGHT - 42, max(MAP_TOP, y)))
+            width = 300 if selected else 42
+            control.setWidth(width)
+            left = x - width // 2
+            if selected:
+                left = min(MAP_LEFT + MAP_WIDTH - width, max(MAP_LEFT, left))
+            control.setPosition(left, y - 21)
             control.setVisible(True)
             control.setEnabled(True)
             control.setLabel(label)
