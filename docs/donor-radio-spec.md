@@ -55,8 +55,9 @@ outside explicitly enabled loopback fixtures.
 - The repo-layout section below now describes the actual
   `plugin.audio.kodi_donor_radio/` package and distinguishes current modules from
   proposed UI modules.
-- The root-listing count is data-dependent: there are seven fixed entry types plus
-  one row per saved place.
+- The root listing has seven always-present fixed entry types, an optional setup
+  row when `offer_setup_row` is enabled, and one row per saved place. Test mode
+  adds a controlled test streams row.
 - Radio Browser's official client guidance requests mirror discovery, a descriptive
   User-Agent, and `/json/url/{stationuuid}` for each deliberate user click. A click
   request is directory accounting; it does not prove playback started or that audio
@@ -108,11 +109,13 @@ The mode choice cannot live inside the guided setup, since setup is downstream o
 
 ## Skin mode — the directory tree
 
-The root listing is the whole information architecture. Fixed entries appear in this order, with one row per saved place:
+The root listing is the whole information architecture. When enabled, the
+optional setup row appears first, followed by one row per saved place and seven
+always-present actions. Test mode adds a controlled test streams row at the end.
 
 | Row | Route | Returns | Folder |
 | --- | --- | --- | --- |
-| Set up Donor Radio | `?mode=setup` | Runs the dialog sequence, refreshes the container | No |
+| Set up Donor Radio | `?mode=setup` | Runs the dialog sequence, refreshes the container; shown only when `offer_setup_row` is enabled | No |
 | *\<each saved place>* | `?mode=place&id=<place_id>` | Stations within that place's radius, sorted by `clickcount` | Yes |
 | Favorites | `?mode=favorites` | Saved stations in user order | Yes |
 | Browse by genre | `?mode=tags` | Tag list, then `?mode=tag&tag=<name>` | Yes |
@@ -120,13 +123,17 @@ The root listing is the whole information architecture. Fixed entries appear in 
 | Search… | `?mode=search` | Opens `xbmc.Keyboard`, then results | Yes |
 | Open the map | `?mode=map` | Launches the map `WindowXML`, returns no items | No |
 | Settings | `?mode=settings` | `Addon.OpenSettings` | No |
+| Label latest ICY marker | `?mode=label_icy_marker` | Opens marker/action and station-memory dialogs | No |
+| Controlled test streams | `?mode=tests` | Lists local marker and ad fixtures; test mode only | Yes |
 
-The setup row is hidden when `offer_setup_row` is false. Place rows carry their station count in `label2`.
+The setup row is hidden when `offer_setup_row` is false. Place rows carry their
+station count in `label2`.
 
 When `guided_setup` is enabled and there are no saved places, the automatic setup
 dialog is offered once per Kodi session. Cancelling it returns to the root without
-reopening the dialog on each navigation refresh; the setup row and Settings action
-remain available for another attempt.
+reopening the dialog on each navigation refresh; Settings and, when enabled,
+the setup row remain available for another attempt. Guided setup does not add a
+setup row when `offer_setup_row` is false.
 
 ### What each station ListItem carries
 
