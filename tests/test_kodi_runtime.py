@@ -1824,6 +1824,30 @@ def test_setup_cities_are_deduplicated_matched_and_scan_is_bounded(kodi, monkeyp
     assert not (profile / 'places.json').exists()
 
 
+def test_setup_candidates_merge_nearby_same_named_places_but_keep_distant_ones(kodi, monkeypatch):
+    from threading import Event
+    runtime, _, _ = kodi
+    browser = setup_directory(monkeypatch, runtime)
+    browser.geographic = lambda *_args: ([
+        Station('paris-1', 'Paris One', 'https://secret.example/stream', 'MP3', False,
+                city='Paris', country='France', country_code='FR',
+                latitude=48.8401, longitude=2.3001),
+        Station('paris-2', 'Paris Two', 'https://secret.example/stream', 'MP3', False,
+                city='Paris', country='France', country_code='FR',
+                latitude=48.841, longitude=2.301),
+        Station('paris-3', 'Paris Three', 'https://secret.example/stream', 'MP3', False,
+                city='Paris', country='France', country_code='FR',
+                latitude=49.0, longitude=2.4),
+    ], False)
+
+    candidates = runtime._setup_candidates(browser, 'FR', '', Event())
+
+    assert len(candidates) == 2
+    assert candidates[0]['name'] == candidates[1]['name'] == 'Paris'
+    assert (candidates[0]['latitude'], candidates[0]['longitude']) == (48.8401, 2.3001)
+    assert (candidates[1]['latitude'], candidates[1]['longitude']) == (49.0, 2.4)
+
+
 def test_setup_failure_after_pending_place_does_not_write_and_abort_is_respected(kodi, monkeypatch):
     runtime, state, profile = kodi
     browser = setup_directory(monkeypatch, runtime)

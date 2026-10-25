@@ -393,7 +393,9 @@ def _setup_candidates(browser, country_code, query, cancel):
                     continue
                 if country_code and code != country_code:
                     continue
-                key = (name.casefold(), code, round(latitude, 3), round(longitude, 3))
+                # Nearby stations in one city should not fill the place picker
+                # with coordinate variants; preserve distant same-name places.
+                key = (name.casefold(), code, round(latitude, 1), round(longitude, 1))
                 candidates.setdefault(key, dict(name=name, latitude=latitude, longitude=longitude,
                                                 country_code=code, country=_query_text(station.country)))
             except (ValueError, TypeError):
