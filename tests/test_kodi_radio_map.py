@@ -35,14 +35,23 @@ class Control:
 
 
 class Item:
-    def __init__(self, label='', path=''): self.label, self.path, self.props = label, path, {}
+    def __init__(self, label='', path=''):
+        self.label, self.path, self.props = label, path, {}
+        self.music_info = MusicInfoTag()
+        self.set_info_calls = []
+    def getMusicInfoTag(self): return self.music_info
     def setProperty(self, key, value): self.props[key] = value
     def getProperty(self, key): return self.props.get(key, '')
     def setLabel2(self, value): self.label2 = value
     def setArt(self, value): self.art = value
-    def setInfo(self, kind, value): self.info = value
+    def setInfo(self, kind, value): self.set_info_calls.append((kind, value))
     def setMimeType(self, value): self.mime = value
     def setContentLookup(self, value): self.lookup = value
+
+
+class MusicInfoTag:
+    def __init__(self): self.title = ''
+    def setTitle(self, value): self.title = value
 
 
 def native_rail_action(window, action_id):
@@ -120,10 +129,48 @@ def test_window_populates_bounded_pin_pool_and_station_rail(monkeypatch):
     rail = window.controls[2000]
     assert [item.label for item in rail.items] == ['Station %02d' % i for i in range(50)]
     assert rail.items[0].getProperty('station_uuid') == 'station-00'
+    assert rail.items[0].music_info.title == 'Station 00'
+    assert rail.items[0].set_info_calls == []
     assert rail.items[0].art == {'thumb': '/addon/resources/station-monogram.png',
                                  'icon': '/addon/resources/station-monogram.png'}
     assert 'Town' in rail.items[0].label2 and 'MP3' in rail.items[0].label2
     assert window.xml_args == ('map.xml', '/addon', 'Default', '1080i', False)
+
+
+def test_map_keeps_only_the_focused_city_name_on_the_pin_layer(monkeypatch):
+    module = load_window(monkeypatch)
+    stations = [station('newark', 'Newark Radio', 40.7, -74.2, city='Newark', country='United States', country_code='US'),
+                station('lagos', 'Lagos Radio', 6.5, 3.4, city='Lagos', country='Nigeria', country_code='NG')]
+    window = make_window(module, stations=stations, selected_uuid='newark',
+                         view=MapView(90, -90, -180, 180, 1030, 590))
+    window.onInit()
+    by_city = {city.city: city for city in window.pins}
+
+    newark_control = window.controls[window._pin_control(by_city['Newark'].city_id)]
+    lagos_control = window.controls[window._pin_control(by_city['Lagos'].city_id)]
+    assert newark_control.label == 'Newark'
+    assert lagos_control.label == '•'
+
+    window.focus_city(by_city['Lagos'].city_id)
+    assert lagos_control.label == 'Lagos'
+    assert newark_control.label == '•'
+
+
+@pytest.mark.parametrize(('stations', 'expected'), [
+    ([station('one', 'One', 0, 0)], 'Town · Canada · 1 station'),
+    ([station('one', 'One', 0, 0), station('two', 'Two', 0, 0)],
+     'Town · Canada · 2 stations'),
+])
+def test_map_status_uses_singular_and_plural_station_labels(monkeypatch, stations, expected):
+    strings = {30151: 'stations', 30166: 'station'}
+    module = load_window(monkeypatch)
+    module.xbmcaddon = SimpleNamespace(
+        Addon=lambda: SimpleNamespace(
+            getLocalizedString=lambda identifier: strings.get(identifier, 'localized-%d' % identifier),
+            getAddonInfo=lambda key: '/addon'))
+    window = make_window(module, stations=stations)
+    window.onInit()
+    assert window.controls[3002].label == expected
 
 
 @pytest.mark.parametrize('base', ['plugin://plugin.audio.kodi_donor_radio',
@@ -274,11 +321,14 @@ def test_map_pins_and_actions_have_visible_distinct_focus_styles():
     controls = {int(node.get('id')): node for node in ET.parse(root).findall(".//control[@type='button']")}
     pins = [controls[index] for index in range(1000, 1060)]
     for pin in pins:
-        assert pin.findtext('texturefocus') == 'media/white.png'
+        assert pin.findtext('texturefocus', '').endswith('/resources/skins/Default/media/radio-white.png')
+        assert pin.findtext('texturenofocus') == pin.findtext('texturefocus')
+        assert pin.find('texturenofocus').get('colordiffuse') == '00FFFFFF'
         assert pin.findtext('colordiffuse') == '7044A8D8'
         assert pin.findtext('focusedcolor') != pin.findtext('textcolor')
+        assert int(pin.findtext('width')) == 300
     preview, back = controls[3000], controls[3001]
-    assert preview.findtext('texturefocus') == back.findtext('texturefocus') == 'media/white.png'
+    assert preview.findtext('texturefocus') == back.findtext('texturefocus')
     assert preview.findtext('colordiffuse') != back.findtext('colordiffuse')
     assert preview.findtext('focusedcolor') != back.findtext('focusedcolor')
     title = ET.parse(root).find(".//control[@id='11']/label")
@@ -307,6 +357,30 @@ def test_map_schematic_has_geographic_grid_and_region_labels():
     assert [labels[index] for index in range(30, 37)] == [
         '$LOCALIZE[%d]' % value for value in range(30155, 30162)]
     assert '$LOCALIZE[30148]' in [node.findtext('label') for node in xml.findall(".//control[@type='label']")]
+
+
+def test_map_schematic_has_visible_panel_and_grid_contrast():
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i/map.xml'
+    xml = ET.parse(root)
+    panel = xml.find(".//control[@id='12']/colordiffuse").text
+    grid = xml.find(".//control[@id='20']/colordiffuse").text
+    assert int(panel[:2], 16) >= 0xF0
+    assert int(grid[:2], 16) >= 0xC0
+
+
+def test_map_texture_paths_resolve_from_window_directory():
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    root = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i'
+    xml = ET.parse(root / 'map.xml')
+    textures = {node.text for node in xml.iter()
+                if node.tag in ('texture', 'texturefocus', 'texturenofocus') and node.text}
+    for texture in textures:
+        if texture.endswith('/resources/skins/Default/media/radio-white.png'):
+            assert texture.startswith('special://home/addons/plugin.audio.kodi_donor_radio/')
+            assert (root.parent / 'media/radio-white.png').is_file()
 
 
 def test_map_graticule_follows_local_station_bounds_and_hides_world_regions(monkeypatch):
@@ -392,6 +466,25 @@ def test_rejected_stations_do_not_create_or_inflate_map_pins(monkeypatch):
     assert len(window.pins) == 1
     assert window.pins[0].station_uuids == ('accepted',)
     assert window.pins[0].station_count == 1
+
+
+def test_stations_without_valid_coordinates_are_ignored_by_map(monkeypatch):
+    from dataclasses import replace
+    module = load_window(monkeypatch)
+    located = station('located', 'Located', 10, 20)
+    no_coordinates = replace(station('no-coordinates', 'No coordinates', None, None),
+                             city='Unknown', country='')
+    invalid_latitude = replace(station('invalid-latitude', 'Invalid latitude', 91, 20),
+                               city='Unknown', country='')
+    invalid_longitude = replace(station('invalid-longitude', 'Invalid longitude', 10, 181),
+                                city='Unknown', country='')
+    window = make_window(module, stations=[no_coordinates, invalid_latitude,
+                                           invalid_longitude, located],
+                         view=MapView(90, -90, -180, 180, 1030, 590))
+    window.onInit()
+    assert window.stations == [located]
+    assert [pin.station_uuids for pin in window.pins] == [('located',)]
+    assert [item.getProperty('station_uuid') for item in window.controls[2000].items] == ['located']
 
 
 def test_station_rail_play_uses_uuid_route_and_never_reports_click(monkeypatch):
@@ -492,7 +585,7 @@ def test_preview_waits_for_stable_focus_and_cancels_stale_result(monkeypatch):
                          player_factory=lambda: SimpleNamespace(
                              isPlaying=lambda: not started or started[-1] is not None,
                              getPlayingFile=lambda: started[-1][1] if started and started[-1] else '',
-                                 play=lambda url, item: started.append(('play', url)),
+                                 play=lambda url, item, windowed=False: started.append(('play', url, windowed)),
                              stop=lambda: started.append(None)))
     window.onInit()
     window.onFocus(2000)
@@ -523,7 +616,7 @@ def test_preview_starts_after_debounce_and_closes_only_its_session(monkeypatch):
     player_state = {'url': '', 'playing': False}
     player = SimpleNamespace(
         isPlaying=lambda: player_state['playing'], getPlayingFile=lambda: player_state['url'],
-        play=lambda url, item: (plays.append(url), player_state.update(url=url, playing=True)),
+        play=lambda url, item, windowed=False: (plays.append((url, windowed)), player_state.update(url=url, playing=True)),
         stop=lambda: player_state.update(url='', playing=False))
     window = make_window(
         module, selected_uuid='one', preview_enabled=True, timer_factory=Timer,
@@ -536,7 +629,7 @@ def test_preview_starts_after_debounce_and_closes_only_its_session(monkeypatch):
     timers[-1].fire()
     assert not plays
     workers[0].target()
-    assert plays == ['http://127.0.0.1:1234/media/preview']
+    assert plays == [('http://127.0.0.1:1234/media/preview', True)]
     window.close()
     workers[-1].target()
     assert stops == ['owned-preview'] and not player_state['playing']
@@ -709,7 +802,7 @@ def test_preview_rechecks_kodi_state_under_shared_start_arbiter(monkeypatch, tmp
     state = {'url': '', 'playing': False}
     player = SimpleNamespace(
         isPlaying=lambda: state['playing'], getPlayingFile=lambda: state['url'],
-        play=lambda url, item: (calls.append(url), state.update(url=url, playing=True)))
+        play=lambda url, item, windowed=False: (calls.append((url, windowed)), state.update(url=url, playing=True)))
     window = make_window(module, player_factory=lambda: player,
                          playback_arbiter=module.PlaybackStartArbiter(tmp_path / 'play.lock'))
     result = {'session_id': 'preview', 'playback_url': 'http://127.0.0.1:1/preview'}
@@ -728,8 +821,8 @@ def test_preview_keeps_session_when_player_play_is_still_pending(monkeypatch, tm
     calls, stops, workers = [], [], []
     state = {'url': 'https://previous.example/live', 'playing': False}
 
-    def play(url, item):
-        calls.append(url)
+    def play(url, item, windowed=False):
+        calls.append((url, windowed))
         # Kodi accepted the request but has not switched getPlayingFile yet.
         state['playing'] = True
 
@@ -755,7 +848,7 @@ def test_preview_keeps_session_when_player_play_is_still_pending(monkeypatch, tm
         playback_arbiter=arbiter)
     window._preview = controller
     controller._resolve(0, 'station', threading.Event())
-    assert calls == [result['playback_url']]
+    assert calls == [(result['playback_url'], True)]
     assert state['url'] == 'https://previous.example/live'
     assert controller.owned is result
     assert stops == []
@@ -773,7 +866,7 @@ def test_pending_preview_survives_other_url_until_preview_is_acknowledged(monkey
     sleep_entered, release_sleep = threading.Event(), threading.Event()
     player = SimpleNamespace(
         isPlaying=lambda: state['playing'], getPlayingFile=lambda: state['url'],
-        play=lambda *_: None,
+        play=lambda *_, **__: None,
         stop=lambda: (stops.append('stop-playback'), state.update(playing=False, url='')))
 
     def thread(target, daemon=True):
@@ -855,7 +948,7 @@ def test_newer_queued_direct_play_prevents_late_preview_stop(monkeypatch, tmp_pa
     state = {'url': 'https://old.example/live', 'playing': False}
     player = SimpleNamespace(
         isPlaying=lambda: state['playing'], getPlayingFile=lambda: state['url'],
-        play=lambda *_: None,
+        play=lambda *_, **__: None,
         stop=lambda: (events.append('stop-preview'), state.update(playing=False, url='')))
 
     def thread(target, daemon=True):

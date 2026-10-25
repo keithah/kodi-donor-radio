@@ -39,7 +39,9 @@ def kodi(monkeypatch, tmp_path):
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
             self.label2, self.art, self.info, self.context = '', {}, {}, []
+            self.music_info = MusicInfoTag()
         def addContextMenuItems(self, values): self.context.extend(values)
+        def getMusicInfoTag(self): return self.music_info
         def setLabel2(self, value): self.label2 = value
         def setArt(self, value): self.art = value
         def setInfo(self, kind, value): self.info[kind] = value
@@ -70,6 +72,11 @@ def kodi(monkeypatch, tmp_path):
             return state.remember
         def notification(self, heading, message, icon, time):
             state.notifications.append((heading, message, icon, time))
+    class MusicInfoTag:
+        def __init__(self): self.title, self.genres, self.comment = '', [], ''
+        def setTitle(self, value): self.title = value
+        def setGenres(self, value): self.genres = value
+        def setComment(self, value): self.comment = value
     class Progress:
         def create(self, heading, message): state.messages.append(message)
         def iscanceled(self): return state.cancel
@@ -444,7 +451,7 @@ def test_map_modal_exit_releases_real_preview_without_reclosing_native_window(ko
     player_state = {'url': '', 'playing': False}
     player = SimpleNamespace(
         isPlaying=lambda: player_state['playing'], getPlayingFile=lambda: player_state['url'],
-        play=lambda url, item: player_state.update(url=url, playing=True),
+        play=lambda url, item, windowed=False: player_state.update(url=url, playing=True),
         stop=lambda: (events.append('stop-player'), player_state.update(url='', playing=False)))
     state.settings['preview_on_browse'] = True
     monkeypatch.setattr(module.xbmc, 'Player', lambda: player)
@@ -1413,8 +1420,10 @@ def test_station_display_metadata_safe_artwork_and_uuid_links(kodi, monkeypatch)
     assert item.label == 'FM 88' and item.label2 == 'San Mateo · AAC 64'
     expected_art = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/station-monogram.png'
     assert item.art == {'thumb': str(expected_art), 'icon': str(expected_art)}
-    assert item.info['music']['genre'] == 'jazz,news'
-    assert item.info['music']['title'] == 'FM 88'
+    assert item.music_info.genres == ['jazz', 'news']
+    assert item.music_info.title == 'FM 88'
+    assert item.music_info.comment == 'San Mateo · jazz,news'
+    assert item.info == {}
     assert item.props['IsPlayable'] == 'true' and folder is False and item.folder is False
     fallback = state.items[1][1].art['thumb']
     assert Path(fallback).parts[-2:] == ('resources', 'station-monogram.png')

@@ -848,3 +848,45 @@ Run the fixture-focused suite with
 This validation is not a Kodi UI playback run; the controlled sequences are
 verified as bounded stream/decoder/tracker fixtures, and any separate Kodi
 menu or audible-playback check must be recorded independently.
+
+## Live GUI follow-up — 2026-10-24
+
+The Kodi desktop became available after the earlier locked-session attempts.
+Kodi reports **21.3.0** (21.3 Omega); `system_profiler` reports **macOS 26.6.2**,
+Apple **MacBookPro18,2**, and a **3840×2160** display. Input was keyboard events
+sent through desktop automation. Kodi's current Interface settings screen shows
+**Estuary**. Earlier in this same GUI acceptance effort, Confluence was installed
+and exercised for station listings, station context actions, map rendering, and
+return to the selected station; see the 2026-10-23 live observation notes above.
+
+| GUI acceptance check | Result |
+| --- | --- |
+| Kodi skin setting | Estuary shown in Interface settings |
+| Alternate skin | Confluence station-list/context-map path observed earlier; see historical live notes |
+| Station listing and context menu | Observed; station rows and addon plus Kodi standard actions rendered |
+| Map from station context | Observed in Confluence: Guadeloupe heading, two-station rail, selected city pin, and complete wrapped map note |
+| Preview while map is open | Observed after installing the `windowed=True` preview change: focus reached the station rail and map remained visible |
+| Return selection | Escape from map returned to the originating station list with the same Guadeloupe station selected |
+| D-pad boundary exit | From the selected city pin, Left reached the map's Back control; this confirms an available exit, not exhaustive no-wrap behavior in every region |
+| Root map entry | Observed in Estuary: selected **Open the map** from the add-on root; the map opened with the Lagos pin and station rail |
+| Guided setup cancellation | Observed in Estuary: opened the setup country picker, pressed Back, and returned to the add-on root without saving a place |
+| Guided setup completion | Partial: selected Toronto, ON (43.577, -79.343) and the 25-mile radius; the flow displayed “Add another place / Save places.” A second run through the country selector returned “No stations or categories found” and exited to an empty root. A saved Toronto row was visible after the first run, but the final post-save map/use path was not confirmed. |
+| Empty-location handling | Observed: selecting Andorra returned the bounded-scan “No matching station locations with valid coordinates” message and saved no place. |
+| Settings | Observed in Estuary: add-on settings opened; Run setup, Guided setup, setup-row visibility, preview, diagnostics, and fixture settings were visible |
+| Controlled test stream directory | Observed in Estuary: the add-on displayed its controlled MP3/AAC tone, ICY metadata, HLS cue, missing/malformed cue, controlled-break, mutated-source, advanced-window, delayed-segment, explicit ICY command, and TildeATS fixture entries. The Mac locked when opening a fixture, before playback or marker output could be observed. |
+| Preview cancellation, zero click count, competing playback | Not verified live; adapter tests cover the dispatch and lifecycle boundaries |
+| Controlled fixture, actual playback click count, audible output | Not verified live in this GUI follow-up |
+
+The map rail remained visible while a real Radio Browser station preview was
+started. This establishes the GUI behavior, not audible output or a Radio Browser
+click count. Focused adapter tests assert that preview uses a separate route and
+does not send click reports. The application log identifies `mbpdev.local`; this
+log identity does not independently establish that the running process is on a
+different host from mbpdev. The map's single-station heading also exposed a
+pluralization defect (`1 stations`); the UI now uses localized singular and
+plural labels, covered by adapter tests. The approved first-slice GUI acceptance
+is therefore **partial**, not complete; themed windows stay deferred until the
+remaining live checks are covered.
+The corrected script and localization file were copied into Kodi's profile for
+verification, but the Mac locked before I could reopen the map and confirm the
+updated heading on screen.

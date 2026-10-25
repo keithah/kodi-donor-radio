@@ -704,8 +704,10 @@ def run_plugin(argv):
         art = os.path.join(xbmcaddon.Addon().getAddonInfo('path'),
                            'resources', 'station-monogram.png')
         entry.setArt({'thumb': art, 'icon': art})
-        entry.setInfo('music', {'title': summary.name, 'genre': summary.tags,
-                              'comment': ' · '.join(value for value in (summary.city, summary.country, summary.tags) if value)})
+        music_info = entry.getMusicInfoTag()
+        music_info.setTitle(summary.name)
+        music_info.setGenres([tag.strip() for tag in summary.tags.split(',') if tag.strip()])
+        music_info.setComment(' · '.join(value for value in (summary.city, summary.country, summary.tags) if value))
         entry.setProperty('IsPlayable', 'true')
         entry.setIsFolder(False)
         if favorite_ids is None:

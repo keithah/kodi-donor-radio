@@ -142,7 +142,8 @@ def cluster_cities(stations):
             continue
         # Keep the pure projection free of UI language; the Kodi adapter adds
         # the localized fallback label when it renders an unnamed area.
-        city = _clean_label(_get(station, 'city', ''))
+        city = (_clean_label(_get(station, 'city', '')) or
+                _clean_label(_get(station, 'state', '')))
         country = _clean_label(_get(station, 'country', ''))
         raw_country_code = _get(station, 'country_code', '')
         country_code = (raw_country_code.upper() if isinstance(raw_country_code, str) and

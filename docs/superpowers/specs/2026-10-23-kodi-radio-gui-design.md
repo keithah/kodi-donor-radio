@@ -4,7 +4,11 @@
 
 Approved target design for the GUI in `docs/donor-radio-spec.md`. The first slice
 (skin-native listings, sequential Kodi setup dialogs, and shared map) is implemented.
-Live Kodi visual/focus acceptance and themed windows remain pending.
+Basic live acceptance on Kodi 21.3 has covered listings, station context actions,
+the station-context map, root-map launch, preview remaining in the map, and return
+to the selected station. Setup completion, all focus boundaries, playback/click
+accounting, controlled-fixture audio, and themed windows remain pending. See the
+dated matrix in `docs/testing.md`.
 
 ## Goal
 

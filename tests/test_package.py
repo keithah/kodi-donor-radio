@@ -39,6 +39,7 @@ def test_package_is_installable_source_only(package):
         assert ADDON + '/service.py' in names
         assert ADDON + '/resources/station-monogram.png' in names
         assert ADDON + '/resources/skins/Default/media/white.png' in names
+        assert ADDON + '/resources/skins/Default/media/radio-white.png' in names
         assert ADDON + '/resources/lib/radio_ui.py' in names
         assert ADDON + '/resources/lib/radio_map.py' in names
         assert ADDON + '/resources/lib/kodi_radio_map.py' in names
@@ -194,6 +195,7 @@ def test_packaged_gui_settings_and_map_have_localized_resources(package):
 @pytest.mark.parametrize('resource', [
     'resources/settings.xml', 'resources/language/resource.language.en_gb/strings.po',
     'resources/skins/Default/1080i/map.xml', 'resources/skins/Default/media/white.png',
+    'resources/skins/Default/media/radio-white.png',
     'resources/station-monogram.png',
     'resources/lib/radio_ui.py', 'resources/lib/radio_map.py',
     'resources/lib/kodi_radio_map.py', 'resources/lib/playback_arbiter.py',

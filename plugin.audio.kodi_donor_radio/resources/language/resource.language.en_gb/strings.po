@@ -412,6 +412,10 @@ msgctxt "#30151"
 msgid "stations"
 msgstr ""
 
+msgctxt "#30166"
+msgid "station"
+msgstr ""
+
 msgctxt "#30152"
 msgid "Radio preview"
 msgstr ""

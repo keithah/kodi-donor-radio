@@ -79,6 +79,17 @@ def test_clustering_groups_normalized_city_country_and_rounded_coordinates():
     ])))
 
 
+def test_clustering_uses_state_as_region_label_when_city_is_missing():
+    station_without_city = station('lagos', '', 6.5244, 3.3792, country='NG',
+                                   country_name='Nigeria')
+    station_without_city.state = 'Lagos'
+
+    clusters = cluster_cities([station_without_city])
+
+    assert len(clusters) == 1
+    assert clusters[0].city == 'Lagos'
+
+
 def test_clustering_drops_invalid_coordinates_and_missing_station_ids():
     clusters = cluster_cities([
         station('bad-lat', 'City', 91, 0),

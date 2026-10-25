@@ -33,6 +33,19 @@ _GRID_STEPS = (120, 90, 60, 45, 30, 20, 15, 10, 5, 2, 1, .5,
                .25, .125, .0625, .01, .001)
 
 
+def _valid_coordinates(latitude, longitude):
+    for value, low, high in ((latitude, -90, 90), (longitude, -180, 180)):
+        if isinstance(value, bool):
+            return False
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(number) or number < low or number > high:
+            return False
+    return True
+
+
 def _grid_value_count(start, end, step):
     """Count strict-interior grid lines without allocating their coordinates."""
     first = math.floor(start / step) + 1
@@ -363,6 +376,11 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 station_uuid = _safe_station(station)
             except ValueError:
                 continue
+            # The map and its station rail are limited to stations with a
+            # valid geographic position; locationless records have no map action.
+            if not _valid_coordinates(getattr(station, 'latitude', None),
+                                      getattr(station, 'longitude', None)):
+                continue
             self.station_by_uuid.setdefault(station_uuid, station)
         self.stations = list(self.station_by_uuid.values())
         self.cities = cluster_cities(self.stations)
@@ -472,14 +490,16 @@ class RadioMapWindow(xbmcgui.WindowXML):
             point = project(city.latitude, city.longitude, self.view)
             x = MAP_LEFT + round(point[0] * MAP_WIDTH / self.view.width)
             y = MAP_TOP + round(point[1] * MAP_HEIGHT / self.view.height)
-            control.setPosition(min(MAP_LEFT + MAP_WIDTH - 180, max(MAP_LEFT, x)),
+            selected = city.city_id == self.selected_city_id
+            # A full city name on every button becomes unreadable where the
+            # directory is dense. Keep compact dots for the map and promote
+            # only the focused city to a label; the station rail carries detail.
+            label = (city.city or self._unknown_location) if selected else '•'
+            left = x - 150
+            control.setPosition(min(MAP_LEFT + MAP_WIDTH - 300, max(MAP_LEFT, left)),
                                 min(MAP_TOP + MAP_HEIGHT - 42, max(MAP_TOP, y)))
             control.setVisible(True)
             control.setEnabled(True)
-            city_label = city.city or self._unknown_location
-            label = '%s (%d)' % (city_label[:24], city.station_count)
-            if city.city_id == self.selected_city_id:
-                label = self._selected_prefix + ' ' + label
             control.setLabel(label)
 
     def _render_rail(self):
@@ -490,9 +510,11 @@ class RadioMapWindow(xbmcgui.WindowXML):
             self.getControl(STATUS_ID).setLabel(
                 self.status_message or xbmcaddon.Addon().getLocalizedString(30147))
             return
+        count_label = xbmcaddon.Addon().getLocalizedString(
+            30166 if city.station_count == 1 else 30151)
         status = '%s · %s · %d %s' % (
-            city.city or self._unknown_location, city.country or city.country_code, city.station_count,
-            xbmcaddon.Addon().getLocalizedString(30151))
+            city.city or self._unknown_location, city.country or city.country_code,
+            city.station_count, count_label)
         self.getControl(STATUS_ID).setLabel((self.status_message + ' · ' + status)
                                             if self.status_message else status)
         station_uuids = sorted(city.station_uuids, key=lambda uuid: (
@@ -517,7 +539,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
             artwork = os.path.join(xbmcaddon.Addon().getAddonInfo('path'),
                                    'resources', 'station-monogram.png')
             entry.setArt({'thumb': artwork, 'icon': artwork})
-            entry.setInfo('music', {'title': label})
+            entry.getMusicInfoTag().setTitle(label)
             entry.setProperty('station_uuid', station_uuid)
             rail.addItems([entry])
         self._rail_position = rail_uuids.index(self.selected_uuid) if self.selected_uuid in rail_uuids else 0
@@ -686,7 +708,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 return False
 
         def start_preview():
-            player.play(result['playback_url'], entry)
+            player.play(result['playback_url'], entry, windowed=True)
 
         started = self._playback_arbiter.start_if_available(can_start, start_preview)
         if not started:

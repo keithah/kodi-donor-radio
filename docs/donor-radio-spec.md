@@ -22,9 +22,16 @@ and 50 rail stations. It does not yet implement a complete geocoding catalog,
 free map panning/zoom, or all target artwork.
 
 Automated and package verification is recorded in [testing](testing.md#gui-package-verification--initial-task-7-run-2026-10-23).
-New GUI acceptance on Kodi 21.3 remains unverified because the desktop was locked:
-Estuary/alternate-skin rendering, real setup, D-pad/focus, playback, click count,
-and preview behavior have not been observed. External Kodi UI/other-add-on/native
+Live Kodi 21.3 acceptance is partial (see the dated GUI acceptance record in
+`testing.md`). Estuary and Confluence directory/context behavior, root-map entry,
+and a Confluence station-context map were observed; the map's explanatory text
+wraps, and moving focus into its station rail leaves the map visible during a preview. Returning
+from that map restored the originating selected station. Guided setup selected
+a Toronto location and radius and displayed the saved place in the root listing,
+but a later country-picker run returned an empty result and exited to an empty
+root; the complete setup-to-map flow remains unverified. Complete
+focus-boundary coverage, live click counts, and
+audible/controlled-fixture playback remain unverified. External Kodi UI/other-add-on/native
 `setResolvedUrl` starts do not participate in the add-on's playback arbiter;
 no atomic Kodi-wide playback guarantee is claimed. The preview handoff is bounded
 to five seconds. Requirements below that exceed this slice remain product targets.
@@ -482,7 +489,7 @@ The target remains two modes. The approved first slice delivers skin listings, s
 | Guided setup in skin mode | Implemented: sequential native dialogs | This avoids loading theme assets for the default mode. Revisit if testing shows that dialogs cannot explain location selection clearly. |
 | Delivery order | Approved and implemented: skin listings plus shared map first; themed windows after Kodi acceptance | This validates the information architecture before the larger custom-theme investment. Both modes remain in the product target; the first slice follows the approved delivery order. |
 
-Guided-setup presentation and delivery order were approved for this slice. Live Kodi acceptance remains outstanding as recorded above; implementation does not establish the target visual/focus behavior.
+Guided-setup presentation and delivery order were approved for this slice. Live Kodi acceptance is partial as recorded above; implementation does not establish unobserved target visual/focus behavior.
 
 ### Source for the designs
 
