@@ -106,7 +106,7 @@
 
 **Interfaces:**
 - Add `action=label_icy_marker` to the plugin router.
-- Add a home-directory row visible during Kodi audio playback; opening it shows the latest current-session candidate and a Start / End / Cancel choice.
+- Add an always-present home-directory row; opening it shows the latest current-session candidate and a Start / End / Cancel choice.
 - On Start/End, offer Remember for this station / This listening session only / Cancel; dismissal and Cancel apply nothing. Report stale/missing candidate without writing a rule.
 
 - [x] **Step 1: Write failing UI routing tests** for active candidate display, start/end label submission, remember choice, stale candidate rejection, and no-op when there is no current candidate.
