@@ -1,12 +1,21 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Discover and sample bounded Radio Browser HLS cue observations."""
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+from pathlib import Path
 import re
+import sys
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Mapping, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
+
+_LIBRARY = str(Path(__file__).resolve().parents[1] / 'plugin.audio.kodi_donor_radio' /
+               'resources' / 'lib')
+if _LIBRARY not in sys.path:
+    sys.path.insert(0, _LIBRARY)
 
 from cues import CueTracker
 from hls import Playlist, UnsupportedPlaylist, parse_playlist
@@ -27,6 +36,19 @@ HLS_CONTENT_TYPES = frozenset((
     'application/vnd.apple.mpegurl', 'application/x-mpegurl',
     'application/mpegurl', 'audio/x-mpegurl', 'audio/mpegurl',
 ))
+OUTCOMES = frozenset((
+    'marker_observed', 'no_marker_observed', 'unsupported', 'policy_rejection',
+    'reachability_failure', 'parser_failure', 'cancelled',
+))
+
+
+class _DirectoryDeadlineClient:
+    """Give Radio Browser requests the same total deadline as playlist reads."""
+    def __init__(self, client: HttpClient):
+        self.client = client
+
+    def open(self, url, headers, cancel):
+        return self.client.open(url, headers, cancel, deadline=time.monotonic() + 15)
 
 
 def _station_name(name):
@@ -243,3 +265,98 @@ def discover_candidates(browser: RadioBrowser, page_limit: int,
         if len(page) < PAGE_SIZE:
             break
     return candidates, pages_read
+
+
+def _bounded_integer(name: str, minimum: int, maximum: int) -> Callable:
+    def convert(value):
+        try:
+            number = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError('%s must be an integer' % name)
+        if not minimum <= number <= maximum:
+            raise argparse.ArgumentTypeError('%s must be from %d to %d' %
+                                             (name, minimum, maximum))
+        return number
+    return convert
+
+
+def _station_summary(station: Station, result: Mapping[str, object]) -> Dict[str, object]:
+    outcome = result.get('outcome')
+    if outcome not in OUTCOMES:
+        outcome = 'reachability_failure'
+    return {'kind': 'station_summary', 'station_uuid': station.uuid,
+            'station_name': _station_name(station.name), 'outcome': outcome,
+            'elapsed_seconds': result.get('elapsed_seconds', 0.0),
+            'poll_count': result.get('poll_count', 0),
+            'event_count': result.get('event_count', 0),
+            'truncated': bool(result.get('truncated', False))}
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description='Sample Radio Browser HLS marker playlists')
+    parser.add_argument('--pages', type=_bounded_integer('pages', 1, 100), default=20)
+    parser.add_argument('--limit', type=_bounded_integer('limit', 1, 20), default=8)
+    parser.add_argument('--workers', type=_bounded_integer('workers', 1, 4), default=4)
+    parser.add_argument('--duration-seconds', type=_bounded_integer('duration-seconds', 1200, 7200),
+                        default=1200)
+    args = parser.parse_args(argv)
+
+    client = HttpClient()
+    discovery_cancel = threading.Event()
+    writer = JsonLineWriter(sys.stdout)
+    try:
+        stations, _ = discover_candidates(RadioBrowser(client=_DirectoryDeadlineClient(client),
+                                                       cancel=discovery_cancel),
+                                          args.pages, args.limit)
+    except KeyboardInterrupt:
+        discovery_cancel.set()
+        return 130
+    except Exception:
+        print('Station discovery failed', file=sys.stderr)
+        return 1
+
+    cancellations = [threading.Event() for _ in stations]
+    interrupted = False
+    failed = False
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        futures = {}
+        emitted = set()
+
+        def emit_summary(future):
+            nonlocal failed
+            station = futures[future]
+            try:
+                result = future.result()
+            except BaseException:
+                result = {'outcome': 'cancelled' if interrupted else 'reachability_failure'}
+            record = _station_summary(station, result)
+            writer.emit_record(record)
+            emitted.add(future)
+            if record['outcome'] in ('policy_rejection', 'reachability_failure',
+                                     'parser_failure', 'cancelled'):
+                failed = True
+
+        try:
+            for station, cancel in zip(stations, cancellations):
+                future = executor.submit(sample_station, station, client, writer,
+                                         args.duration_seconds, cancel, time.monotonic, cancel.wait)
+                futures[future] = station
+            for future in as_completed(futures):
+                emit_summary(future)
+        except KeyboardInterrupt:
+            interrupted = True
+            discovery_cancel.set()
+            for cancel in cancellations:
+                cancel.set()
+            for future in futures:
+                if future not in emitted:
+                    emit_summary(future)
+            submitted = {station.uuid for station in futures.values()}
+            for station in stations:
+                if station.uuid not in submitted:
+                    writer.emit_record(_station_summary(station, {'outcome': 'cancelled'}))
+    return 130 if interrupted else 1 if failed else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

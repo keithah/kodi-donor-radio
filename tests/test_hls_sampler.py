@@ -2,6 +2,7 @@ import pytest
 import io
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from models import Station
@@ -9,6 +10,7 @@ from http_client import HttpClient
 from url_policy import UrlPolicy
 from tools.sample_hls_ad_markers import (discover_candidates, host_is_cdnstream1,
                                          JsonLineWriter, load_media_playlist, sample_station)
+import tools.sample_hls_ad_markers as sampler
 
 
 def test_host_filter_requires_cdnstream1_domain_boundary():
@@ -305,3 +307,167 @@ def test_sampler_rejects_nonplaylist_mime_before_body_read(playlists, content_ty
     assert result['outcome'] == 'unsupported'
     assert reads == []
     assert requests == ['/live.m3u8?token=QUERYSECRET']
+
+
+def _fake_summary(station, outcome='no_marker_observed'):
+    return {'station_uuid': station.uuid, 'station_name': station.name,
+            'outcome': outcome, 'elapsed_seconds': 1200.0, 'poll_count': 10,
+            'event_count': 0, 'truncated': False}
+
+
+def test_cli_rejects_duration_below_twenty_minutes():
+    with pytest.raises(SystemExit) as error:
+        sampler.main(['--duration-seconds', '1199'])
+    assert error.value.code == 2
+
+
+def test_cli_applies_page_candidate_and_worker_bounds(monkeypatch, capsys):
+    for arguments in (['--pages', '0'], ['--pages', '101'],
+                      ['--limit', '0'], ['--limit', '21'],
+                      ['--workers', '0'], ['--workers', '5'],
+                      ['--duration-seconds', '7201']):
+        with pytest.raises(SystemExit) as error:
+            sampler.main(arguments)
+        assert error.value.code == 2
+
+    selected = [_station('one')]
+    discovery_calls, sample_calls = [], []
+
+    def discover(browser, pages, limit):
+        discovery_calls.append((pages, limit))
+        return selected, pages
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        sample_calls.append((station.uuid, duration, cancel))
+        return _fake_summary(station)
+
+    monkeypatch.setattr(sampler, 'discover_candidates', discover)
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    assert sampler.main([]) == 0
+    assert sampler.main(['--pages', '100', '--limit', '20', '--workers', '4',
+                         '--duration-seconds', '7200']) == 0
+    assert discovery_calls == [(20, 8), (100, 20)]
+    assert [(uuid, duration) for uuid, duration, _ in sample_calls] == [('one', 1200), ('one', 7200)]
+    assert sample_calls[0][2] is not sample_calls[1][2]
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [record['kind'] for record in records] == ['station_summary', 'station_summary']
+
+
+def test_cli_caps_concurrent_station_workers(monkeypatch, capsys):
+    stations = [_station(str(index)) for index in range(6)]
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: (stations, 1))
+    state = {'active': 0, 'maximum': 0}
+    lock = threading.Lock()
+    cancellations = []
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        with lock:
+            state['active'] += 1
+            state['maximum'] = max(state['maximum'], state['active'])
+            cancellations.append(cancel)
+        time.sleep(0.02)
+        with lock:
+            state['active'] -= 1
+        return _fake_summary(station)
+
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    assert sampler.main(['--workers', '2', '--limit', '6']) == 0
+    assert state['maximum'] == 2
+    assert len({id(cancel) for cancel in cancellations}) == 6
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(records) == 6
+    assert all(record['kind'] == 'station_summary' for record in records)
+
+
+def test_marker_free_sample_is_not_reported_as_ad_free(monkeypatch, capsys):
+    station = _station('marker-free')
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: ([station], 1))
+    monkeypatch.setattr(sampler, 'sample_station',
+                        lambda station, client, writer, duration, cancel, monotonic, wait: _fake_summary(station))
+    assert sampler.main([]) == 0
+    output = capsys.readouterr().out
+    record = json.loads(output)
+    assert record['kind'] == 'station_summary'
+    assert record['outcome'] == 'no_marker_observed'
+    assert 'ad_free' not in output
+
+
+def test_cli_interrupt_cancels_and_summarizes_all_workers(monkeypatch, capsys):
+    stations = [_station(str(index)) for index in range(3)]
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: (stations, 1))
+    cancellations = []
+    lock = threading.Lock()
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        with lock:
+            cancellations.append(cancel)
+        cancel.wait(2)
+        return _fake_summary(station, 'cancelled' if cancel.is_set() else 'no_marker_observed')
+
+    def interrupt(futures):
+        raise KeyboardInterrupt
+        yield
+
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    monkeypatch.setattr(sampler, 'as_completed', interrupt)
+    assert sampler.main(['--workers', '2', '--limit', '3']) == 130
+    assert len(cancellations) == 3
+    assert all(cancel.is_set() for cancel in cancellations)
+    assert len({id(cancel) for cancel in cancellations}) == 3
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(records) == 3
+    assert all(record['outcome'] == 'cancelled' for record in records)
+
+
+def test_cli_directory_requests_have_total_deadline(monkeypatch):
+    calls = []
+
+    class Client:
+        def open(self, url, headers, cancel, deadline=None):
+            calls.append(deadline)
+
+    class Browser:
+        def __init__(self, client, cancel):
+            self.client = client
+
+        def search(self, name, country, tag, offset, limit):
+            self.client.open('https://directory.example/stations', {}, threading.Event())
+            return []
+
+    monkeypatch.setattr(sampler, 'HttpClient', Client)
+    monkeypatch.setattr(sampler, 'RadioBrowser', Browser)
+    assert sampler.main([]) == 0
+    assert len(calls) == 1
+    assert calls[0] is not None
+    assert 0 < calls[0] - time.monotonic() <= 15
+
+
+def test_cli_interrupt_during_submission_cancels_started_workers(monkeypatch, capsys):
+    stations = [_station('one'), _station('two')]
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: (stations, 1))
+    original_executor = sampler.ThreadPoolExecutor
+    observed = []
+
+    class InterruptingExecutor(original_executor):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.submissions = 0
+
+        def submit(self, *args, **kwargs):
+            self.submissions += 1
+            if self.submissions == 2:
+                raise KeyboardInterrupt
+            return super().submit(*args, **kwargs)
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        observed.append(cancel)
+        cancel.wait(0.5)
+        return _fake_summary(station, 'cancelled' if cancel.is_set() else 'no_marker_observed')
+
+    monkeypatch.setattr(sampler, 'ThreadPoolExecutor', InterruptingExecutor)
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    assert sampler.main(['--workers', '2']) == 130
+    assert len(observed) == 1 and observed[0].is_set()
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {record['station_uuid'] for record in records} == {'one', 'two'}
+    assert all(record['outcome'] == 'cancelled' for record in records)

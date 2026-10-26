@@ -1028,3 +1028,25 @@ ad state, and deduplicates identical metadata while refreshing the active
 boundary timeout. A missing field does not end a break. Opaque `adswizzContext`
 and `adId` values are dropped from diagnostics.
 This remains observation-only and does not feed VAST replacement or beacons.
+
+## Long Radio Browser HLS marker sample
+
+Run the command below from the repository root:
+
+```sh
+python3 tools/sample_hls_ad_markers.py --pages 20 --limit 8 --workers 4 --duration-seconds 1200 > hls-markers.jsonl
+```
+
+It scans a bounded directory window, selects up to eight `cdnstream1.com` HLS
+entries, and gives each selected station its own 1,200-second observation
+window. Four workers run concurrently by default. Redacted JSON Lines contain
+cue events and one completion summary per station. The sampler fetches only
+supported HLS playlist responses; it rejects audio, unknown, or missing
+response types before reading a body and never requests media segments.
+`no_marker_observed` describes the sampled interval only; it does not establish
+that the station is ad-free. Ctrl-C cancels workers, finalizes open breaks as
+unresolved, and exits nonzero after summaries are written.
+
+`python3 -m pytest tests/test_hls_sampler.py -q` covers candidate bounds, the
+strict playlist gate, segment-free cue sampling, redaction, concurrency,
+cancellation, and CLI limits. Run `python3 -m pytest -q` for the full suite.
