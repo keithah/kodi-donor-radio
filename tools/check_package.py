@@ -2,6 +2,8 @@
 """Check an addon ZIP without extracting or importing its contents (stdlib only)."""
 import argparse
 import ast
+import json
+import math
 from pathlib import Path
 import re
 import stat
@@ -13,6 +15,9 @@ import zlib
 
 ADDON_ID = 'plugin.audio.kodi_donor_radio'
 VERSION = '0.1.0'
+MAX_LAND_BYTES = 2 * 1024 * 1024
+MAX_LAND_POINTS = 100000
+LAND_SOURCE = 'Natural Earth 1:110m land v4.1.0'
 # Explicit manifest: adding a distributable source requires a deliberate edit.
 FILES = frozenset({
     'addon.xml', 'default.py', 'service.py', 'LICENSE.txt',
@@ -37,6 +42,44 @@ FILES = frozenset({
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def check_land_geometry(payload):
+    """Validate bundled map data with the runtime loader's geometry bounds."""
+    require(len(payload) <= MAX_LAND_BYTES, 'Bundled land geometry exceeds size limit')
+    try:
+        data = json.loads(payload.decode('utf-8'))
+    except (UnicodeError, ValueError, RecursionError) as error:
+        raise ValueError('Invalid bundled land geometry JSON') from error
+    require(isinstance(data, dict) and
+            set(data) == {'schema_version', 'source', 'polygons'} and
+            type(data['schema_version']) is int and data['schema_version'] == 1 and
+            data['source'] == LAND_SOURCE,
+            'Unsupported bundled land geometry schema or source')
+    polygons = data['polygons']
+    require(isinstance(polygons, list) and polygons and
+            len(polygons) <= MAX_LAND_POINTS // 4,
+            'Invalid bundled land polygons')
+    point_count = 0
+    for polygon in polygons:
+        require(isinstance(polygon, list) and polygon and
+                len(polygon) <= MAX_LAND_POINTS // 4,
+                'Invalid bundled land polygon rings')
+        for ring in polygon:
+            require(isinstance(ring, list) and len(ring) >= 4,
+                    'Bundled land rings must be closed with at least four points')
+            point_count += len(ring)
+            require(point_count <= MAX_LAND_POINTS,
+                    'Too many bundled land coordinates')
+            for point in ring:
+                require(isinstance(point, list) and len(point) == 2,
+                        'Invalid bundled land coordinate pair')
+                for value, low, high in ((point[0], -180, 180), (point[1], -90, 90)):
+                    require(not isinstance(value, bool) and
+                            isinstance(value, (int, float)) and
+                            low <= value <= high and math.isfinite(value),
+                            'Invalid bundled land coordinate')
+            require(ring[0] == ring[-1], 'Bundled land rings must be closed')
 
 
 def parse_xml(data):
@@ -130,6 +173,7 @@ def jpeg_dimensions(data):
 
 def check_contents(contents):
     require(set(contents) == FILES, 'Distribution must contain exactly the approved source manifest')
+    check_land_geometry(contents['resources/map/natural_earth_110m_land.json'])
     metadata = parse_xml(contents['addon.xml'])
     require(metadata.tag == 'addon' and metadata.get('id') == ADDON_ID
             and metadata.get('version') == VERSION, 'Incorrect addon identity/version')

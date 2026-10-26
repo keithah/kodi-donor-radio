@@ -346,6 +346,22 @@ def test_history_counts_station_plays_orders_and_evicts_oldest_at_500(tmp_path):
     assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
 
 
+def test_history_out_of_order_write_keeps_latest_utc_instant(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    store.record_play('station-1', '2026-10-26T13:00:00Z')
+
+    store.record_play('station-1', '2026-10-26T14:00:00+03:00')
+
+    entry = store.list()[0]
+    assert entry.play_count == 2
+    assert entry.last_played == '2026-10-26T13:00:00Z'
+
+    store.record_play('station-1', '2026-10-26T17:00:00+03:00')
+    entry = store.list()[0]
+    assert entry.play_count == 3
+    assert entry.last_played == '2026-10-26T17:00:00+03:00'
+
+
 @pytest.mark.parametrize('query,scope,timestamp', [
     ('', 'name', '2026-10-26T12:00:00Z'), ('   ', 'name', '2026-10-26T12:00:00Z'),
     ('x'*257, 'name', '2026-10-26T12:00:00Z'), ('x\x7f', 'name', '2026-10-26T12:00:00Z'),

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Exercise the distributable, including rejection of unsafe or incomplete ZIPs."""
+import json
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = 'plugin.audio.kodi_donor_radio'
+
+
+def land_geometry(geometry, polygons):
+    return json.dumps({**geometry, 'polygons': polygons}).encode()
 
 
 def run_tool(name, *args):
@@ -107,6 +112,46 @@ def test_package_checker_rejects_missing_relative_map_texture(package):
     contents['resources/skins/Default/1080i/map.xml'] = contents[
         'resources/skins/Default/1080i/map.xml'].replace(b'radio-white.png', b'not-packaged.png')
     with pytest.raises(ValueError, match='Map texture missing from package'):
+        checker(contents)
+
+
+@pytest.mark.parametrize('change', [
+    lambda geometry: b'{not json',
+    lambda geometry: json.dumps({**geometry, 'schema_version': True}).encode(),
+    lambda geometry: json.dumps({**geometry, 'source': 'wrong dataset'}).encode(),
+    lambda geometry: json.dumps({**geometry, 'unexpected': 1}).encode(),
+    lambda geometry: json.dumps({**geometry, 'polygons': []}).encode(),
+    lambda geometry: land_geometry(geometry, [None]),
+    lambda geometry: land_geometry(geometry, [None] * 25001),
+    lambda geometry: land_geometry(geometry, [[None] * 25001]),
+    lambda geometry: land_geometry(geometry, [
+        [[[0, 0], [1, 0], [1, 1], [0, 0]]] * 25001]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0], [1, 0], [0, 0]]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0], [1, 0], [1, 1], [0, 1]]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0] for _ in range(100001)]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0], [1, 0], [float('nan'), 1], [0, 0]]]]),
+    lambda geometry: land_geometry(geometry, [[[[True, 0], [1, 0], [1, 1], [True, 0]]]]),
+    lambda geometry: land_geometry(geometry, [[[[181, 0], [1, 0], [1, 1], [181, 0]]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 91], [1, 0], [1, 1], [0, 91]]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0, 1], [1, 0], [1, 1], [0, 0, 1]]]]),
+    lambda geometry: land_geometry(geometry, [[[[0, 0], [1, 0], [1, 1], [0, 0]]]]) +
+        b' ' * (2 * 1024 * 1024),
+])
+def test_package_checker_rejects_invalid_bundled_land_geometry(package, change):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    geometry = {
+        'schema_version': 1,
+        'source': 'Natural Earth 1:110m land v4.1.0',
+        'polygons': [[[[0, 0], [1, 0], [1, 1], [0, 0]]]],
+    }
+    contents['resources/map/natural_earth_110m_land.json'] = change(geometry)
+
+    with pytest.raises(ValueError):
         checker(contents)
 
 

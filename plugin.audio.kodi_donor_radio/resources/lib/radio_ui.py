@@ -573,7 +573,10 @@ class HistoryStore(_Store):
             items = self.list()
             previous = next((item for item in items if item.station_uuid == station_uuid), None)
             if previous is not None:
-                record = replace(record, play_count=previous.play_count + 1)
+                latest_played = max((previous.last_played, record.last_played),
+                                    key=_required_instant)
+                record = replace(record, play_count=previous.play_count + 1,
+                                 last_played=latest_played)
             items = [item for item in items if item.station_uuid != station_uuid]
             self._write(self._ordered(items + [record])[:self.limit])
 
