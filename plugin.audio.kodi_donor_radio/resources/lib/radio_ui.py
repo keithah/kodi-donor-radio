@@ -266,8 +266,10 @@ class DirectoryCachePage:
 
     def __post_init__(self):
         object.__setattr__(self, 'rows', _directory_rows(self.kind, self.rows))
-        if self.continuation is not None and (self.kind != 'place' or
-                type(self.continuation) is not int or self.continuation < 0):
+        if ((self.kind == 'tags' and type(self.continuation) is not bool) or
+                (self.kind == 'place' and self.continuation is not None and
+                 (type(self.continuation) is not int or self.continuation < 0)) or
+                (self.kind in ('countries', 'map') and self.continuation is not None)):
             raise ValueError('Invalid directory continuation')
         _number(self.stored_at, 0, float('inf'))
         if type(self.fresh) is not bool:

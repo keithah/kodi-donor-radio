@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ from events import JsonEventSink
 from http_client import Cancelled, HttpClient
 from models import Station
 from radio_browser import RadioBrowser
-from radio_ui import (FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
+from radio_ui import (DirectoryCacheStore, FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
                       coordinates, safe_favicon, station_identifier, stations_in_radius)
 from relay import RelayServer
 from sessions import SessionManager
@@ -309,6 +310,99 @@ def _query_text(value):
     return value
 
 
+_SEARCH_PROPERTY = 'kodi_donor_radio.search_pages'
+_SEARCH_BYTES = 512 * 1024
+
+
+def _cache_key(*values):
+    return json.dumps(values, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
+
+
+def _summary(station):
+    return (StationSummary.from_station(replace(station, favicon=safe_favicon(station.favicon)))
+            if isinstance(station, Station) else station)
+
+
+def _directory_page(kind, key, fetch, monitor, cancel):
+    """Optional profile cache: failed storage never replaces a usable live page."""
+    _check_ui_cancel(monitor, cancel)
+    ttl = (7 if kind in ('countries', 'tags') else 1) * 86400
+    cached = None
+    try:
+        cached = DirectoryCacheStore(profile_path()).get(kind, key, ttl, allow_stale=True)
+    except (OSError, ValueError, TypeError, RecursionError):
+        pass
+    _check_ui_cancel(monitor, cancel)
+    if cached is not None and cached.fresh:
+        return cached.rows, cached.continuation
+    try:
+        rows, continuation = _operation(fetch, monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        if cached is not None:
+            return cached.rows, cached.continuation
+        raise
+    _check_ui_cancel(monitor, cancel)
+    if kind in ('place', 'map'):
+        rows = [_summary(row) for row in rows]
+    try:
+        DirectoryCacheStore(profile_path()).put(kind, key, rows, continuation=continuation)
+    except (OSError, ValueError, TypeError, RecursionError):
+        pass
+    return rows, continuation
+
+
+def _search_page(key, fetch, monitor, cancel):
+    """Kodi session memory only; validate and bound the cross-invocation payload."""
+    window = xbmcgui.Window(10000)
+    raw = window.getProperty(_SEARCH_PROPERTY)
+    pages = []
+    try:
+        if raw:
+            if len(raw.encode('utf-8')) > _SEARCH_BYTES:
+                raise ValueError('Search cache too large')
+            document = json.loads(raw)
+            if (not isinstance(document, dict) or set(document) != {'version', 'pages'} or
+                    type(document['version']) is not int or document['version'] != 1 or
+                    not isinstance(document['pages'], list) or len(document['pages']) > 64):
+                raise ValueError('Invalid search cache')
+            identities = set()
+            for page in document['pages']:
+                if (not isinstance(page, dict) or set(page) != {'key', 'rows', 'more'} or
+                        not isinstance(page['key'], str) or not _HEX64.fullmatch(page['key']) or
+                        page['key'] in identities or type(page['more']) is not bool or
+                        not isinstance(page['rows'], list) or len(page['rows']) > PAGE_SIZE):
+                    raise ValueError('Invalid search page')
+                for row in page['rows']:
+                    StationSummary.from_dict(row)
+                identities.add(page['key'])
+                pages.append(page)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        window.clearProperty(_SEARCH_PROPERTY)
+        pages = []
+    identity = hashlib.sha256(key.encode('utf-8')).hexdigest()
+    _check_ui_cancel(monitor, cancel)
+    match = next((page for page in pages if page['key'] == identity), None)
+    if match is not None:
+        return [StationSummary.from_dict(row) for row in match['rows']], match['more']
+    rows, more = _operation(fetch, monitor, cancel)
+    _check_ui_cancel(monitor, cancel)
+    rows = [_summary(row) for row in rows]
+    pages.append({'key': identity, 'rows': [row.to_dict() for row in rows], 'more': more})
+    pages = pages[-64:]
+    while pages:
+        payload = json.dumps({'version': 1, 'pages': pages}, ensure_ascii=False, allow_nan=False,
+                             separators=(',', ':'))
+        if len(payload.encode('utf-8')) <= _SEARCH_BYTES:
+            window.setProperty(_SEARCH_PROPERTY, payload)
+            break
+        pages.pop(0)
+    if not pages:
+        window.clearProperty(_SEARCH_PROPERTY)
+    return rows, more
+
+
 def _place_stations(browser, place, offset, cancel):
     """Stop on the first populated page or after four pages; never skip matching rows."""
     cursor = offset
@@ -587,21 +681,28 @@ def _open_map(params, monitor, cancel, base):
                  places[0] if places else None)
     country_code = (selected.country_code if selected is not None else
                     place.country_code if place is not None else '')
-    try:
-        stations = _operation(lambda: _map_stations(browser, country_code, selected, cancel),
-                              monitor, cancel)
-    except Cancelled:
-        raise
-    except (OSError, ValueError):
-        stations = [selected] if selected is not None else []
-        discovery_error = xbmcaddon.Addon().getLocalizedString(30163)
-        unavailable = unavailable + ' · ' + discovery_error if unavailable else discovery_error
     if selected is not None and selected.latitude is not None:
         view = _map_view(station=selected)
     elif place is not None:
         view = _map_view(place=place)
     else:
         view = MapView(90, -90, -180, 180, 1000, 650)
+    try:
+        key = _cache_key(country_code, *(float(value) + 0.0 for value in
+                         (view.north, view.south, view.west, view.east)), view.width, view.height)
+        stations, _ = _directory_page('map', key,
+            lambda: (_map_stations(browser, country_code, None, cancel), None), monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError):
+        stations = []
+        discovery_error = xbmcaddon.Addon().getLocalizedString(30163)
+        unavailable = unavailable + ' · ' + discovery_error if unavailable else discovery_error
+    stations = list(stations)
+    if selected is not None:
+        selected_id = _summary(selected).station_uuid
+        if all(_summary(station).station_uuid != selected_id for station in stations):
+            stations = [selected] + list(stations[:GEO_SCAN_PAGES * PAGE_SIZE - 1])
 
     clients, clients_lock = {}, threading.Lock()
     def start_preview(station_uuid, request_cancel):
@@ -885,7 +986,10 @@ def run_plugin(argv):
             if place.latitude is None or place.longitude is None:
                 _error(30114)
             else:
-                stations, next_offset = _operation(lambda: _place_stations(browser, place, offset, cancel), monitor, cancel)
+                stations, next_offset = _directory_page('place',
+                    _cache_key(place.place_id, float(place.radius_km), float(place.latitude),
+                               float(place.longitude), place.country_code, offset),
+                    lambda: _place_stations(browser, place, offset, cancel), monitor, cancel)
                 for station in stations:
                     station_item(station)
                 if next_offset is not None:
@@ -918,7 +1022,9 @@ def run_plugin(argv):
             else:
                 retry = {'mode': action, 'name': name, 'country': country, 'tag': tag, 'offset': offset}
                 fetch = lambda: browser.search_page(name, country, tag, offset, PAGE_SIZE)
-            stations, has_more = _operation(fetch, monitor, cancel)
+            stations, has_more = _search_page(
+                _cache_key(action, params.get('code', ''), name, country, tag, offset),
+                fetch, monitor, cancel)
             for station in stations:
                 station_item(station)
             if has_more and offset + PAGE_SIZE <= MAX_OFFSET:
@@ -928,10 +1034,12 @@ def run_plugin(argv):
         elif action in ('countries', 'tags'):
             retry = {'mode': action, 'offset': offset}
             if action == 'countries':
-                names = _operation(lambda: browser.country_entries(), monitor, cancel)
+                names, _ = _directory_page('countries', 'all',
+                    lambda: (browser.country_entries(), None), monitor, cancel)
                 has_more = offset + PAGE_SIZE < len(names)
             else:
-                names, has_more = _operation(lambda: browser.tags_page(offset, PAGE_SIZE), monitor, cancel)
+                names, has_more = _directory_page('tags', _cache_key(offset),
+                    lambda: browser.tags_page(offset, PAGE_SIZE), monitor, cancel)
             page = names[offset:offset+PAGE_SIZE] if action == 'countries' else names
             for name in page:
                 if action == 'countries':

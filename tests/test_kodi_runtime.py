@@ -104,6 +104,7 @@ def kodi(monkeypatch, tmp_path):
         def __init__(self, window_id): self.window_id = window_id
         def getProperty(self, key): return state.window_properties.get(key, '')
         def setProperty(self, key, value): state.window_properties[key] = value
+        def clearProperty(self, key): state.window_properties.pop(key, None)
     modules = {
         'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
                                 getCondVisibility=lambda condition: state.player_paused if condition == 'Player.Paused' else state.player_caching,
@@ -379,7 +380,7 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     source = 'plugin://plugin.audio.kodi_donor_radio?mode=tag&tag=jazz'
     route(runtime, mode='map', uuid=STATION.uuid, origin=source)
     assert opened[-1].kwargs['selected_uuid'] == STATION.uuid and opened[-1].modal
-    assert opened[-1].kwargs['stations'] == [STATION]
+    assert opened[-1].kwargs['stations'] == [runtime.StationSummary.from_station(STATION)]
     assert opened[-1].kwargs['origin_route'] == source
     assert opened[-1].kwargs['playback_arbiter'].lock_path == profile / 'playback-start.lock'
     assert opened[-1].kwargs['profile_path'] == profile
@@ -423,7 +424,7 @@ def test_map_selected_lookup_failure_keeps_successful_discovery_and_reports_look
     opened = install_map_window(monkeypatch)
     route(runtime, mode='map', uuid=STATION.uuid)
     assert opened[-1].kwargs['status_message'] == 'localized-30164'
-    assert opened[-1].kwargs['stations'] == [STATION]
+    assert opened[-1].kwargs['stations'] == [runtime.StationSummary.from_station(STATION)]
 
 
 @pytest.mark.parametrize('discovery_fails', [False, True])
@@ -2224,3 +2225,214 @@ def test_profile_disk_failure_does_not_block_requested_action(kodi, monkeypatch,
         assert any(item.label == 'Station One' for _, item, _ in state.items)
         assert state.ended[-1]['succeeded']
     assert not (profile / store_type.filename).exists()
+
+
+@pytest.mark.parametrize('mode', ['countries', 'tags'])
+def test_directory_cache_taxonomy_reuses_then_expires(kodi, monkeypatch, mode):
+    runtime, state, profile = kodi
+    import radio_ui
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    if mode == 'countries':
+        def fetch(): calls.append(1); return [('Canada', 'CA')]
+        browser.country_entries = fetch
+    else:
+        def fetch(offset, limit): calls.append(offset); return ['jazz'], True
+        browser.tags_page = fetch
+    route(runtime, mode=mode)
+    route(runtime, mode=mode)
+    assert len(calls) == 1
+    if mode == 'tags': assert 'offset=50' in state.items[-1][0]
+    now[0] += 7 * 86400
+    route(runtime, mode=mode)
+    assert len(calls) == 2
+
+
+def test_directory_cache_place_identity_stale_and_safe_rows(kodi, monkeypatch):
+    from dataclasses import replace
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    store = radio_ui.PlaceStore(profile)
+    place = store.save('Home', 0, 0, 25)
+    other = store.save('Other', 0, 0, 25)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(code, offset, limit):
+        calls.append(offset)
+        return [replace(STATION, latitude=0, longitude=0)], True
+    browser.geographic = fetch
+    route(runtime, mode='place', id=place.place_id)
+    route(runtime, mode='place', id=place.place_id)
+    assert calls == [0]
+    route(runtime, mode='place', id=other.place_id)
+    route(runtime, mode='place', id=place.place_id, offset=50)
+    store.set_radius(place.place_id, 60)
+    route(runtime, mode='place', id=place.place_id)
+    assert calls == [0, 0, 50, 0]
+    now[0] += 86400
+    browser.geographic = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='place', id=place.place_id)
+    assert state.items[0][1].label == 'Station One'
+    assert 'offset=50' in state.items[-1][0]
+    data = (profile / 'directory_cache.json').read_text()
+    assert STATION.url not in data and '"url"' not in data
+    assert all(type(row) is radio_ui.StationSummary for entry in radio_ui.DirectoryCacheStore(profile, clock=lambda: now[0]).list() for row in entry.rows)
+
+
+def test_directory_cache_map_exact_view_country_and_stale(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_map import MapView
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(code, offset, limit): calls.append(code); return [replace(STATION, latitude=0, longitude=0)], False
+    browser.geographic = fetch
+    opened = install_map_window(monkeypatch)
+    view = [MapView(10, -10, -20, 20, 1000, 650)]
+    monkeypatch.setattr(runtime, '_map_view', lambda **kwargs: view[0])
+    radio_ui.PlaceStore(profile).save('Home', 0, 0, 25, country_code='CA')
+    route(runtime, mode='map'); route(runtime, mode='map')
+    assert calls == ['CA']
+    for changed in [MapView(11, -10, -20, 20, 1000, 650),
+                    MapView(11, -11, -20, 20, 1000, 650),
+                    MapView(11, -11, -21, 20, 1000, 650),
+                    MapView(11, -11, -21, 21, 1000, 650),
+                    MapView(11, -11, -21, 21, 999, 650),
+                    MapView(11, -11, -21, 21, 999, 649)]:
+        view[0] = changed
+        route(runtime, mode='map')
+    assert calls == ['CA'] * 7
+    store = radio_ui.PlaceStore(profile)
+    store.remove(store.list()[0].place_id)
+    store.save('Home', 0, 0, 25, country_code='FR')
+    route(runtime, mode='map')
+    assert calls == ['CA'] * 7 + ['FR']
+    now[0] += 86400
+    browser.geographic = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='map')
+    assert opened[-1].kwargs['stations'][0].name == 'Station One'
+
+
+def test_directory_cache_search_survives_reload_without_profile_results_and_play_resolves(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='search', name='jazz')
+    runtime = importlib.reload(runtime)
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: browser)
+    route(runtime, mode='search', name='jazz')
+    assert len(browser.searches) == 1
+    assert state.window_properties
+    for path in profile.glob('*.json'):
+        assert 'Station One' not in path.read_text() and STATION.url not in path.read_text()
+    monkeypatch.setattr(runtime, '_service', lambda *args: (_ for _ in ()).throw(OSError('offline')))
+    route(runtime, mode='play', uuid=STATION.uuid)
+    assert browser.lookups == ['station-1']
+
+
+@pytest.mark.parametrize('broken', ['{bad', '[1]', 'x' * (512 * 1024 + 1)], ids=['json', 'schema', 'oversized'])
+def test_directory_cache_invalid_search_property_is_removed(kodi, monkeypatch, broken):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    state.window_properties['kodi_donor_radio.search_pages'] = broken
+    route(runtime, mode='search', name='jazz')
+    assert len(browser.searches) == 1
+    assert state.window_properties['kodi_donor_radio.search_pages'] != broken
+
+
+def test_directory_cache_search_evicts_oldest_and_bounds_bytes(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([STATION], False)
+    for index in range(66): route(runtime, mode='search', name='query-%d' % index)
+    payload = state.window_properties['kodi_donor_radio.search_pages']
+    document = json.loads(payload)
+    assert len(document['pages']) == 64
+    assert len(payload.encode('utf-8')) <= 512 * 1024
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='query-65')
+    assert state.items[0][1].label == 'Station One'
+    state.items.clear()
+    route(runtime, mode='search', name='query-0')
+    assert state.items[0][1].label == 'localized-30006'
+
+
+def test_directory_cache_storage_errors_do_not_hide_live_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'directory_cache.json').write_text('{bad')
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'
+
+
+def test_directory_cache_search_byte_limit_evicts_before_page_limit(kodi, monkeypatch):
+    from dataclasses import replace
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([replace(STATION, uuid='station-%d' % i,
+        name='é' * 512, tags='é' * 1024) for i in range(50)], True)
+    for index in range(10): route(runtime, mode='search', name='large-%d' % index)
+    raw = state.window_properties['kodi_donor_radio.search_pages']
+    assert len(raw.encode('utf-8')) <= 512 * 1024
+    assert 0 < len(json.loads(raw)['pages']) < 10
+    assert STATION.url not in raw and '"url"' not in raw
+
+
+@pytest.mark.parametrize('mode', ['countries', 'tags', 'place', 'map'])
+def test_directory_cache_cancelled_fetch_never_returns_stale(kodi, monkeypatch, mode):
+    from dataclasses import replace
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]))
+    browser = directory(monkeypatch, runtime)
+    browser.geographic = lambda *args: ([replace(STATION, latitude=0, longitude=0)], False)
+    browser.tags_page = lambda *args: (['jazz'], False)
+    opened = install_map_window(monkeypatch)
+    place = radio_ui.PlaceStore(profile).save('Home', 0, 0, 25)
+    params = dict(mode=mode, **({'id': place.place_id} if mode == 'place' else {}))
+    route(runtime, **params)
+    now[0] += 8 * 86400
+    state.items.clear()
+    state.cancel = True
+    route(runtime, **params)
+    assert not state.items
+    if mode == 'map': assert len(opened) == 1
+
+
+@pytest.mark.parametrize('error', [OSError, ValueError, TypeError])
+def test_directory_cache_write_failure_keeps_live_page(kodi, monkeypatch, error):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    def fail(*args, **kwargs): raise error('cache unavailable')
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'put', fail)
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'
+
+
+def test_directory_cache_invalid_search_rows_removed_even_if_offline(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='search', name='jazz')
+    document = json.loads(state.window_properties['kodi_donor_radio.search_pages'])
+    document['pages'][0]['rows'][0]['url'] = STATION.url
+    state.window_properties['kodi_donor_radio.search_pages'] = json.dumps(document)
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='search', name='jazz')
+    assert 'kodi_donor_radio.search_pages' not in state.window_properties
+
+
+def test_directory_cache_deeply_nested_profile_is_ignored(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'directory_cache.json').write_text('[' * 2000 + '0' + ']' * 2000)
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'

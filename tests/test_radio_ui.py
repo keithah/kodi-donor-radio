@@ -476,7 +476,7 @@ def test_directory_cache_round_trip_exact_expiry_and_immutable_stale_rows(tmp_pa
     assert store.get('countries', 'all', 60) is None
     stale = store.get('countries', 'all', 60, allow_stale=True)
     assert stale.rows == (('France', 'FR'),) and not stale.fresh
-    store.put('tags', 'all', ['jazz'])
+    store.put('tags', 'all', ['jazz'], continuation=False)
     assert ui().DirectoryCacheStore(tmp_path, clock=lambda: 1060).get('tags', 'all', 60).rows == ('jazz',)
 
 
@@ -508,6 +508,8 @@ def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_pa
     ('countries', [('', 'FR')], None, 1000), ('tags', ['x'*257], None, 1000),
     ('tags', ['bad\n'], None, 1000), ('tags', [''], None, 1000),
     ('tags', [True], None, 1000), ('map', [], 0, 1000), ('place', [], True, 1000),
+    ('tags', [], None, 1000), ('tags', [], 0, 1000), ('tags', [], 1, 1000),
+    ('countries', [], False, 1000),
     ('place', [], -1, 1000), ('place', [], 1.5, 1000), ('place', [], None, 1001),
     ('place', [], None, float('nan')), ('place', [], None, True), ('place', [], None, -1),
 ])
@@ -546,7 +548,7 @@ def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corrupti
 def test_directory_cache_bounds_evict_oldest_and_preserve_file_on_oversized_write(tmp_path):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
     for number in range(101):
-        store.put('tags', str(number), ['tag'], stored_at=number)
+        store.put('tags', str(number), ['tag'], continuation=False, stored_at=number)
     assert store.get('tags', '0', 2000) is None
     assert store.get('tags', '1', 2000).rows == ('tag',)
     assert len(json.loads(store.path.read_text())['items']) == 100
@@ -564,12 +566,12 @@ def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_da
     import threading
     from playback_arbiter import profile_file_lock
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
-    store.put('tags', 'before', ['jazz'])
+    store.put('tags', 'before', ['jazz'], continuation=False)
     started = threading.Event()
     errors = []
     def update():
         started.set()
-        try: store.put('tags', 'after', ['rock'])
+        try: store.put('tags', 'after', ['rock'], continuation=False)
         except Exception as error: errors.append(error)
     worker = threading.Thread(target=update)
     with profile_file_lock(tmp_path / '.directory_cache.json.lock'):
@@ -584,7 +586,7 @@ def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_da
     before = store.path.read_bytes()
     def fail(*args): raise OSError('disk unavailable')
     monkeypatch.setattr(os, 'replace', fail)
-    with pytest.raises(OSError): store.put('tags', 'failed', ['pop'])
+    with pytest.raises(OSError): store.put('tags', 'failed', ['pop'], continuation=False)
     assert store.path.read_bytes() == before
     assert sorted(p.name for p in tmp_path.iterdir()) == ['.directory_cache.json.lock', 'directory_cache.json']
 
@@ -598,3 +600,11 @@ def test_directory_cache_file_byte_bound_preserves_last_valid_file(tmp_path):
     assert len(before) <= 2*1024*1024
     with pytest.raises(ValueError): store.put('map', 'second', [summary]*200)
     assert store.path.read_bytes() == before
+
+
+@pytest.mark.parametrize('has_more', [True, False])
+def test_directory_cache_tags_preserve_raw_page_continuation(tmp_path, has_more):
+    from radio_ui import DirectoryCacheStore
+    store = DirectoryCacheStore(tmp_path)
+    store.put('tags', '0', ['jazz'], continuation=has_more)
+    assert store.get('tags', '0', 60).continuation is has_more
