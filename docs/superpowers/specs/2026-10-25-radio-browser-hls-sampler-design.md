@@ -11,7 +11,9 @@ not insert ads and does not connect a production VAST tag.
 ## Goals
 
 - Discover a bounded number of Radio Browser entries marked HLS and whose
-  directory stream URL belongs to `cdnstream1.com` or a subdomain.
+  directory stream URL belongs to `cdnstream1.com` or a subdomain. Use the
+  directory's raw-row continuation signal so malformed entries do not stop
+  paging early.
 - Sample each selected station for at least 1,200 seconds by polling HLS
   playlists, following a bounded master-to-media path, and using the existing
   URL policy and playlist parser. Read a response body only when its
@@ -20,7 +22,7 @@ not insert ads and does not connect a production VAST tag.
 - Reuse `CueTracker` to log explicit HLS cue and supported AdsWizz segment
   break events, including unresolved endings and sequence gaps.
 - Emit bounded JSON Lines observations during sampling so partial results remain
-  available if a run is interrupted.
+  available if a run is interrupted; flush each record as it is emitted.
 - Keep output useful for matching stations while omitting stream URLs, query
   strings, segment paths, raw AdsWizz context/IDs, and raw cue payloads.
 - Clearly distinguish `marker_observed` from `no_marker_observed`; a 20-minute

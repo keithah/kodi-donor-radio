@@ -45,6 +45,10 @@ class _PagedBrowser:
         self.calls.append((name, country, tag, offset, limit))
         return self.pages[offset]
 
+    def search_page(self, name, country, tag, offset, limit):
+        page = self.search(name, country, tag, offset, limit)
+        return page, len(page) >= limit
+
 
 def test_discovery_filters_hls_deduplicates_and_stops_at_bounds():
     first_page = [_station('one'), _station('one'), _station('non-hls', hls=False),
@@ -72,6 +76,45 @@ def test_discovery_filters_hls_deduplicates_and_stops_at_bounds():
 def test_discovery_rejects_limits_outside_bounds(page_limit, candidate_limit):
     with pytest.raises(ValueError):
         discover_candidates(_PagedBrowser({}), page_limit, candidate_limit)
+
+
+def test_discovery_uses_raw_row_continuation_after_malformed_row():
+    class Browser(_PagedBrowser):
+        def search_page(self, name, country, tag, offset, limit):
+            page = self.search(name, country, tag, offset, limit)
+            return page, offset == 0
+
+    first = [_station('not-hls-%d' % index, hls=False) for index in range(49)]
+    browser = Browser({0: first, 50: [_station('later-candidate')]})
+
+    stations, pages_read = discover_candidates(browser, page_limit=2, candidate_limit=1)
+
+    assert [station.uuid for station in stations] == ['later-candidate']
+    assert pages_read == 2
+    assert [call[3] for call in browser.calls] == [0, 50]
+
+
+def test_json_line_writer_flushes_each_complete_record():
+    class BufferedDestination:
+        def __init__(self):
+            self.pending = ''
+            self.visible = ''
+            self.flush_count = 0
+
+        def write(self, value):
+            self.pending += value
+
+        def flush(self):
+            self.visible += self.pending
+            self.pending = ''
+            self.flush_count += 1
+
+    destination = BufferedDestination()
+    writer = JsonLineWriter(destination)
+    writer.emit_record({'kind': 'cue_observed', 'station_uuid': 'one'})
+    assert destination.pending == ''
+    assert destination.flush_count == 1
+    assert json.loads(destination.visible)['kind'] == 'cue_observed'
 
 
 class _Clock:
@@ -176,6 +219,65 @@ def test_sampler_reports_unresolved_break_on_cancel(playlists):
     result, records = _run_sample(playlists, duration=30, cancel=cancel, clock=_Clock(cancel))
     assert result['outcome'] == 'cancelled'
     assert any(r['kind'] == 'break_unresolved' for r in records)
+
+
+def test_sampler_cancels_blocked_playlist_response():
+    blocked = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    requests = []
+    first_body = (b'#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-CUE-OUT:8\n'
+                  b'#EXTINF:4,\nsegment.aac\n')
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            with lock:
+                requests.append(self.path)
+                request_number = len(requests)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
+            self.send_header('Content-Length', str(len(first_body) if request_number == 1 else 1024))
+            self.end_headers()
+            if request_number == 1:
+                self.wfile.write(first_body)
+            else:
+                self.wfile.flush()
+                blocked.set()
+                release.wait(5)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    origin = 'http://127.0.0.1:%d' % server.server_port
+    client = HttpClient(UrlPolicy(test_origins={origin}))
+    station = Station('blocked', 'Blocked Radio', origin + '/live.m3u8', 'AAC', True)
+    cancel = threading.Event()
+    clock = _Clock()
+    output = io.StringIO()
+    result = []
+    worker = threading.Thread(target=lambda: result.append(sample_station(
+        station, client, JsonLineWriter(output), 30, cancel, clock.now, clock.wait)))
+    try:
+        worker.start()
+        assert blocked.wait(3), 'second playlist response did not block'
+        assert 'break_start' in output.getvalue()
+        cancel.set()
+        worker.join(3)
+        assert not worker.is_alive(), 'blocked playlist read did not cancel'
+        assert len(requests) == 2
+        assert result[0]['outcome'] == 'cancelled'
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        assert any(record['kind'] == 'break_unresolved' for record in records)
+    finally:
+        cancel.set()
+        release.set()
+        worker.join(3)
+        server.shutdown()
+        server.server_close()
+        server_thread.join()
 
 
 def test_sampler_epoch_resets_do_not_join_ad_breaks(playlists):
@@ -431,9 +533,9 @@ def test_cli_directory_requests_have_total_deadline(monkeypatch):
         def __init__(self, client, cancel):
             self.client = client
 
-        def search(self, name, country, tag, offset, limit):
+        def search_page(self, name, country, tag, offset, limit):
             self.client.open('https://directory.example/stations', {}, threading.Event())
-            return []
+            return [], False
 
     monkeypatch.setattr(sampler, 'HttpClient', Client)
     monkeypatch.setattr(sampler, 'RadioBrowser', Browser)

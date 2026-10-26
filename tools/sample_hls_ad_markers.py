@@ -82,6 +82,7 @@ class JsonLineWriter:
                     return
                 self._counts[station_uuid] = count + 1
             self.stream.write(line + '\n')
+            self.stream.flush()
 
     def station_count(self, station_uuid: str) -> int:
         with self._lock:
@@ -253,7 +254,7 @@ def discover_candidates(browser: RadioBrowser, page_limit: int,
     seen_uuids = set()
     pages_read = 0
     for page_number in range(page_limit):
-        page = browser.search('', '', '', page_number * PAGE_SIZE, PAGE_SIZE)
+        page, has_more = browser.search_page('', '', '', page_number * PAGE_SIZE, PAGE_SIZE)
         pages_read += 1
         for station in page:
             if (station.hls and station.uuid not in seen_uuids and
@@ -262,7 +263,7 @@ def discover_candidates(browser: RadioBrowser, page_limit: int,
                 candidates.append(station)
                 if len(candidates) >= candidate_limit:
                     return candidates, pages_read
-        if len(page) < PAGE_SIZE:
+        if not has_more:
             break
     return candidates, pages_read
 

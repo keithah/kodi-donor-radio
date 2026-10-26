@@ -41,8 +41,8 @@
 - Test: `tests/test_hls_sampler.py`
 
 **Interfaces:**
-- Consumes: `RadioBrowser.search(name, country, tag, offset, limit)` and `Station` from `models`.
-- Produces: `host_is_cdnstream1(url: str) -> bool` and `discover_candidates(browser: RadioBrowser, page_limit: int, candidate_limit: int) -> Tuple[List[Station], int]`.
+- Consumes: `RadioBrowser.search_page(name, country, tag, offset, limit)` and `Station` from `models`.
+- Produces: `host_is_cdnstream1(url: str) -> bool` and `discover_candidates(browser: RadioBrowser, page_limit: int, candidate_limit: int) -> Tuple[List[Station], int]`, using the raw-row continuation flag so malformed rows cannot truncate discovery.
 - Implementation bounds: page size 50; `page_limit` 1–100; `candidate_limit` 1–20. Deduplicate by station UUID and retain only `station.hls` entries with exact `cdnstream1.com` host or a subdomain.
 
 - [x] **Step 1: Write failing tests**
@@ -56,7 +56,7 @@
 
 - [x] **Step 3: Implement candidate filtering and bounded pagination**
 
-  Add the exact interfaces above. Parse the candidate host with `urlsplit`, lowercase it, require HTTP(S), and check `hostname == "cdnstream1.com" or hostname.endswith(".cdnstream1.com")`. Request pages of 50 rows from offset 0 in page-size increments; stop on a short page or once the page/candidate bound is reached.
+  Add the exact interfaces above. Parse the candidate host with `urlsplit`, lowercase it, require HTTP(S), and check `hostname == "cdnstream1.com" or hostname.endswith(".cdnstream1.com")`. Request pages of 50 rows from offset 0 in page-size increments; use the upstream raw-row continuation flag, not parsed station count, to detect the final page. Stop when continuation is false or once the page/candidate bound is reached.
 
 - [x] **Step 4: Run the focused tests**
 
@@ -132,7 +132,7 @@
 
 - [x] **Step 3: Implement bounded CLI and cancellation lifecycle**
 
-  Add the exact options and bounds above. Scan only the configured page count, then use a `ThreadPoolExecutor` with at most four workers. On Ctrl-C, set the shared cancellation signal, wait for workers to close requests and emit unresolved endings/summaries, and return a nonzero status. Do not add output-file creation; callers can redirect stdout.
+  Add the exact options and bounds above. Scan only the configured page count, then use a `ThreadPoolExecutor` with at most four workers. On Ctrl-C, set the shared cancellation signal, wait for workers to close requests and emit unresolved endings/summaries, and return a nonzero status. Flush each completed JSON Lines record so callers redirecting stdout can inspect observations during the run. Do not add output-file creation.
 
 - [x] **Step 4: Document use and limitations**
 
