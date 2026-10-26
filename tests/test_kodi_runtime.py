@@ -582,6 +582,8 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
     assert created==[STATION] and browser.clicks==['station-1']
     assert len(state.resolved)==1 and state.resolved[0][0]
     assert click_states == [state.resolved]
+    from radio_ui import HistoryStore
+    assert HistoryStore(profile).list()[0].play_count == 1
     assert stopped == []
     assert 'localized-30011' not in state.messages
     assert state.resolved[0][1].path=='http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48
@@ -2079,6 +2081,8 @@ def test_ordinary_play_timestamps_favorite_and_profile_failure_cannot_revoke_pla
     monkeypatch.setattr(FavoriteStore, 'mark_played', fail)
     route(runtime, mode='play', uuid='station-1')
     assert state.resolved[-1][0] and store.list()[0].last_played == stamp
+    from radio_ui import HistoryStore
+    assert HistoryStore(profile).list()[0].play_count == 2
     assert browser.clicks == ['station-1', 'station-1']
     assert 'localized-30011' not in state.messages
 
@@ -2115,3 +2119,106 @@ def test_radius_unit_translation_is_miles():
     strings = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
     entries = dict(re.findall(r'^msgctxt "#(\d+)"\nmsgid (".*")(?:\n|$)', strings, re.MULTILINE))
     assert json.loads(entries['30136']) == 'miles'
+
+
+def test_submitted_search_persists_once_and_pagination_preserves_timestamp(kodi, monkeypatch):
+    from radio_ui import RecentSearchStore
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    state.input = ' Jazz '
+    route(runtime, mode='search')
+    records = RecentSearchStore(profile).list()
+    assert len(records) == 1 and (records[0].query, records[0].scope) == (' Jazz ', 'name')
+    assert records[0].timestamp
+    before = (profile / 'recent_searches.json').read_bytes()
+    route(runtime, mode='search', name=' Jazz ', offset=50)
+    assert (profile / 'recent_searches.json').read_bytes() == before
+    route(runtime, mode='search', name='rock')
+    assert [r.query for r in RecentSearchStore(profile).list()] == ['rock', ' Jazz ']
+
+
+@pytest.mark.parametrize('query', ['', '   '])
+def test_blank_search_does_not_enter_recent_searches(kodi, monkeypatch, query):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    state.input = query
+    route(runtime, mode='search')
+    assert not (profile / 'recent_searches.json').exists()
+
+
+def test_recent_search_profile_error_does_not_hide_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'recent_searches.json').write_text('invalid')
+    route(runtime, mode='search')
+    assert any(item.label == 'Station One' for _, item, _ in state.items)
+    assert state.ended[-1]['succeeded']
+    assert (profile / 'recent_searches.json').read_text() == 'invalid'
+
+
+@pytest.mark.parametrize('handle', ['7', '-1'])
+def test_resolved_real_plays_persist_history_even_without_favorite(kodi, monkeypatch, handle):
+    from radio_ui import HistoryStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    for _ in range(2):
+        runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', handle, '?mode=play&uuid=station-1'])
+    records = HistoryStore(profile).list()
+    assert len(records) == 1
+    assert (records[0].station_uuid, records[0].play_count) == ('station-1', 2)
+    assert records[0].last_played
+    assert browser.clicks == ['station-1', 'station-1']
+    assert not (profile / 'favorites.json').exists()
+
+
+def test_history_profile_error_cannot_revoke_play_or_click_reporting(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    (profile / 'history.json').write_text('invalid')
+    route(runtime, mode='play', uuid='station-1')
+    assert len(state.resolved) == 1 and state.resolved[0][0]
+    assert browser.clicks == ['station-1']
+    assert 'localized-30011' not in state.messages
+    assert (profile / 'history.json').read_text() == 'invalid'
+
+
+def test_failed_resolution_and_fixture_play_do_not_enter_history(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    client = runtime._service()
+    client.stop = lambda *_args: None
+    monkeypatch.setattr(runtime, '_service', lambda *args: client)
+    def fail(*args): raise OSError('resolution failed')
+    monkeypatch.setattr(runtime.xbmcplugin, 'setResolvedUrl', fail)
+    with pytest.raises(OSError):
+        route(runtime, mode='play', uuid='station-1')
+    assert not (profile / 'history.json').exists()
+    assert browser.clicks == []
+    monkeypatch.setattr(runtime.xbmcplugin, 'setResolvedUrl', lambda h, success, item: state.resolved.append((success, item)))
+    monkeypatch.setattr(runtime, '_fixture_station', lambda _: Station('fixture-1', 'Fixture', 'http://127.0.0.1:12345/live', '', False))
+    route(runtime, mode='play_fixture', id='fixture-1')
+    assert state.resolved[-1][0]
+    assert not (profile / 'history.json').exists()
+    assert browser.clicks == []
+
+
+@pytest.mark.parametrize('store_name,mode', [('HistoryStore', 'play'), ('RecentSearchStore', 'search')])
+def test_profile_disk_failure_does_not_block_requested_action(kodi, monkeypatch, store_name, mode):
+    from radio_ui import HistoryStore, RecentSearchStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    store_type = HistoryStore if store_name == 'HistoryStore' else RecentSearchStore
+    def fail(*args): raise OSError('disk full')
+    monkeypatch.setattr(store_type, '_write', fail)
+    route(runtime, mode=mode, uuid='station-1')
+    if mode == 'play':
+        assert len(state.resolved) == 1 and state.resolved[0][0]
+        assert browser.clicks == ['station-1']
+    else:
+        assert any(item.label == 'Station One' for _, item, _ in state.items)
+        assert state.ended[-1]['succeeded']
+    assert not (profile / store_type.filename).exists()

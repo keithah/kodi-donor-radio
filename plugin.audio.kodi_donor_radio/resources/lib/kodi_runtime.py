@@ -27,8 +27,8 @@ from events import JsonEventSink
 from http_client import Cancelled, HttpClient
 from models import Station
 from radio_browser import RadioBrowser
-from radio_ui import (FavoriteStore, PlaceStore, StationSummary, coordinates, safe_favicon,
-                      station_identifier, stations_in_radius)
+from radio_ui import (FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
+                      coordinates, safe_favicon, station_identifier, stations_in_radius)
 from relay import RelayServer
 from sessions import SessionManager
 from icy_marker_store import IcyMarkerStore
@@ -796,10 +796,15 @@ def run_plugin(argv):
         else:
             # Playback is already resolved. Directory reporting must never revoke it.
             if not station.uuid.startswith('fixture-'):
+                played_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    HistoryStore(profile_path()).record_play(station.uuid, played_at)
+                except (OSError, ValueError, TypeError):
+                    pass  # Profile persistence cannot revoke playback or suppress reporting.
                 try:
                     favorites = FavoriteStore(profile_path())
                     if any(s.station_uuid == station.uuid for s in favorites.list()):
-                        favorites.mark_played(station.uuid, datetime.now(timezone.utc).isoformat())
+                        favorites.mark_played(station.uuid, played_at)
                 except (OSError, ValueError):
                     pass  # A profile write must not revoke already-started playback.
                 try:
@@ -895,6 +900,12 @@ def run_plugin(argv):
                     listing_succeeded = False
                     return
                 name = _query_text(name)
+            if action == 'search' and offset == 0 and name.strip():
+                try:
+                    RecentSearchStore(profile_path()).record(
+                        name, 'name', datetime.now(timezone.utc).isoformat())
+                except (OSError, ValueError, TypeError):
+                    pass  # Search results remain available if profile storage fails.
             if action == 'country':
                 code = params.get('code', '')
                 if not re.fullmatch(r'[A-Z]{2}', code):

@@ -297,3 +297,162 @@ def test_removing_default_place_selects_first_remaining_in_stored_order(tmp_path
     assert store.list()[0].is_default
     store.remove(last.place_id)
     assert store.list() == []
+
+
+def test_recent_search_round_trip_schema_order_and_scope_deduplication(tmp_path):
+    store = ui().RecentSearchStore(tmp_path)
+    store.record('jazz', 'name', '2026-10-26T12:00:00Z')
+    store.record('jazz', 'tag', '2026-10-26T13:00:00Z')
+    store.record(' Jazz ', 'name', '2026-10-26T14:00:00Z')
+    rows = ui().RecentSearchStore(tmp_path).list()
+    assert [(r.query, r.scope, r.timestamp) for r in rows] == [
+        (' Jazz ', 'name', '2026-10-26T14:00:00Z'), ('jazz', 'tag', '2026-10-26T13:00:00Z')]
+    assert json.loads(store.path.read_text()) == {'schema_version': 1, 'items': [
+        {'query': ' Jazz ', 'scope': 'name', 'timestamp': '2026-10-26T14:00:00Z'},
+        {'query': 'jazz', 'scope': 'tag', 'timestamp': '2026-10-26T13:00:00Z'}]}
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+
+
+def test_recent_search_evicts_oldest_at_ten_and_sorts_actual_instants(tmp_path):
+    store = ui().RecentSearchStore(tmp_path)
+    for minute in range(11):
+        store.record(str(minute), 'name', '2026-10-26T12:%02d:00Z' % minute)
+    assert [r.query for r in store.list()] == ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+    store.record('old', 'country', '2026-10-26T14:00:00+03:00')
+    assert [r.query for r in store.list()] == ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+    store.record('new', 'language', '2026-10-26T07:11:00-05:00')
+    assert store.list()[0].query == 'new'
+
+
+def test_history_counts_station_plays_orders_and_evicts_oldest_at_500(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    for number in range(501):
+        store.record_play('station-%d' % number, '2026-10-26T12:%02d:%02dZ' % divmod(number, 60))
+    rows = ui().HistoryStore(tmp_path).list()
+    assert len(rows) == 500
+    assert rows[0].station_uuid == 'station-500'
+    assert rows[-1].station_uuid == 'station-1'
+    store.record_play('station-1', '2026-10-26T13:00:00Z')
+    first = store.list()[0]
+    assert (first.station_uuid, first.play_count, first.last_played) == ('station-1', 2, '2026-10-26T13:00:00Z')
+    assert json.loads(store.path.read_text())['items'][0] == {
+        'station_uuid': 'station-1', 'play_count': 2, 'last_played': '2026-10-26T13:00:00Z'}
+    assert json.loads(store.path.read_text())['schema_version'] == 1
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize('query,scope,timestamp', [
+    ('', 'name', '2026-10-26T12:00:00Z'), ('   ', 'name', '2026-10-26T12:00:00Z'),
+    ('x'*257, 'name', '2026-10-26T12:00:00Z'), ('x\x7f', 'name', '2026-10-26T12:00:00Z'),
+    ('x\n', 'name', '2026-10-26T12:00:00Z'), (None, 'name', '2026-10-26T12:00:00Z'),
+    ('x', 'all', '2026-10-26T12:00:00Z'), ('x', 'name', ''),
+    ('x', 'name', '2026-10-26T12:00:00'), ('x', 'name', 'yesterday')])
+def test_recent_search_invalid_input_never_writes(tmp_path, query, scope, timestamp):
+    store = ui().RecentSearchStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.record(query, scope, timestamp)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('identifier,timestamp', [
+    ('https://secret.example/live', '2026-10-26T12:00:00Z'), ('x'*129, '2026-10-26T12:00:00Z'),
+    ('x', ''), ('x', '2026-10-26T12:00:00'), ('x', 'yesterday')])
+def test_history_invalid_input_never_writes(tmp_path, identifier, timestamp):
+    store = ui().HistoryStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.record_play(identifier, timestamp)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('store_name,filename,valid', [
+    ('RecentSearchStore', 'recent_searches.json', {'query': 'jazz', 'scope': 'name', 'timestamp': '2026-10-26T12:00:00Z'}),
+    ('HistoryStore', 'history.json', {'station_uuid': 'a', 'play_count': 1, 'last_played': '2026-10-26T12:00:00Z'})])
+@pytest.mark.parametrize('corruption', ['duplicate', 'unknown', 'version', 'oversized', 'record'])
+def test_history_stores_reject_corrupt_files_without_rewriting(tmp_path, store_name, filename, valid, corruption):
+    rows = [dict(valid)]
+    document = {'schema_version': 1, 'items': rows}
+    if corruption == 'duplicate': rows.append(dict(valid))
+    elif corruption == 'unknown': rows[0]['url'] = 'secret'
+    elif corruption == 'version': document['schema_version'] = True
+    elif corruption == 'record': rows[0][('play_count' if store_name == 'HistoryStore' else 'query')] = True
+    path = tmp_path / filename
+    path.write_text(' ' * (2*1024*1024+1) if corruption == 'oversized' else json.dumps(document))
+    before = path.read_bytes()
+    store = getattr(ui(), store_name)(tmp_path)
+    with pytest.raises(ValueError):
+        store.list()
+    with pytest.raises(ValueError):
+        if store_name == 'HistoryStore': store.record_play('b', '2026-10-26T13:00:00Z')
+        else: store.record('rock', 'name', '2026-10-26T13:00:00Z')
+    assert path.read_bytes() == before
+
+
+def test_history_orders_timezone_instants_and_station_id_ties(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    store.record_play('b', '2026-10-26T07:00:00-05:00')
+    store.record_play('c', '2026-10-26T14:00:00+03:00')
+    store.record_play('a', '2026-10-26T12:00:00Z')
+    assert [r.station_uuid for r in store.list()] == ['a', 'b', 'c']
+
+
+@pytest.mark.parametrize('count', [0, -1, True, 1.5, '1'])
+def test_history_rejects_invalid_persisted_play_counts(tmp_path, count):
+    path = tmp_path / 'history.json'
+    path.write_text(json.dumps({'schema_version': 1, 'items': [
+        {'station_uuid': 'a', 'play_count': count, 'last_played': '2026-10-26T12:00:00Z'}]}))
+    with pytest.raises(ValueError):
+        ui().HistoryStore(tmp_path).list()
+
+
+def test_unrepresentable_utc_timestamp_is_invalid_profile_data(tmp_path):
+    with pytest.raises(ValueError):
+        ui().HistoryStore(tmp_path).record_play('a', '0001-01-01T00:00:00+01:00')
+    assert not (tmp_path / 'history.json').exists()
+
+
+@pytest.mark.parametrize('kind', ['recent', 'history'])
+def test_new_profile_stores_serialize_mutations_and_preserve_file_on_atomic_failure(tmp_path, monkeypatch, kind):
+    import threading
+    from playback_arbiter import profile_file_lock
+    if kind == 'recent':
+        store = ui().RecentSearchStore(tmp_path)
+        mutate = lambda: store.record('jazz', 'name', '2026-10-26T12:00:00Z')
+    else:
+        store = ui().HistoryStore(tmp_path)
+        mutate = lambda: store.record_play('a', '2026-10-26T12:00:00Z')
+    mutate()
+    before = store.path.read_bytes()
+    entered = threading.Event()
+    errors = []
+    def update():
+        entered.set()
+        try: mutate()
+        except Exception as error: errors.append(error)
+    worker = threading.Thread(target=update)
+    with profile_file_lock(tmp_path / ('.' + store.filename + '.lock')):
+        worker.start()
+        assert entered.wait(1)
+        worker.join(.1)
+        assert worker.is_alive()
+    worker.join(2)
+    assert not worker.is_alive() and not errors
+    if kind == 'history': assert store.list()[0].play_count == 2
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError): mutate()
+    assert store.path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['.' + store.filename + '.lock', store.filename]
+
+
+@pytest.mark.parametrize('kind,limit', [('recent', 10), ('history', 500)])
+def test_new_profile_stores_reject_oversized_item_lists(tmp_path, kind, limit):
+    if kind == 'recent':
+        store = ui().RecentSearchStore(tmp_path)
+        rows = [{'query': str(i), 'scope': 'name', 'timestamp': '2026-10-26T12:00:00Z'} for i in range(limit+1)]
+    else:
+        store = ui().HistoryStore(tmp_path)
+        rows = [{'station_uuid': str(i), 'play_count': 1, 'last_played': '2026-10-26T12:00:00Z'} for i in range(limit+1)]
+    store.path.write_text(json.dumps({'schema_version': 1, 'items': rows}))
+    with pytest.raises(ValueError): store.list()

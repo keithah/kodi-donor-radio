@@ -8,7 +8,7 @@ import re
 import tempfile
 import uuid
 from dataclasses import asdict, dataclass, fields, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -341,6 +341,97 @@ class FavoriteStore(_Store):
                 raise ValueError('Favorite not found')
             self._write([replace(item, last_played=played_at) if item.station_uuid == station_uuid
                          else item for item in items])
+
+
+def _required_instant(value):
+    _text(value, 40, required=True)
+    _timestamp(value)
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(timezone.utc)
+    except OverflowError as error:
+        raise ValueError('Invalid timestamp instant') from error
+
+
+@dataclass(frozen=True)
+class RecentSearch:
+    query: str
+    scope: str
+    timestamp: str
+
+    def __post_init__(self):
+        _text(self.query, 256, required=True)
+        if '\x7f' in self.query or self.scope not in ('name', 'tag', 'country', 'language'):
+            raise ValueError('Invalid recent search')
+        _required_instant(self.timestamp)
+
+    @property
+    def identity(self):
+        return self.query.strip().casefold(), self.scope
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    station_uuid: str
+    play_count: int
+    last_played: str
+
+    def __post_init__(self):
+        station_identifier(self.station_uuid)
+        if type(self.play_count) is not int or self.play_count < 1:
+            raise ValueError('Invalid play count')
+        _required_instant(self.last_played)
+
+
+def _profile_record(record_type, row):
+    if not isinstance(row, dict) or set(row) != {f.name for f in fields(record_type)}:
+        raise ValueError('Invalid profile item schema')
+    return record_type(**row)
+
+
+class RecentSearchStore(_Store):
+    filename, key, limit = 'recent_searches.json', 'identity', 10
+
+    @staticmethod
+    def decode(row):
+        return _profile_record(RecentSearch, row)
+
+    def list(self):
+        return sorted(super().list(), key=lambda item: _required_instant(item.timestamp), reverse=True)
+
+    def record(self, query, scope, timestamp):
+        record = RecentSearch(query, scope, timestamp)
+        with self._mutation():
+            items = [item for item in self.list() if item.identity != record.identity]
+            items.insert(0, record)
+            items.sort(key=lambda item: _required_instant(item.timestamp), reverse=True)
+            self._write(items[:self.limit])
+
+
+class HistoryStore(_Store):
+    filename, key, limit = 'history.json', 'station_uuid', 500
+
+    @staticmethod
+    def decode(row):
+        return _profile_record(HistoryEntry, row)
+
+    @staticmethod
+    def _ordered(items):
+        # Stable sorts preserve ascending station IDs among equal UTC instants.
+        return sorted(sorted(items, key=lambda item: item.station_uuid),
+                      key=lambda item: _required_instant(item.last_played), reverse=True)
+
+    def list(self):
+        return self._ordered(super().list())
+
+    def record_play(self, station_uuid, played_at):
+        record = HistoryEntry(station_uuid, 1, played_at)
+        with self._mutation():
+            items = self.list()
+            previous = next((item for item in items if item.station_uuid == station_uuid), None)
+            if previous is not None:
+                record = replace(record, play_count=previous.play_count + 1)
+            items = [item for item in items if item.station_uuid != station_uuid]
+            self._write(self._ordered(items + [record])[:self.limit])
 
 
 def distance_km(lat1, lon1, lat2, lon2):

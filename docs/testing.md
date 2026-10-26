@@ -1,5 +1,39 @@
 # Validation record
 
+## Recent search and listening history stores — 2026-10-26
+
+The add-on now keeps private, versioned `recent_searches.json` and `history.json`
+files through the existing locked atomic profile writer. Recent searches retain
+ten entries, deduplicate trimmed/casefolded query text plus scope, and preserve
+the latest submitted spelling. The current UI records only nonblank first-page
+station-name searches; pagination does not change their timestamps. History
+retains at most 500 station UUIDs with counts and timezone-aware last-played
+timestamps, recorded only after successful non-fixture play resolution. Profile
+read/write errors do not prevent results, revoke playback, or suppress click
+reporting. This slice adds no Recent or History navigation rows.
+
+The full suite passed **1,260 tests in 133.64s**. The focused store/runtime suite
+passed **270 tests in 7.18s**. Tests cover schema
+round trips, normalized deduplication, ordering by UTC instant, deterministic
+history ties, limits/eviction, malformed and oversized records, private file
+permissions, competing mutation locks, atomic-write failures, submission versus
+pagination, successful/context plays, fixture/failed-resolution exclusion, and
+profile failures. A UTC conversion overflow boundary was first reproduced as a
+failing test and is now rejected as invalid profile data.
+
+Compilation, package creation in `dist/radio-history-task1/`, repository package
+validation, and `git diff --check` passed. Kodi add-on checker **0.0.36** on a fresh
+extraction for Omega exited 0 with no add-on problems or warnings; it emitted the
+known host LibreSSL/urllib3 compatibility warning separately. The usual ZIP path
+under `dist/` was already a directory, so the initial build there failed; that
+directory was preserved and the separate destination built successfully. Final
+archive SHA-256:
+`79e5d48b7f52c4af886eea76555fc28cd9f42d7801ba469c7a2dc0c4b4ee1f12`.
+
+Kodi live acceptance remains open because current master startup blocks before
+add-on execution on this Mac. No live acceptance result is claimed for these
+profile stores.
+
 ## Successful Kodi no-replay run before speed guard — 2026-10-26
 
 The latest package was installed in an isolated portable profile on this Mac and
