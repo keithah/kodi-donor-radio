@@ -170,6 +170,16 @@ Execute Tasks 1–5 in order. Task 6 depends on contracts from Tasks 1 and 4 and
 - [x] Run the focused tracker and adapter tests, then the full suite; confirm ordinary 1x behavior and all existing safety gates remain unchanged.
 - [x] Commit the independently reviewed change before continuing Task 8 acceptance.
 
+## Task 11: Preserve speed-transition evidence during buffering
+
+**Files:** modify `plugin.audio.kodi_donor_radio/resources/lib/kodi_ad_player.py`;
+extend `tests/test_kodi_ad_player.py`.
+
+- [x] Add an adapter regression where a non-normal speed round trip occurs during a cached sample, the mapped clock crosses an active placement, and normal playback resumes within the startup tolerance. Assert that caching still emits no success event and that the affected placement stays ambiguous afterward.
+- [x] Preserve mapped position only as ambiguity evidence when a speed-invalid or speed-transition sample is also cached; keep `caching=True` so `AdTracker` cannot count that interval as playback success. Preserve unmapped handling for other invalid clocks.
+- [x] Run the focused tracker/adapter tests and full suite; verify ordinary 1x playback, caching suppression, and speed-transition rejection remain intact.
+- [x] Commit and independently review the targeted fix before repeating Kodi master acceptance.
+
 ## Plan self-review
 
 Covered spec sections: resolver/deadlines (2), media/cache (1/3), preroll/midroll and immutable output (4/5), tracking/errors (6), Kodi/controls (7), independent and real-runtime evidence (8), packaging/reviews (9). All five Review Focus conditions have explicit owning tests. Shared records and method names above are the contracts between subagents. Source-cache limits, XML bounds and sampling cadence make previously qualitative implementation details explicit without expanding the approved product scope.
@@ -177,5 +187,6 @@ Covered spec sections: resolver/deadlines (2), media/cache (1/3), preroll/midrol
 Execution method was selected as subagent-driven. This is the original implementation
 plan; early task checkboxes were not maintained during execution. Tasks 1–8 code is
 implemented and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`;
-Task 10 is implemented and reviewed. Kodi clock-anchor acceptance, audible output,
-post-speed-guard Kodi playback, and Task 9 release checks remain open.
+Task 10 is implemented and reviewed. Task 11 addresses a CodeRabbit finding.
+Kodi clock-anchor acceptance, audible output, post-speed-guard Kodi playback,
+and final exact-commit release review remain open. Task 11 is implemented and independently reviewed; post-speed-guard Kodi master acceptance remains blocked before add-on startup by USB enumeration.
