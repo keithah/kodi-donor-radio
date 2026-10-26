@@ -146,6 +146,49 @@ def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():
     assert [event for _, event, _ in queued] == ["impression", "start"]
 
 
+@pytest.mark.parametrize("unavailable_count", (1, 3))
+@pytest.mark.parametrize("gap_seconds, expected_events", (
+    (.5, EVENTS),
+    (.75, EVENTS),
+    (1.0, ("impression", "start")),
+))
+def test_unavailable_clock_gap_taints_only_intersected_ad_after_close_recovery(
+        gap_seconds, expected_events, unavailable_count):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(1, unavailable_count + 1):
+        instance.observe(view, sample(0, gap_seconds * tick / (unavailable_count + 1),
+                                      playing=False, mapped=False, caching=True))
+        assert [event for _, event, _ in queued] == ["impression", "start"]
+    # Recovery advances only 50 ms, inside the played-position proximity guard.
+    instance.observe(view, sample(.10, gap_seconds))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(1, 37):
+        instance.observe(view, sample(.10 + tick * .25, gap_seconds + tick * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
+
+
+@pytest.mark.parametrize("transition", ({"paused": True}, {"seeking": True},
+                                         {"speed_changed": True}))
+def test_explicit_transition_breaks_unavailable_clock_gap(transition):
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(0, .25, playing=False, mapped=False, caching=True))
+    instance.observe(view, sample(0, .5, playing=False, mapped=False, **transition))
+    instance.observe(view, sample(0, .75, playing=False, mapped=False, caching=True))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.10, 1.0))
+    for tick in range(1, 17):
+        instance.observe(view, sample(.10 + tick * .25, 1.0 + tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
 def test_unmapped_clock_jump_taints_ad_before_tracking_resumes():
     instance, _, queued = tracker()
     view = presentation()

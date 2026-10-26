@@ -123,7 +123,12 @@ class AdTracker:
                 self._stationary_since = None
         else:
             self._stationary_since = None
-        self._previous_clock = sample if clock_observed else None
+        if clock_observed:
+            self._previous_clock = sample
+        elif sample.mapped or sample.paused or sample.seeking or speed_untrusted:
+            self._previous_clock = None
+        # Unavailable/unmapped reads cannot prove progress or erase elapsed
+        # clock evidence. Explicit playback transitions still break that chain.
         previous = self._previous
         first_sample = good and not self._seen_sample
         if good:
