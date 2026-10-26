@@ -2543,3 +2543,202 @@ def test_directory_cache_slow_profile_read_remains_cancellable(kodi, monkeypatch
     finally:
         release.set()
         assert completed.wait(1)
+
+
+def test_favorite_refresh_local_listing_finishes_before_once_per_session_schedule(kodi, monkeypatch):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved offline'))
+    browser = directory(monkeypatch, runtime)
+    browser.by_uuids = lambda *args: pytest.fail('listing performed directory lookup')
+    scheduled = []
+    def execute(command):
+        assert state.items[0][1].label == 'Saved offline'
+        assert state.ended[-1]['succeeded'] is True
+        scheduled.append(command)
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', execute)
+    route(runtime, mode='favorites')
+    runtime = importlib.reload(runtime)
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: browser)
+    route(runtime, mode='favorites')
+    assert scheduled == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+    assert not state.messages and not state.notifications
+    assert {p.name for p in profile.glob('*.json')} == {'favorites.json'}
+
+
+def test_favorite_refresh_batches_atomic_display_update_and_missing_retained(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    # One atomic seed keeps the fixture about behavior, not 101 fsync calls.
+    records = [StationSummary('s-%d' % i, 'Saved %d' % i,
+               last_played='2026-10-23T12:00:00Z') for i in range(101)]
+    store._write(records)
+    route(runtime, mode='favorites')
+    state.builtins.clear()
+    state.items.clear(); state.ended.clear(); state.contents.clear()
+    browser = directory(monkeypatch, runtime)
+    batches = []
+    def fetch(ids):
+        assert store.list() == records
+        batches.append(ids)
+        return [replace(STATION, uuid=key, name='New ' + key) for key in ids if key != 's-1']
+    browser.by_uuids = fetch
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', lambda label: 'plugin://plugin.audio.kodi_donor_radio/?mode=favorites&offset=50', raising=False)
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert batches == [[r.station_uuid for r in records[:50]],
+                       [r.station_uuid for r in records[50:100]], ['s-100']]
+    result = store.list()
+    assert [r.station_uuid for r in result] == [r.station_uuid for r in records]
+    assert result[0].name == 'New s-0' and result[1] == records[1] and result[-1].name == 'New s-100'
+    assert all(r.last_played == '2026-10-23T12:00:00Z' for r in result)
+    assert STATION.url not in store.path.read_text() and '"url"' not in store.path.read_text()
+    assert state.builtins == ['Container.Refresh']
+    assert not state.items and not state.ended and not state.contents
+    assert not state.messages and not state.notifications
+    route(runtime, mode='favorites')
+    assert state.builtins == ['Container.Refresh']
+
+
+def test_favorite_refresh_later_batch_failure_keeps_all_bytes_and_allows_retry(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store._write([StationSummary('s-%d' % i, 'Saved') for i in range(51)])
+    before = store.path.read_bytes()
+    route(runtime, mode='favorites')
+    state.builtins.clear(); state.messages.clear(); state.ended.clear(); state.items.clear()
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(ids):
+        calls.append(ids)
+        if len(calls) == 2: raise OSError('offline')
+        return [replace(STATION, uuid=key, name='Changed') for key in ids]
+    browser.by_uuids = fetch
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert len(calls) == 2 and store.path.read_bytes() == before
+    assert not state.messages and not state.notifications and not state.builtins and not state.ended
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved'
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+
+
+@pytest.mark.parametrize('away', ['home', 'map', 'external', 'unavailable'])
+def test_favorite_refresh_navigation_away_never_refreshes_visible_container(kodi, monkeypatch, away):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    def fetch(ids):
+        if away == 'home': route(runtime, mode='home')
+        if away == 'map':
+            monkeypatch.setattr(runtime, '_ui_transition', lambda *args: None)
+            runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=map'])
+        return [replace(STATION, uuid='a', name='Updated')]
+    browser.by_uuids = fetch
+    path = 'plugin://other.addon/?mode=favorites' if away == 'external' else 'plugin://plugin.audio.kodi_donor_radio/?mode=favorites'
+    def folder(label):
+        if away == 'unavailable': raise RuntimeError('window unavailable')
+        return path
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', folder, raising=False)
+    state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.list()[0].name == 'Updated'
+    assert not state.builtins
+
+
+@pytest.mark.parametrize('error', [OSError, ValueError, RuntimeError])
+def test_favorite_refresh_storage_failure_is_quiet_and_retryable(kodi, monkeypatch, error):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    browser.by_uuids = lambda ids: [replace(STATION, uuid='a', name='Updated')]
+    def fail(*args): raise error('unavailable')
+    monkeypatch.setattr(FavoriteStore, 'refresh', fail, raising=False)
+    state.messages.clear(); state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.list()[0].name == 'Saved' and not state.messages and not state.notifications
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+
+
+@pytest.mark.parametrize('method', ['__init__', 'getProperty', 'setProperty'])
+def test_favorite_refresh_window_failure_cannot_hide_local_rows(kodi, monkeypatch, method):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved'))
+    def fail(*args): raise RuntimeError('window unavailable')
+    monkeypatch.setattr(runtime.xbmcgui.Window, method, fail)
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved'
+    assert state.ended[-1]['succeeded'] is True
+    assert not state.messages and not state.builtins
+
+
+def test_favorite_refresh_preserves_edits_made_during_directory_lookup(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store._write([StationSummary(key, key) for key in ['a', 'b', 'c']])
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    def fetch(ids):
+        store.move('c', 0)
+        store.mark_played('a', '2026-10-26T12:00:00Z')
+        store.remove('b')
+        store.add(StationSummary('d', 'Added during refresh'))
+        return [replace(STATION, uuid=key, name='New ' + key) for key in ids]
+    browser.by_uuids = fetch
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', lambda _: '', raising=False)
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    result = store.list()
+    assert [row.station_uuid for row in result] == ['c', 'a', 'd']
+    assert result[0].name == 'New c' and result[1].name == 'New a'
+    assert result[1].last_played == '2026-10-26T12:00:00Z'
+    assert result[2].name == 'Added during refresh'
+
+
+def test_favorite_refresh_schedule_error_does_not_revoke_listing_and_can_retry(kodi, monkeypatch):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved'))
+    def fail(*args): raise RuntimeError('Kodi unavailable')
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', fail)
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved' and state.ended[-1]['succeeded']
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', state.builtins.append)
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+    assert not state.messages and not state.notifications
+
+
+def test_favorite_refresh_shutdown_before_commit_keeps_local_records_and_retries(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    before = store.path.read_bytes()
+    def fetch(ids):
+        state.abort = True
+        return [replace(STATION, uuid='a', name='Updated')]
+    browser.by_uuids = fetch
+    state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.path.read_bytes() == before
+    assert not state.builtins and not state.messages and not state.notifications
+    state.abort = False
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']

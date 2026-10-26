@@ -608,3 +608,44 @@ def test_directory_cache_tags_preserve_raw_page_continuation(tmp_path, has_more)
     store = DirectoryCacheStore(tmp_path)
     store.put('tags', '0', ['jazz'], continuation=has_more)
     assert store.get('tags', '0', 60).continuation is has_more
+
+
+def test_favorite_refresh_updates_metadata_preserving_order_played_and_missing(tmp_path):
+    from dataclasses import replace
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    first = m.StationSummary('a', 'First', last_played='2026-10-23T12:00:00Z')
+    missing = m.StationSummary('b', 'Missing', city='Old city')
+    store.add(first)
+    store.add(missing)
+    updated = replace(first, name='Updated', city='New city', country='Canada',
+                      country_code='CA', codec='AAC', tags='jazz', bitrate=128,
+                      latitude=1, longitude=2, favicon='https://radio.example/logo.png',
+                      last_played='2026-10-24T12:00:00Z')
+    store.refresh([m.StationSummary('unknown', 'Never add'), updated])
+    assert store.list() == [replace(updated, last_played=first.last_played), missing]
+    assert '"url"' not in store.path.read_text()
+
+
+def test_favorite_refresh_invalid_later_summary_leaves_file_unchanged(tmp_path):
+    from models import Station
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    store.add(m.StationSummary('a', 'First'))
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.refresh([m.StationSummary('a', 'Updated'),
+                       Station('b', 'Unsafe', 'https://secret.example/live', '', False)])
+    assert store.path.read_bytes() == before
+
+
+def test_favorite_refresh_atomic_write_failure_preserves_file(tmp_path, monkeypatch):
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    store.add(m.StationSummary('a', 'First'))
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(m.os, 'replace', fail)
+    with pytest.raises(OSError):
+        store.refresh([m.StationSummary('a', 'Updated')])
+    assert store.path.read_bytes() == before

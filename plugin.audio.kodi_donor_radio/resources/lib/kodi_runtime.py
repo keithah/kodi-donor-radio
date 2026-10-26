@@ -312,6 +312,70 @@ def _query_text(value):
 
 _SEARCH_PROPERTY = 'kodi_donor_radio.search_pages'
 _SEARCH_BYTES = 512 * 1024
+_FAVORITES_REFRESH_PROPERTY = 'kodi_donor_radio.favorites_refresh'
+_VISIBLE_ROUTE_PROPERTY = 'kodi_donor_radio.visible_route'
+
+
+def _visible_route(action):
+    try:
+        xbmcgui.Window(10000).setProperty(_VISIBLE_ROUTE_PROPERTY, action)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
+
+
+def _schedule_favorite_refresh(base):
+    """Called only after the local directory has completed; no network work here."""
+    window = None
+    try:
+        window = xbmcgui.Window(10000)
+        if window.getProperty(_FAVORITES_REFRESH_PROPERTY):
+            return
+        window.setProperty(_FAVORITES_REFRESH_PROPERTY, 'true')
+        # Kodi 21.3 RunPlugin executes a non-directory plugin with handle -1.
+        # executebuiltin defaults to wait=False; no worker/progress dialog is needed.
+        xbmc.executebuiltin('RunPlugin(%s?mode=favorites_refresh)' % base)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        if window is not None:
+            try:
+                window.clearProperty(_FAVORITES_REFRESH_PROPERTY)
+            except (OSError, RuntimeError, ValueError, TypeError):
+                pass
+
+
+def _refresh_favorites(browser, monitor, base):
+    """Quiet background action: fetch every batch before one profile transaction."""
+    try:
+        store = FavoriteStore(profile_path())
+        favorites = store.list()
+        summaries = []
+        for offset in range(0, len(favorites), PAGE_SIZE):
+            if monitor.abortRequested():
+                raise Cancelled('Refresh cancelled')
+            ids = [station.station_uuid for station in favorites[offset:offset + PAGE_SIZE]]
+            summaries.extend(_summary(station) for station in browser.by_uuids(ids))
+        if monitor.abortRequested():
+            raise Cancelled('Refresh cancelled')
+        store.refresh(summaries)
+    except (OSError, RuntimeError, ValueError, TypeError, RecursionError):
+        try:
+            xbmcgui.Window(10000).clearProperty(_FAVORITES_REFRESH_PROPERTY)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass
+        return
+    try:
+        # The session route covers navigation inside this addon. FolderPath also
+        # protects other addons/windows, which do not invoke our route tracker.
+        if xbmcgui.Window(10000).getProperty(_VISIBLE_ROUTE_PROPERTY) != 'favorites':
+            return
+        current = urlsplit(xbmc.getInfoLabel('Container.FolderPath'))
+        expected = urlsplit(base)
+        params = parse_qs(current.query)
+        if (current.scheme == expected.scheme and current.netloc == expected.netloc and
+                current.path.rstrip('/') == expected.path.rstrip('/') and
+                params.get('mode', params.get('action')) == ['favorites']):
+            xbmc.executebuiltin('Container.Refresh')
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
 
 
 def _cache_key(*values):
@@ -817,6 +881,14 @@ def run_plugin(argv):
     action = params.get('mode', params.get('action', 'home'))
     monitor, cancel = xbmc.Monitor(), threading.Event()
     browser = RadioBrowser(cancel=cancel)
+    if action == 'favorites_refresh':
+        _refresh_favorites(browser, monitor, base)
+        return
+    if (action in ('map', 'setup', 'settings') or
+            handle >= 0 and action not in ('play', 'play_fixture', 'favorite_add', 'favorite_remove',
+                                          'place_default', 'place_radius', 'place_remove',
+                                          'station_info', 'vote', 'label_icy_marker')):
+        _visible_route(action)
     def url(**values): return base + '?' + urlencode(values)
     def item(label, folder=True, playable=False, context=(), **values):
         entry = xbmcgui.ListItem(label=label)
@@ -951,6 +1023,7 @@ def run_plugin(argv):
     if handle >= 0:
         xbmcplugin.setContent(handle, 'songs')
     listing_succeeded = True
+    refresh_favorites = False
     retry = {'mode': 'home'}
     try:
         offset = int(params.get('offset', '0'))
@@ -1009,6 +1082,7 @@ def run_plugin(argv):
                 item(text(30005), mode=action, offset=offset + PAGE_SIZE)
             if not favorites:
                 _error(30113)
+            refresh_favorites = bool(favorites)
         elif action == 'place':
             place_id = station_identifier(params.get('id', ''))
             place = next((place for place in PlaceStore(profile_path()).list() if place.place_id == place_id), None)
@@ -1106,6 +1180,8 @@ def run_plugin(argv):
     finally:
         if handle >= 0:
             xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
+            if listing_succeeded and refresh_favorites:
+                _schedule_favorite_refresh(base)
 
 
 class RelayPlayer(xbmc.Player):

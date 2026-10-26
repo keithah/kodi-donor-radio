@@ -438,6 +438,19 @@ class FavoriteStore(_Store):
                 items.append(station_summary)
             self._write(items)
 
+    def refresh(self, summaries):
+        """Atomically merge display fields into current favorites, preserving user state."""
+        if (not isinstance(summaries, (list, tuple)) or len(summaries) > self.limit or
+                any(type(summary) is not StationSummary for summary in summaries)):
+            raise ValueError('Expected safe station summaries')
+        updates = {summary.station_uuid: summary for summary in summaries}
+        with self._mutation():
+            items = self.list()
+            refreshed = [replace(updates[item.station_uuid], last_played=item.last_played)
+                         if item.station_uuid in updates else item for item in items]
+            if refreshed != items:
+                self._write(refreshed)
+
     def move(self, station_uuid, index):
         station_identifier(station_uuid)
         with self._mutation():

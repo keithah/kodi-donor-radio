@@ -399,3 +399,26 @@ def test_station_search_pages_keep_raw_continuation_after_malformed_rows(country
     assert len(stations) == 49 and has_more is True
     assert next_stations == [] and next_has_more is False
     assert parse_qs(urlsplit(transport.calls[-1][0]).query)['offset'] == ['50']
+
+
+def test_favorite_refresh_uuid_batch_preserves_request_order_and_ignores_extras():
+    rows = [{'stationuuid': key, 'name': key, 'url_resolved': 'https://radio.example/live',
+             'codec': 'MP3', 'hls': 0} for key in ['b', 'extra', 'a']]
+    rb, transport = browser([Reply(json.dumps(rows).encode())])
+    assert [s.uuid for s in rb.by_uuids(['a', 'missing', 'b'])] == ['a', 'b']
+    assert urlsplit(transport.calls[0][0]).path == '/json/stations/byuuid'
+    assert parse_qs(urlsplit(transport.calls[0][0]).query) == {'uuids': ['a,missing,b']}
+
+
+@pytest.mark.parametrize('ids', [[], ['s'] * 51, ['good', '../bad'], 'station', None])
+def test_favorite_refresh_uuid_batch_rejects_unbounded_or_invalid_input(ids):
+    rb, transport = browser([])
+    with pytest.raises(ValueError):
+        rb.by_uuids(ids)
+    assert not transport.calls
+
+
+def test_favorite_refresh_uuid_batch_accepts_fifty_ids():
+    rb, transport = browser([Reply(b'[]')])
+    assert rb.by_uuids(['s-%d' % i for i in range(50)]) == []
+    assert len(parse_qs(urlsplit(transport.calls[0][0]).query)['uuids'][0].split(',')) == 50
