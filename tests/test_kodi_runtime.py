@@ -382,6 +382,8 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     assert opened[-1].kwargs['stations'] == [STATION]
     assert opened[-1].kwargs['origin_route'] == source
     assert opened[-1].kwargs['playback_arbiter'].lock_path == profile / 'playback-start.lock'
+    assert opened[-1].kwargs['profile_path'] == profile
+    assert opened[-1].kwargs['geometry_path'] == ADDON / 'resources/map/natural_earth_110m_land.json'
     assert opened[-1].native[0] == 'map.xml'
     assert opened[-1].native[1] == opened[-1].kwargs['addon_path']
     assert opened[-1].native[2:] == ('Default', '1080i', False)

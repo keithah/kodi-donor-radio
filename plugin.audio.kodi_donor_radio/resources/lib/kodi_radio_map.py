@@ -3,6 +3,9 @@
 from urllib.parse import parse_qs, urlencode, urlsplit
 import math
 import os
+from pathlib import Path
+import tempfile
+import uuid
 import threading
 import re
 import time
@@ -12,7 +15,7 @@ import xbmcaddon
 import xbmcgui
 
 from radio_map import (MapView, cluster_cities, nearest_city_in_direction,
-                       project, visible_cities)
+                       project, visible_cities, load_land_polygons, render_land_png)
 from playback_arbiter import PlaybackStartArbiter
 from radio_ui import station_identifier
 
@@ -23,7 +26,11 @@ RAIL_ID = 2000
 PREVIEW_ID = 3000
 BACK_ID = 3001
 STATUS_ID = 3002
-MAP_LEFT, MAP_TOP, MAP_WIDTH, MAP_HEIGHT = 75, 145, 1030, 590
+MAP_LEFT, MAP_TOP, MAP_WIDTH, MAP_HEIGHT = 75, 145, 1030, 515
+MAP_IMAGE_ID = 19
+MAP_IMAGE_LIMIT = 2 * 1024 * 1024
+MAP_TEXTURE_LIMIT = 20
+_MAP_TEXTURE_NAME = re.compile(r'map-[0-9a-f]{32}\.png')
 RAIL_LIMIT = 50
 ACTION_IDS = {'left': 1, 'right': 2, 'up': 3, 'down': 4}
 BACK_ACTIONS = (10, 92)
@@ -346,7 +353,9 @@ class RadioMapWindow(xbmcgui.WindowXML):
                  addon_path, plugin_base='plugin://plugin.audio.kodi_donor_radio',
                  execute=None, preview_start=None, preview_stop=None, player_factory=None,
                  timer_factory=None, thread_factory=None, status_message='',
-                 playback_arbiter=None):
+                 playback_arbiter=None, profile_path=None, geometry_path=None):
+        self._profile_path = Path(profile_path) if profile_path is not None else None
+        self._geometry_path = geometry_path
         self.plugin_base = plugin_base
         home_route = _valid_origin(plugin_base + '?mode=home', plugin_base)
         try:
@@ -414,6 +423,7 @@ class RadioMapWindow(xbmcgui.WindowXML):
         self.getControl(11).setLabel(xbmcaddon.Addon().getLocalizedString(30149))
         whole_world = self.view.full_longitude and self.view.north == 90 and self.view.south == -90
         self.getControl(13).setLabel(addon.getLocalizedString(30148 if whole_world else 30162))
+        self._render_map_image()
         self._render_graticule(whole_world)
         self._selected_prefix = xbmcaddon.Addon().getLocalizedString(30150)
         self.getControl(PREVIEW_ID).setVisible(self.preview_enabled)
@@ -442,8 +452,54 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 playback_arbiter=self._playback_arbiter,
             )
 
+    def _render_map_image(self):
+        """Install only complete local view textures; artwork cannot disable the rail."""
+        image = self.getControl(MAP_IMAGE_ID)
+        image.setVisible(False)
+        if self._profile_path is None or self._geometry_path is None:
+            return
+        temporary = destination = None
+        try:
+            polygons = load_land_polygons(self._geometry_path)
+            data = render_land_png(polygons, self.view)
+            if not isinstance(data, bytes) or not 0 < len(data) <= MAP_IMAGE_LIMIT:
+                raise ValueError('Invalid map texture size')
+            cache = self._profile_path / 'map-textures'
+            cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+            destination = cache / ('map-%s.png' % uuid.uuid4().hex)
+            descriptor, temporary = tempfile.mkstemp(prefix='.map-', dir=str(cache))
+            with os.fdopen(descriptor, 'wb') as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, destination)
+            temporary = None
+            # Keep the new image even if old timestamps happen to be in the future.
+            older = sorted((path for path in cache.iterdir()
+                            if _MAP_TEXTURE_NAME.fullmatch(path.name)
+                            and path != destination and not path.is_symlink()
+                            and path.is_file()), key=lambda path: (path.stat().st_mtime_ns, path.name),
+                           reverse=True)
+            for path in older[MAP_TEXTURE_LIMIT - 1:]:
+                path.unlink()
+            image.setImage(str(destination), useCache=False)
+            image.setVisible(True)
+        except Exception:
+            # Disk, data and native image-loader errors leave all discovery controls usable.
+            if destination is not None:
+                try:
+                    destination.unlink()
+                except OSError:
+                    pass
+        finally:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+
     def _render_graticule(self, whole_world):
-        """Fit the schematic grid to the map bounds; region names belong to world view."""
+        """Fit the grid to the image and pin bounds; region names belong to world view."""
         for control_id in range(30, 37):
             self.getControl(control_id).setVisible(whole_world)
 

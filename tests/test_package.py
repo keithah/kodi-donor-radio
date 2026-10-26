@@ -39,6 +39,8 @@ def test_package_is_installable_source_only(package):
         assert {name.split('/')[0] for name in names} == {ADDON}
         assert ADDON + '/default.py' in names
         assert ADDON + '/service.py' in names
+        assert ADDON + '/resources/map/natural_earth_110m_land.json' in names
+        assert ADDON + '/resources/map/SOURCES.md' in names
         assert ADDON + '/resources/station-monogram.png' in names
         assert ADDON + '/resources/skins/Default/media/white.png' in names
         assert ADDON + '/resources/skins/Default/media/radio-white.png' in names

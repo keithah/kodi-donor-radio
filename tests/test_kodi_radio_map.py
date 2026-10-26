@@ -1,5 +1,9 @@
 """Kodi boundary tests for the shared station map window."""
 import importlib
+import json
+from pathlib import Path
+import struct
+import zlib
 import sys
 import threading
 from types import SimpleNamespace
@@ -22,11 +26,13 @@ class Control:
         self.enabled = True
         self.width, self.height = 300, 42
         self.items, self.selected = [], 0
+        self.image, self.use_cache = None, None
     def setVisible(self, value): self.visible = value
     def setPosition(self, x, y): self.position = (x, y)
     def setWidth(self, value): self.width = value
     def setLabel(self, value): self.label = value
     def setEnabled(self, value): self.enabled = value
+    def setImage(self, path, useCache=True): self.image, self.use_cache = path, useCache
     def reset(self): self.items, self.selected = [], 0
     def addItems(self, values): self.items.extend(values)
     def selectItem(self, value): self.selected = value
@@ -73,7 +79,7 @@ class WindowXML:
         self.xml_args = args
         self.controls = {control_id: Control(control_id) for control_id in range(1000, 1060)}
         self.controls.update({key: Control(key) for key in (
-            10, 11, 12, 13, 2000, 3000, 3001, 3002, *range(20, 37))})
+            10, 11, 12, 13, 19, 2000, 3000, 3001, 3002, *range(20, 37))})
         self.focus_id = 1000
         self.closed = False
     def getControl(self, control_id): return self.controls[control_id]
@@ -171,11 +177,11 @@ def test_map_pin_dot_is_centered_and_edge_label_only_is_clamped(monkeypatch):
     unselected = window.controls[window._pin_control(east_city.city_id)]
     assert selected.width == 300
     assert selected.position[0] == module.MAP_LEFT
-    assert selected.position[1] == module.MAP_TOP + module.MAP_HEIGHT // 2 - 21
+    assert selected.position[1] == 382
     assert unselected.width == 42
     east_x = module.MAP_LEFT + module.MAP_WIDTH
     assert unselected.position == (east_x - 21,
-                                   module.MAP_TOP + module.MAP_HEIGHT // 2 - 21)
+                                   382)
     assert unselected.position[0] + unselected.width // 2 == east_x
 
 
@@ -370,9 +376,9 @@ def test_map_schematic_has_geographic_grid_and_region_labels():
     vertical = [images[index] for index in range(25, 30)]
     assert all(int(node.findtext('width')) == 1030 and int(node.findtext('height')) == 1
                for node in horizontal)
-    assert all(int(node.findtext('width')) == 1 and int(node.findtext('height')) == 590
+    assert all(int(node.findtext('width')) == 1 and int(node.findtext('height')) == 515
                for node in vertical)
-    assert [int(node.findtext('top')) for node in horizontal] == [243, 341, 440, 538, 636]
+    assert [int(node.findtext('top')) for node in horizontal] == [231, 317, 403, 488, 574]
     assert [int(node.findtext('left')) for node in vertical] == [247, 419, 590, 762, 933]
     labels = {int(node.get('id')): node.findtext('label')
               for node in xml.findall(".//control[@type='label']")
@@ -414,7 +420,7 @@ def test_map_graticule_follows_local_station_bounds_and_hides_world_regions(monk
     horizontal = [window.controls[index] for index in range(20, 25)]
     vertical = [window.controls[index] for index in range(25, 30)]
     assert [control.visible for control in horizontal] == [True, True, True, False, False]
-    assert [control.position[1] for control in horizontal[:3]] == [293, 440, 587]
+    assert [control.position[1] for control in horizontal[:3]] == [274, 403, 531]
     assert [control.visible for control in vertical] == [True, True, True, False, False]
     assert [control.position[0] for control in vertical[:3]] == [333, 590, 847]
     assert all(not window.controls[index].visible for index in range(30, 37))
@@ -428,7 +434,7 @@ def test_world_map_keeps_world_regions_and_expected_graticule(monkeypatch):
     window.onInit()
 
     assert all(window.controls[index].visible for index in range(30, 37))
-    assert [window.controls[index].position[1] for index in range(20, 25)] == [243, 342, 440, 538, 637]
+    assert [window.controls[index].position[1] for index in range(20, 25)] == [231, 317, 403, 488, 574]
     assert [window.controls[index].position[0] for index in range(25, 30)] == [247, 418, 590, 762, 933]
     assert window.controls[13].label == 'localized-30148'
 
@@ -1024,3 +1030,125 @@ def test_station_rail_cancels_preview_before_queuing_direct_play(monkeypatch):
     assert events[0] == 'stop-preview'
     assert events[1] == ('stop-session', 'owned-preview')
     assert events[2][0] == 'run-plugin'
+
+
+@pytest.mark.parametrize('view', [MapView(90, -90, -180, 180, 1000, 650),
+                                 MapView(60, 20, -130, -60, 700, 400),
+                                 MapView(60, -60, 150, -150, 800, 400)])
+def test_window_installs_local_texture_for_exact_view(monkeypatch, tmp_path, view):
+    module = load_window(monkeypatch)
+    geometry = tmp_path / 'land.json'
+    geometry.write_text(json.dumps(dict(schema_version=1,
+        source='Natural Earth 1:110m land v4.1.0', polygons=[[[
+            [-110, 30], [-90, 30], [-90, 50], [-110, 50], [-110, 30]]]])))
+    seen = []
+    # Keep real file loading and raster output; observe only the renderer boundary.
+    from radio_map import render_land_png
+    def render(polygons, requested_view):
+        seen.append(requested_view)
+        return render_land_png(polygons, requested_view)
+    monkeypatch.setattr(module, 'render_land_png', render, raising=False)
+    window = make_window(module, view=view, profile_path=tmp_path / 'profile',
+                         geometry_path=geometry)
+    window.onInit()
+    image = window.controls[19]
+    assert image.visible and image.use_cache is False
+    path = Path(image.image)
+    assert path.is_relative_to(tmp_path / 'profile')
+    data = path.read_bytes()
+    assert data[:8] == b'\x89PNG\r\n\x1a\n' and len(data) <= 2 * 1024 * 1024
+    assert struct.unpack('>II', data[16:24]) == (1680, 840)
+    assert seen == [view] and seen[0] is view
+    assert not list(path.parent.glob('.map-*'))
+    if view.west == -130:
+        # This local rectangle covers the center of the regional image.
+        cursor, compressed = 8, bytearray()
+        while cursor < len(data):
+            size = struct.unpack_from('>I', data, cursor)[0]
+            if data[cursor + 4:cursor + 8] == b'IDAT':
+                compressed.extend(data[cursor + 8:cursor + 8 + size])
+            cursor += size + 12
+        raw = zlib.decompress(compressed)
+        center = 420 * (1680 * 4 + 1) + 1 + 720 * 4
+        assert raw[center:center + 4] == bytes.fromhex('396368ff')
+        assert raw[1:5] == bytes.fromhex('102335ff')
+
+
+def test_texture_skin_and_pin_centers_share_2_to_1_viewport(monkeypatch):
+    import xml.etree.ElementTree as ET
+    xml = ET.parse(Path(__file__).parents[1] /
+                   'plugin.audio.kodi_donor_radio/resources/skins/Default/1080i/map.xml')
+    controls = xml.find('controls')
+    image = controls.find("control[@id='19']")
+    assert image is not None and image.get('type') == 'image'
+    assert [int(image.findtext(tag)) for tag in ('left', 'top', 'width', 'height')] == [75, 145, 1030, 515]
+    assert list(controls).index(image) < list(controls).index(controls.find("control[@id='20']"))
+    assert list(controls).index(image) < list(controls).index(controls.find("control[@id='1000']"))
+    module = load_window(monkeypatch)
+    window = make_window(module, stations=[station('north', 'North', 90, 0),
+                                          station('south', 'South', -90, 0)],
+                         view=MapView(90, -90, -180, 180, 800, 400))
+    window.onInit()
+    positions = {city.latitude: window.controls[window._pin_control(city.city_id)].position[1] + 21
+                 for city in window.pins}
+    assert positions == {90: 145, -90: 660}
+
+
+@pytest.mark.parametrize('failure', ['geometry', 'render', 'oversize', 'directory', 'write', 'replace', 'install'])
+def test_texture_failure_preserves_rail_navigation_and_play(monkeypatch, tmp_path, failure):
+    module = load_window(monkeypatch)
+    geometry = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/map/natural_earth_110m_land.json'
+    profile = tmp_path / 'profile'
+    def fail(*args, **kwargs): raise OSError('simulated image failure')
+    if failure == 'geometry': geometry = tmp_path / 'absent.json'
+    if failure == 'render': monkeypatch.setattr(module, 'render_land_png', fail, raising=False)
+    if failure == 'oversize':
+        monkeypatch.setattr(module, 'render_land_png', lambda *_: b'x' * (2 * 1024 * 1024 + 1), raising=False)
+    if failure == 'directory': profile.write_text('not a directory')
+    if failure == 'write': monkeypatch.setattr(module.os, 'fsync', fail)
+    if failure == 'replace': monkeypatch.setattr(module.os, 'replace', fail)
+    calls = []
+    window = make_window(module, stations=[station('one', 'One', 0, 0)],
+                         profile_path=profile, geometry_path=geometry, execute=calls.append)
+    if failure == 'install': window.controls[19].setImage = fail
+    window.onInit()
+    assert not window.controls[19].visible
+    assert [item.label for item in window.controls[2000].items] == ['One']
+    window.onAction(Action(2))
+    assert window.getFocusId() == 2000
+    window.onClick(2000)
+    assert any('mode=play' in call and 'uuid=one' in call for call in calls)
+    if profile.is_dir():
+        assert not list(profile.rglob('.map-*'))
+        assert not list(profile.rglob('map-*.png'))
+
+
+def test_textures_are_atomic_and_pruned_without_deleting_other_profile_files(monkeypatch, tmp_path):
+    module = load_window(monkeypatch)
+    cache = tmp_path / 'map-textures'
+    cache.mkdir()
+    for index in range(25):
+        (cache / ('map-%032x.png' % index)).write_bytes(b'old')
+    unrelated = cache / 'map-user-photo.png'
+    unrelated.write_bytes(b'keep')
+    geometry = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/map/natural_earth_110m_land.json'
+    replacements = []
+    import os
+    replace = os.replace
+    def observe_replace(source, target):
+        source, target = Path(source), Path(target)
+        assert source.parent == target.parent == cache
+        assert source.read_bytes().startswith(b'\x89PNG') and not target.exists()
+        replacements.append(target)
+        replace(source, target)
+    monkeypatch.setattr(module.os, 'replace', observe_replace)
+    window = make_window(module, profile_path=tmp_path, geometry_path=geometry)
+    window.onInit()
+    first = Path(window.controls[19].image)
+    window.onInit()
+    second = Path(window.controls[19].image)
+    assert first != second and first.exists() and second.exists()
+    assert replacements == [first, second]
+    assert len(list(cache.glob('map-*.png'))) == 21  # twenty generated plus the unrelated file
+    assert unrelated.read_bytes() == b'keep'
+    assert not list(cache.glob('.map-*'))

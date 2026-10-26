@@ -18,6 +18,7 @@ FILES = frozenset({
     'addon.xml', 'default.py', 'service.py', 'LICENSE.txt',
     'resources/settings.xml', 'resources/icon.png', 'resources/fanart.jpg',
     'resources/station-monogram.png',
+    'resources/map/natural_earth_110m_land.json', 'resources/map/SOURCES.md',
     'resources/skins/Default/media/white.png',
     'resources/skins/Default/media/radio-white.png',
     'resources/language/resource.language.en_gb/strings.po',

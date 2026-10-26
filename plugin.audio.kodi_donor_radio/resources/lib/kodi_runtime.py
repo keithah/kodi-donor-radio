@@ -652,6 +652,9 @@ def _open_map(params, monitor, cancel, base):
         selected_uuid=selected_uuid, stations=stations, view=view,
         preview_enabled=xbmcaddon.Addon().getSettingBool('preview_on_browse'),
         addon_path=xbmcaddon.Addon().getAddonInfo('path'), plugin_base=base,
+        profile_path=profile_path(),
+        geometry_path=(Path(xbmcaddon.Addon().getAddonInfo('path')) /
+                       'resources' / 'map' / 'natural_earth_110m_land.json'),
         preview_start=start_preview, preview_stop=stop_preview,
         playback_arbiter=_playback_arbiter(),
         status_message=unavailable,

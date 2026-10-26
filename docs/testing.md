@@ -1223,3 +1223,43 @@ reachability, or parser failures exit 1, and Ctrl-C exits 130.
 `python3 -m pytest tests/test_hls_sampler.py -q` covers candidate bounds, the
 strict playlist gate, segment-free cue sampling, redaction, concurrency,
 cancellation, and CLI limits. Run `python3 -m pytest -q` for the full suite.
+
+
+## Offline land texture integration — 2026-10-26
+
+The shared Kodi map now installs a local 1680×840 PNG rendered from bundled
+Natural Earth 1:110m land v4.1.0 and the exact active `MapView`. Image control 19
+sits behind the graticule and existing pin controls at `(75, 145)` in a
+1030×515 viewport. Station rail, focusable control sizes, D-pad behavior,
+station context, and preview/play boundaries remain unchanged.
+
+The window receives the translated add-on profile path and the bundled geometry
+path from the runtime. Each generated PNG is bounded to 2 MiB and written through
+a temporary file in the same profile `map-textures` directory before atomic
+replacement. Kodi loads each uniquely named image with its cache bypassed.
+Retention removes only generated `map-<32 lowercase hex digits>.png` files,
+keeping at most 20; unrelated files are retained. Missing/invalid geometry,
+renderer failure, oversized output, disk errors, and native image-loader failure
+hide the texture while leaving the station rail, focus, and Play action usable.
+The package manifest includes both the geometry JSON and its `SOURCES.md`.
+
+Run the integration and packaging tests with:
+
+```sh
+python3 -m pytest tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_package.py -q
+python3 -m pytest -q
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+```
+
+Integration fixtures exercise real local loading and PNG rendering for world,
+regional, and antimeridian views. They verify output dimensions and a hand-checked
+regional land pixel, exact view forwarding, atomic publication, cache bypass,
+retention bounds, viewport-edge pin alignment, and rail behavior on image failure.
+Fresh package extraction must also pass the official Kodi add-on checker for
+Omega; see the checker invocation documented above.
+
+Kodi visual inspection of this texture integration is **pending**. The documented
+main-thread USB startup block on the local Kodi binaries prevents treating the
+older GUI observations as acceptance of this change. No new on-screen, audible,
+or runtime visual acceptance is claimed by these automated tests.

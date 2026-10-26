@@ -3,7 +3,7 @@
 A GPL-2.0-or-later Kodi radio and controlled monetization POC. Search Radio
 Browser, browse countries and tags, save places and favorites, and play supported
 stations through a Python relay embedded in the addon service. Native Kodi
-listings, sequential setup dialogs, and a shared schematic radio map are implemented.
+listings, sequential setup dialogs, and a shared offline radio map are implemented.
 Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
 restricted to configured loopback HLS fixtures; general Radio Browser stations
 remain ad-free. Fixture success beacons use an experimental Kodi media-clock
@@ -77,8 +77,13 @@ and service credentials are excluded.
 **Open the map** and **Show on map** launch the same custom window. It displays
 up to 60 city pins from a maximum 200-row discovery seed and up to 50 stations in
 the selected city's rail. Directional navigation is intended to move between
-cities without wrapping, with rail, Preview, and Back controls. The map is a
-schematic pin view; the themed Home, Now playing, and other themed screens,
+cities without wrapping, with rail, Preview, and Back controls. The map renders
+bundled Natural Earth land polygons locally for the current view behind geographically aligned pins and a graticule. It needs no map tile
+service or extra imaging dependency. Generated 1680×840 PNGs display in a
+1030×515 viewport; profile storage retains at most 20 generated textures, each
+at most 2 MiB, with atomic writes and Kodi image-cache bypass. Image failures
+leave station navigation and playback available. The themed Home, Now playing,
+and other themed screens,
 `interface` selector, and `theme_open_on` setting are deferred.
 
 Map previews do not report Radio Browser clicks. A deliberate Play reports one
