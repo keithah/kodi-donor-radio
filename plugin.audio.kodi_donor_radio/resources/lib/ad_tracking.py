@@ -48,6 +48,7 @@ class AdTracker:
     def __init__(self, session_id, emit, enqueue):
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
         self._previous = None
+        self._previous_clock = None
         self._last_good = None
         self._initial_bad_position = None
         self._stationary_since = None
@@ -102,10 +103,25 @@ class AdTracker:
             # Even a rate round trip between polls breaks the interval. Keep
             # crossed placements ambiguous rather than backfilling on resumption.
             self._taint_ambiguous(presentation, self._previous or self._last_good, sample)
-        good = (not speed_untrusted and sample.mapped and sample.playing and not sample.paused and
-                not sample.seeking and not sample.caching and
-                math.isfinite(sample.position_seconds) and
-                math.isfinite(sample.monotonic_seconds))
+        clock_observed = (not speed_untrusted and sample.mapped and sample.playing and not sample.paused and
+                          not sample.seeking and math.isfinite(sample.position_seconds) and
+                          math.isfinite(sample.monotonic_seconds))
+        good = clock_observed and not sample.caching
+        # A mapped cache clock can prove a long plateau is ambiguous, but it
+        # cannot prove playback or become the previous played interval.
+        previous_clock = self._previous_clock
+        if clock_observed and previous_clock is not None:
+            elapsed = sample.monotonic_seconds - previous_clock.monotonic_seconds
+            if sample.position_seconds == previous_clock.position_seconds and elapsed > 0:
+                if self._stationary_since is None:
+                    self._stationary_since = previous_clock.monotonic_seconds
+                if sample.monotonic_seconds - self._stationary_since >= MAX_STATIONARY:
+                    self._taint_ambiguous(presentation, previous_clock, sample)
+            else:
+                self._stationary_since = None
+        else:
+            self._stationary_since = None
+        self._previous_clock = sample if clock_observed else None
         previous = self._previous
         first_sample = good and not self._seen_sample
         if good:
@@ -126,15 +142,6 @@ class AdTracker:
             continuous = (previous.mapped and previous.playing and not previous.paused and
                           not previous.seeking and 0 < interval <= MAX_GAP and
                           0 < advance <= interval + START_TOLERANCE)
-            if advance > 0:
-                self._stationary_since = None
-            elif advance == 0 and interval > 0:
-                if self._stationary_since is None:
-                    self._stationary_since = previous.monotonic_seconds
-                if sample.monotonic_seconds - self._stationary_since >= MAX_STATIONARY:
-                    self._taint_ambiguous(presentation, previous, sample)
-            else:
-                self._stationary_since = None
             if (sample.seeking or interval <= 0 or advance < 0 or
                     (interval > MAX_GAP and advance > 0) or
                     advance > interval + START_TOLERANCE):
@@ -175,8 +182,6 @@ class AdTracker:
         self._previous = sample if good else None
         if good:
             self._last_good = sample
-        if not good:
-            self._stationary_since = None
 
     def finish(self, reason):
         if self._finished:

@@ -274,12 +274,61 @@ def test_cache_after_startup_cannot_emit_milestones(monkeypatch):
     assert adapter._clock_ready is True
     assert queued == ['impression', 'start']
     assert adapter.mapping_valid is True
-    assert adapter.last_sample.mapped is False
+    assert adapter.last_sample.mapped is True
     cached = [record for record in records
               if record.kind == 'ad_clock_sample' and record.details.get('caching')]
     assert len(cached) == 2
     assert all(record.details['tracking_enabled'] is False for record in cached)
     adapter.close()
+
+
+@pytest.mark.parametrize('cached_polls', (3, 5))
+def test_long_cache_plateau_taints_only_intersected_ad_after_close_resumption(monkeypatch, cached_polls):
+    session = _session()
+    session.ad_enabled = True
+    events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
+    ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
+        TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
+    session.presentation = lambda: Presentation((), (
+        Placement('stalled', ad, 24000, 72000),
+        Placement('later', ad, 96000, 144000)), False)
+    # The cache plateau lasts 750 ms or longer, then resumes only 100 ms
+    # beyond the last played clock. Proximity alone cannot recover delivery.
+    clocks = iter((.25, .5) + (.5,) * cached_polls +
+                  (.6, .75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3))
+    cache_states = iter((False, False) + (True,) * cached_polls + (False,) * 11)
+    queued, records = [], []
+
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url):
+            queued.append((placement_id, event)); return True
+        def close(self): pass
+
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    adapter = KodiAdPlayback(SimpleNamespace(get=lambda _: session, sink=SimpleNamespace(emit=records.append)),
+                             SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks)),
+                             client=SimpleNamespace(), fixture_origin='http://127.0.0.1:8765',
+                             is_caching=lambda: next(cache_states))
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10 + next(ticks) * .25)
+    try:
+        adapter.sample()
+        adapter.sample()
+        assert queued == [('stalled', 'impression'), ('stalled', 'start')]
+        for _ in range(cached_polls):
+            adapter.sample()
+        assert queued == [('stalled', 'impression'), ('stalled', 'start')]
+        for _ in range(11):
+            adapter.sample()
+        assert [event for placement, event in queued if placement == 'stalled'] == ['impression', 'start']
+        assert [event for placement, event in queued if placement == 'later'] == list(events)
+        cached = [record for record in records
+                  if record.kind == 'ad_clock_sample' and record.details['caching']]
+        assert all(record.details['tracking_enabled'] is False for record in cached)
+    finally:
+        adapter.close()
 
 
 def test_fixture_adapter_fails_closed_when_cache_state_is_unavailable(monkeypatch):

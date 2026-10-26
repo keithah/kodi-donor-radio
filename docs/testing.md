@@ -36,11 +36,11 @@ override this reproducible retry failure. See the
 
 ## Independent relay decode smoke — 2026-10-26
 
-The relay-only decoder smoke passed all five direct/wrapped VAST cases:
-normal midroll replacement, preroll with the original midroll preserved,
-no-fill fallback, failed-media fallback, and a VAST duration mismatch resolved
-from measured media samples. Every decoded segment contained exactly 96,256
-samples; the measured section order matched the expected presentation, and the
+The relay-only decoder smoke passed five controlled VAST cases: direct midroll
+replacement (`direct`), preroll with the original midroll preserved (`preroll`),
+no-fill fallback (`no-fill`), failed-media fallback (`failed-media`), and a VAST
+duration mismatch resolved from measured media samples (`wrong-duration`). Every
+decoded segment contained exactly 96,256 samples; the measured section order matched the expected presentation, and the
 collector remained empty because this relay-only run had no playback evidence.
 See [`kodi-ad-relay-decode-2026-10-26.json`](superpowers/reports/kodi-ad-relay-decode-2026-10-26.json).
 

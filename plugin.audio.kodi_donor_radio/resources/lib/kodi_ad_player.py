@@ -177,9 +177,9 @@ class KodiAdPlayback:
                                                   self.speed, self.speed_changed)]
         if not tracking_enabled:
             if (mapped and playing and not self.paused and not self.seeking and caching
-                    and (self.speed != 1 or self.speed_changed)):
-                # Keep the crossed interval as ambiguity evidence. Caching
-                # still prevents the tracker from treating it as playback.
+                    and (self._clock_ready or self.speed != 1 or self.speed_changed)):
+                # Retain cache plateaus and speed transitions as ambiguity
+                # evidence; caching still cannot establish played progress.
                 tracker_samples = [raw_sample]
             else:
                 tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
