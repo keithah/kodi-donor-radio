@@ -152,7 +152,9 @@ class KodiAdPlayback:
                     if (0 < elapsed <= MAX_GAP and 0 < advance <= elapsed + START_TOLERANCE):
                         self._clock_ready = True
                         tracking_enabled = True
-                        tracker_samples = [first, raw_sample]
+                        # Confirm progress, but do not retroactively track from
+                        # the first sample: a reset can occur between polls.
+                        tracker_samples = [raw_sample]
                         self._startup_samples = []
                     elif advance == 0 and 0 <= elapsed <= MAX_GAP:
                         # Identical samples have not established a running clock.

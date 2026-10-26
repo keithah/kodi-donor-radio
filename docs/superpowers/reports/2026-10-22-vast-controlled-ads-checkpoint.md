@@ -28,6 +28,17 @@ completion. These beacons followed the add-on's gated raw clock on that run;
 they do not prove the absolute decoded-media anchor. `mapping_proven` and
 `audible_output_verified` remain false. See the sanitized
 [`clock-progress report`](kodi-clock-progress-2026-10-26.json).
+That run predates a further startup safeguard: the adapter now uses the first
+clock sample only to confirm progress and sends only the advancing sample to the
+tracker. This avoids retroactively treating a possibly unstable startup zero as
+a preroll beacon if Kodi resets between the add-on's polls. Unit tests cover the
+no-replay case and confirmed midroll tracking; this stricter behavior still needs
+a fresh Kodi run. The live reports above describe the earlier implementation.
+The no-replay regression and focused tracking/adapter/event suite passed
+**61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+package build, `check_package.py`, and `git diff --check` passed. Live Kodi
+verification of this stricter gate remains pending; `mapping_proven` and
+`audible_output_verified` remain false.
 Focused tracking, adapter and event tests passed **60 tests**; the full suite passed
 **1,161 tests in 130.85s**. `compileall`, package build, `check_package.py`, and
 `git diff --check` passed. The Kodi add-on checker was not rerun for this revision;

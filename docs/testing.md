@@ -24,6 +24,22 @@ do not prove its absolute position against decoded media. `mapping_proven` and
 [`startup-gate report`](superpowers/reports/kodi-clock-startup-gate-2026-10-26.json)
 and [`clock-progress report`](superpowers/reports/kodi-clock-progress-2026-10-26.json).
 
+### Startup sample follow-up
+
+The clock-progress run above used an earlier gate that replayed the first
+startup sample after confirming advance. The adapter now uses that first sample
+only to confirm progress and sends only the second sample to the tracker. This
+prevents a reset that occurs between add-on polls from retroactively turning an
+unverified startup zero into a preroll beacon. Tests cover that no-replay case,
+confirmed midroll tracking, pause, caching and clock jumps. This stricter change
+has not yet been rerun in Kodi because the Mac is locked; the reports above are
+historical evidence from before this change. The decoded-media anchor and
+audible output remain unverified. Focused tracking, adapter and event tests passed
+**61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+package build, `check_package.py`, and `git diff --check` passed for this source
+revision. The Kodi add-on checker remains unverified because its repository
+index request previously stalled.
+
 Focused tracking, adapter and event tests passed **60 tests**; the full suite
 passed **1,161 tests in 130.85s**. `compileall`, package build,
 `check_package.py`, and `git diff --check` passed. The Kodi add-on checker was not

@@ -28,8 +28,8 @@ def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkey
         TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
         for event in ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')),
         ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
-    clocks = iter((0.1, 0.3, 0.55, 0.8, 1.0))
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 24000, 72000),), False)
+    clocks = iter((0.3, 0.5, 0.75, 1.0, 1.25, 1.5))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     records, queued = [], []
     class Worker:
@@ -45,14 +45,49 @@ def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkey
     adapter.bind(session.id)
     ticks = count()
     _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .2)
-    for _ in range(5):
+    for _ in range(6):
         adapter.sample()
     assert adapter.mapping_valid is True
-    assert adapter.last_sample.position_seconds == 1.0
+    assert adapter.last_sample.position_seconds == 1.5
     assert [event for _, event, _ in queued] == [
         'impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete']
     assert all(url.startswith('http://127.0.0.1:8765/') for _, _, url in queued)
     adapter.on_end("source_end")
+
+
+def test_startup_gate_does_not_replay_unverified_zero_as_preroll(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0,
+                    tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+                          for event in ('impression', 'start', 'firstQuartile')),
+                    ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    clocks = iter((0.0, .318, .6))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    queued = []
+
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url): queued.append(event); return True
+        def close(self): pass
+
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    adapter.sample()
+    assert queued == []
+    adapter.sample()
+    assert adapter._clock_ready is True
+    assert queued == []
+    adapter.sample()
+    assert queued == []
+    adapter.close()
 
 
 def test_fixture_clock_jump_does_not_cross_ad_completion(monkeypatch):
@@ -178,7 +213,7 @@ def test_pause_callback_discards_pending_startup_samples(monkeypatch):
                     tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
                           for event in ('impression', 'start', 'firstQuartile')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 24000, 72000),), False)
     clocks = iter((0.0, .25, .5))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
@@ -212,7 +247,7 @@ def test_cache_after_startup_cannot_emit_milestones(monkeypatch):
                           for event in ('impression', 'start', 'firstQuartile', 'midpoint',
                                         'thirdQuartile', 'complete')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 14400, 62400),), False)
     clocks = iter((.1, .3, .6, .8))
     cache_states = iter((False, False, True, True))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
@@ -235,7 +270,7 @@ def test_cache_after_startup_cannot_emit_milestones(monkeypatch):
     for _ in range(4):
         adapter.sample()
     assert adapter._clock_ready is True
-    assert queued == ['impression', 'start', 'firstQuartile']
+    assert queued == ['impression', 'start']
     assert adapter.mapping_valid is True
     assert adapter.last_sample.mapped is False
     cached = [record for record in records
