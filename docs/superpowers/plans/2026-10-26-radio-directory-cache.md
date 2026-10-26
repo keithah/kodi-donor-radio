@@ -88,4 +88,3 @@
 - [x] **Step 3: Implement a quiet nonblocking refresh route** launched through `RunPlugin` after local favorite rows render. Keep refresh status and visible-route state only in Kodi in-memory window properties, resolve all favorite IDs before committing any changes, and request `Container.Refresh` only if Favorites is still visible. Network or storage failures stay silent and leave local favorites usable.
 - [x] **Step 4: Run `pytest tests/test_radio_browser.py tests/test_radio_ui.py tests/test_kodi_runtime.py -q`, then `pytest -q`, `python3 tools/package_addon.py --output dist/favorite-refresh`, `python3 tools/check_package.py dist/favorite-refresh/plugin.audio.kodi_donor_radio-0.1.0.zip`, the Kodi add-on checker on a fresh extraction, and `git diff --check`; confirm all pass.**
 - [x] **Step 5: Commit** as `feat: refresh favorite station details in background`.
-
