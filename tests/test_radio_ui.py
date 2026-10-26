@@ -456,3 +456,145 @@ def test_new_profile_stores_reject_oversized_item_lists(tmp_path, kind, limit):
         rows = [{'station_uuid': str(i), 'play_count': 1, 'last_played': '2026-10-26T12:00:00Z'} for i in range(limit+1)]
     store.path.write_text(json.dumps({'schema_version': 1, 'items': rows}))
     with pytest.raises(ValueError): store.list()
+
+
+def test_directory_cache_round_trip_exact_expiry_and_immutable_stale_rows(tmp_path):
+    from dataclasses import FrozenInstanceError
+    now = [1000]
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: now[0])
+    assert store.get('countries', 'all', 60) is None
+    rows = [['France', 'FR']]
+    store.put('countries', 'all', rows)
+    rows[0][0] = 'Changed'
+    page = store.get('countries', 'all', 60)
+    assert (page.kind, page.rows, page.continuation, page.stored_at, page.fresh) == (
+        'countries', (('France', 'FR'),), None, 1000, True)
+    with pytest.raises(FrozenInstanceError): page.fresh = False
+    now[0] = 1059
+    assert store.get('countries', 'all', 60).fresh
+    now[0] = 1060
+    assert store.get('countries', 'all', 60) is None
+    stale = store.get('countries', 'all', 60, allow_stale=True)
+    assert stale.rows == (('France', 'FR'),) and not stale.fresh
+    store.put('tags', 'all', ['jazz'])
+    assert ui().DirectoryCacheStore(tmp_path, clock=lambda: 1060).get('tags', 'all', 60).rows == ('jazz',)
+
+
+def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_path):
+    from models import Station
+    m = ui()
+    store = m.DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    station = Station('safe', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False)
+    summary = m.StationSummary.from_station(station)
+    key = 'private-place-id:radius=25:offset=0'
+    store.put('place', key, [summary], continuation=200)
+    store.put('place', 'private-place-id:radius=50:offset=0', [])
+    store.put('map', key, [])
+    assert store.get('place', key, 60).rows == (summary,)
+    assert store.get('place', key, 60).continuation == 200
+    assert store.get('place', 'private-place-id:radius=50:offset=0', 60).rows == ()
+    assert store.get('map', key, 60).rows == ()
+    assert store.get('place', 'private-place-id:radius=25:offset=200', 60) is None
+    raw = store.path.read_text()
+    assert 'secret' not in raw and key not in raw and 'private-place-id' not in raw
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    with pytest.raises(ValueError): store.put('place', 'raw', [station])
+
+
+@pytest.mark.parametrize('kind,rows,continuation,stored_at', [
+    ('search', [], None, 1000), ('countries', [('France', 'fr')], None, 1000),
+    ('countries', [('France', 'FRA')], None, 1000), ('countries', [('France', 'FR', 'x')], None, 1000),
+    ('countries', [('', 'FR')], None, 1000), ('tags', ['x'*257], None, 1000),
+    ('tags', ['bad\n'], None, 1000), ('tags', [''], None, 1000),
+    ('tags', [True], None, 1000), ('map', [], 0, 1000), ('place', [], True, 1000),
+    ('place', [], -1, 1000), ('place', [], 1.5, 1000), ('place', [], None, 1001),
+    ('place', [], None, float('nan')), ('place', [], None, True), ('place', [], None, -1),
+])
+def test_directory_cache_invalid_values_never_write(tmp_path, kind, rows, continuation, stored_at):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    with pytest.raises(ValueError):
+        store.put(kind, 'key', rows, continuation=continuation, stored_at=stored_at)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('corruption', ['duplicate-key', 'duplicate-entry', 'version', 'extra',
+                                       'unsafe-row', 'future', 'kind', 'hash', 'too-many', 'oversized', 'json'])
+def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corruption):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('place', 'key', [ui().StationSummary('a', 'A')])
+    document = json.loads(store.path.read_text())
+    if corruption == 'duplicate-entry': document['items'].append(document['items'][0])
+    elif corruption == 'version': document['schema_version'] = True
+    elif corruption == 'extra': document['unexpected'] = 1
+    elif corruption == 'unsafe-row': document['items'][0]['rows'][0]['url'] = 'secret'
+    elif corruption == 'future': document['items'][0]['stored_at'] = 1001
+    elif corruption == 'kind': document['items'][0]['kind'] = 'search'
+    elif corruption == 'hash': document['items'][0]['key_hash'] = 'raw-key'
+    elif corruption == 'too-many': document['items'] *= 101
+    raw = json.dumps(document)
+    if corruption == 'duplicate-key': raw = raw.replace('"schema_version": 1', '"schema_version": 2, "schema_version": 1')
+    elif corruption == 'oversized': raw = ' ' * (2*1024*1024+1)
+    elif corruption == 'json': raw = '{'
+    store.path.write_text(raw)
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError): store.get('place', 'key', 60, allow_stale=True)
+    with pytest.raises(ValueError): store.put('tags', 'new', ['jazz'])
+    assert store.path.read_bytes() == before
+
+
+def test_directory_cache_bounds_evict_oldest_and_preserve_file_on_oversized_write(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    for number in range(101):
+        store.put('tags', str(number), ['tag'], stored_at=number)
+    assert store.get('tags', '0', 2000) is None
+    assert store.get('tags', '1', 2000).rows == ('tag',)
+    assert len(json.loads(store.path.read_text())['items']) == 100
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.put('place', 'too-many', [ui().StationSummary(str(i), 'A') for i in range(201)])
+    with pytest.raises(ValueError): store.put('tags', 'too-many', ['jazz']*51)
+    with pytest.raises(ValueError): store.put('countries', 'too-many', [('France', 'FR')]*301)
+    assert store.path.read_bytes() == before
+    store.put('place', 'full-page', [ui().StationSummary(str(i), 'A') for i in range(200)])
+    assert len(store.get('place', 'full-page', 60).rows) == 200
+
+
+def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_data(tmp_path, monkeypatch):
+    import threading
+    from playback_arbiter import profile_file_lock
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('tags', 'before', ['jazz'])
+    started = threading.Event()
+    errors = []
+    def update():
+        started.set()
+        try: store.put('tags', 'after', ['rock'])
+        except Exception as error: errors.append(error)
+    worker = threading.Thread(target=update)
+    with profile_file_lock(tmp_path / '.directory_cache.json.lock'):
+        worker.start()
+        assert started.wait(1)
+        worker.join(.1)
+        assert worker.is_alive()
+    worker.join(2)
+    assert not worker.is_alive() and not errors
+    assert store.get('tags', 'before', 60).rows == ('jazz',)
+    assert store.get('tags', 'after', 60).rows == ('rock',)
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError): store.put('tags', 'failed', ['pop'])
+    assert store.path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['.directory_cache.json.lock', 'directory_cache.json']
+
+
+def test_directory_cache_file_byte_bound_preserves_last_valid_file(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    summary = ui().StationSummary('large', 'é'*512, city='é'*256, country='é'*256,
+                                  tags='é'*1024, favicon='https://example.com/' + 'a'*2028)
+    store.put('map', 'first', [summary]*200)
+    before = store.path.read_bytes()
+    assert len(before) <= 2*1024*1024
+    with pytest.raises(ValueError): store.put('map', 'second', [summary]*200)
+    assert store.path.read_bytes() == before

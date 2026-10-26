@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Safe display records, private profile stores, and pure geographic helpers."""
 from contextlib import contextmanager
+import hashlib
 import json
 import math
 import os
 import re
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
@@ -226,6 +228,120 @@ class _Store:
         station_identifier(item_id)
         with self._mutation():
             self._write([item for item in self.list() if getattr(item, self.key) != item_id])
+
+
+_DIRECTORY_ROW_LIMITS = {'countries': 300, 'tags': 50, 'place': 200, 'map': 200}
+
+
+def _directory_rows(kind, rows):
+    if (not isinstance(kind, str) or kind not in _DIRECTORY_ROW_LIMITS or
+            not isinstance(rows, (list, tuple)) or len(rows) > _DIRECTORY_ROW_LIMITS[kind]):
+        raise ValueError('Invalid directory cache rows')
+    result = []
+    for row in rows:
+        if kind == 'countries':
+            if not isinstance(row, (list, tuple)) or len(row) != 2:
+                raise ValueError('Invalid cached country')
+            name, code = row
+            _text(name, 256, required=True)
+            if not isinstance(code, str) or not re.fullmatch(r'[A-Z]{2}', code):
+                raise ValueError('Invalid cached country code')
+            result.append((name, code))
+        elif kind == 'tags':
+            result.append(_text(row, 256, required=True))
+        else:
+            if type(row) is not StationSummary:
+                raise ValueError('Expected safe station summary')
+            result.append(row)
+    return tuple(result)
+
+
+@dataclass(frozen=True)
+class DirectoryCachePage:
+    kind: str
+    rows: tuple
+    continuation: object
+    stored_at: float
+    fresh: bool
+
+    def __post_init__(self):
+        object.__setattr__(self, 'rows', _directory_rows(self.kind, self.rows))
+        if self.continuation is not None and (self.kind != 'place' or
+                type(self.continuation) is not int or self.continuation < 0):
+            raise ValueError('Invalid directory continuation')
+        _number(self.stored_at, 0, float('inf'))
+        if type(self.fresh) is not bool:
+            raise ValueError('Invalid cache freshness')
+
+
+@dataclass(frozen=True)
+class _DirectoryCacheEntry:
+    kind: str
+    key_hash: str
+    rows: tuple
+    continuation: object
+    stored_at: float
+
+    @property
+    def identity(self):
+        return self.kind, self.key_hash
+
+
+class DirectoryCacheStore(_Store):
+    """Bounded display-only directory pages, never resolved stream records."""
+    filename, key, limit = 'directory_cache.json', 'identity', 100
+
+    def __init__(self, profile_path, clock=time.time):
+        super().__init__(profile_path)
+        self.clock = clock
+
+    @staticmethod
+    def _identity(kind, key):
+        if not isinstance(kind, str) or kind not in _DIRECTORY_ROW_LIMITS or not isinstance(key, str):
+            raise ValueError('Invalid directory cache key')
+        return kind, hashlib.sha256(key.encode('utf-8')).hexdigest()
+
+    def decode(self, row):
+        if not isinstance(row, dict) or set(row) != {f.name for f in fields(_DirectoryCacheEntry)}:
+            raise ValueError('Invalid directory cache entry')
+        kind = row['kind']
+        key_hash = row['key_hash']
+        if not isinstance(key_hash, str) or not re.fullmatch(r'[a-f0-9]{64}', key_hash):
+            raise ValueError('Invalid directory cache hash')
+        rows = row['rows']
+        if kind in ('place', 'map'):
+            if not isinstance(rows, list) or len(rows) > 200:
+                raise ValueError('Invalid directory station rows')
+            rows = [StationSummary.from_dict(item) for item in rows]
+        page = DirectoryCachePage(kind, rows, row['continuation'], row['stored_at'], False)
+        _number(page.stored_at, 0, self.clock())
+        return _DirectoryCacheEntry(kind, key_hash, page.rows, page.continuation, page.stored_at)
+
+    def get(self, kind, key, ttl_seconds, allow_stale=False):
+        identity = self._identity(kind, key)
+        _number(ttl_seconds, 0, float('inf'))
+        if type(allow_stale) is not bool:
+            raise ValueError('Invalid stale cache flag')
+        entry = next((item for item in self.list() if item.identity == identity), None)
+        if entry is None:
+            return None
+        fresh = self.clock() - entry.stored_at < ttl_seconds
+        if not fresh and not allow_stale:
+            return None
+        return DirectoryCachePage(entry.kind, entry.rows, entry.continuation, entry.stored_at, fresh)
+
+    def put(self, kind, key, rows, continuation=None, stored_at=None):
+        identity = self._identity(kind, key)
+        timestamp = self.clock() if stored_at is None else stored_at
+        _number(timestamp, 0, self.clock())
+        page = DirectoryCachePage(kind, rows, continuation, timestamp, True)
+        entry = _DirectoryCacheEntry(kind, identity[1], page.rows, continuation, timestamp)
+        with self._mutation():
+            items = [item for item in self.list() if item.identity != identity]
+            items.append(entry)
+            # Retain the newest pages, including on backdated writes.
+            items.sort(key=lambda item: item.stored_at, reverse=True)
+            self._write(items[:self.limit])
 
 
 class PlaceStore(_Store):
