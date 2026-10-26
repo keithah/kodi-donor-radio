@@ -6,17 +6,19 @@ import time
 from urllib.parse import urlsplit
 
 from ad_models import PlaybackSample
-from ad_tracking import AdTracker, BeaconWorker, enqueue_ad_error
+from ad_tracking import (MAX_GAP, START_TOLERANCE, AdTracker, BeaconWorker,
+                         enqueue_ad_error)
 from models import Event
 
 
 class KodiSessionClockAnchor:
-    """Map Kodi media time to the immutable sample-zero session timeline.
+    """Candidate sample-zero mapping, restricted to controlled loopback fixtures.
 
-    Composed fixture playlists explicitly start at TIME-OFFSET=0. Kodi's
-    getTime() is media-relative, so the session origin is fixed at zero and is
-    never recalculated from a sliding playlist window. A backward clock reset
-    invalidates this anchor for the rest of the session.
+    Composed fixture playlists request TIME-OFFSET=0, and Kodi's getTime() is
+    media-relative. The mapping assumes the returned clock begins at the first
+    composed sample; current Kodi runs have not verified that against decoded
+    media. Never use this candidate mapping for ordinary station sessions. A
+    backward clock reset invalidates it for the rest of the session.
     """
     BACKWARD_TOLERANCE = .05
 
@@ -65,6 +67,8 @@ class KodiAdPlayback:
         self.paused = False
         self.seeking = False
         self.last_sample = None
+        self._clock_ready = False
+        self._startup_samples = []
 
     def enable_mapping(self, mapper):
         """Install a fixture mapper returning output seconds or None."""
@@ -102,6 +106,8 @@ class KodiAdPlayback:
         self.paused = self.seeking = False
         self.mapping_valid = False
         self.mapper = None
+        self._clock_ready = False
+        self._startup_samples = []
         if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', False):
             self.worker = BeaconWorker(self.client, session.cancel, self.fixture_origin)
             self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue)
@@ -129,17 +135,52 @@ class KodiAdPlayback:
         except (RuntimeError, ValueError, TypeError, OverflowError):
             playing, position, mapped, caching = False, None, False, True
         self.mapping_valid = mapped
+        raw_sample = PlaybackSample(self.session_id, position if mapped else 0.0,
+                                    now, playing, self.paused, self.seeking, mapped, caching)
+        tracker_samples = [raw_sample]
+        tracking_enabled = (mapped and playing and not self.paused and
+                            not self.seeking and not caching)
+        if self.mapper is not None and not self._clock_ready:
+            tracking_enabled = False
+            # Kodi can report zero before a startup clock reset. Buffer only two
+            # consecutive usable samples so that reset cannot emit early beacons.
+            if (mapped and playing and not self.paused and not self.seeking and not caching):
+                if self._startup_samples:
+                    first = self._startup_samples[0]
+                    elapsed = now - first.monotonic_seconds
+                    advance = raw_sample.position_seconds - first.position_seconds
+                    if (0 < elapsed <= MAX_GAP and 0 < advance <= elapsed + START_TOLERANCE):
+                        self._clock_ready = True
+                        tracking_enabled = True
+                        tracker_samples = [first, raw_sample]
+                        self._startup_samples = []
+                    elif advance == 0 and 0 <= elapsed <= MAX_GAP:
+                        # Identical samples have not established a running clock.
+                        pass
+                    else:
+                        self._startup_samples = [raw_sample]
+                else:
+                    self._startup_samples = [raw_sample]
+            else:
+                self._startup_samples = []
+            if not self._clock_ready:
+                tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
+                                                  self.paused, self.seeking, False, caching)]
+        if not tracking_enabled:
+            tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
+                                              self.paused, self.seeking, False, caching)]
         if self.tracker is not None:
             self.manager.sink.emit(Event(
                 'ad_clock_sample', self.session_id, session.station.uuid,
                 session.source.protocol, 'kodi_player', 'poll',
                 datetime.now(timezone.utc).isoformat(), now,
                 {'raw_clock': clock, 'mapped_position': position if mapped else None,
-                 'mapped': mapped, 'playing': playing, 'paused': self.paused,
+                 'mapped': mapped, 'tracking_enabled': tracking_enabled,
+                 'playing': playing, 'paused': self.paused,
                  'seeking': self.seeking, 'caching': caching}))
-        self.last_sample = PlaybackSample(self.session_id, position if mapped else 0.0,
-                                          now, playing, self.paused, self.seeking, mapped, caching)
-        self.tracker.observe(presentation, self.last_sample)
+        self.last_sample = tracker_samples[-1]
+        for sample in tracker_samples:
+            self.tracker.observe(presentation, sample)
         self.seeking = False
 
     def _flush_errors(self):
@@ -157,12 +198,16 @@ class KodiAdPlayback:
         if session_id is None or session_id == self.session_id:
             self.seeking = True
             self.mapping_valid = False
+            self._clock_ready = False
+            self._startup_samples = []
             if hasattr(self.mapper, 'invalidate'):
                 self.mapper.invalidate()
 
     def on_pause(self, session_id=None):
         if session_id is None or session_id == self.session_id:
             self.paused = True
+            if not self._clock_ready:
+                self._startup_samples = []
 
     def on_resume(self, session_id=None):
         if session_id is None or session_id == self.session_id:
@@ -186,3 +231,5 @@ class KodiAdPlayback:
         self.mapping_valid = False
         self.last_sample = None
         self.paused = self.seeking = False
+        self._clock_ready = False
+        self._startup_samples = []

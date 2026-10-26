@@ -2,6 +2,38 @@
 
 Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
 
+## Startup confirmation — 2026-10-26
+
+The fixture adapter now buffers the first usable playback sample and enables
+tracking only after two consecutive usable samples show positive, bounded clock
+progress. Repeated positions do not confirm startup. A startup reset, caching,
+pause callback, seek or unavailable sample discards the pending samples. This
+prevents the observed first-zero/next-negative clock sequence from emitting an
+early beacon; it does not establish a decoded-media anchor.
+
+Two 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1 matched the
+requested item. In the startup-gate run, Kodi JSON-RPC observed
+`0.000 → -0.091 → 0.318`;
+the add-on callback sampled `0.000` then `-0.091`, invalidated its mapper, and
+sent no beacons. In the separate clock-progress run, JSON-RPC showed the same
+initial sequence, while add-on callback samples were `0.000` with tracking
+disabled then `0.318` with tracking enabled. `mapping_proven` and
+`audible_output_verified` remain false. The sanitized
+[`startup-gate report`](kodi-clock-startup-gate-2026-10-26.json) records the run.
+
+A separate 8-second run's add-on callback log observed `0.000 → 0.318`; the
+callback gate opened on that positive advance. It recorded one fixture
+impression/start/firstQuartile/midpoint/thirdQuartile sequence, with no
+completion. These beacons followed the add-on's gated raw clock on that run;
+they do not prove the absolute decoded-media anchor. `mapping_proven` and
+`audible_output_verified` remain false. See the sanitized
+[`clock-progress report`](kodi-clock-progress-2026-10-26.json).
+Focused tracking, adapter and event tests passed **60 tests**; the full suite passed
+**1,161 tests in 130.85s**. `compileall`, package build, `check_package.py`, and
+`git diff --check` passed. The Kodi add-on checker was not rerun for this revision;
+its previous attempt stalled on the Kodi repository index, so no checker verdict is
+claimed.
+
 ## Follow-up — 2026-10-26
 
 The fixture-only Kodi clock guard now permanently invalidates on a backward jump

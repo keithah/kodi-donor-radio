@@ -38,6 +38,7 @@ def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkey
             queued.append((placement_id, event, url)); return True
         def close(self): pass
     monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    monkeypatch.setattr(KodiAdPlayback, '_emit', lambda *_args: None)
     manager = SimpleNamespace(get=lambda identity: session,
                               sink=SimpleNamespace(emit=records.append))
     adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(), fixture_origin="http://127.0.0.1:8765")
@@ -60,23 +61,28 @@ def test_fixture_clock_jump_does_not_cross_ad_completion(monkeypatch):
     ad = ResolvedAd('creative', 'fixture.ts', 1.0,
                     (TrackingUrl('complete', 'http://127.0.0.1:8765/track/placement/complete'),), ())
     session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 192528),), False)
-    clocks = iter((1.37, 1.37, 7.77))
+    clocks = iter((1.37, 1.62, 1.87, 2.12, 2.37, 2.37, 7.77))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
+    records = []
     class Worker:
         def __init__(self, *_args): pass
         def enqueue(self, *event): queued.append(event); return True
         def close(self): pass
     monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
     manager = SimpleNamespace(get=lambda identity: session,
-                              sink=SimpleNamespace(emit=lambda event: None))
+                              sink=SimpleNamespace(emit=records.append))
     adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(), fixture_origin="http://127.0.0.1:8765")
     adapter.bind(session.id)
-    times = iter((10.0, 15.0, 15.26))
+    times = iter((10.0, 10.25, 10.50, 10.75, 11.0, 11.25, 11.50))
     _patch_player_clock(monkeypatch, lambda: next(times))
-    for _ in range(3):
+    for _ in range(5):
         adapter.sample()
-    assert adapter.last_sample.mapped is True
+    assert adapter._clock_ready is True
+    for _ in range(2):
+        adapter.sample()
+    assert adapter.mapping_valid is True
+    assert adapter.last_sample.position_seconds == 7.77
     assert not any(event[1] == 'complete' for event in queued)
     adapter.close()
 
@@ -132,6 +138,110 @@ def test_fixture_adapter_marks_cache_state_untrackable(monkeypatch):
     _patch_player_clock(monkeypatch, lambda: 10.0)
     adapter.sample()
     assert adapter.last_sample.caching is True
+    adapter.close()
+
+
+def test_startup_clock_reset_discards_pending_preroll_tracking(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0,
+                    tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+                          for event in ('impression', 'start', 'firstQuartile')),
+                    ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    clocks = iter((0.0, 0.0, -0.091, .25))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    queued = []
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url): queued.append(event); return True
+        def close(self): pass
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    for _ in range(4):
+        adapter.sample()
+    assert queued == []
+    assert adapter.mapping_valid is False
+    adapter.close()
+
+
+def test_pause_callback_discards_pending_startup_samples(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0,
+                    tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+                          for event in ('impression', 'start', 'firstQuartile')),
+                    ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    clocks = iter((0.0, .25, .5))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    queued = []
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url): queued.append(event); return True
+        def close(self): pass
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    adapter.sample()
+    adapter.on_pause(session.id)
+    adapter.on_resume(session.id)
+    adapter.sample()
+    assert queued == []
+    adapter.sample()
+    assert queued[:2] == ['impression', 'start']
+    adapter.close()
+
+
+def test_cache_after_startup_cannot_emit_milestones(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0,
+                    tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+                          for event in ('impression', 'start', 'firstQuartile', 'midpoint',
+                                        'thirdQuartile', 'complete')),
+                    ())
+    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    clocks = iter((.1, .3, .6, .8))
+    cache_states = iter((False, False, True, True))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    queued = []
+    records = []
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url): queued.append(event); return True
+        def close(self): pass
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    monkeypatch.setattr(KodiAdPlayback, '_emit', lambda *_args: None)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=records.append))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765",
+                             is_caching=lambda: next(cache_states))
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    for _ in range(4):
+        adapter.sample()
+    assert adapter._clock_ready is True
+    assert queued == ['impression', 'start', 'firstQuartile']
+    assert adapter.mapping_valid is True
+    assert adapter.last_sample.mapped is False
+    cached = [record for record in records
+              if record.kind == 'ad_clock_sample' and record.details.get('caching')]
+    assert len(cached) == 2
+    assert all(record.details['tracking_enabled'] is False for record in cached)
     adapter.close()
 
 
@@ -191,6 +301,7 @@ def test_fixture_adapter_records_clock_and_mapping_diagnostics(monkeypatch):
     assert event.source == 'kodi_player'
     assert event.evidence == 'poll'
     assert event.details == {'raw_clock': .25, 'mapped_position': .25, 'mapped': True,
+                             'tracking_enabled': False,
                              'playing': True, 'paused': False, 'seeking': False,
                              'caching': False}
     assert 'http://' not in repr(event.to_dict())
@@ -200,7 +311,8 @@ def test_fixture_adapter_records_clock_and_mapping_diagnostics(monkeypatch):
 def test_fixture_anchor_keeps_session_sample_origin_when_playlist_window_slides(monkeypatch):
     session = _session()
     session.ad_enabled = True
-    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: 20.25)
+    clocks = iter((20.0, 20.25))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     manager = SimpleNamespace(get=lambda identity: session,
                               sink=SimpleNamespace(emit=lambda event: None))
     adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
@@ -208,7 +320,9 @@ def test_fixture_anchor_keeps_session_sample_origin_when_playlist_window_slides(
     adapter.bind(session.id)
     session.presentation = lambda: Presentation(
         (OutputSegment(10, 1, "older-segment", 20 * 48000, 96256, None),), (), False)
-    _patch_player_clock(monkeypatch, lambda: 10.0)
+    times = iter((10.0, 10.25))
+    _patch_player_clock(monkeypatch, lambda: next(times))
+    adapter.sample()
     adapter.sample()
     assert adapter.last_sample.position_seconds == 20.25
     assert adapter.last_sample.mapped is True

@@ -1,5 +1,35 @@
 # Validation record
 
+## Kodi startup clock confirmation — 2026-10-26
+
+To prevent a transient startup clock from emitting an early success event, the
+fixture adapter now buffers its first usable sample and enables tracking only
+after two consecutive usable samples show positive, bounded clock progress.
+Repeated positions do not confirm startup. A negative reset, caching, pause
+callback, seek, or unavailable sample discards pending startup samples. This
+gate does not establish the decoded-media origin; it only prevents events from
+the unstable startup interval.
+
+The two refreshed 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1
+matched the requested item. In the startup-gate run, Kodi JSON-RPC reported
+`0.000 → -0.091 → 0.318` seconds; the add-on callback sampled `0.000` then
+`-0.091`, invalidated its mapper, and sent no tracking beacons. In the separate
+clock-progress run, JSON-RPC showed the same initial sequence, while the add-on
+callback sampled `0.000` then `0.318`; tracking was disabled on the first sample
+and enabled after that positive advance. That fixture run recorded one
+impression, start, first quartile, midpoint and third quartile; it did not record
+completion. These beacons followed the add-on's gated raw clock on this run, but
+do not prove its absolute position against decoded media. `mapping_proven` and
+`audible_output_verified` remain false. See the sanitized
+[`startup-gate report`](superpowers/reports/kodi-clock-startup-gate-2026-10-26.json)
+and [`clock-progress report`](superpowers/reports/kodi-clock-progress-2026-10-26.json).
+
+Focused tracking, adapter and event tests passed **60 tests**; the full suite
+passed **1,161 tests in 130.85s**. `compileall`, package build,
+`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was not
+rerun for this revision; its previous attempt stalled on the Kodi repository
+index, so no checker verdict is claimed.
+
 ## Controlled VAST clock follow-up — 2026-10-26
 
 The fixture-only Kodi adapter now invalidates permanently when its clock moves
