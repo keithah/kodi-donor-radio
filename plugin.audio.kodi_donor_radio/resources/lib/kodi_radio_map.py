@@ -1,21 +1,24 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Kodi 21.3 WindowXML adapter for the shared radio discovery map."""
 from urllib.parse import parse_qs, urlencode, urlsplit
+import hashlib
 import math
 import os
 from pathlib import Path
+import struct
 import tempfile
 import uuid
 import threading
 import re
 import time
+import zlib
 
 import xbmc
 import xbmcaddon
 import xbmcgui
 
 from radio_map import (MapView, cluster_cities, nearest_city_in_direction,
-                       project, visible_cities, load_land_polygons, render_land_png)
+                       project, visible_cities, decode_land_polygons, render_land_png)
 from playback_arbiter import PlaybackStartArbiter
 from radio_ui import station_identifier
 
@@ -29,7 +32,9 @@ STATUS_ID = 3002
 MAP_LEFT, MAP_TOP, MAP_WIDTH, MAP_HEIGHT = 75, 145, 1030, 515
 MAP_IMAGE_ID = 19
 MAP_IMAGE_LIMIT = 2 * 1024 * 1024
+MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT = 1680, 840
 MAP_TEXTURE_LIMIT = 20
+MAP_TEXTURE_RENDERER_VERSION = 1
 _MAP_TEXTURE_NAME = re.compile(r'map-[0-9a-f]{32}\.png')
 RAIL_LIMIT = 50
 ACTION_IDS = {'left': 1, 'right': 2, 'up': 3, 'down': 4}
@@ -51,6 +56,70 @@ def _valid_coordinates(latitude, longitude):
         if not math.isfinite(number) or number < low or number > high:
             return False
     return True
+
+
+def _cached_map_texture_is_valid(path):
+    """Recognize complete textures created by the local renderer, never links."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return False
+        size = path.stat().st_size
+        if not 45 <= size <= MAP_IMAGE_LIMIT:
+            return False
+        data = path.read_bytes()
+    except OSError:
+        return False
+    if len(data) != size or not data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return False
+    offset, compressed, expected_size = 8, bytearray(), None
+    for expected_kind in (b'IHDR', b'IDAT', b'IEND'):
+        if offset + 12 > len(data):
+            return False
+        length = struct.unpack_from('>I', data, offset)[0]
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if kind != expected_kind or end > len(data):
+            return False
+        payload = data[offset + 8:offset + 8 + length]
+        checksum = struct.unpack_from('>I', data, offset + 8 + length)[0]
+        if zlib.crc32(kind + payload) & 0xffffffff != checksum:
+            return False
+        if kind == b'IHDR':
+            if length != 13:
+                return False
+            width, height, depth, color, compression_method, filter_method, interlace = struct.unpack(
+                '>IIBBBBB', payload)
+            if ((width, height) != (MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT) or depth != 8 or
+                    color != 6 or compression_method != 0 or filter_method != 0 or interlace != 0):
+                return False
+            expected_size = height * (1 + width * 4)
+        elif kind == b'IDAT':
+            compressed.extend(payload)
+        elif length != 0 or end != len(data):
+            return False
+        offset = end
+    if offset != len(data) or expected_size is None or not compressed:
+        return False
+    try:
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(bytes(compressed), expected_size + 1)
+    except zlib.error:
+        return False
+    return (len(decoded) == expected_size and decompressor.eof and
+            not decompressor.unused_data and not decompressor.unconsumed_tail)
+
+
+def _prune_map_texture_cache(cache, active):
+    try:
+        older = sorted((path for path in cache.iterdir()
+                        if _MAP_TEXTURE_NAME.fullmatch(path.name)
+                        and path != active and not path.is_symlink() and path.is_file()),
+                       key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
+        for path in older[MAP_TEXTURE_LIMIT - 1:]:
+            path.unlink()
+    except OSError:
+        # Cache maintenance must not make an otherwise usable map unavailable.
+        pass
 
 
 def _grid_value_count(start, end, step):
@@ -459,20 +528,42 @@ class RadioMapWindow(xbmcgui.WindowXML):
             )
 
     def _render_map_image(self):
-        """Install only complete local view textures; artwork cannot disable the rail."""
+        """Reuse or atomically install a local texture; artwork cannot disable the rail."""
         image = self.getControl(MAP_IMAGE_ID)
         image.setVisible(False)
         if self._profile_path is None or self._geometry_path is None:
             return
         temporary = destination = None
+        created_destination = False
         try:
-            polygons = load_land_polygons(self._geometry_path)
-            data = render_land_png(polygons, self.view)
-            if not isinstance(data, bytes) or not 0 < len(data) <= MAP_IMAGE_LIMIT:
-                raise ValueError('Invalid map texture size')
+            with self._geometry_path.open('rb') as source:
+                geometry = source.read(MAP_IMAGE_LIMIT + 1)
+            identity = hashlib.sha256(geometry)
+            identity.update(struct.pack(
+                '!4d5i', float(self.view.north), float(self.view.south),
+                float(self.view.west), float(self.view.east),
+                self.view.width, self.view.height, MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT,
+                MAP_TEXTURE_RENDERER_VERSION))
             cache = self._profile_path / 'map-textures'
             cache.mkdir(parents=True, exist_ok=True, mode=0o700)
-            destination = cache / ('map-%s.png' % uuid.uuid4().hex)
+            if cache.is_symlink():
+                raise OSError('Map texture cache cannot be a symbolic link')
+            destination = cache / ('map-%s.png' % identity.hexdigest()[:32])
+            if _cached_map_texture_is_valid(destination):
+                image.setImage(str(destination), useCache=False)
+                image.setVisible(True)
+                try:
+                    os.utime(destination, None)
+                except OSError:
+                    pass
+                _prune_map_texture_cache(cache, destination)
+                return
+            if destination.exists() and destination.is_dir() and not destination.is_symlink():
+                destination = cache / ('map-%s.png' % uuid.uuid4().hex)
+            polygons = decode_land_polygons(geometry)
+            data = render_land_png(polygons, self.view, MAP_TEXTURE_WIDTH, MAP_TEXTURE_HEIGHT)
+            if not isinstance(data, bytes) or not 0 < len(data) <= MAP_IMAGE_LIMIT:
+                raise ValueError('Invalid map texture size')
             descriptor, temporary = tempfile.mkstemp(prefix='.map-', dir=str(cache))
             with os.fdopen(descriptor, 'wb') as output:
                 output.write(data)
@@ -480,19 +571,13 @@ class RadioMapWindow(xbmcgui.WindowXML):
                 os.fsync(output.fileno())
             os.replace(temporary, destination)
             temporary = None
-            # Keep the new image even if old timestamps happen to be in the future.
-            older = sorted((path for path in cache.iterdir()
-                            if _MAP_TEXTURE_NAME.fullmatch(path.name)
-                            and path != destination and not path.is_symlink()
-                            and path.is_file()), key=lambda path: (path.stat().st_mtime_ns, path.name),
-                           reverse=True)
-            for path in older[MAP_TEXTURE_LIMIT - 1:]:
-                path.unlink()
+            created_destination = True
+            _prune_map_texture_cache(cache, destination)
             image.setImage(str(destination), useCache=False)
             image.setVisible(True)
         except Exception:
             # Disk, data and native image-loader errors leave all discovery controls usable.
-            if destination is not None:
+            if created_destination and destination is not None:
                 try:
                     destination.unlink()
                 except OSError:

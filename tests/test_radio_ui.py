@@ -624,15 +624,29 @@ def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_da
     assert sorted(p.name for p in tmp_path.iterdir()) == ['.directory_cache.json.lock', 'directory_cache.json']
 
 
-def test_directory_cache_file_byte_bound_preserves_last_valid_file(tmp_path):
+def test_directory_cache_file_byte_bound_keeps_newest_page(tmp_path):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
     summary = ui().StationSummary('s'*128, '𝄞'*512, city='𝄞'*256, state='𝄞'*256,
                                   country='𝄞'*256, codec='𝄞'*64, tags='𝄞'*1024)
     store.put('map', 'first', [summary]*200)
-    before = store.path.read_bytes()
-    assert len(before) <= 2*1024*1024
-    with pytest.raises(ValueError): store.put('map', 'second', [summary]*200)
-    assert store.path.read_bytes() == before
+    assert len(store.path.read_bytes()) <= 2*1024*1024
+    store.put('map', 'second', [summary]*200)
+    assert store.get('map', 'second', 60).rows == (summary,) * 200
+    assert store.get('map', 'first', 60) is None
+    assert len(store.path.read_bytes()) <= 2*1024*1024
+
+
+def test_directory_cache_evicts_old_pages_to_keep_newest_within_byte_limit(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    rows = [ui().StationSummary(str(index), 'Station %d' % index, tags='t' * 1024)
+            for index in range(200)]
+
+    for page_number in range(12):
+        store.put('map', 'view-%d' % page_number, rows, stored_at=page_number)
+
+    assert store.get('map', 'view-11', 2000) is not None
+    assert store.get('map', 'view-0', 2000) is None
+    assert len(store.path.read_bytes()) <= ui().MAX_FILE_BYTES
 
 
 @pytest.mark.parametrize('has_more', [True, False])

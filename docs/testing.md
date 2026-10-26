@@ -141,18 +141,13 @@ only to confirm progress and sends only the second sample to the tracker. This
 prevents a reset that occurs between add-on polls from retroactively turning an
 unverified startup zero into a preroll beacon. Tests cover that no-replay case,
 confirmed midroll tracking, pause, caching and clock jumps. This stricter change
-has since been rerun in Kodi; see the fresh-run section above. The decoded-media
-anchor and audible output remain unverified. Focused tracking, adapter and event
-tests passed **61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+still needs a fresh Kodi run; the 2026-10-26 no-replay run above predates it. The
+decoded-media anchor and audible output remain unverified. Focused tracking,
+adapter and event tests passed **61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
 package build, `check_package.py`, and `git diff --check` passed for this source
 revision. The Kodi add-on checker remains unverified because its repository
 index request previously stalled.
 
-Focused tracking, adapter and event tests passed **60 tests**; the full suite
-passed **1,161 tests in 130.85s**. `compileall`, package build,
-`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was not
-rerun for this revision; its previous attempt stalled on the Kodi repository
-index, so no checker verdict is claimed.
 
 ## Controlled VAST clock follow-up — 2026-10-26
 

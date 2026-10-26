@@ -68,11 +68,6 @@ The no-replay regression and focused tracking/adapter/event suite passed
 package build, `check_package.py`, and `git diff --check` passed. Live Kodi
 verification of this stricter gate remains pending; `mapping_proven` and
 `audible_output_verified` remain false.
-Focused tracking, adapter and event tests passed **60 tests**; the full suite passed
-**1,161 tests in 130.85s**. `compileall`, package build, `check_package.py`, and
-`git diff --check` passed. The Kodi add-on checker was not rerun for this revision;
-its previous attempt stalled on the Kodi repository index, so no checker verdict is
-claimed.
 
 ## Follow-up — 2026-10-26
 

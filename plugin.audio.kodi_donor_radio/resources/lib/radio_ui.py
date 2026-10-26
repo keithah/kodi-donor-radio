@@ -349,8 +349,16 @@ class DirectoryCacheStore(_Store):
             items = [item for item in self.list() if item.identity != identity]
             items.append(entry)
             # Retain the newest pages, including on backdated writes.
-            items.sort(key=lambda item: item.stored_at, reverse=True)
-            self._write(items[:self.limit])
+            items.sort(key=lambda item: (item.stored_at, item.identity == identity), reverse=True)
+            items = items[:self.limit]
+            while True:
+                try:
+                    self._write(items)
+                    break
+                except ValueError as error:
+                    if error.args != ('Profile file too large',) or len(items) <= 1:
+                        raise
+                    items.pop()
 
 
 class PlaceStore(_Store):

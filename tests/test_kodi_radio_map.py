@@ -1082,9 +1082,9 @@ def test_window_installs_local_texture_for_exact_view(monkeypatch, tmp_path, vie
     seen = []
     # Keep real file loading and raster output; observe only the renderer boundary.
     from radio_map import render_land_png
-    def render(polygons, requested_view):
+    def render(polygons, requested_view, width=1680, height=840):
         seen.append(requested_view)
-        return render_land_png(polygons, requested_view)
+        return render_land_png(polygons, requested_view, width, height)
     monkeypatch.setattr(module, 'render_land_png', render, raising=False)
     window = make_window(module, view=view, profile_path=tmp_path / 'profile',
                          geometry_path=geometry)
@@ -1171,6 +1171,12 @@ def test_textures_are_atomic_and_pruned_without_deleting_other_profile_files(mon
     unrelated.write_bytes(b'keep')
     geometry = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/map/natural_earth_110m_land.json'
     replacements = []
+    renders = []
+    render_land_png = module.render_land_png
+    def observe_render(*args):
+        renders.append(args[1])
+        return render_land_png(*args)
+    monkeypatch.setattr(module, 'render_land_png', observe_render, raising=False)
     import os
     replace = os.replace
     def observe_replace(source, target):
@@ -1185,8 +1191,43 @@ def test_textures_are_atomic_and_pruned_without_deleting_other_profile_files(mon
     first = Path(window.controls[19].image)
     window.onInit()
     second = Path(window.controls[19].image)
-    assert first != second and first.exists() and second.exists()
-    assert replacements == [first, second]
+    assert first == second and first.exists()
+    assert replacements == [first]
+    assert len(renders) == 1
+    window.view = module.MapView(60, 20, -130, -60, 700, 400)
+    window._render_map_image()
+    regional = Path(window.controls[19].image)
+    assert regional != first and regional.exists()
+    assert replacements == [first, regional]
+    assert len(renders) == 2
     assert len(list(cache.glob('map-*.png'))) == 21  # twenty generated plus the unrelated file
     assert unrelated.read_bytes() == b'keep'
     assert not list(cache.glob('.map-*'))
+
+
+@pytest.mark.parametrize('corruption', ['framing', 'idat'])
+def test_corrupt_cached_texture_is_rendered_again(monkeypatch, tmp_path, corruption):
+    module = load_window(monkeypatch)
+    geometry = Path(__file__).parents[1] / 'plugin.audio.kodi_donor_radio/resources/map/natural_earth_110m_land.json'
+    renders = []
+    render_land_png = module.render_land_png
+    def observe_render(*args):
+        renders.append(args[1])
+        return render_land_png(*args)
+    monkeypatch.setattr(module, 'render_land_png', observe_render, raising=False)
+    window = make_window(module, profile_path=tmp_path, geometry_path=geometry)
+
+    window.onInit()
+    texture = Path(window.controls[19].image)
+    if corruption == 'framing':
+        texture.write_bytes(b'corrupt cached PNG')
+    else:
+        damaged = bytearray(texture.read_bytes())
+        damaged[-20] ^= 0xff
+        texture.write_bytes(damaged)
+    window.onInit()
+
+    assert window.controls[19].visible
+    assert Path(window.controls[19].image) == texture
+    assert texture.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+    assert len(renders) == 2

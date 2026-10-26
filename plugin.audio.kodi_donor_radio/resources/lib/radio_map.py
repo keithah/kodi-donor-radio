@@ -147,15 +147,10 @@ def _validated_land_polygons(polygons):
     return tuple(result)
 
 
-def load_land_polygons(path):
-    """Read versioned local land geometry, at most 2 MiB and 100,000 points.
-
-    Return immutable polygons of closed rings of (longitude, latitude) pairs.
-    Invalid data raises ValueError; local file errors retain their OSError type.
-    No Kodi, network, imaging or GIS dependency is needed.
-    """
-    with open(path, 'rb') as source:
-        payload = source.read(MAX_LAND_BYTES + 1)
+def decode_land_polygons(payload):
+    """Decode bounded versioned land geometry into immutable closed rings."""
+    if not isinstance(payload, bytes):
+        raise ValueError('Invalid land coordinate data')
     if len(payload) > MAX_LAND_BYTES:
         raise ValueError('Land coordinate file exceeds size limit')
     try:
@@ -167,6 +162,17 @@ def load_land_polygons(path):
             data['source'] != LAND_SOURCE):
         raise ValueError('Unsupported land coordinate schema or source')
     return _validated_land_polygons(data['polygons'])
+
+
+def load_land_polygons(path):
+    """Read local land geometry; local file errors retain their OSError type.
+
+    Return immutable polygons of closed rings of (longitude, latitude) pairs.
+    No Kodi, network, imaging or GIS dependency is needed.
+    """
+    with open(path, 'rb') as source:
+        payload = source.read(MAX_LAND_BYTES + 1)
+    return decode_land_polygons(payload)
 
 
 def _unwrap_land_ring(ring):
