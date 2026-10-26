@@ -3,6 +3,7 @@ import io
 import json
 import threading
 import time
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from models import Station
@@ -468,6 +469,41 @@ def test_cli_interrupt_during_submission_cancels_started_workers(monkeypatch, ca
     monkeypatch.setattr(sampler, 'sample_station', sample)
     assert sampler.main(['--workers', '2']) == 130
     assert len(observed) == 1 and observed[0].is_set()
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {record['station_uuid'] for record in records} == {'one', 'two'}
+    assert all(record['outcome'] == 'cancelled' for record in records)
+
+
+def test_cli_interrupt_during_result_collection_cancels_workers(monkeypatch, capsys):
+    stations = [_station('one'), _station('two')]
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: (stations, 1))
+    started = threading.Barrier(3)
+    cancellations = []
+    original_result = Future.result
+    interrupted = []
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        cancellations.append(cancel)
+        started.wait(timeout=2)
+        cancel.wait(0.5)
+        return _fake_summary(station, 'cancelled' if cancel.is_set() else 'no_marker_observed')
+
+    def ready_futures(futures):
+        started.wait(timeout=2)
+        yield next(iter(futures))
+
+    def interrupt_once(future, *args, **kwargs):
+        if not interrupted:
+            interrupted.append(True)
+            raise KeyboardInterrupt
+        return original_result(future, *args, **kwargs)
+
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    monkeypatch.setattr(sampler, 'as_completed', ready_futures)
+    monkeypatch.setattr(Future, 'result', interrupt_once)
+    assert sampler.main(['--workers', '2']) == 130
+    assert len(cancellations) == 2
+    assert all(cancel.is_set() for cancel in cancellations)
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert {record['station_uuid'] for record in records} == {'one', 'two'}
     assert all(record['outcome'] == 'cancelled' for record in records)

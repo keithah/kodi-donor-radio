@@ -327,7 +327,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             station = futures[future]
             try:
                 result = future.result()
-            except BaseException:
+            except Exception:
                 result = {'outcome': 'cancelled' if interrupted else 'reachability_failure'}
             record = _station_summary(station, result)
             writer.emit_record(record)
