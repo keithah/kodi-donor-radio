@@ -185,6 +185,26 @@ def test_map_pin_dot_is_centered_and_edge_label_only_is_clamped(monkeypatch):
     assert unselected.position[0] + unselected.width // 2 == east_x
 
 
+def test_map_direction_uses_the_visible_canvas_aspect_ratio(monkeypatch):
+    module = load_window(monkeypatch)
+    selected = station('selected', 'Selected', 0, 0, city='Selected city')
+    # In the old 1000x650 projection this is 100px right and 115px down, so
+    # the 45-degree cone rejects it. On the visible 1030x515 map it is 103px
+    # right and 91px down, so right should focus the candidate.
+    candidate = station('candidate', 'Candidate', -31.846153846153847, 36,
+                        city='Candidate city')
+    window = make_window(module, stations=[selected, candidate],
+                         selected_uuid='selected',
+                         view=MapView(90, -90, -180, 180, 1000, 650))
+    window.onInit()
+    selected_city_id = window.selected_city_id
+    window.setFocusId(window._pin_control(selected_city_id))
+
+    assert window._move_city('right')
+    assert window.selected_city_id != selected_city_id
+    assert window.city_by_id[window.selected_city_id].city == 'Candidate city'
+
+
 @pytest.mark.parametrize(('stations', 'expected'), [
     ([station('one', 'One', 0, 0)], 'Town · Canada · 1 station'),
     ([station('one', 'One', 0, 0), station('two', 'Two', 0, 0)],
@@ -305,6 +325,24 @@ def test_cached_selected_summary_is_reserved_in_seed_budget_and_rendered(monkeyp
     window.setFocusId(2000)
     window.onFocus(2000)
     assert window.controls[2000].getSelectedItem().getProperty('station_uuid') == 'cached'
+
+
+def test_cached_summaries_preserve_state_labels_and_click_rank_in_map_rail(monkeypatch):
+    from dataclasses import replace
+    from radio_ui import StationSummary
+    module = load_window(monkeypatch)
+    low_ranked = [StationSummary.from_station(replace(
+        station('station-%02d' % index, 'Alpha %02d' % index, 0, 0, city=''),
+        state='Ontario', click_count=1)) for index in range(50)]
+    popular = StationSummary.from_station(replace(
+        station('popular', 'Zulu Popular', 0, 0, city=''), state='Ontario', click_count=1000))
+    window = make_window(module, stations=low_ranked + [popular])
+    window.onInit()
+
+    rail = window.controls[2000]
+    assert rail.size() == 50
+    assert rail.items[0].getProperty('station_uuid') == 'popular'
+    assert rail.items[0].label2.startswith('Ontario')
 
 
 def test_rail_previews_native_focused_row_and_only_exits_after_edge_is_reached(monkeypatch):

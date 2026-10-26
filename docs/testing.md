@@ -1,5 +1,23 @@
 # Validation record
 
+## Directory cache and map regression follow-up — 2026-10-26
+
+The persistent directory summaries now retain the state label and click count
+needed by the map, while still omitting stream URLs. The map window keeps the
+requested geographic view for its texture identity and uses viewport-matched
+coordinates for pin ranking and directional focus. Malformed deeply nested
+history and recent-search files are treated as invalid local data, so they do
+not suppress successful-play click reporting or live search results; the bad
+profile files remain unchanged.
+
+The full suite passed **1,417 tests in 135.65s**. The focused regressions passed
+8 tests. `compileall`, source package creation, `tools/check_package.py`, and
+`git diff --check` passed. Kodi add-on checker **0.0.36** on a fresh Omega
+extraction reported no add-on problems or warnings; the host emitted its known
+urllib3/LibreSSL compatibility warning separately. Live Kodi visual acceptance
+for this revision remains unverified because the Mac desktop was locked and
+Kodi startup was not available for this run.
+
 ## Recent search and listening history stores — 2026-10-26
 
 The add-on now keeps private, versioned `recent_searches.json` and `history.json`

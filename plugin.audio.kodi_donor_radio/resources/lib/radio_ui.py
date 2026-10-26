@@ -92,11 +92,13 @@ class StationSummary:
     longitude: object = None
     bitrate: int = 0
     last_played: str = ''
+    state: str = ''
+    click_count: int = 0
 
     def __post_init__(self):
         station_identifier(self.station_uuid)
         _text(self.name, 512, required=True)
-        for name in ('city', 'country'):
+        for name in ('city', 'state', 'country'):
             _text(getattr(self, name), 256)
         _text(self.country_code, 2)
         _text(self.codec, 64)
@@ -108,14 +110,16 @@ class StationSummary:
             coordinates(self.latitude, self.longitude)
         if type(self.bitrate) is not int or not 0 <= self.bitrate <= 100000:
             raise ValueError('Invalid bitrate')
+        if type(self.click_count) is not int or not 0 <= self.click_count <= 2**63 - 1:
+            raise ValueError('Invalid click count')
         _timestamp(self.last_played)
 
     @classmethod
     def from_station(cls, station):
         return cls(station.uuid, station.name, **{
             name: getattr(station, name) for name in (
-                'city', 'country', 'country_code', 'codec', 'tags', 'favicon',
-                'latitude', 'longitude', 'bitrate')})
+                'city', 'state', 'country', 'country_code', 'codec', 'tags', 'favicon',
+                'latitude', 'longitude', 'bitrate', 'click_count')})
 
     def to_dict(self):
         return asdict(self)
@@ -176,7 +180,7 @@ class _Store:
             raise ValueError('Profile file too large')
         try:
             document = json.loads(raw, object_pairs_hook=_unique_object)
-        except (ValueError, UnicodeError) as error:
+        except (ValueError, UnicodeError, RecursionError) as error:
             raise ValueError('Invalid profile JSON') from error
         if (not isinstance(document, dict) or set(document) != {'schema_version', 'items'} or
                 type(document['schema_version']) is not int or document['schema_version'] != 1 or

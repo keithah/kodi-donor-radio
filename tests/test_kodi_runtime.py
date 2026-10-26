@@ -1509,6 +1509,39 @@ def test_uuid_play_resolves_transient_station_before_existing_relay(kodi, monkey
     assert browser.clicks == ['station-1'] and state.resolved[0][0]
 
 
+def test_deeply_nested_history_profile_does_not_suppress_play_reporting(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    path = profile / 'history.json'
+    malformed = ('[' * 2000 + '0' + ']' * 2000).encode()
+    path.write_bytes(malformed)
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64),
+        create=lambda station: {'id': 'c' * 48,
+            'playback_url': 'http://127.0.0.1:32123/media/' + 'c' * 48 + '/' + 'd' * 48,
+            'mime_type': 'audio/mpeg'})
+    monkeypatch.setattr(runtime, '_service', lambda *args, **kwargs: client)
+
+    route(runtime, mode='play', uuid='station-1')
+
+    assert state.resolved[0][0]
+    assert browser.clicks == ['station-1']
+    assert path.read_bytes() == malformed
+
+
+def test_deeply_nested_recent_search_profile_does_not_suppress_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    path = profile / 'recent_searches.json'
+    malformed = ('[' * 2000 + '0' + ']' * 2000).encode()
+    path.write_bytes(malformed)
+
+    route(runtime, mode='search', name='jazz')
+
+    assert len(browser.searches) == 1
+    assert state.items[0][1].label == STATION.name
+    assert path.read_bytes() == malformed
+
+
 def test_favorites_render_cached_order_without_directory_lookup(kodi, monkeypatch):
     from radio_ui import FavoriteStore, StationSummary
     runtime, state, profile = kodi

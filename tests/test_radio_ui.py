@@ -13,13 +13,17 @@ def ui():
 
 def test_summary_round_trip_is_safe_and_legacy_station_compatible():
     from models import Station
-    station = Station('abc', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False)
+    station = Station('abc', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False,
+                      state='Ontario', click_count=23)
     summary = ui().StationSummary.from_station(station)
     assert summary.station_uuid == 'abc'
     assert summary.country == ''
+    assert summary.state == 'Ontario'
+    assert summary.click_count == 23
     assert not hasattr(summary, 'url')
     assert 'secret' not in json.dumps(summary.to_dict())
     assert ui().StationSummary.from_dict(summary.to_dict()) == summary
+    assert ui().StationSummary.from_dict({'station_uuid': 'legacy', 'name': 'Legacy'}).state == ''
 
 
 def test_favorites_preserve_order_update_played_and_round_trip(tmp_path):

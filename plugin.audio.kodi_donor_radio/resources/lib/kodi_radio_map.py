@@ -369,7 +369,12 @@ class RadioMapWindow(xbmcgui.WindowXML):
             raise ValueError('Fixture station UUID is not valid for map')
         if not isinstance(view, MapView):
             raise TypeError('Map view is required')
+        # Preserve the exact requested view for its texture/cache identity.
+        # Ranking and directional navigation need a second projection whose
+        # aspect ratio matches the stretched map displayed by this window.
         self.view = view
+        self.canvas_view = MapView(view.north, view.south, view.west, view.east,
+                                   MAP_WIDTH, MAP_HEIGHT)
         incoming = list(stations)
         if self.selected_uuid:
             selected = next((station for station in incoming
@@ -395,7 +400,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
         self.cities = cluster_cities(self.stations)
         preferred = next((city.city_id for city in self.cities
                           if self.selected_uuid and self.selected_uuid in city.station_uuids), None)
-        self.pins = visible_cities(self.cities, view, selected_city=preferred, limit=PIN_LIMIT)
+        self.pins = visible_cities(self.cities, self.canvas_view,
+                                   selected_city=preferred, limit=PIN_LIMIT)
         self.city_by_id = {city.city_id: city for city in self.pins}
         self._unknown_location = xbmcaddon.Addon().getLocalizedString(30154)
         self.selected_city_id = ''
@@ -619,7 +625,8 @@ class RadioMapWindow(xbmcgui.WindowXML):
         return True
 
     def _move_city(self, direction):
-        city = nearest_city_in_direction(self.pins, self.selected_city_id, direction, self.view)
+        city = nearest_city_in_direction(self.pins, self.selected_city_id,
+                                         direction, self.canvas_view)
         if city is None:
             if direction == 'right':
                 target = RAIL_ID
