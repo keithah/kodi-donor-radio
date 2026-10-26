@@ -56,6 +56,14 @@ count. Candidate sampling runs with a small fixed upper bound on concurrent
 stations. Each selected station receives its own full-duration sampling window;
 the default and minimum window is 1,200 seconds.
 
+Implementation bounds: scan 20 pages by default and at most 100; sample eight
+candidates by default and at most 20; use four workers by default and at most
+four; allow sample durations from 1,200 to 7,200 seconds; set a 15-second total
+deadline for each HTTP request; and clamp playlist polling to 2–10 seconds using
+half the target duration. Emit at most 1,024 marker events per station, with
+station names bounded to 128 characters; a capped event stream reports that it
+was truncated in the station summary.
+
 Each worker resolves the station through the existing transport policy, follows
 at most the already supported HLS master depth, then refreshes the selected
 media playlist on a bounded interval until the station's sampling window ends.
