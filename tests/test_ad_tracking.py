@@ -108,6 +108,72 @@ def test_short_stationary_sample_does_not_taint_continuous_playback():
     assert [event for _, event, _ in queued] == list(EVENTS)
 
 
+@pytest.mark.parametrize("stationary_ticks, expected_events", (
+    (2, EVENTS),
+    (3, ("impression", "start")),
+    (5, ("impression", "start")),
+))
+def test_stationary_clock_across_intermittent_unavailable_reads_taints_only_current_ad(
+        stationary_ticks, expected_events):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    for tick in range(1, stationary_ticks + 1):
+        if tick % 2:
+            instance.observe(view, sample(.05, tick * .25))
+        else:
+            instance.observe(view, sample(0, tick * .25, mapped=False,
+                                          playing=False, caching=True))
+        assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(37):
+        instance.observe(view, sample(.10 + tick * .25,
+                                      (stationary_ticks + 1 + tick) * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
+
+
+def test_mapped_clock_movement_resets_stationary_evidence_across_unavailable_reads():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    for cycle in range(3):
+        position = .05 + cycle * .05
+        instance.observe(view, sample(position, cycle * .75 + .25))
+        instance.observe(view, sample(0, cycle * .75 + .5, mapped=False, playing=False))
+        instance.observe(view, sample(position + .05, (cycle + 1) * .75))
+    for tick in range(17):
+        instance.observe(view, sample(.20 + tick * .25, 2.5 + tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
+@pytest.mark.parametrize("transition, expected_events", (
+    ({"mapped": False, "paused": True}, EVENTS),
+    ({"mapped": False, "seeking": True}, EVENTS),
+    ({"mapped": False, "speed_changed": True}, ("impression", "start")),
+    ({"mapped": False, "speed": .5}, ("impression", "start")),
+    ({"paused": True}, EVENTS),
+    ({"seeking": True}, ("impression", "start")),
+    ({"playing": False}, EVENTS),
+    ({"position_seconds": float("nan")}, EVENTS),
+    ({"monotonic_seconds": float("nan")}, EVENTS),
+))
+def test_explicit_transition_or_unusable_mapped_clock_resets_stationary_evidence(
+        transition, expected_events):
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(.05, .25))
+    instance.observe(view, sample(.05, .5, **transition))
+    assert instance._stationary_since is None
+    instance.observe(view, sample(.05, .75))
+    instance.observe(view, sample(.05, 1))
+    for tick in range(17):
+        instance.observe(view, sample(.10 + tick * .25, 1.25 + tick * .25))
+    assert [event for _, event, _ in queued] == list(expected_events)
+
+
 @pytest.mark.parametrize("recovery_cached", (False, True))
 @pytest.mark.parametrize("gap_seconds, expected_events", (
     (.75, EVENTS),
