@@ -2436,3 +2436,110 @@ def test_directory_cache_deeply_nested_profile_is_ignored(kodi, monkeypatch):
     (profile / 'directory_cache.json').write_text('[' * 2000 + '0' + ']' * 2000)
     route(runtime, mode='countries')
     assert state.items[0][1].label == 'Canada'
+
+
+@pytest.mark.parametrize('method', ['__init__', 'getProperty', 'setProperty', 'clearProperty'])
+@pytest.mark.parametrize('failure', [OSError, RuntimeError])
+def test_directory_cache_property_errors_keep_live_search_rows(kodi, monkeypatch, method, failure):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    if method == 'clearProperty':
+        state.window_properties['kodi_donor_radio.search_pages'] = '{bad'
+    def fail(*args): raise failure('window unavailable')
+    monkeypatch.setattr(runtime.xbmcgui.Window, method, fail)
+    route(runtime, mode='search', name='jazz')
+    assert state.items[0][1].label == 'Station One'
+    assert len(browser.searches) == 1
+
+
+def test_directory_cache_malformed_tags_round_trip_offline_with_raw_continuation(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.tags_page = lambda *args: (['jazz', 'x' * 257, 'bad\x01tag', '', 'news'], True)
+    route(runtime, mode='tags')
+    state.items.clear()
+    browser.tags_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='tags')
+    assert [item.label for _, item, _ in state.items] == ['jazz', 'news', 'localized-30005']
+    assert 'offset=50' in state.items[-1][0]
+    assert runtime.DirectoryCacheStore(profile).get('tags', '[0]', 60).continuation is True
+
+
+def test_directory_cache_contended_write_remains_cancellable(kodi, monkeypatch):
+    from playback_arbiter import profile_file_lock
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    entered, completed = threading.Event(), threading.Event()
+    original = runtime.DirectoryCacheStore.put
+    def put(self, *args, **kwargs):
+        entered.set()
+        try: return original(self, *args, **kwargs)
+        finally: completed.set()
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'put', put)
+    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    # A watchdog releases the lock on the unfixed implementation, ensuring RED
+    # is an assertion failure instead of leaving the test process deadlocked.
+    with profile_file_lock(profile / '.directory_cache.json.lock'):
+        finished = threading.Event()
+        errors = []
+        def browse():
+            try: route(runtime, mode='countries')
+            except Exception as error: errors.append(error)
+            finally: finished.set()
+        worker = threading.Thread(target=browse, daemon=True)
+        worker.start()
+        assert entered.wait(1)
+        responsive = finished.wait(1)
+    worker.join(2)
+    assert completed.wait(2)
+    assert not errors
+    assert responsive, 'directory write blocked cancellation while cache lock was held'
+    assert not state.items
+    assert state.ended[-1]['succeeded'] is False
+
+
+def test_directory_cache_mid_fetch_cancel_does_not_render_stale(kodi, monkeypatch):
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]))
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='countries')
+    now[0] += 8 * 86400
+    entered, release = threading.Event(), threading.Event()
+    def fetch():
+        entered.set()
+        release.wait(2)
+        raise OSError('offline')
+    browser.country_entries = fetch
+    state.items.clear()
+    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    try:
+        route(runtime, mode='countries')
+        assert entered.is_set()
+        assert not state.items
+        assert state.ended[-1]['succeeded'] is False
+    finally:
+        release.set()
+
+
+def test_directory_cache_slow_profile_read_remains_cancellable(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    entered, release, completed = threading.Event(), threading.Event(), threading.Event()
+    def get(*args, **kwargs):
+        entered.set()
+        try: release.wait(2)
+        finally: completed.set()
+        return None
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'get', get)
+    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    try:
+        route(runtime, mode='countries')
+        assert entered.is_set()
+        assert not completed.is_set()
+        assert not state.items
+        assert state.ended[-1]['succeeded'] is False
+    finally:
+        release.set()
+        assert completed.wait(1)

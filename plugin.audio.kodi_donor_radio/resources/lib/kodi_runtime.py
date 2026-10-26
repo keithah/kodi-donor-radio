@@ -329,7 +329,10 @@ def _directory_page(kind, key, fetch, monitor, cancel):
     ttl = (7 if kind in ('countries', 'tags') else 1) * 86400
     cached = None
     try:
-        cached = DirectoryCacheStore(profile_path()).get(kind, key, ttl, allow_stale=True)
+        cached = _operation(lambda: DirectoryCacheStore(profile_path()).get(
+            kind, key, ttl, allow_stale=True), monitor, cancel)
+    except Cancelled:
+        raise
     except (OSError, ValueError, TypeError, RecursionError):
         pass
     _check_ui_cancel(monitor, cancel)
@@ -346,8 +349,21 @@ def _directory_page(kind, key, fetch, monitor, cancel):
     _check_ui_cancel(monitor, cancel)
     if kind in ('place', 'map'):
         rows = [_summary(row) for row in rows]
+    elif kind == 'tags':
+        valid = []
+        for row in rows:
+            try:
+                tag = _query_text(row)
+                if tag.strip():
+                    valid.append(tag)
+            except ValueError:
+                continue
+        rows = valid
     try:
-        DirectoryCacheStore(profile_path()).put(kind, key, rows, continuation=continuation)
+        _operation(lambda: DirectoryCacheStore(profile_path()).put(
+            kind, key, rows, continuation=continuation), monitor, cancel)
+    except Cancelled:
+        raise
     except (OSError, ValueError, TypeError, RecursionError):
         pass
     return rows, continuation
@@ -355,8 +371,24 @@ def _directory_page(kind, key, fetch, monitor, cancel):
 
 def _search_page(key, fetch, monitor, cancel):
     """Kodi session memory only; validate and bound the cross-invocation payload."""
-    window = xbmcgui.Window(10000)
-    raw = window.getProperty(_SEARCH_PROPERTY)
+    window, raw = None, ''
+    try:
+        window = xbmcgui.Window(10000)
+        raw = window.getProperty(_SEARCH_PROPERTY)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
+
+    def save_property(value):
+        if window is None:
+            return
+        try:
+            if value is None:
+                window.clearProperty(_SEARCH_PROPERTY)
+            else:
+                window.setProperty(_SEARCH_PROPERTY, value)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass  # Optional session storage cannot hide a successful directory fetch.
+
     pages = []
     try:
         if raw:
@@ -379,7 +411,7 @@ def _search_page(key, fetch, monitor, cancel):
                 identities.add(page['key'])
                 pages.append(page)
     except (ValueError, TypeError, UnicodeError, RecursionError):
-        window.clearProperty(_SEARCH_PROPERTY)
+        save_property(None)
         pages = []
     identity = hashlib.sha256(key.encode('utf-8')).hexdigest()
     _check_ui_cancel(monitor, cancel)
@@ -395,11 +427,11 @@ def _search_page(key, fetch, monitor, cancel):
         payload = json.dumps({'version': 1, 'pages': pages}, ensure_ascii=False, allow_nan=False,
                              separators=(',', ':'))
         if len(payload.encode('utf-8')) <= _SEARCH_BYTES:
-            window.setProperty(_SEARCH_PROPERTY, payload)
+            save_property(payload)
             break
         pages.pop(0)
     if not pages:
-        window.clearProperty(_SEARCH_PROPERTY)
+        save_property(None)
     return rows, more
 
 
