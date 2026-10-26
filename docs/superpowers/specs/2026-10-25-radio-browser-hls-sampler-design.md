@@ -14,7 +14,9 @@ not insert ads and does not connect a production VAST tag.
   directory stream URL belongs to `cdnstream1.com` or a subdomain.
 - Sample each selected station for at least 1,200 seconds by polling HLS
   playlists, following a bounded master-to-media path, and using the existing
-  URL policy and playlist parser.
+  URL policy and playlist parser. Read a response body only when its
+  `Content-Type` is an allowlisted HLS playlist type; reject audio, unknown, or
+  missing types before reading the body.
 - Reuse `CueTracker` to log explicit HLS cue and supported AdsWizz segment
   break events, including unresolved endings and sequence gaps.
 - Emit bounded JSON Lines observations during sampling so partial results remain
@@ -64,11 +66,14 @@ half the target duration. Emit at most 1,024 marker events per station, with
 station names bounded to 128 characters; a capped event stream reports that it
 was truncated in the station summary.
 
-Each worker resolves the station through the existing transport policy, follows
-at most the already supported HLS master depth, then refreshes the selected
-media playlist on a bounded interval until the station's sampling window ends.
-Only playlist bodies are fetched. Polls are cancellation-aware, each request is
-bounded, and failures affect only that station's result.
+Each worker requests the directory station URL through the existing transport
+policy, follows at most the already supported HLS master depth, then refreshes
+the selected media playlist on a bounded interval until the station's sampling
+window ends. It requires an allowlisted HLS playlist `Content-Type` before
+reading any response body; audio, unknown, or missing types are rejected
+without a body read. This strict gate can exclude servers that mislabel HLS
+responses. Polls are cancellation-aware, each request is bounded, and failures
+affect only that station's result.
 
 The existing `CueTracker` remains the source of break transitions. A narrow
 JSON Lines sink writes only an allowlist of event kinds and fields needed for
@@ -102,7 +107,7 @@ or a bounded failure outcome.
   start/end observations; AdsWizz fixture segments emit the supported observed
   segment events across overlapping windows.
 - Playlist-only sampling never requests media segment URLs and never invokes
-  Radio Browser's click endpoint.
+  Radio Browser's click endpoint; non-playlist response bodies are not read.
 - Interrupted and failed samples retain already emitted JSON Lines and classify
   any still-open break as unresolved.
 - Output omits test tokens, full URLs, segment paths, AdsWizz context/IDs, and
