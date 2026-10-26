@@ -18,7 +18,8 @@ not insert ads and does not connect a production VAST tag.
   playlists, following a bounded master-to-media path, and using the existing
   URL policy and playlist parser. Read a response body only when its
   `Content-Type` is an allowlisted HLS playlist type; reject audio, unknown, or
-  missing types before reading the body.
+  missing types before reading the body. Repeated reachability failures may
+  end an observation early; report its actual elapsed duration.
 - Reuse `CueTracker` to log explicit HLS cue and supported AdsWizz segment
   break events, including unresolved endings and sequence gaps.
 - Emit bounded JSON Lines observations during sampling so partial results remain
@@ -75,7 +76,10 @@ window ends. It requires an allowlisted HLS playlist `Content-Type` before
 reading any response body; audio, unknown, or missing types are rejected
 without a body read. This strict gate can exclude servers that mislabel HLS
 responses. Polls are cancellation-aware, each request is bounded, and failures
-affect only that station's result.
+affect only that station's result. Tolerate three consecutive reachability
+failures during polling, resetting after a successful poll. A fourth ends the
+station early. Parser, unsupported, and policy failures remain terminal.
+Earlier marker evidence remains `marker_observed` after reachability exhaustion.
 
 The existing `CueTracker` remains the source of break transitions. A narrow
 JSON Lines sink writes only an allowlist of event kinds and fields needed for
@@ -86,6 +90,11 @@ summary output contains no stream URL or opaque AdsWizz/cue value. The run ends
 with a per-station coverage summary that reports elapsed sample time, poll
 count, observed event count, and either `marker_observed`, `no_marker_observed`,
 or a bounded failure outcome.
+
+If discovery selects no candidates, emit one bounded `discovery_summary` JSON
+Line with `no_candidates`, pages read, and `selected_count: 0`. Normal outcomes
+exit 0. Discovery failure or any station policy, reachability, or parser failure
+exits 1; Ctrl-C exits 130. Station failures do not cancel other workers.
 
 ## Constraints and implementation calls
 

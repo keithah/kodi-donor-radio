@@ -32,6 +32,7 @@ EVENT_KINDS = frozenset(('cue_observed', 'break_start', 'break_update',
 EVENT_DETAILS = ('media_sequence', 'discontinuity', 'media_position',
                  'duration', 'classification', 'reason')
 EVENT_LIMIT = 1024
+POLL_FAILURE_LIMIT = 3
 HLS_CONTENT_TYPES = frozenset((
     'application/vnd.apple.mpegurl', 'application/x-mpegurl',
     'application/mpegurl', 'audio/x-mpegurl', 'audio/mpegurl',
@@ -185,6 +186,8 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
             rendition_id = 'selected-media'
             epoch = 0
             previous_range = None
+            reachability_failures = 0
+            interval = max(2.0, min(10.0, (playlist.target_duration or 4.0) / 2.0))
             while True:
                 if cancel.is_set():
                     outcome = 'cancelled'
@@ -192,7 +195,29 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
                 if polls and monotonic() - started >= duration_seconds:
                     break
                 if polls:
-                    playlist = _fetch_playlist(media_url, client, cancel)
+                    try:
+                        playlist = _fetch_playlist(media_url, client, cancel)
+                    except Exception as error:
+                        if cancel.is_set():
+                            outcome = 'cancelled'
+                            break
+                        failure = _outcome(error)
+                        if failure != 'reachability_failure':
+                            outcome = failure
+                            break
+                        reachability_failures += 1
+                        if reachability_failures > POLL_FAILURE_LIMIT:
+                            outcome = ('marker_observed' if writer.station_count(station.uuid)
+                                       else 'reachability_failure')
+                            break
+                        remaining = duration_seconds - (monotonic() - started)
+                        if remaining <= 0:
+                            break
+                        pause_until = monotonic() + min(interval, remaining)
+                        while not cancel.is_set() and monotonic() < pause_until:
+                            wait(min(0.25, pause_until - monotonic()))
+                        continue
+                    reachability_failures = 0
                     if playlist.is_master:
                         raise ValueError('Selected media changed to master')
                 first = playlist.media_sequence
@@ -306,15 +331,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     discovery_cancel = threading.Event()
     writer = JsonLineWriter(sys.stdout)
     try:
-        stations, _ = discover_candidates(RadioBrowser(client=_DirectoryDeadlineClient(client),
-                                                       cancel=discovery_cancel),
-                                          args.pages, args.limit)
+        stations, pages_read = discover_candidates(
+            RadioBrowser(client=_DirectoryDeadlineClient(client), cancel=discovery_cancel),
+            args.pages, args.limit)
     except KeyboardInterrupt:
         discovery_cancel.set()
         return 130
     except Exception:
         print('Station discovery failed', file=sys.stderr)
         return 1
+
+    if not stations:
+        writer.emit_record({'kind': 'discovery_summary', 'outcome': 'no_candidates',
+                            'pages_read': pages_read, 'selected_count': 0})
+        return 0
 
     cancellations = [threading.Event() for _ in stations]
     interrupted = False

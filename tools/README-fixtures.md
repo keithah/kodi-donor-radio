@@ -73,7 +73,7 @@ whose directory URL is on `cdnstream1.com`, and observes each selected station
 for 20 minutes with at most four workers. The listed values are the defaults;
 the limits are 100 pages, 20 candidates, four workers, and 1,200–7,200 seconds
 per station. Press Ctrl-C to cancel and allow workers to close their requests
-and write final station summaries. Cancellation exits nonzero.
+and write final station summaries. Cancellation exits with status 130.
 
 Output is redacted JSON Lines on stdout: cue events followed by a summary for
 each selected station. The sampler fetches HLS playlist bodies only. It
@@ -83,3 +83,16 @@ request has a 15-second deadline. `no_marker_observed` means only that no
 supported marker was seen during the sampled interval; it is not an ad-free
 claim. Station names are bounded, event records are capped at 1,024 per
 station, and the summary reports truncation.
+
+Up to three consecutive playlist reachability failures are tolerated during
+polling; a successful poll resets that streak. A fourth consecutive failure
+ends that station early. Its summary reports the elapsed observation time,
+which may be shorter than the requested window. Earlier marker evidence
+remains `marker_observed`; parser, unsupported, and policy failures end the
+station immediately. Other station workers continue independently.
+
+If discovery selects no candidates, stdout contains a `discovery_summary`
+record with `outcome: no_candidates`, the pages read, and a selected count of
+zero. Exit status is 0 for normal outcomes (including no candidates and
+`unsupported`), 1 for discovery failure or any station-level policy,
+reachability, or parser failure, and 130 for Ctrl-C.

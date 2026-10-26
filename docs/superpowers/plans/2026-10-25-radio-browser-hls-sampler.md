@@ -14,7 +14,7 @@
 
 - Runtime dependency floor remains Python 3.8; add no third-party dependency.
 - The sampler lives in `tools/` and is excluded from the add-on package manifest.
-- Each selected station is sampled for at least 1,200 seconds; CLI default is 1,200 seconds.
+- Each selected station is sampled for at least 1,200 seconds unless repeated reachability failures end it early; CLI default is 1,200 seconds and summaries expose actual elapsed time.
 - Directory scanning, candidates, workers, request timeouts, playlist size, and polling are bounded.
 - Scan 20 directory pages by default (maximum 100), select eight candidates by default (maximum 20), and use at most four workers.
 - Sample for 1,200 seconds by default (minimum 1,200, maximum 7,200); cap each HTTP request at a 15-second total deadline and poll every 2–10 seconds.
@@ -23,6 +23,8 @@
 - Only playlist responses with an allowlisted HLS `Content-Type` are read; audio, unknown, or missing content types are rejected before reading their bodies. No segment downloads, VAST requests, beacons, or Radio Browser click requests.
 - Output is JSON Lines on stdout and omits stream URLs, query strings, segment paths, opaque AdsWizz values, and raw cue payloads.
 - A marker-free sample is reported as `no_marker_observed`, never as proof that the station has no ads.
+- Polling tolerates three consecutive reachability failures and resets the streak after success; a fourth ends the station early. Parser, unsupported, and policy failures remain terminal. Earlier marker observations remain reported after reachability exhaustion.
+- Empty selection emits a bounded `discovery_summary` JSON Line. Normal outcomes exit 0, discovery or station policy/reachability/parser failures exit 1, and Ctrl-C exits 130; one station's failure does not cancel peers.
 
 ## Review Focus
 
@@ -92,7 +94,7 @@
 
 - [x] **Step 3: Implement bounded HLS playlist loading and event projection**
 
-  Fetch the directory station URL directly as an HLS playlist through `HttpClient` and the existing URL policy; do not use generic `resolve_station`, which can follow ordinary M3U/PLS entries and read continuous media. Require an allowlisted HLS playlist `Content-Type` before reading any response body; reject audio, unknown, and missing content types without reading them. Then validate the HLS signature and reject invalid playlist bodies without following their targets. Follow at most three HLS playlist levels and select the first declared playlist reference. Refresh only the selected media playlist. Parse every body with `read_bounded` and `parse_playlist`; pass `deadline=time.monotonic() + 15` to each `HttpClient.open` call. Start the observation clock only after the first media playlist is loaded, so request startup does not reduce the caller-requested sample duration. Send media playlists to one `CueTracker` per station with a stable rendition ID and monotonically increasing epoch when a non-overlapping media-sequence reset is detected. Derive the poll wait from half the target duration, clamped to 2–10 seconds.
+  Fetch the directory station URL directly as an HLS playlist through `HttpClient` and the existing URL policy; do not use generic `resolve_station`, which can follow ordinary M3U/PLS entries and read continuous media. Require an allowlisted HLS playlist `Content-Type` before reading any response body; reject audio, unknown, and missing content types without reading them. Then validate the HLS signature and reject invalid playlist bodies without following their targets. Follow at most three HLS playlist levels and select the first declared playlist reference. Refresh only the selected media playlist. Parse every body with `read_bounded` and `parse_playlist`; pass `deadline=time.monotonic() + 15` to each `HttpClient.open` call. Start the observation clock only after the first media playlist is loaded, so request startup does not reduce the caller-requested sample duration. Send media playlists to one `CueTracker` per station with a stable rendition ID and monotonically increasing epoch when a non-overlapping media-sequence reset is detected. Derive the poll wait from half the target duration, clamped to 2–10 seconds. Tolerate three consecutive reachability failures, resetting on a successful poll; a fourth ends the station early, with prior marker evidence retained. Parser, unsupported, and policy failures end immediately.
 
   Project only `cue_observed`, `break_start`, `break_update`, `break_end`, and `break_unresolved`. Allow fields `station_uuid`, sanitized `station_name`, `kind`, `source`, `observed_at`, `media_sequence`, `discontinuity`, `media_position`, `duration`, `classification`, and `reason`. Never serialize `Event.evidence`, raw exception text, URLs, or unlisted fields. On normal completion or cancellation, call `CueTracker.finish` so open breaks are unresolved rather than assigned an invented end.
 
@@ -132,7 +134,7 @@
 
 - [x] **Step 3: Implement bounded CLI and cancellation lifecycle**
 
-  Add the exact options and bounds above. Scan only the configured page count, then use a `ThreadPoolExecutor` with at most four workers. On Ctrl-C, set the shared cancellation signal, wait for workers to close requests and emit unresolved endings/summaries, and return a nonzero status. Flush each completed JSON Lines record so callers redirecting stdout can inspect observations during the run. Do not add output-file creation.
+  Add the exact options and bounds above. Scan only the configured page count, then use a `ThreadPoolExecutor` with at most four workers. On Ctrl-C, set the shared cancellation signal, wait for workers to close requests and emit unresolved endings/summaries, and return status 130. Flush each completed JSON Lines record so callers redirecting stdout can inspect observations during the run. Emit a bounded discovery summary when no candidates are selected. Normal outcomes exit 0; discovery or station policy, reachability, or parser failures exit 1 without cancelling peers. Do not add output-file creation.
 
 - [x] **Step 4: Document use and limitations**
 

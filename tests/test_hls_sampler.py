@@ -298,7 +298,101 @@ def test_master_playlist_depth_is_bounded(playlists):
         routes['/%d.m3u8' % depth] = (200, '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=64000\n%d.m3u8\n' % (depth + 1))
     with pytest.raises(ValueError):
         load_media_playlist(base + '/0.m3u8', client, threading.Event())
-    assert '/4.m3u8' not in requests
+    assert requests == ['/0.m3u8', '/1.m3u8', '/2.m3u8']
+
+
+def test_sampler_recovers_after_transient_poll_failures(playlists):
+    _, routes, requests, _ = playlists
+    manifest = (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:4,\nsegment.aac\n')
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        manifest, (503, ''), (503, ''), (503, ''), manifest,
+    ]
+
+    result, _ = _run_sample(playlists, duration=9)
+
+    assert result['outcome'] == 'no_marker_observed'
+    assert result['poll_count'] == 2
+    assert result['elapsed_seconds'] >= 9
+    assert len(requests) == 5
+
+
+def test_sampler_resets_reachability_streak_after_successful_poll(playlists):
+    _, routes, requests, _ = playlists
+    manifest = (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment.aac\n')
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        manifest, (503, ''), (503, ''), (503, ''), manifest,
+        (503, ''), (503, ''), (503, ''), manifest,
+    ]
+
+    result, _ = _run_sample(playlists, duration=17)
+
+    assert result['outcome'] == 'no_marker_observed'
+    assert result['poll_count'] == 3
+    assert result['elapsed_seconds'] >= 17
+    assert len(requests) == 9
+
+
+def test_sampler_preserves_marker_after_exhausted_poll_failures(playlists):
+    _, routes, requests, _ = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-CUE-OUT:8\n#EXTINF:4,\nsegment.aac\n'),
+        (503, ''), (503, ''), (503, ''), (503, ''),
+    ]
+
+    result, records = _run_sample(playlists, duration=30)
+
+    assert result['outcome'] == 'marker_observed'
+    assert result['elapsed_seconds'] == 8
+    assert len(requests) == 5
+    assert any(record['kind'] == 'break_start' for record in records)
+    assert any(record['kind'] == 'break_unresolved' for record in records)
+
+
+def test_sampler_cancel_during_failed_poll_keeps_unresolved_break(playlists):
+    _, routes, requests, _ = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-CUE-OUT:8\n#EXTINF:4,\nsegment.aac\n'),
+        (503, ''),
+    ]
+    cancel = threading.Event()
+    clock = _Clock()
+    waits = []
+
+    def wait(seconds):
+        clock.wait(seconds)
+        waits.append(seconds)
+        if clock.value >= 2.25:
+            cancel.set()
+
+    output = io.StringIO()
+    writer = JsonLineWriter(output)
+    base, _, _, client = playlists
+    station = Station('station-1', 'Radio', base + '/live.m3u8?token=QUERYSECRET', 'AAC', True)
+    result = sample_station(station, client, writer, 30, cancel, clock.now, wait)
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+
+    assert result['outcome'] == 'cancelled'
+    assert len(requests) == 2
+    assert any(record['kind'] == 'break_unresolved' for record in records)
+
+
+@pytest.mark.parametrize('second_response,outcome', [
+    ((200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment.aac\n', 'audio/aac'),
+     'unsupported'),
+    ((200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:BAD,\nsegment.aac\n'),
+     'parser_failure'),
+])
+def test_sampler_does_not_retry_terminal_poll_failure(playlists, second_response, outcome):
+    _, routes, requests, _ = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment.aac\n'),
+        second_response,
+    ]
+
+    result, _ = _run_sample(playlists, duration=30)
+
+    assert result['outcome'] == outcome
+    assert len(requests) == 2
 
 
 def test_sampler_does_not_follow_m3u_to_media(playlists):
@@ -493,6 +587,34 @@ def test_marker_free_sample_is_not_reported_as_ad_free(monkeypatch, capsys):
     assert record['kind'] == 'station_summary'
     assert record['outcome'] == 'no_marker_observed'
     assert 'ad_free' not in output
+
+
+@pytest.mark.parametrize('failure', ['policy_rejection', 'reachability_failure', 'parser_failure'])
+def test_cli_station_failure_returns_one_without_cancelling_peers(monkeypatch, capsys, failure):
+    stations = [_station('failed'), _station('healthy')]
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: (stations, 1))
+    cancellation_states = []
+
+    def sample(station, client, writer, duration, cancel, monotonic, wait):
+        cancellation_states.append(cancel.is_set())
+        return _fake_summary(station, failure if station.uuid == 'failed' else 'no_marker_observed')
+
+    monkeypatch.setattr(sampler, 'sample_station', sample)
+    assert sampler.main(['--workers', '2']) == 1
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {record['station_uuid']: record['outcome'] for record in records} == {
+        'failed': failure, 'healthy': 'no_marker_observed'}
+    assert cancellation_states == [False, False]
+
+
+def test_cli_reports_empty_candidate_discovery(monkeypatch, capsys):
+    monkeypatch.setattr(sampler, 'discover_candidates', lambda browser, pages, limit: ([], 20))
+
+    assert sampler.main([]) == 0
+    assert [json.loads(line) for line in capsys.readouterr().out.splitlines()] == [{
+        'kind': 'discovery_summary', 'outcome': 'no_candidates',
+        'pages_read': 20, 'selected_count': 0,
+    }]
 
 
 def test_cli_interrupt_cancels_and_summarizes_all_workers(monkeypatch, capsys):

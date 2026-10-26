@@ -1047,6 +1047,15 @@ response types before reading a body and never requests media segments.
 that the station is ad-free. Ctrl-C cancels workers, finalizes open breaks as
 unresolved, and exits nonzero after summaries are written.
 
+Polling tolerates three consecutive reachability failures and resets the
+streak after a successful playlist. A fourth consecutive failure ends that
+station early; its summary retains the shorter elapsed time and any earlier
+`marker_observed` evidence. Parser, unsupported, and policy failures end that
+station immediately, without cancelling peers. Empty selection emits one
+`discovery_summary` JSON Line with `no_candidates`, pages read, and zero
+selected stations. Normal outcomes exit 0, discovery or station policy,
+reachability, or parser failures exit 1, and Ctrl-C exits 130.
+
 `python3 -m pytest tests/test_hls_sampler.py -q` covers candidate bounds, the
 strict playlist gate, segment-free cue sampling, redaction, concurrency,
 cancellation, and CLI limits. Run `python3 -m pytest -q` for the full suite.
