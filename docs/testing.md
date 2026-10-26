@@ -1,5 +1,60 @@
 # Validation record
 
+## Successful Kodi no-replay run before speed guard — 2026-10-26
+
+The latest package was installed in an isolated portable profile on this Mac and
+run with unpatched Kodi master `434da3c` (`23.0-ALPHA1`, JSON-RPC 14.1). All five
+controlled scenarios matched the requested item, showed bounded clock progress,
+and reported no smoke-validation failures. In the normal scenario, the add-on log
+recorded raw startup samples `-0.091` and `0.110` with tracking disabled, then
+enabled tracking at `0.516`. It did not replay the withheld samples. The fixture
+recorded one impression, start, and first-quartile beacon for the controlled
+break. Expired-window, mutation, and stall scenarios recorded no success beacons.
+
+Kodi rejected scripted pause, resume, and seek on this nonseekable HLS item; a
+separate stop action succeeded. These results verify the no-replay safeguard and
+the tested fixture outcomes only. They do not prove the absolute Kodi-clock to
+decoded-presentation mapping or audible output: `mapping_proven` and
+`audible_output_verified` remain false. See the sanitized
+[`fresh no-replay report`](superpowers/reports/kodi-no-replay-live-2026-10-26.json).
+
+## Fresh master startup retry after speed guard — 2026-10-26
+
+After installing the speed-guard package into a new isolated Kodi portable
+profile, two clean launches of unpatched Kodi master `434da3c` stopped during
+startup. Both main-thread samples place `XBMCMainThread` in
+`CPeripheralBusUSB::DeviceAttachCallback` →
+`IOCreatePlugInInterfaceForService` → `IOUSBInterfaceClass::start`. The log ends
+at `[Media Detection] starting service for optical media detection`, before the
+Kodi JSON-RPC listener or addon route becomes available. The same USB network
+adapter stayed connected; no device was unplugged and no Kodi workaround was
+used. This is a host startup blocker, not an observed addon failure. It prevents
+claiming a Kodi end-to-end result for the speed-guard revision. A previous
+successful launch on this master build remains separate evidence and does not
+override this reproducible retry failure. See the
+[`startup retry report`](superpowers/reports/kodi-master-startup-hang-2026-10-26.md).
+
+## Independent relay decode smoke — 2026-10-26
+
+The relay-only decoder smoke passed all five direct/wrapped VAST cases:
+normal midroll replacement, preroll with the original midroll preserved,
+no-fill fallback, failed-media fallback, and a VAST duration mismatch resolved
+from measured media samples. Every decoded segment contained exactly 96,256
+samples; the measured section order matched the expected presentation, and the
+collector remained empty because this relay-only run had no playback evidence.
+See [`kodi-ad-relay-decode-2026-10-26.json`](superpowers/reports/kodi-ad-relay-decode-2026-10-26.json).
+
+## Release checks — 2026-10-26
+
+The full suite passed **1,170 tests in 138.74 seconds**. The source-only addon
+ZIP was created in a fresh temporary output directory and passed
+`tools/check_package.py`; `compileall` and `git diff --check` also passed. Kodi's
+official addon checker **0.0.36** on a fresh extraction for Omega reported no
+problems or warnings. It emitted the host's existing LibreSSL compatibility
+warning. The independent relay decoder passed all five controlled cases above.
+These checks do not replace the post-speed-guard Kodi player run, which remains
+blocked during Kodi's USB startup as described earlier.
+
 ## Kodi startup clock confirmation — 2026-10-26
 
 To prevent a transient startup clock from emitting an early success event, the
@@ -32,10 +87,9 @@ only to confirm progress and sends only the second sample to the tracker. This
 prevents a reset that occurs between add-on polls from retroactively turning an
 unverified startup zero into a preroll beacon. Tests cover that no-replay case,
 confirmed midroll tracking, pause, caching and clock jumps. This stricter change
-has not yet been rerun in Kodi because the Mac is locked; the reports above are
-historical evidence from before this change. The decoded-media anchor and
-audible output remain unverified. Focused tracking, adapter and event tests passed
-**61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+has since been rerun in Kodi; see the fresh-run section above. The decoded-media
+anchor and audible output remain unverified. Focused tracking, adapter and event
+tests passed **61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
 package build, `check_package.py`, and `git diff --check` passed for this source
 revision. The Kodi add-on checker remains unverified because its repository
 index request previously stalled.

@@ -107,6 +107,25 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 | Encrypted HLS/DRM, low latency HLS, content steering, variable substitution, unsupported URI-bearing extensions | Fail closed; no direct upstream playback fallback |
 | Non-HTTP(S), credential-bearing, private/loopback station URLs | Reject; developer fixtures have a separate exact-origin test-mode exception |
 
+## Controlled VAST status
+
+Ad insertion is an opt-in development feature. `test_mode`, `ad_enabled`,
+`ad_preroll`, and `ad_midroll` default off, and the VAST URL defaults empty.
+The current implementation accepts only the configured numeric loopback fixture
+origin; it does not request production ads and does not monetize ordinary Radio
+Browser stations. The supported insertion fixture is clear, single-rendition
+AAC-LC in MPEG-TS at 48 kHz stereo. Preroll is prepared before playback; midroll
+replacement requires a complete, explicitly marked HLS break and an exact
+measured sample-count match. No-fill, unsupported media, or mismatch preserves
+the station's original break.
+
+Success beacons are experimental fixture behavior. Kodi's absolute playback
+clock has not been tied to decoded presentation samples across the moving window
+and ad discontinuities, and audible output has not been independently verified.
+These checks are release gates; the current build is not a production ad system.
+See the [monetization roadmap](docs/monetization-roadmap.md) and
+[validation record](docs/testing.md).
+
 A directory entry is a hint, not proof of codec or protocol support. Broken,
 geo-restricted, certificate-invalid and unavailable stations can fail independently
 of the parser. Continuous streams and rewritten manifests accept the initial

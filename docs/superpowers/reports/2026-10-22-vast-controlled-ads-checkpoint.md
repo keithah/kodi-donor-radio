@@ -1,6 +1,35 @@
 # Controlled VAST ads — implementation checkpoint
 
-Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
+Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads-release`.
+
+## Fresh no-replay run — 2026-10-26
+
+The latest package was installed in an isolated portable profile on this Mac and
+run with unpatched Kodi master `434da3c` (`23.0-ALPHA1`, JSON-RPC 14.1). All five
+controlled scenarios matched the requested item, showed bounded clock progress,
+and reported no smoke-validation failures. The add-on log withheld startup clock
+samples `-0.091` and `0.110`, enabled tracking at `0.516`, and did not replay the
+withheld values. The normal fixture recorded one impression, start, and
+first-quartile beacon. Expired-window, mutation, and stall scenarios sent no
+success beacons.
+
+Pause, resume, and seek were rejected by Kodi for this nonseekable HLS item; a
+separate stop action succeeded. The run validates the no-replay safeguard, not
+the absolute clock-to-decoded-presentation mapping or audible output; both report
+flags remain false. Full evidence is in
+[`kodi-no-replay-live-2026-10-26.json`](kodi-no-replay-live-2026-10-26.json).
+
+## Post-speed-guard master startup retry — 2026-10-26
+
+The speed-guard package was installed in a fresh isolated Kodi portable profile
+and launched twice on the same unpatched master revision. Both launches blocked
+the main `XBMCMainThread` in USB peripheral initialization at
+`IOCreatePlugInInterfaceForService` / `IOUSBInterfaceClass::start`; Kodi never
+opened JSON-RPC or reached the addon route. The USB network adapter remained
+connected. This leaves post-speed-guard Kodi playback unverified. The earlier
+successful no-replay run above is retained as separate, pre-speed-guard
+evidence. Details and process/log paths are in
+[`kodi-master-startup-hang-2026-10-26.md`](kodi-master-startup-hang-2026-10-26.md).
 
 ## Startup confirmation — 2026-10-26
 

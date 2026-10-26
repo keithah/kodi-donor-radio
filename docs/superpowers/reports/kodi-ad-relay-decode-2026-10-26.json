@@ -1,0 +1,374 @@
+{
+  "kind": "relay_decode",
+  "results": [
+    {
+      "beacons": {},
+      "events": [],
+      "expected_samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "expected_sections": [
+        "replacement",
+        "replacement",
+        "programme_a",
+        "programme_a",
+        "replacement",
+        "replacement",
+        "programme_b",
+        "programme_b"
+      ],
+      "failures": [],
+      "first_pts": [
+        126000,
+        306480,
+        126000,
+        306480,
+        126000,
+        306480,
+        847920,
+        1028400
+      ],
+      "manifest_discontinuities": 3,
+      "pts_steps_valid": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "requests": {
+        "/ads/replacement.m3u8": 2,
+        "/ads/replacement000.ts": 2,
+        "/ads/replacement001.ts": 2,
+        "/ads/source000.ts": 1,
+        "/ads/source001.ts": 1,
+        "/ads/source002.ts": 1,
+        "/ads/source003.ts": 1,
+        "/ads/source004.ts": 1,
+        "/ads/source005.ts": 1,
+        "/source/normal/index.m3u8": 2,
+        "/vast/direct": 2
+      },
+      "samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "scenario": "normal",
+      "sections": [
+        "replacement",
+        "replacement",
+        "programme_a",
+        "programme_a",
+        "replacement",
+        "replacement",
+        "programme_b",
+        "programme_b"
+      ],
+      "stopped_at": null,
+      "vast": "direct"
+    },
+    {
+      "beacons": {},
+      "events": [],
+      "expected_samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "expected_sections": [
+        "preroll",
+        "preroll",
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "failures": [],
+      "first_pts": [
+        126000,
+        306480,
+        126000,
+        306480,
+        486960,
+        667440,
+        847920,
+        1028400
+      ],
+      "manifest_discontinuities": 1,
+      "pts_steps_valid": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "requests": {
+        "/ads/preroll.m3u8": 1,
+        "/ads/preroll000.ts": 1,
+        "/ads/preroll001.ts": 1,
+        "/ads/source000.ts": 1,
+        "/ads/source001.ts": 1,
+        "/ads/source002.ts": 1,
+        "/ads/source003.ts": 1,
+        "/ads/source004.ts": 1,
+        "/ads/source005.ts": 1,
+        "/source/normal/index.m3u8": 2,
+        "/vast/preroll": 1
+      },
+      "samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "scenario": "normal",
+      "sections": [
+        "preroll",
+        "preroll",
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "stopped_at": null,
+      "vast": "preroll"
+    },
+    {
+      "beacons": {},
+      "events": [],
+      "expected_samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "expected_sections": [
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "failures": [],
+      "first_pts": [
+        126000,
+        306480,
+        486960,
+        667440,
+        847920,
+        1028400
+      ],
+      "manifest_discontinuities": 0,
+      "pts_steps_valid": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "requests": {
+        "/ads/source000.ts": 1,
+        "/ads/source001.ts": 1,
+        "/ads/source002.ts": 1,
+        "/ads/source003.ts": 1,
+        "/ads/source004.ts": 1,
+        "/ads/source005.ts": 1,
+        "/source/normal/index.m3u8": 2,
+        "/vast/no-fill": 1
+      },
+      "samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "scenario": "normal",
+      "sections": [
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "stopped_at": null,
+      "vast": "no-fill"
+    },
+    {
+      "beacons": {},
+      "events": [],
+      "expected_samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "expected_sections": [
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "failures": [],
+      "first_pts": [
+        126000,
+        306480,
+        486960,
+        667440,
+        847920,
+        1028400
+      ],
+      "manifest_discontinuities": 0,
+      "pts_steps_valid": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "requests": {
+        "/ads/missing.m3u8": 1,
+        "/ads/source000.ts": 1,
+        "/ads/source001.ts": 1,
+        "/ads/source002.ts": 1,
+        "/ads/source003.ts": 1,
+        "/ads/source004.ts": 1,
+        "/ads/source005.ts": 1,
+        "/source/normal/index.m3u8": 2,
+        "/vast/failed-media": 1
+      },
+      "samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "scenario": "normal",
+      "sections": [
+        "programme_a",
+        "programme_a",
+        "original_break",
+        "original_break",
+        "programme_b",
+        "programme_b"
+      ],
+      "stopped_at": null,
+      "vast": "failed-media"
+    },
+    {
+      "beacons": {},
+      "events": [],
+      "expected_samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "expected_sections": [
+        "programme_a",
+        "programme_a",
+        "replacement",
+        "replacement",
+        "programme_b",
+        "programme_b"
+      ],
+      "failures": [],
+      "first_pts": [
+        126000,
+        306480,
+        126000,
+        306480,
+        847920,
+        1028400
+      ],
+      "manifest_discontinuities": 2,
+      "pts_steps_valid": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "requests": {
+        "/ads/replacement.m3u8": 1,
+        "/ads/replacement000.ts": 1,
+        "/ads/replacement001.ts": 1,
+        "/ads/source000.ts": 1,
+        "/ads/source001.ts": 1,
+        "/ads/source002.ts": 1,
+        "/ads/source003.ts": 1,
+        "/ads/source004.ts": 1,
+        "/ads/source005.ts": 1,
+        "/source/normal/index.m3u8": 2,
+        "/vast/wrong-duration": 1
+      },
+      "samples": [
+        96256,
+        96256,
+        96256,
+        96256,
+        96256,
+        96256
+      ],
+      "scenario": "normal",
+      "sections": [
+        "programme_a",
+        "programme_a",
+        "replacement",
+        "replacement",
+        "programme_b",
+        "programme_b"
+      ],
+      "stopped_at": null,
+      "vast": "wrong-duration"
+    }
+  ]
+}

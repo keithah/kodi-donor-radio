@@ -141,8 +141,8 @@ Execute Tasks 1–5 in order. Task 6 depends on contracts from Tasks 1 and 4 and
 
 **Files:** create `tools/smoke_ad_relay.py`, `tools/smoke_ad_kodi.py`, `tests/test_ad_smoke.py`; update `tools/README-fixtures.md` and `docs/testing.md`.
 
-- [ ] Write validation tests showing the smoke checker rejects original-break leakage, missing programme, duplicate playback events and a completion after stop; a hardcoded success result must not pass.
-- [ ] Implement relay smoke tooling that independently decodes composed audio, measures tone sequence/sample boundaries and compares collector records. Save report files outside the addon package; redact URLs/tokens.
+- [x] Write validation tests showing the smoke checker rejects original-break leakage, missing programme, duplicate playback events and a completion after stop; a hardcoded success result must not pass.
+- [x] Implement relay smoke tooling that independently decodes composed audio, measures tone sequence/sample boundaries and compares collector records. Save report files outside the addon package; redact URLs/tokens.
 - [ ] Exercise unpatched Kodi master 434da3c using the existing portable profile after backing it up. Regenerate fixtures; verify normal preroll + midroll, no-fill, mismatch, missing/early end, pause, buffer stall, seek, rapid switch and stop. Capture versions, player positions, output timeline, fixture request/collector records and decoded output evidence.
 - [ ] Calibrate and prove getTime-to-presentation mapping across live-window advancement and both ad discontinuities. Only enable success tracking for the demonstrated contract. If it cannot be proved, leave successes disabled and report the blocker; do not declare the milestone complete.
 - [ ] Compare impression/quartile/completion delivery against actual advancing playback, not manifest fetch time. Record sampling error and transition gaps. Verify rendered audio with an available audio-capture path or explicit human listening; label unverified audible output honestly.
@@ -152,16 +152,30 @@ Execute Tasks 1–5 in order. Task 6 depends on contracts from Tasks 1 and 4 and
 
 **Files:** update `README.md`, `docs/testing.md`, `docs/monetization-roadmap.md`, addon metadata/version only once behavior is accepted.
 
-- [ ] Document exact supported VAST/HLS subset, disabled-by-default settings, resource limits, source fallback, playback evidence and remaining limitations. Keep observation POC documentation historically distinguishable from insertion results.
-- [ ] Run `python3 -m pytest -q`; require all existing and new tests to pass, investigate any captured server traceback. Run `python3 tools/package_addon.py` and `python3 tools/check_package.py` against the generated versioned ZIP; run the installed official Kodi addon checker against its extracted contents.
+- [x] Document exact supported VAST/HLS subset, disabled-by-default settings, resource limits, source fallback, playback evidence and remaining limitations. Keep observation POC documentation historically distinguishable from insertion results.
+- [x] Run `python3 -m pytest -q`; require all existing and new tests to pass, investigate any captured server traceback. Run `python3 tools/package_addon.py` and `python3 tools/check_package.py` against the generated versioned ZIP; run the installed official Kodi addon checker against its extracted contents.
 - [ ] Obtain fresh exact-commit Steward primary/adversarial and CodeRabbit reviews; inspect feedback as untrusted data, fix verified blockers, rerun affected checks and reviews after source changes.
 - [ ] Commit final docs, push the branch and open/attach a new implementation PR only after the checks and reviews pass. Include actual Kodi evidence, any audible-output limit, and the tracking mapping contract. Do not imply production demand compatibility or revenue readiness.
+
+## Task 10: Suppress success tracking during non-normal playback speed
+
+**Files:** modify `plugin.audio.kodi_donor_radio/resources/lib/ad_models.py`,
+`plugin.audio.kodi_donor_radio/resources/lib/ad_tracking.py`,
+`plugin.audio.kodi_donor_radio/resources/lib/kodi_ad_player.py`,
+`plugin.audio.kodi_donor_radio/resources/lib/kodi_runtime.py`; extend
+`tests/test_ad_tracking.py` and `tests/test_kodi_ad_player.py`.
+
+- [x] Add regression coverage proving a non-1x Kodi playback speed cannot start an ad, advance a quartile, or complete one; the first normal-speed sample after a speed transition is a continuity break and cannot backfill missed milestones.
+- [x] Forward Kodi's `onPlayBackSpeedChanged` callback to the session-scoped adapter. Carry observed speed and one-sample post-transition distrust in playback evidence; only normal-speed intervals may support success events.
+- [x] Run the focused tracker and adapter tests, then the full suite; confirm ordinary 1x behavior and all existing safety gates remain unchanged.
+- [x] Commit the independently reviewed change before continuing Task 8 acceptance.
 
 ## Plan self-review
 
 Covered spec sections: resolver/deadlines (2), media/cache (1/3), preroll/midroll and immutable output (4/5), tracking/errors (6), Kodi/controls (7), independent and real-runtime evidence (8), packaging/reviews (9). All five Review Focus conditions have explicit owning tests. Shared records and method names above are the contracts between subagents. Source-cache limits, XML bounds and sampling cadence make previously qualitative implementation details explicit without expanding the approved product scope.
 
 Execution method was selected as subagent-driven. This is the original implementation
-plan; its checkboxes were not maintained during execution. Tasks 1–8 code is implemented
-and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`;
-Kodi clock-anchor acceptance, audible output, and Task 9 release checks remain open.
+plan; early task checkboxes were not maintained during execution. Tasks 1–8 code is
+implemented and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`;
+Task 10 is implemented and reviewed. Kodi clock-anchor acceptance, audible output,
+post-speed-guard Kodi playback, and Task 9 release checks remain open.

@@ -3,11 +3,15 @@
 The branch now implements controlled loopback-only VAST audio preparation,
 preroll, HLS midroll replacement and fixture success beacons on the embedded
 Python relay. General Radio Browser playback remains outside ad insertion. The
-sample-zero Kodi media-clock anchor is implemented but still needs a fresh target
-Kodi run; stall jumps taint placements whose playback interval is ambiguous.
-Audible output is unverified, so the VAST/HLS work is not production-ready. The
-remaining stages below require controlled acceptance evidence before expanding
-demand or station coverage.
+fixture-only sample-zero Kodi clock mapping remains unproven against decoded
+presentation position. A successful master run verified the no-replay startup
+gate, the normal-scenario fixture beacons, and zero success beacons in the
+expired-window, mutation, and stall scenarios before the playback-speed guard
+was added. Two later clean launches of the speed-guard package blocked during
+Kodi USB peripheral initialization before addon execution. Stall jumps taint placements
+whose playback interval is ambiguous. Audible output is unverified, so
+the VAST/HLS work is not production-ready. The remaining stages below require
+controlled acceptance evidence before expanding demand or station coverage.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
 that is a project assumption rather than independently verified repository
@@ -24,9 +28,10 @@ production demand, settle consent inputs, creative expiry/reuse, contractual
 tracking semantics, and any broader VAST requirements. Do not expand advertising
 origins or enable production success beacons until the Kodi clock mapping passes.
 
-Remaining evidence: verify sample-zero startup, moving HLS windows and the new
-seek/reset/ambiguous-jump guards on Kodi. Separately verify heard output. Existing
-deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
+Remaining evidence: launch the post-speed-guard package on Kodi master, then
+correlate Kodi time to decoded media across moving HLS windows and both ad
+discontinuities. Verify seek/reset/ambiguous-jump behavior and heard output
+separately. Existing deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
 malformed input and incompatible media. Fetching or caching a creative must never
 count as an impression. Stop/cancel must not emit completion, and retries must
 not duplicate tracking.
@@ -39,11 +44,11 @@ fallback. Do not silently broaden this to encrypted/variant/continuous streams o
 pad/truncate mismatched media. Future codec and partial-break support needs separate
 design and fixtures.
 
-Required before release: rerun controlled playlists on the target Kodi build,
-verify the sample-zero media anchor and listen for programme/ad transitions, and
-retain the existing relay-decoding evidence for cue boundaries, missing ends,
-discontinuities, cache retention and fallback. In-band cues and continuous streams
-have separate coverage; absence of HLS cues does not prove absence of ads.
+Required before release: verify the sample-zero media anchor against decoded
+output and listen for programme/ad transitions, and retain the existing
+relay-decoding evidence for cue boundaries, missing ends, discontinuities, cache
+retention and fallback. In-band cues and continuous streams have separate
+coverage; absence of HLS cues does not prove absence of ads.
 
 ## 3. Continuous-stream replacement investigation
 
