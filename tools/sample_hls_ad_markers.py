@@ -9,12 +9,11 @@ from typing import Callable, Dict, List, Mapping, Tuple
 from urllib.parse import urlsplit
 
 from cues import CueTracker
-from hls import Playlist, parse_playlist
+from hls import Playlist, UnsupportedPlaylist, parse_playlist
 from http_client import BODY_BYTES, HttpClient, HttpError, read_bounded
 from models import Event
 from models import Station
 from radio_browser import RadioBrowser
-from station_resolver import resolve_station
 from url_policy import UnsafeUrl
 
 
@@ -86,21 +85,30 @@ class _StationEventSink:
         self.writer.emit_record(record)
 
 
-class _DeadlineClient:
-    """Apply the sampler deadline to resolver calls without changing resolver API."""
-    def __init__(self, client):
-        self.client = client
-
-    def open(self, url, headers, cancel):
-        return self.client.open(url, headers, cancel, deadline=time.monotonic() + 15)
-
-
 def _fetch_playlist(url: str, client: HttpClient, cancel: threading.Event) -> Playlist:
     with client.open(url, {'Accept': 'application/vnd.apple.mpegurl'}, cancel,
                      deadline=time.monotonic() + 15) as response:
         if response.status != 200:
             raise HttpError('Playlist HTTP error')
-        body = read_bounded(response, BODY_BYTES)
+        prefix = b''
+        signature = b'#EXTM3U'
+        bom = b'\xef\xbb\xbf'
+        while len(prefix) < len(signature) + len(bom):
+            block = response.read(len(signature) + len(bom) - len(prefix))
+            if not block:
+                break
+            prefix += block
+            candidate = prefix[len(bom):] if prefix.startswith(bom) else prefix
+            if candidate.startswith(signature):
+                break
+            if not signature.startswith(candidate) and not bom.startswith(prefix):
+                raise UnsupportedPlaylist('Missing HLS signature')
+        candidate = prefix[len(bom):] if prefix.startswith(bom) else prefix
+        if not candidate.startswith(signature):
+            raise UnsupportedPlaylist('Missing HLS signature')
+        body = read_bounded(response, BODY_BYTES, prefix)
+        if b'#EXT-X-' not in body:
+            raise UnsupportedPlaylist('Not an HLS playlist')
         return parse_playlist(body.decode('utf-8-sig'), response.final_url)
 
 
@@ -121,6 +129,8 @@ def load_media_playlist(url: str, client: HttpClient, cancel: threading.Event,
 def _outcome(error):
     if isinstance(error, UnsafeUrl):
         return 'policy_rejection'
+    if isinstance(error, UnsupportedPlaylist):
+        return 'unsupported'
     if isinstance(error, (ValueError, UnicodeError)):
         return 'parser_failure'
     return 'reachability_failure'
@@ -130,7 +140,7 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
                    duration_seconds: int, cancel: threading.Event,
                    monotonic: Callable, wait: Callable) -> Dict[str, object]:
     """Poll one selected media playlist through one cue tracker."""
-    started = monotonic()
+    started = None
     polls = 0
     outcome = 'no_marker_observed'
     tracker = CueTracker('sampler', station.uuid, _StationEventSink(station, writer),
@@ -139,43 +149,38 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
         if cancel.is_set():
             outcome = 'cancelled'
         else:
-            source = resolve_station(station.url, _DeadlineClient(client), cancel)
-            if source.protocol != 'hls':
-                if source.response is not None:
-                    source.response.close()
-                outcome = 'unsupported'
-            else:
-                playlist = load_media_playlist(source.final_url, client, cancel)
-                media_url = playlist.final_url
-                rendition_id = 'selected-media'
-                epoch = 0
-                previous_range = None
-                while True:
-                    if cancel.is_set():
-                        outcome = 'cancelled'
-                        break
-                    if polls and monotonic() - started >= duration_seconds:
-                        break
-                    if polls:
-                        playlist = _fetch_playlist(media_url, client, cancel)
-                        if playlist.is_master:
-                            raise ValueError('Selected media changed to master')
-                    first = playlist.media_sequence
-                    end = first + len(playlist.segments) - 1
-                    if previous_range is not None and first < previous_range[0] and end < previous_range[0]:
-                        epoch += 1
-                    tracker.observe(playlist, rendition_id, epoch)
-                    previous_range = (first, end)
-                    polls += 1
-                    remaining = duration_seconds - (monotonic() - started)
-                    if remaining <= 0:
-                        break
-                    interval = max(2.0, min(10.0, (playlist.target_duration or 4.0) / 2.0))
-                    pause_until = monotonic() + min(interval, remaining)
-                    while not cancel.is_set() and monotonic() < pause_until:
-                        wait(min(0.25, pause_until - monotonic()))
-                if outcome != 'cancelled' and writer.station_count(station.uuid):
-                    outcome = 'marker_observed'
+            playlist = load_media_playlist(station.url, client, cancel)
+            started = monotonic()
+            media_url = playlist.final_url
+            rendition_id = 'selected-media'
+            epoch = 0
+            previous_range = None
+            while True:
+                if cancel.is_set():
+                    outcome = 'cancelled'
+                    break
+                if polls and monotonic() - started >= duration_seconds:
+                    break
+                if polls:
+                    playlist = _fetch_playlist(media_url, client, cancel)
+                    if playlist.is_master:
+                        raise ValueError('Selected media changed to master')
+                first = playlist.media_sequence
+                end = first + len(playlist.segments) - 1
+                if previous_range is not None and first < previous_range[0] and end < previous_range[0]:
+                    epoch += 1
+                tracker.observe(playlist, rendition_id, epoch)
+                previous_range = (first, end)
+                polls += 1
+                remaining = duration_seconds - (monotonic() - started)
+                if remaining <= 0:
+                    break
+                interval = max(2.0, min(10.0, (playlist.target_duration or 4.0) / 2.0))
+                pause_until = monotonic() + min(interval, remaining)
+                while not cancel.is_set() and monotonic() < pause_until:
+                    wait(min(0.25, pause_until - monotonic()))
+            if outcome != 'cancelled' and writer.station_count(station.uuid):
+                outcome = 'marker_observed'
     except Exception as error:
         outcome = 'cancelled' if cancel.is_set() else _outcome(error)
     finally:
@@ -183,7 +188,8 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
     if outcome == 'no_marker_observed' and writer.station_count(station.uuid):
         outcome = 'marker_observed'
     return {'station_uuid': station.uuid, 'station_name': _station_name(station.name),
-            'outcome': outcome, 'elapsed_seconds': max(0.0, monotonic() - started),
+            'outcome': outcome,
+            'elapsed_seconds': max(0.0, monotonic() - started) if started is not None else 0.0,
             'poll_count': polls, 'event_count': writer.station_count(station.uuid),
             'truncated': writer.station_truncated(station.uuid)}
 

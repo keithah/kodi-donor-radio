@@ -177,7 +177,6 @@ def test_sampler_epoch_resets_do_not_join_ad_breaks(playlists):
     first = (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:100\n#EXT-X-CUE-OUT:8\n#EXTINF:4,\nsegment.aac\n')
     routes['/live.m3u8?token=QUERYSECRET'] = [
         first,
-        first,
         (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-CUE-IN\n#EXTINF:4,\nsegment2.aac\n'),
     ]
     _, records = _run_sample(playlists)
@@ -192,3 +191,75 @@ def test_master_playlist_depth_is_bounded(playlists):
     with pytest.raises(ValueError):
         load_media_playlist(base + '/0.m3u8', client, threading.Event())
     assert '/4.m3u8' not in requests
+
+
+def test_sampler_does_not_follow_m3u_to_media(playlists):
+    _, routes, requests, _ = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = (200, '#EXTM3U\nmedia.aac?token=SECRET\n')
+    routes['/media.aac?token=SECRET'] = (200, 'CONTINUOUS_MEDIA')
+
+    result, records = _run_sample(playlists)
+
+    assert result['outcome'] == 'unsupported'
+    assert records == []
+    assert requests == ['/live.m3u8?token=QUERYSECRET']
+
+
+def test_observation_duration_starts_after_media_playlist_load(playlists):
+    base, routes, requests, client = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment.aac\n')
+    clock = _Clock()
+
+    class DelayedClient:
+        def __init__(self):
+            self.calls = 0
+
+        def open(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                clock.value += 10
+            return client.open(*args, **kwargs)
+
+    output = io.StringIO()
+    station = Station('station-1', 'Radio', base + '/live.m3u8?token=QUERYSECRET', 'AAC', True)
+    result = sample_station(station, DelayedClient(), JsonLineWriter(output),
+                            3, threading.Event(), clock.now, clock.wait)
+
+    assert result['poll_count'] >= 2
+    assert clock.value >= 13
+    assert requests.count('/live.m3u8?token=QUERYSECRET') >= 2
+
+
+def test_sampler_rejects_continuous_body_after_signature_probe(playlists):
+    base, routes, requests, client = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = (200, 'A' * 4096)
+    observed = []
+
+    class CountingResponse:
+        def __init__(self, response):
+            self.response = response
+            self.status = response.status
+            self.final_url = response.final_url
+
+        def read(self, size):
+            data = self.response.read(size)
+            observed.append(len(data))
+            return data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.response.close()
+
+    class CountingClient:
+        def open(self, *args, **kwargs):
+            return CountingResponse(client.open(*args, **kwargs))
+
+    station = Station('station-1', 'Radio', base + '/live.m3u8?token=QUERYSECRET', 'AAC', True)
+    result = sample_station(station, CountingClient(), JsonLineWriter(io.StringIO()),
+                            3, threading.Event(), _Clock().now, lambda seconds: None)
+
+    assert result['outcome'] == 'unsupported'
+    assert sum(observed) <= 10
+    assert requests == ['/live.m3u8?token=QUERYSECRET']
