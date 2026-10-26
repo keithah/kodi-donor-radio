@@ -59,3 +59,42 @@ is installed elsewhere.
 With a disposable Kodi portable profile and its JSON-RPC listener, run `python3 tools/smoke_ad_kodi.py --origin http://127.0.0.1:8766 --rpc-port 9090 --report /path/outside/addon/kodi.json`. It opens the controlled entries in the addon's test menu and records 250 ms player clock samples, selected actions, and fixture requests. It checks that the active Kodi item is the requested addon item and that its clock advances in bounded adjacent samples. This is a Kodi player observation, not a proof of audible output or a calibrated ad position. The fixture-only success beacons are experimental diagnostics enabled only for an exact loopback fixture with explicit ad opt-in; production Radio Browser stations must remain unmapped and must not send success beacons until decoded presentation position has been independently tied to Kodi's clock across both discontinuities and a moving live window. Reports omit session URLs and authentication tokens.
 
 `/track/<placement>/<event>` alone records a beacon. `/stats` reports request, beacon, and window counters without counting itself. `/reset` clears them and restarts all source windows. Fetching VAST, playlists, or media cannot create a beacon.
+
+## Radio Browser HLS marker sampler
+
+From the repository root, run:
+
+```sh
+python3 tools/sample_hls_ad_markers.py --pages 20 --limit 8 --workers 4 --duration-seconds 1200 > hls-markers.jsonl
+```
+
+This scans at most 20 Radio Browser pages, selects up to eight HLS stations
+whose directory URL is on `cdnstream1.com`, and observes each selected station
+for 20 minutes with at most four workers. The listed values are the defaults;
+the limits are 100 pages, 20 candidates, four workers, and 1,200–7,200 seconds
+per station. Press Ctrl-C to cancel and allow workers to close their requests
+and write final station summaries. Cancellation exits with status 130.
+
+Output is redacted JSON Lines on stdout: cue events followed by a summary for
+each selected station. The sampler fetches HLS playlist bodies only. It
+requires a recognized playlist response type before reading a body, follows
+at most three playlist levels, and never downloads media segments. Each
+request has a 15-second deadline. `no_marker_observed` means only that no
+supported marker was seen during the sampled interval; it is not an ad-free
+claim. Station names are bounded, event records are capped at 1,024 per
+station, and the summary reports truncation.
+
+Up to three consecutive playlist reachability failures are tolerated during
+polling; a successful poll resets that streak. A fourth consecutive failure
+ends that station early. Its summary reports the elapsed observation time,
+which may be shorter than the requested window, with
+`outcome: reachability_failure`. Earlier marker and unresolved-break event
+records remain available in JSON Lines. Parser, unsupported, and policy
+failures end the station immediately and retain their failure outcome even
+when earlier cues were logged. Other station workers continue independently.
+
+If discovery selects no candidates, stdout contains a `discovery_summary`
+record with `outcome: no_candidates`, the pages read, and a selected count of
+zero. Exit status is 0 for normal outcomes (including no candidates and
+`unsupported`), 1 for discovery failure or any station-level policy,
+reachability, or parser failure, and 130 for Ctrl-C.

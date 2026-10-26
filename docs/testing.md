@@ -1028,3 +1028,36 @@ ad state, and deduplicates identical metadata while refreshing the active
 boundary timeout. A missing field does not end a break. Opaque `adswizzContext`
 and `adId` values are dropped from diagnostics.
 This remains observation-only and does not feed VAST replacement or beacons.
+
+## Long Radio Browser HLS marker sample
+
+Run the command below from the repository root:
+
+```sh
+python3 tools/sample_hls_ad_markers.py --pages 20 --limit 8 --workers 4 --duration-seconds 1200 > hls-markers.jsonl
+```
+
+It scans a bounded directory window, selects up to eight `cdnstream1.com` HLS
+entries, and gives each selected station its own 1,200-second observation
+window. Four workers run concurrently by default. Redacted JSON Lines contain
+cue events and one completion summary per station. The sampler fetches only
+supported HLS playlist responses; it rejects audio, unknown, or missing
+response types before reading a body and never requests media segments.
+`no_marker_observed` describes the sampled interval only; it does not establish
+that the station is ad-free. Ctrl-C cancels workers, finalizes open breaks as
+unresolved, and exits nonzero after summaries are written.
+
+Polling tolerates three consecutive reachability failures and resets the
+streak after a successful playlist. A fourth consecutive failure ends that
+station early; its summary reports `reachability_failure` and the shorter
+elapsed time, while earlier cue and unresolved-break event records remain in
+the JSON Lines output. Parser, unsupported, and policy failures retain their
+failure outcomes even if earlier cues were logged, without cancelling peers.
+Empty selection emits one
+`discovery_summary` JSON Line with `no_candidates`, pages read, and zero
+selected stations. Normal outcomes exit 0, discovery or station policy,
+reachability, or parser failures exit 1, and Ctrl-C exits 130.
+
+`python3 -m pytest tests/test_hls_sampler.py -q` covers candidate bounds, the
+strict playlist gate, segment-free cue sampling, redaction, concurrency,
+cancellation, and CLI limits. Run `python3 -m pytest -q` for the full suite.
