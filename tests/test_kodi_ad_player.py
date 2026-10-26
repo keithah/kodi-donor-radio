@@ -6,7 +6,6 @@ import pytest
 
 from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
 from kodi_ad_player import KodiAdPlayback, KodiSessionClockAnchor
-from test_kodi_runtime import kodi  # Reuse the native Kodi boundary fixture.
 
 
 def _patch_player_clock(monkeypatch, clock):

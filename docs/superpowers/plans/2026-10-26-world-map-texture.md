@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python standard library, Kodi `xbmcgui.ControlImage`, pytest.
 
-**Spec:** `docs/superpowers/specs/2026-10-26-world-map-texture-design.md` and `/Users/hermes/.codex/attachments/de472828-01d6-4bb1-915d-aee4ae7427ee/donor-radio-spec.md` (Map window and basemap/projection sections).
+**Spec:** `docs/superpowers/specs/2026-10-26-world-map-texture-design.md` and `docs/donor-radio-spec.md` (Map window and basemap/projection sections).
 
 ## Global Constraints
 

@@ -256,7 +256,10 @@ def _directory_rows(kind, rows):
         else:
             if type(row) is not StationSummary:
                 raise ValueError('Expected safe station summary')
-            result.append(row)
+            # Remote art is not used by this UI and belongs behind the same
+            # validated local-fetch path as any other directory URL. Keep no
+            # remote URL in the persistent offline directory cache.
+            result.append(replace(row, favicon=''))
     return tuple(result)
 
 
@@ -429,9 +432,15 @@ class FavoriteStore(_Store):
     def limit(self):
         return MAX_FAVORITES
 
+    def _write(self, items):
+        # The add-on uses bundled artwork. Never persist remote image URLs in
+        # favorite metadata, including when rewriting older records.
+        super()._write([replace(item, favicon='') for item in items])
+
     def add(self, station_summary):
         if type(station_summary) is not StationSummary:
             raise ValueError('Expected safe station summary')
+        station_summary = replace(station_summary, favicon='')
         with self._mutation():
             items = self.list()
             for index, item in enumerate(items):
@@ -447,7 +456,7 @@ class FavoriteStore(_Store):
         if (not isinstance(summaries, (list, tuple)) or len(summaries) > self.limit or
                 any(type(summary) is not StationSummary for summary in summaries)):
             raise ValueError('Expected safe station summaries')
-        updates = {summary.station_uuid: summary for summary in summaries}
+        updates = {summary.station_uuid: replace(summary, favicon='') for summary in summaries}
         with self._mutation():
             items = self.list()
             refreshed = [replace(updates[item.station_uuid], last_played=item.last_played)

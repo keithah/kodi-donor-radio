@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3, Kodi add-on runtime, pytest, JSON profile files.
 
-**Spec:** `/Users/hermes/.codex/attachments/de472828-01d6-4bb1-915d-aee4ae7427ee/donor-radio-spec.md` (Local state; Search; Playback and stream health).
+**Spec:** `docs/donor-radio-spec.md` (Local state; Search; Playback and stream health).
 
 ## Global Constraints
 

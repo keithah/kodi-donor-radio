@@ -506,6 +506,19 @@ def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_pa
     with pytest.raises(ValueError): store.put('place', 'raw', [station])
 
 
+def test_directory_cache_never_persists_favicon_urls(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    summary = ui().StationSummary('station', 'Station',
+                                  favicon='https://radio.example/live?token=secret')
+
+    store.put('place', 'place:radius=25', [summary])
+
+    raw = store.path.read_text()
+    assert 'radio.example' not in raw
+    assert 'token=secret' not in raw
+    assert store.get('place', 'place:radius=25', 60).rows[0].favicon == ''
+
+
 @pytest.mark.parametrize('kind,rows,continuation,stored_at', [
     ('search', [], None, 1000), ('countries', [('France', 'fr')], None, 1000),
     ('countries', [('France', 'FRA')], None, 1000), ('countries', [('France', 'FR', 'x')], None, 1000),
@@ -597,8 +610,8 @@ def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_da
 
 def test_directory_cache_file_byte_bound_preserves_last_valid_file(tmp_path):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
-    summary = ui().StationSummary('large', 'é'*512, city='é'*256, country='é'*256,
-                                  tags='é'*1024, favicon='https://example.com/' + 'a'*2028)
+    summary = ui().StationSummary('s'*128, '𝄞'*512, city='𝄞'*256, state='𝄞'*256,
+                                  country='𝄞'*256, codec='𝄞'*64, tags='𝄞'*1024)
     store.put('map', 'first', [summary]*200)
     before = store.path.read_bytes()
     assert len(before) <= 2*1024*1024
@@ -627,8 +640,9 @@ def test_favorite_refresh_updates_metadata_preserving_order_played_and_missing(t
                       latitude=1, longitude=2, favicon='https://radio.example/logo.png',
                       last_played='2026-10-24T12:00:00Z')
     store.refresh([m.StationSummary('unknown', 'Never add'), updated])
-    assert store.list() == [replace(updated, last_played=first.last_played), missing]
+    assert store.list() == [replace(updated, favicon='', last_played=first.last_played), missing]
     assert '"url"' not in store.path.read_text()
+    assert 'radio.example/logo.png' not in store.path.read_text()
 
 
 def test_favorite_refresh_invalid_later_summary_leaves_file_unchanged(tmp_path):
