@@ -1049,9 +1049,11 @@ unresolved, and exits nonzero after summaries are written.
 
 Polling tolerates three consecutive reachability failures and resets the
 streak after a successful playlist. A fourth consecutive failure ends that
-station early; its summary retains the shorter elapsed time and any earlier
-`marker_observed` evidence. Parser, unsupported, and policy failures end that
-station immediately, without cancelling peers. Empty selection emits one
+station early; its summary reports `reachability_failure` and the shorter
+elapsed time, while earlier cue and unresolved-break event records remain in
+the JSON Lines output. Parser, unsupported, and policy failures retain their
+failure outcomes even if earlier cues were logged, without cancelling peers.
+Empty selection emits one
 `discovery_summary` JSON Line with `no_candidates`, pages read, and zero
 selected stations. Normal outcomes exit 0, discovery or station policy,
 reachability, or parser failures exit 1, and Ctrl-C exits 130.

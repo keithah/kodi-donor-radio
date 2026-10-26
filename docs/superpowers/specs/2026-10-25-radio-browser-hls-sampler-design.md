@@ -78,8 +78,10 @@ without a body read. This strict gate can exclude servers that mislabel HLS
 responses. Polls are cancellation-aware, each request is bounded, and failures
 affect only that station's result. Tolerate three consecutive reachability
 failures during polling, resetting after a successful poll. A fourth ends the
-station early. Parser, unsupported, and policy failures remain terminal.
-Earlier marker evidence remains `marker_observed` after reachability exhaustion.
+station early with `reachability_failure`. Parser, unsupported, and policy
+failures remain terminal and retain their failure outcomes. Earlier marker
+and unresolved-break event records remain available after a failure; the
+summary does not reclassify a failed sample as `marker_observed`.
 
 The existing `CueTracker` remains the source of break transitions. A narrow
 JSON Lines sink writes only an allowlist of event kinds and fields needed for

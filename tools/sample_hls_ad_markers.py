@@ -207,8 +207,7 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
                             break
                         reachability_failures += 1
                         if reachability_failures > POLL_FAILURE_LIMIT:
-                            outcome = ('marker_observed' if writer.station_count(station.uuid)
-                                       else 'reachability_failure')
+                            outcome = 'reachability_failure'
                             break
                         remaining = duration_seconds - (monotonic() - started)
                         if remaining <= 0:
@@ -234,8 +233,6 @@ def sample_station(station: Station, client: HttpClient, writer: JsonLineWriter,
                 pause_until = monotonic() + min(interval, remaining)
                 while not cancel.is_set() and monotonic() < pause_until:
                     wait(min(0.25, pause_until - monotonic()))
-            if outcome != 'cancelled' and writer.station_count(station.uuid):
-                outcome = 'marker_observed'
     except Exception as error:
         outcome = 'cancelled' if cancel.is_set() else _outcome(error)
     finally:

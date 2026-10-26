@@ -87,9 +87,11 @@ station, and the summary reports truncation.
 Up to three consecutive playlist reachability failures are tolerated during
 polling; a successful poll resets that streak. A fourth consecutive failure
 ends that station early. Its summary reports the elapsed observation time,
-which may be shorter than the requested window. Earlier marker evidence
-remains `marker_observed`; parser, unsupported, and policy failures end the
-station immediately. Other station workers continue independently.
+which may be shorter than the requested window, with
+`outcome: reachability_failure`. Earlier marker and unresolved-break event
+records remain available in JSON Lines. Parser, unsupported, and policy
+failures end the station immediately and retain their failure outcome even
+when earlier cues were logged. Other station workers continue independently.
 
 If discovery selects no candidates, stdout contains a `discovery_summary`
 record with `outcome: no_candidates`, the pages read, and a selected count of

@@ -341,10 +341,28 @@ def test_sampler_preserves_marker_after_exhausted_poll_failures(playlists):
 
     result, records = _run_sample(playlists, duration=30)
 
-    assert result['outcome'] == 'marker_observed'
+    assert result['outcome'] == 'reachability_failure'
+    assert sampler._station_summary(_station('station-1'), result)['outcome'] == 'reachability_failure'
     assert result['elapsed_seconds'] == 8
     assert len(requests) == 5
     assert any(record['kind'] == 'break_start' for record in records)
+    assert any(record['kind'] == 'break_unresolved' for record in records)
+
+
+def test_sampler_preserves_cue_event_but_reports_terminal_parser_failure(playlists):
+    _, routes, requests, _ = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = [
+        (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-CUE-OUT:8\n#EXTINF:4,\nsegment.aac\n'),
+        (200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:BAD,\nsegment.aac\n'),
+    ]
+
+    result, records = _run_sample(playlists, duration=30)
+    summary = sampler._station_summary(_station('station-1'), result)
+
+    assert result['outcome'] == 'parser_failure'
+    assert summary['outcome'] == 'parser_failure'
+    assert len(requests) == 2
+    assert any(record['kind'] == 'cue_observed' for record in records)
     assert any(record['kind'] == 'break_unresolved' for record in records)
 
 
