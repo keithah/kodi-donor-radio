@@ -93,10 +93,13 @@ def playlists():
         def do_GET(self):
             requests.append(self.path)
             value = routes.get(self.path, (404, ''))
-            status, body = value.pop(0) if isinstance(value, list) else value
+            response = value.pop(0) if isinstance(value, list) else value
+            status, body = response[:2]
+            content_type = response[2] if len(response) > 2 else 'application/vnd.apple.mpegurl'
             data = body.encode()
             self.send_response(status)
-            self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
+            if content_type is not None:
+                self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -239,6 +242,7 @@ def test_sampler_rejects_continuous_body_after_signature_probe(playlists):
         def __init__(self, response):
             self.response = response
             self.status = response.status
+            self.headers = response.headers
             self.final_url = response.final_url
 
         def read(self, size):
@@ -262,4 +266,42 @@ def test_sampler_rejects_continuous_body_after_signature_probe(playlists):
 
     assert result['outcome'] == 'unsupported'
     assert sum(observed) <= 10
+    assert requests == ['/live.m3u8?token=QUERYSECRET']
+
+
+@pytest.mark.parametrize('content_type', ['audio/aac', 'application/octet-stream', None])
+def test_sampler_rejects_nonplaylist_mime_before_body_read(playlists, content_type):
+    base, routes, requests, client = playlists
+    routes['/live.m3u8?token=QUERYSECRET'] = (
+        200, '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nmedia.aac\n', content_type)
+    reads = []
+
+    class TrackedResponse:
+        def __init__(self, response):
+            self.response = response
+            self.status = response.status
+            self.headers = response.headers
+            self.final_url = response.final_url
+
+        def read(self, size):
+            reads.append(size)
+            return self.response.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.response.close()
+
+    class TrackedClient:
+        def open(self, *args, **kwargs):
+            return TrackedResponse(client.open(*args, **kwargs))
+
+    station = Station('station-1', 'Radio', base + '/live.m3u8?token=QUERYSECRET', 'AAC', True)
+    clock = _Clock()
+    result = sample_station(station, TrackedClient(), JsonLineWriter(io.StringIO()),
+                            3, threading.Event(), clock.now, clock.wait)
+
+    assert result['outcome'] == 'unsupported'
+    assert reads == []
     assert requests == ['/live.m3u8?token=QUERYSECRET']

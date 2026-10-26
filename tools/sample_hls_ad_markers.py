@@ -23,6 +23,10 @@ EVENT_KINDS = frozenset(('cue_observed', 'break_start', 'break_update',
 EVENT_DETAILS = ('media_sequence', 'discontinuity', 'media_position',
                  'duration', 'classification', 'reason')
 EVENT_LIMIT = 1024
+HLS_CONTENT_TYPES = frozenset((
+    'application/vnd.apple.mpegurl', 'application/x-mpegurl',
+    'application/mpegurl', 'audio/x-mpegurl', 'audio/mpegurl',
+))
 
 
 def _station_name(name):
@@ -90,6 +94,9 @@ def _fetch_playlist(url: str, client: HttpClient, cancel: threading.Event) -> Pl
                      deadline=time.monotonic() + 15) as response:
         if response.status != 200:
             raise HttpError('Playlist HTTP error')
+        content_type = response.headers.get('content-type', '').split(';', 1)[0].strip().lower()
+        if content_type not in HLS_CONTENT_TYPES:
+            raise UnsupportedPlaylist('Non-playlist content type')
         prefix = b''
         signature = b'#EXTM3U'
         bom = b'\xef\xbb\xbf'
