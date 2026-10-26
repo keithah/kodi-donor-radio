@@ -173,9 +173,12 @@ def test_unavailable_clock_gap_taints_only_intersected_ad_after_close_recovery(
     assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
 
 
-@pytest.mark.parametrize("transition", ({"paused": True}, {"seeking": True},
-                                         {"speed_changed": True}))
-def test_explicit_transition_breaks_unavailable_clock_gap(transition):
+@pytest.mark.parametrize("transition, expected_events", (
+    ({"paused": True}, EVENTS),
+    ({"seeking": True}, EVENTS),
+    ({"speed_changed": True}, ("impression", "start")),
+))
+def test_unmapped_explicit_transition_preserves_applicable_ambiguity(transition, expected_events):
     instance, _, queued = tracker()
     view = presentation()
     instance.observe(view, sample(.05, 0))
@@ -186,7 +189,30 @@ def test_explicit_transition_breaks_unavailable_clock_gap(transition):
     instance.observe(view, sample(.10, 1.0))
     for tick in range(1, 17):
         instance.observe(view, sample(.10 + tick * .25, 1.0 + tick * .25))
-    assert [event for _, event, _ in queued] == list(EVENTS)
+    assert [event for _, event, _ in queued] == list(expected_events)
+
+
+def test_unmapped_speed_transition_taints_intersected_ads_on_cached_recovery():
+    instance, _, queued = tracker()
+    first = presentation(duration=1)
+    crossed = presentation(start=1.2, duration=.1, placement_id='crossed')
+    later = presentation(start=2, duration=1, placement_id='later')
+    view = Presentation(first.segments, first.placements + crossed.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(0, .25, mapped=False, speed_changed=True))
+    instance.observe(view, sample(0, .5, mapped=False, paused=True))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    # Mapped cache evidence locates the unresolved interval without proving
+    # playback. It must also taint an ad entirely crossed during the gap.
+    instance.observe(view, sample(1.5, .75, caching=True))
+    assert instance._progress['p1'].ambiguous is True
+    assert instance._progress['crossed'].ambiguous is True
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    for tick in range(7):
+        instance.observe(view, sample(1.5 + tick * .25, 1 + tick * .25))
+    assert [event for placement, event, _ in queued if placement == 'p1'] == ['impression', 'start']
+    assert [event for placement, event, _ in queued if placement == 'crossed'] == []
+    assert [event for placement, event, _ in queued if placement == 'later'] == list(EVENTS)
 
 
 def test_unmapped_clock_jump_taints_ad_before_tracking_resumes():

@@ -57,7 +57,8 @@ def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkey
     adapter.on_end("source_end")
 
 
-def test_startup_gate_does_not_replay_unverified_zero_as_preroll(monkeypatch):
+@pytest.mark.parametrize('confirmation', (.1, .25, .318))
+def test_startup_gate_does_not_replay_unverified_zero_as_preroll(monkeypatch, confirmation):
     session = _session()
     session.ad_enabled = True
     ad = ResolvedAd('creative', 'fixture.ts', 1.0,
@@ -65,7 +66,7 @@ def test_startup_gate_does_not_replay_unverified_zero_as_preroll(monkeypatch):
                           for event in ('impression', 'start', 'firstQuartile')),
                     ())
     session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
-    clocks = iter((0.0, .318, .6))
+    clocks = iter((0.0, confirmation, .6))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
 
@@ -720,6 +721,74 @@ def test_paused_speed_change_taints_started_ad_after_close_resumption(monkeypatc
         assert paused_sample.position_seconds == .6
         assert paused_sample.speed == paused_speed
         assert paused_sample.speed_changed is True
+    finally:
+        adapter.close()
+
+
+@pytest.mark.parametrize('failed_read', ('clock', 'cache'))
+@pytest.mark.parametrize('unavailable_count', (1, 3))
+def test_unmapped_speed_round_trip_taints_started_ad_after_close_recovery(
+        monkeypatch, failed_read, unavailable_count):
+    session = _session()
+    session.ad_enabled = True
+    events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
+    ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
+        TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
+    session.presentation = lambda: Presentation((), (
+        Placement('affected', ad, 24000, 72000),
+        Placement('later', ad, 96000, 144000)), False)
+    clocks = iter((.25, .5) + (.55,) * unavailable_count +
+                  (.6, .75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3))
+    unavailable = False
+    queued, records = [], []
+
+    def clock():
+        position = next(clocks)
+        if unavailable and failed_read == 'clock':
+            raise RuntimeError('clock unavailable')
+        return position
+
+    def cache():
+        if unavailable and failed_read == 'cache':
+            raise RuntimeError('cache state unavailable')
+        return False
+
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url):
+            queued.append((placement_id, event)); return True
+        def close(self): pass
+
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    adapter = KodiAdPlayback(SimpleNamespace(get=lambda _: session, sink=SimpleNamespace(emit=records.append)),
+                             SimpleNamespace(isPlaying=lambda: True, getTime=clock),
+                             client=SimpleNamespace(), fixture_origin='http://127.0.0.1:8765',
+                             is_caching=cache)
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10 + next(ticks) * .25)
+    try:
+        adapter.sample()
+        adapter.sample()
+        assert adapter._clock_ready is True
+        assert queued == [('affected', 'impression'), ('affected', 'start')]
+        adapter.on_speed_changed(.5, session.id)
+        adapter.on_speed_changed(1, session.id)
+        unavailable = True
+        for tick in range(unavailable_count):
+            adapter.sample()
+            assert adapter.last_sample.mapped is False
+            assert adapter.last_sample.speed_changed is (tick == 0)
+            assert records[-1].details['tracking_enabled'] is False
+            assert queued == [('affected', 'impression'), ('affected', 'start')]
+        unavailable = False
+        # Only 100 ms beyond the last played position; ordinary proximity
+        # recovery must not erase the earlier unlocated speed transition.
+        for _ in range(11):
+            adapter.sample()
+        assert [event for placement, event in queued if placement == 'affected'] == ['impression', 'start']
+        assert [event for placement, event in queued if placement == 'later'] == list(events)
+        assert adapter.tracker._progress['affected'].ambiguous is True
     finally:
         adapter.close()
 

@@ -114,7 +114,10 @@ class KodiAdPlayback:
         self._startup_samples = []
         if self._is_loopback_fixture(self.fixture_origin) and getattr(session, 'ad_enabled', False):
             self.worker = BeaconWorker(self.client, session.cancel, self.fixture_origin)
-            self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue)
+            # Startup confirmation proves a running clock, but the withheld
+            # sample at zero cannot prove entry into a preroll.
+            self.tracker = AdTracker(session_id, self._emit, self.worker.enqueue,
+                                     allow_preroll_start=False)
             # The sample-zero mapping is deliberately limited to explicit
             # loopback fixtures; normal Radio Browser sessions stay unmapped.
             self.enable_mapping(KodiSessionClockAnchor(session_id))

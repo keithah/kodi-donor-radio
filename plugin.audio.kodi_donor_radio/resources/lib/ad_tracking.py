@@ -45,8 +45,9 @@ class AdTracker:
     emit receives a mapping with kind, event, placement_id, creative_id,
     reason, and session_id. Identifiers are opaque hashes; no URL is emitted.
     """
-    def __init__(self, session_id, emit, enqueue):
+    def __init__(self, session_id, emit, enqueue, allow_preroll_start=True):
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
+        self._allow_preroll_start = allow_preroll_start
         self._previous = None
         self._previous_clock = None
         self._last_good = None
@@ -54,6 +55,8 @@ class AdTracker:
         self._stationary_since = None
         self._seen_sample = False
         self._last_speed = 1.0
+        self._pending_speed_taint = False
+        self._speed_taint_origin = None
         self._progress = {}
         self._presentation = None
         self._finished = False
@@ -102,7 +105,19 @@ class AdTracker:
             self._seen_sample = True
             # Even a rate round trip between polls breaks the interval. Keep
             # crossed placements ambiguous rather than backfilling on resumption.
-            self._taint_ambiguous(presentation, self._previous or self._last_good, sample)
+            if not self._pending_speed_taint:
+                self._speed_taint_origin = self._previous or self._last_good
+            self._pending_speed_taint = True
+        if self._pending_speed_taint:
+            if sample.mapped and math.isfinite(sample.position_seconds):
+                self._taint_ambiguous(presentation, self._speed_taint_origin, sample)
+                self._pending_speed_taint = False
+                self._speed_taint_origin = None
+            elif sample.seeking:
+                # An explicit seek permanently invalidates the fixture mapping.
+                self._pending_speed_taint = False
+                self._speed_taint_origin = None
+            # Unavailable reads and pauses cannot locate or erase the interval.
         clock_observed = (not speed_untrusted and sample.mapped and sample.playing and not sample.paused and
                           not sample.seeking and math.isfinite(sample.position_seconds) and
                           math.isfinite(sample.monotonic_seconds))
@@ -167,7 +182,7 @@ class AdTracker:
                 continue
             position = sample.position_seconds
             near_start = (start <= position <= min(end, start + START_TOLERANCE) and
-                          first_sample)
+                          first_sample and (start > 0 or self._allow_preroll_start))
             if (near_start and self._initial_bad_position is not None
                     and self._initial_bad_position > start + START_TOLERANCE):
                 near_start = False
