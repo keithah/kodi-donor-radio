@@ -354,3 +354,52 @@ def test_tracker_diagnostics_contain_only_opaque_ids_and_fixed_reason():
         assert len(diagnostic["placement_id"]) == 16
         assert len(diagnostic["creative_id"]) == 16
         assert "secret" not in repr(diagnostic)
+
+
+# Removing the speed gate would allow these plausible clock advances to succeed.
+def test_non_normal_speed_cannot_start_advance_or_complete():
+    for speed in (0, .5, 1.000001, 2, -1, float('nan'), float('inf'), None):
+        instance, _, queued = tracker()
+        view = presentation(duration=1)
+        for tick in range(5):
+            instance.observe(view, sample(tick * .25, tick * .25, speed=speed))
+        assert queued == [], speed
+
+        instance, _, queued = tracker()
+        instance.observe(view, sample(0, 0))
+        for tick in range(1, 5):
+            instance.observe(view, sample(tick * .25, tick * .25, speed=speed))
+        assert [event for _, event, _ in queued] == ['impression', 'start'], speed
+
+
+def test_speed_round_trip_breaks_continuity_without_backfilling():
+    instance, _, queued = tracker()
+    view = presentation(duration=1)
+    instance.observe(view, sample(0, 0))
+    # Both callbacks occurred between polls; observed rate alone is normal.
+    instance.observe(view, sample(.25, .25, speed=1, speed_changed=True))
+    for tick in range(2, 5):
+        instance.observe(view, sample(tick * .25, tick * .25))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+
+
+def test_speed_transition_does_not_taint_later_normal_speed_ad():
+    instance, _, queued = tracker()
+    view = presentation(start=1, duration=1)
+    instance.observe(view, sample(0, 0, speed=.5))
+    instance.observe(view, sample(.25, .25, speed_changed=True))
+    for tick in range(2, 9):
+        instance.observe(view, sample(tick * .25, tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
+def test_first_normal_rate_after_non_normal_sample_cannot_backfill():
+    instance, _, queued = tracker()
+    view = presentation(duration=1)
+    instance.observe(view, sample(0, 0))
+    instance.observe(view, sample(.125, .25, speed=.5))
+    instance.observe(view, sample(.25, .5))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    for tick in range(2, 5):
+        instance.observe(view, sample(tick * .25, .5 + tick * .25))
+    assert [event for _, event, _ in queued] == ['impression', 'start']

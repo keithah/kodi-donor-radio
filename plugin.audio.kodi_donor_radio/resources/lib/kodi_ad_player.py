@@ -66,6 +66,8 @@ class KodiAdPlayback:
         self.worker = None
         self.paused = False
         self.seeking = False
+        self.speed = 1.0
+        self.speed_changed = False
         self.last_sample = None
         self._clock_ready = False
         self._startup_samples = []
@@ -104,6 +106,8 @@ class KodiAdPlayback:
             return
         self.session_id, self.session = session_id, session
         self.paused = self.seeking = False
+        self.speed = 1.0
+        self.speed_changed = False
         self.mapping_valid = False
         self.mapper = None
         self._clock_ready = False
@@ -136,7 +140,8 @@ class KodiAdPlayback:
             playing, position, mapped, caching = False, None, False, True
         self.mapping_valid = mapped
         raw_sample = PlaybackSample(self.session_id, position if mapped else 0.0,
-                                    now, playing, self.paused, self.seeking, mapped, caching)
+                                    now, playing, self.paused, self.seeking, mapped, caching,
+                                    self.speed, self.speed_changed)
         tracker_samples = [raw_sample]
         tracking_enabled = (mapped and playing and not self.paused and
                             not self.seeking and not caching)
@@ -144,7 +149,8 @@ class KodiAdPlayback:
             tracking_enabled = False
             # Kodi can report zero before a startup clock reset. Buffer only two
             # consecutive usable samples so that reset cannot emit early beacons.
-            if (mapped and playing and not self.paused and not self.seeking and not caching):
+            if (mapped and playing and not self.paused and not self.seeking and not caching
+                    and self.speed == 1 and not self.speed_changed):
                 if self._startup_samples:
                     first = self._startup_samples[0]
                     elapsed = now - first.monotonic_seconds
@@ -167,10 +173,15 @@ class KodiAdPlayback:
                 self._startup_samples = []
             if not self._clock_ready:
                 tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
-                                                  self.paused, self.seeking, False, caching)]
+                                                  self.paused, self.seeking, False, caching,
+                                                  self.speed, self.speed_changed)]
         if not tracking_enabled:
             tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
-                                              self.paused, self.seeking, False, caching)]
+                                              self.paused, self.seeking, False, caching,
+                                              self.speed, self.speed_changed)]
+        # Preserve the mapped position in speed evidence so the tracker can
+        # taint placements crossed at an untrusted rate.
+        tracking_enabled = tracking_enabled and self.speed == 1 and not self.speed_changed
         if self.tracker is not None:
             self.manager.sink.emit(Event(
                 'ad_clock_sample', self.session_id, session.station.uuid,
@@ -184,6 +195,7 @@ class KodiAdPlayback:
         for sample in tracker_samples:
             self.tracker.observe(presentation, sample)
         self.seeking = False
+        self.speed_changed = False
 
     def _flush_errors(self):
         session = self.session
@@ -195,6 +207,18 @@ class KodiAdPlayback:
                                          session.source.protocol, 'vast', error.code,
                                          datetime.now(timezone.utc).isoformat(), time.monotonic(),
                                          {'reason': error.reason}))
+
+    def on_speed_changed(self, speed, session_id=None):
+        if session_id is not None and session_id != self.session_id:
+            return
+        try:
+            speed = float(speed)
+        except (TypeError, ValueError, OverflowError):
+            speed = None
+        if speed != self.speed:
+            self.speed_changed = True
+            self._startup_samples = []
+        self.speed = speed
 
     def on_seek(self, session_id=None):
         if session_id is None or session_id == self.session_id:
@@ -233,5 +257,7 @@ class KodiAdPlayback:
         self.mapping_valid = False
         self.last_sample = None
         self.paused = self.seeking = False
+        self.speed = 1.0
+        self.speed_changed = False
         self._clock_ready = False
         self._startup_samples = []

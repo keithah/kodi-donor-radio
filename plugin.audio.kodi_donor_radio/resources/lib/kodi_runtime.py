@@ -1030,6 +1030,10 @@ class RelayPlayer(xbmc.Player):
         if identity is not None and not xbmc.getCondVisibility('Player.Paused'):
             self.ads.on_resume(identity)
 
+    def onPlayBackSpeedChanged(self, speed):
+        identity = self._callback_session()
+        if identity is not None: self.ads.on_speed_changed(speed, identity)
+
     def onPlayBackSeek(self, time, seek_offset):
         identity = self._callback_session()
         if identity is not None: self.ads.on_seek(identity)

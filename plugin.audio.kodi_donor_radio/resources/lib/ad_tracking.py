@@ -52,6 +52,7 @@ class AdTracker:
         self._initial_bad_position = None
         self._stationary_since = None
         self._seen_sample = False
+        self._last_speed = 1.0
         self._progress = {}
         self._presentation = None
         self._finished = False
@@ -93,7 +94,15 @@ class AdTracker:
         if self._finished or sample.session_id != self.session_id:
             return
         self._presentation = presentation
-        good = (sample.mapped and sample.playing and not sample.paused and
+        speed_untrusted = (sample.speed != 1 or sample.speed_changed or
+                           sample.speed != self._last_speed)
+        self._last_speed = sample.speed
+        if speed_untrusted:
+            self._seen_sample = True
+            # Even a rate round trip between polls breaks the interval. Keep
+            # crossed placements ambiguous rather than backfilling on resumption.
+            self._taint_ambiguous(presentation, self._previous or self._last_good, sample)
+        good = (not speed_untrusted and sample.mapped and sample.playing and not sample.paused and
                 not sample.seeking and not sample.caching and
                 math.isfinite(sample.position_seconds) and
                 math.isfinite(sample.monotonic_seconds))

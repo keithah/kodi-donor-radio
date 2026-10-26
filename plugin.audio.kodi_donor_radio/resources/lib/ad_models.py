@@ -99,3 +99,5 @@ class PlaybackSample:
     seeking: bool
     mapped: bool
     caching: bool = False
+    speed: Optional[float] = 1.0
+    speed_changed: bool = False
