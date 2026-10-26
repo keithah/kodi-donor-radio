@@ -18,6 +18,9 @@ def host_is_cdnstream1(url: str) -> bool:
         parsed = urlsplit(url)
         hostname = parsed.hostname
         _ = parsed.port  # Access validates the port syntax and range.
+        authority = parsed.netloc.rsplit('@', 1)[-1]
+        if authority.endswith(':'):
+            return False
     except ValueError:
         return False
     if parsed.scheme.lower() not in ('http', 'https') or not hostname:

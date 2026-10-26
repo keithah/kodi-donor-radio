@@ -16,6 +16,7 @@ def test_host_filter_requires_cdnstream1_domain_boundary():
 @pytest.mark.parametrize('url', [
     'https://cdnstream1.com:bad/path',
     'https://cdnstream1.com:65536/path',
+    'https://cdnstream1.com:/path',
 ])
 def test_host_filter_rejects_malformed_and_out_of_range_ports(url):
     assert host_is_cdnstream1(url) is False
