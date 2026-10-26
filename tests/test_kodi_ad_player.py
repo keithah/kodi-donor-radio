@@ -663,6 +663,67 @@ def test_cached_speed_change_keeps_crossed_placement_ambiguous(monkeypatch, cach
         adapter.close()
 
 
+@pytest.mark.parametrize('caching', (False, True))
+@pytest.mark.parametrize('paused_speed', (.5, 1))
+def test_paused_speed_change_taints_started_ad_after_close_resumption(monkeypatch, caching, paused_speed):
+    session = _session()
+    session.ad_enabled = True
+    events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
+    ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
+        TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
+    session.presentation = lambda: Presentation((), (
+        Placement('paused', ad, 24000, 72000),
+        Placement('later', ad, 96000, 144000)), False)
+    clocks = iter((.25, .5, .6, .65, .75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3))
+    cache_states = iter((False, False, caching) + (False,) * 11)
+    queued, records = [], []
+
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, placement_id, event, url):
+            queued.append((placement_id, event)); return True
+        def close(self): pass
+
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    adapter = KodiAdPlayback(SimpleNamespace(get=lambda _: session, sink=SimpleNamespace(emit=records.append)),
+                             SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks)),
+                             client=SimpleNamespace(), fixture_origin='http://127.0.0.1:8765',
+                             is_caching=lambda: next(cache_states))
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10 + next(ticks) * .25)
+    try:
+        adapter.sample()
+        adapter.sample()
+        assert adapter._clock_ready is True
+        assert queued == [('paused', 'impression'), ('paused', 'start')]
+        adapter.on_speed_changed(.5, session.id)
+        if paused_speed == 1:
+            adapter.on_speed_changed(1, session.id)
+        adapter.on_pause(session.id)
+        adapter.sample()
+        paused_sample = adapter.last_sample
+        assert records[-1].details['tracking_enabled'] is False
+        assert queued == [('paused', 'impression'), ('paused', 'start')]
+        adapter.on_resume(session.id)
+        if paused_speed != 1:
+            adapter.on_speed_changed(1, session.id)
+        # Resuming 150 ms beyond the last good clock must not erase the
+        # ambiguity carried by the paused speed sample across the active ad.
+        for _ in range(11):
+            adapter.sample()
+        assert [event for placement, event in queued if placement == 'paused'] == ['impression', 'start']
+        assert [event for placement, event in queued if placement == 'later'] == list(events)
+        assert paused_sample.paused is True
+        assert paused_sample.caching is caching
+        assert paused_sample.mapped is True
+        assert paused_sample.position_seconds == .6
+        assert paused_sample.speed == paused_speed
+        assert paused_sample.speed_changed is True
+    finally:
+        adapter.close()
+
+
 def test_native_speed_callback_requires_owned_armed_session(kodi):
     runtime, _, _ = kodi
     session = _session('a' * 48)
