@@ -3,6 +3,8 @@
 import threading
 import time
 
+import pytest
+
 from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
 from ad_tracking import AdTracker, BeaconWorker, PlaybackSample, _CancelOrStop, enqueue_ad_error
 
@@ -104,6 +106,32 @@ def test_short_stationary_sample_does_not_taint_continuous_playback():
     for tick, position in enumerate(positions):
         instance.observe(view, sample(position, tick * .25))
     assert [event for _, event, _ in queued] == list(EVENTS)
+
+
+@pytest.mark.parametrize("recovery_cached", (False, True))
+@pytest.mark.parametrize("gap_seconds, expected_events", (
+    (.75, EVENTS),
+    (1.0, ("impression", "start")),
+))
+def test_advancing_cache_gap_taints_only_intersected_ad_after_close_recovery(
+        gap_seconds, expected_events, recovery_cached):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.05, .25, caching=True))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    # The retained clock advances only 50 ms after a gap. The played-sample
+    # proximity guard alone would accept recovery even after a full second.
+    instance.observe(view, sample(.10, .25 + gap_seconds, caching=recovery_cached))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.15, .5 + gap_seconds))
+    for tick in range(1, 37):
+        instance.observe(view, sample(.15 + tick * .25, .5 + gap_seconds + tick * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
 
 
 def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():

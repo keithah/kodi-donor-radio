@@ -107,11 +107,13 @@ class AdTracker:
                           not sample.seeking and math.isfinite(sample.position_seconds) and
                           math.isfinite(sample.monotonic_seconds))
         good = clock_observed and not sample.caching
-        # A mapped cache clock can prove a long plateau is ambiguous, but it
+        # A mapped cache clock can prove a long gap or plateau is ambiguous, but it
         # cannot prove playback or become the previous played interval.
         previous_clock = self._previous_clock
         if clock_observed and previous_clock is not None:
             elapsed = sample.monotonic_seconds - previous_clock.monotonic_seconds
+            if elapsed > MAX_GAP and sample.position_seconds > previous_clock.position_seconds:
+                self._taint_ambiguous(presentation, previous_clock, sample)
             if sample.position_seconds == previous_clock.position_seconds and elapsed > 0:
                 if self._stationary_since is None:
                     self._stationary_since = previous_clock.monotonic_seconds
