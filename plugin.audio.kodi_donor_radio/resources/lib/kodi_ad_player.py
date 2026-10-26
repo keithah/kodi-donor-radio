@@ -30,8 +30,16 @@ class KodiSessionClockAnchor:
 
     def __call__(self, session, _presentation, seconds):
         if (not self.valid or getattr(session, 'id', None) != self.session_id or
-                not math.isfinite(seconds) or seconds < 0):
+                not math.isfinite(seconds)):
             return None
+        if seconds < 0:
+            if (self.last_clock is not None and
+                    seconds < self.last_clock - self.BACKWARD_TOLERANCE):
+                self.invalidate()
+                return None
+            if self.last_clock is None:
+                return None
+            seconds = self.last_clock
         if self.last_clock is not None:
             if seconds < self.last_clock - self.BACKWARD_TOLERANCE:
                 self.invalidate()
@@ -43,10 +51,11 @@ class KodiSessionClockAnchor:
 
 class KodiAdPlayback:
     """Map Kodi time only for opted-in loopback fixture sessions."""
-    def __init__(self, manager, player, client=None, fixture_origin=None):
+    def __init__(self, manager, player, client=None, fixture_origin=None, is_caching=None):
         self.manager, self.player = manager, player
         self.client = client or getattr(manager, 'client', None)
         self.fixture_origin = fixture_origin
+        self.is_caching = is_caching or (lambda: False)
         self.mapper = None
         self.mapping_valid = False
         self.session_id = None
@@ -110,16 +119,26 @@ class KodiAdPlayback:
         if presentation is None or self.tracker is None:
             return
         now = time.monotonic()
+        clock = None
         try:
             playing = bool(self.player.isPlaying())
             clock = float(self.player.getTime()) if playing else None
+            caching = bool(self.is_caching())
             position = self.mapper(session, presentation, clock) if self.mapper and clock is not None else None
             mapped = position is not None and math.isfinite(position) and position >= 0
         except (RuntimeError, ValueError, TypeError, OverflowError):
-            playing, position, mapped = False, None, False
+            playing, position, mapped, caching = False, None, False, True
         self.mapping_valid = mapped
+        if self.tracker is not None:
+            self.manager.sink.emit(Event(
+                'ad_clock_sample', self.session_id, session.station.uuid,
+                session.source.protocol, 'kodi_player', 'poll',
+                datetime.now(timezone.utc).isoformat(), now,
+                {'raw_clock': clock, 'mapped_position': position if mapped else None,
+                 'mapped': mapped, 'playing': playing, 'paused': self.paused,
+                 'seeking': self.seeking, 'caching': caching}))
         self.last_sample = PlaybackSample(self.session_id, position if mapped else 0.0,
-                                          now, playing, self.paused, self.seeking, mapped)
+                                          now, playing, self.paused, self.seeking, mapped, caching)
         self.tracker.observe(presentation, self.last_sample)
         self.seeking = False
 

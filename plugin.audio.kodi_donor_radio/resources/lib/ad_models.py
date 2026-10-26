@@ -98,3 +98,4 @@ class PlaybackSample:
     paused: bool
     seeking: bool
     mapped: bool
+    caching: bool = False

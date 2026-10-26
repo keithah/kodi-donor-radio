@@ -1,5 +1,33 @@
 # Validation record
 
+## Controlled VAST clock follow-up — 2026-10-26
+
+The fixture-only Kodi adapter now invalidates permanently when its clock moves
+backward by more than 50 ms, including a negative sample after playback begins.
+It also treats Kodi's `Player.Caching` state as untrackable; if that state cannot
+be read, the sample fails closed. Opt-in diagnostics record the raw Kodi time,
+mapped position, mapping status, playback/pause/seek state, and caching state.
+These local samples contain no stream URL or credentials.
+
+On unpatched Kodi 23.0-ALPHA1 (`20261021-434da3c`), the refreshed 8-second
+controlled normal-stream run matched the requested item and showed bounded player
+clock progress. The add-on's own samples recorded `0.000` followed by `-0.091`
+seconds; the anchor then invalidated and later positions remained unmapped. The
+first sample had already emitted impression/start, while no later quartile or
+completion was reported. The fixture endpoint counted one impression and one
+start. This confirms reset invalidation and shows that startup zero is still an
+unproven anchor; it does not establish playback against decoded sample positions.
+The run's `mapping_proven` and `audible_output_verified` flags remain false, and
+the Mac's locked desktop prevented listening confirmation. The sanitized player
+timeline is in
+[`kodi-clock-diagnostics-2026-10-26.json`](superpowers/reports/kodi-clock-diagnostics-2026-10-26.json).
+
+Focused tracking, adapter and event tests passed **56 tests**. The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,
+`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was
+attempted with dependency checks disabled, but its repository-index request kept
+retrying and was interrupted after more than two minutes; no checker verdict is
+claimed for this run.
+
 ## Playback arbiter GUI follow-up — 2026-10-24
 
 The Kodi preview stop path now marks its playback intent and releases the shared

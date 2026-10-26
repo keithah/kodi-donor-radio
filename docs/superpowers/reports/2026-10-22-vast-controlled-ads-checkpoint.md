@@ -2,6 +2,31 @@
 
 Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
 
+## Follow-up — 2026-10-26
+
+The fixture-only Kodi clock guard now permanently invalidates on a backward jump
+over 50 ms, including a negative clock sample after playback begins. Kodi's
+`Player.Caching` condition also suppresses tracking; unavailable cache state
+fails closed. With opt-in diagnostics, the adapter records raw clock/mapped
+position and playing, pause, seek, and cache state without URLs.
+
+An 8-second normal-fixture run on unpatched Kodi 23.0-ALPHA1
+(`20261021-434da3c`) matched the fixture and showed bounded clock progress. The
+add-on observed raw time `0.000` then `-0.091`; mapping invalidated and did not
+resume. Impression/start had already been emitted on the initial zero sample;
+no later quartile or completion was emitted. The fixture recorded one impression
+and one start. This still does not prove the initial sample's decoded-media
+position, stable sample-zero origin, or audible output. `mapping_proven` and
+`audible_output_verified` remain false. See the sanitized
+[`clock diagnostics report`](kodi-clock-diagnostics-2026-10-26.json) and
+[`validation record`](../../testing.md#controlled-vast-clock-follow-up--2026-10-26).
+
+The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,
+`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was
+attempted with dependency checks disabled, but its repository-index request kept
+retrying and was interrupted after more than two minutes; no checker verdict is
+claimed for this run.
+
 Latest verification: `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
 after enabling a loopback-only experimental raw Kodi-clock mapper; compileall and
 `git diff --check` passed. A fresh five-scenario Kodi run sent success beacons for

@@ -960,7 +960,8 @@ class RelayPlayer(xbmc.Player):
         self.manager, self.port, self.owned = manager, port, None
         self._generation = 0
         self._armed_generation = None
-        self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin)
+        self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin,
+                                  is_caching=lambda: xbmc.getCondVisibility('Player.Caching'))
 
     def onAVStarted(self):
         try: current = _relay_path(self.getPlayingFile(), self.port)

@@ -51,6 +51,14 @@ def test_prefetch_and_first_late_sample_do_not_count_as_playback():
     assert queued == []
 
 
+def test_caching_sample_cannot_start_or_advance_an_ad():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(0.0, 10.0, caching=True))
+    instance.observe(view, sample(0.3, 10.3, caching=True))
+    assert queued == []
+
+
 def test_continuous_sample_slightly_late_across_ad_start_records_impression():
     instance, _, queued = tracker()
     view = presentation(start=1.0)

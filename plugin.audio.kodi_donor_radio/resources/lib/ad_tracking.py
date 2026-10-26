@@ -94,7 +94,8 @@ class AdTracker:
             return
         self._presentation = presentation
         good = (sample.mapped and sample.playing and not sample.paused and
-                not sample.seeking and math.isfinite(sample.position_seconds) and
+                not sample.seeking and not sample.caching and
+                math.isfinite(sample.position_seconds) and
                 math.isfinite(sample.monotonic_seconds))
         previous = self._previous
         first_sample = good and not self._seen_sample

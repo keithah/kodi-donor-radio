@@ -4,7 +4,7 @@ from itertools import count
 import threading
 
 from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
-from kodi_ad_player import KodiAdPlayback
+from kodi_ad_player import KodiAdPlayback, KodiSessionClockAnchor
 
 
 def _patch_player_clock(monkeypatch, clock):
@@ -99,6 +99,101 @@ def test_fixture_clock_anchor_is_sticky_and_invalidates_on_clock_reset(monkeypat
         mapped.append(adapter.mapping_valid)
     assert mapped == [True, True, True, False, False]
     assert adapter.last_sample.mapped is False
+    adapter.close()
+
+
+def test_clock_anchor_invalidates_on_negative_reset_after_sample_zero():
+    anchor = KodiSessionClockAnchor("session")
+    session = SimpleNamespace(id="session")
+    assert anchor(session, None, 0.0) == 0.0
+    assert anchor(session, None, -0.091) is None
+    assert anchor.valid is False
+    assert anchor(session, None, 0.25) is None
+
+
+def test_clock_anchor_clamps_small_negative_jitter_at_zero():
+    anchor = KodiSessionClockAnchor("session")
+    session = SimpleNamespace(id="session")
+    assert anchor(session, None, 0.0) == 0.0
+    assert anchor(session, None, -0.03) == 0.0
+    assert anchor.valid is True
+
+
+def test_fixture_adapter_marks_cache_state_untrackable(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    session.presentation = lambda: Presentation((), (), False)
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .25)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765", is_caching=lambda: True)
+    adapter.bind(session.id)
+    _patch_player_clock(monkeypatch, lambda: 10.0)
+    adapter.sample()
+    assert adapter.last_sample.caching is True
+    adapter.close()
+
+
+def test_fixture_adapter_fails_closed_when_cache_state_is_unavailable(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .25)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    def unavailable():
+        raise RuntimeError("condition unavailable")
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765", is_caching=unavailable)
+    adapter.bind(session.id)
+    _patch_player_clock(monkeypatch, lambda: 10.0)
+    adapter.sample()
+    assert adapter.last_sample.caching is True
+    adapter.close()
+
+
+def test_fixture_adapter_logs_clock_read_failure_without_crashing(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    def unavailable():
+        raise RuntimeError("player unavailable")
+    player = SimpleNamespace(isPlaying=unavailable, getTime=lambda: .25)
+    records = []
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=records.append))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    _patch_player_clock(monkeypatch, lambda: 10.0)
+    adapter.sample()
+    assert adapter.last_sample.playing is False
+    assert adapter.last_sample.mapped is False
+    assert adapter.last_sample.caching is True
+    event = next(record for record in records if record.kind == 'ad_clock_sample')
+    assert event.details['mapped'] is False
+    assert 'raw_clock' not in event.to_dict().get('details', {})
+    adapter.close()
+
+
+def test_fixture_adapter_records_clock_and_mapping_diagnostics(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .25)
+    records = []
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=records.append))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    _patch_player_clock(monkeypatch, lambda: 10.0)
+    adapter.sample()
+    event = next(record for record in records if record.kind == 'ad_clock_sample')
+    assert event.source == 'kodi_player'
+    assert event.evidence == 'poll'
+    assert event.details == {'raw_clock': .25, 'mapped_position': .25, 'mapped': True,
+                             'playing': True, 'paused': False, 'seeking': False,
+                             'caching': False}
+    assert 'http://' not in repr(event.to_dict())
     adapter.close()
 
 
