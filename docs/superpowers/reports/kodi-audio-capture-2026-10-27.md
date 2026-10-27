@@ -51,7 +51,18 @@ The final build was signed locally with an existing Apple Development
 certificate and copied to a stable Applications path. Strict signature
 verification passed; its designated requirement is certificate-based rather
 than an ad-hoc code hash. Personal signing settings were not added to the
-repository. Audio-only consent and measured output still require verification.
+repository. Its next attempt returned a Core Audio startup timeout after 180
+seconds with zero frames and no recording-ready transition. Audio-only consent
+and measured output still require verification.
+
+Steward's adversarial review identified that Stop and normal Quit defer cleanup
+while the synchronous native startup call is pending. This is retained as an
+explicit developer-tool limitation: the configured recording duration does not
+bound permission startup, and no native-call cancellation deadline is provided.
+Teardown remains serialized to avoid releasing memory still owned by a possible
+audio callback. A separate capture worker would be needed to enforce process
+isolation for a hard startup deadline. Unattended startup acceptance remains open;
+the observed 180-second timeout is not a guaranteed limit.
 
 Captured-output acceptance is pending. Recording files and full timing data
 remain outside the repository. `mapping_proven` remains false until measured

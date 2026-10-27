@@ -2,7 +2,7 @@
 
 A development helper for recording the audio output of one running Kodi build. It saves lossless PCM audio with timing observations for Donor Radio's controlled playback tests. It is separate from the Kodi addon and is not included in addon packages.
 
-Requires macOS 14.2 or later and Xcode with Swift 6.1 or later. The helper uses Core Audio process taps, AVFoundation, and temporary IOKit power assertions. It has no external package dependencies.
+Runs on macOS 14.2 or later; build with Xcode 26 or later for the macOS 26 SDK declarations used behind runtime availability checks. The helper uses Core Audio process taps, AVFoundation, and temporary IOKit power assertions. It has no external package dependencies.
 
 ## Build and tests
 
@@ -35,6 +35,8 @@ The unit suite checks argument validation, owned planar/interleaved PCM copies, 
 The helper creates a private Core Audio tap for the selected Kodi process. It neither captures video nor enables microphone input, and it preserves the tap's native sample rate without changing the Mac's output-device settings. It prevents display and system idle sleep only during capture, releases those assertions on stop/failure, and cannot unlock a manually locked Mac.
 
 macOS asks for **System Audio Recording Only** access when the process tap starts. If capture is denied or entirely silent, use **Recording access settings…** and review the helper in that section under **Privacy & Security → Screen & System Audio Recording**. macOS may require authentication or a helper restart. The helper does not request screen capture permission or modify privacy settings. Permission denial can produce silence, so a recording containing only zero-valued samples is failed explicitly.
+
+Permission-gated startup has a known cancellation limitation: Core Audio's synchronous start call can wait before recording becomes ready. The duration limit covers active recording, not this startup wait. Stop and normal Quit request cancellation but defer teardown until the native call returns; the helper does not impose a startup deadline or free callback storage while Core Audio may still use it. One observed macOS 26.6.2 attempt returned a timeout after 180 seconds with zero frames; that observation is not a guaranteed upper bound. Establish recording permission interactively before automated runs, and have automation enforce its own readiness deadline and treat an absent final manifest as failure. Unattended startup acceptance remains open.
 
 ## Repeatable fixture capture
 
