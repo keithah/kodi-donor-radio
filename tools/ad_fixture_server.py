@@ -18,11 +18,13 @@ from xml.etree import ElementTree as ET
 
 if __package__:
     from .fixture_server import send_fixture_response
+    from .generate_ad_audio import NORMAL_SOURCE_SEGMENTS, EXTENDED_SOURCE_SEGMENTS
 else:
     from fixture_server import send_fixture_response
+    from generate_ad_audio import NORMAL_SOURCE_SEGMENTS, EXTENDED_SOURCE_SEGMENTS
 
 
-SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window', 'finite', 'stall')
+SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window', 'finite', 'stall', 'extended')
 AD_ASSETS = ('replacement', 'preroll')
 LIVE_SEGMENT_SECONDS = 94 * 1024 / 48000
 EVENTS = ('impression', 'start', 'firstQuartile', 'midpoint',
@@ -41,15 +43,17 @@ def media_manifest(asset):
 def source_manifest(scenario, window):
     if scenario not in SOURCE_SCENARIOS:
         raise ValueError('Unknown source scenario')
+    source_count = EXTENDED_SOURCE_SEGMENTS if scenario == 'extended' else NORMAL_SOURCE_SEGMENTS
+    last_window = source_count - 6
     if scenario == 'finite':
         first = 0
     elif scenario == 'expired-window':
-        first = 0 if window == 0 else max(4, min(window, 18))
+        first = 0 if window == 0 else max(4, min(window, last_window))
     else:
-        first = min(window, 18)
+        first = min(window, last_window)
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:3',
              '#EXT-X-MEDIA-SEQUENCE:%d' % first]
-    for index in range(first, min(first + 6, 24)):
+    for index in range(first, min(first + 6, source_count)):
         if index == 2:
             lines.append('#EXT-X-CUE-OUT:4.010667')
         if index == 4:
@@ -59,7 +63,7 @@ def source_manifest(scenario, window):
             filename = 'source003-mutated.ts'
         prefix = '/stall/' if scenario == 'stall' and index == 6 else '/ads/'
         lines.extend(('#EXTINF:2.005333,', prefix + filename))
-    if scenario == 'finite':
+    if scenario == 'finite' or (scenario == 'extended' and first == last_window):
         lines.append('#EXT-X-ENDLIST')
     return '\n'.join(lines) + '\n'
 

@@ -239,21 +239,25 @@ def _relay_path(value, port):
     return None
 
 
-def _adaptive_enabled():
+def _inputstream_enabled(addon_id, minimum_major):
     """Use an already enabled audio-capable addon; never install or enable it."""
     try:
         raw = xbmc.executeJSONRPC(json.dumps({
             'jsonrpc': '2.0', 'id': 1, 'method': 'Addons.GetAddonDetails',
-            'params': {'addonid': 'inputstream.adaptive', 'properties': ['enabled', 'version']}}))
+            'params': {'addonid': addon_id, 'properties': ['enabled', 'version']}}))
         if not isinstance(raw, str) or len(raw) > 16384:
             return False
         addon = json.loads(raw)['result']['addon']
         version = addon.get('version', '')
         match = re.fullmatch(r'([0-9]{1,3})\.[0-9]+\.[0-9]+(?:[.+-][a-zA-Z0-9.-]+)?', version)
-        return (addon.get('addonid') == 'inputstream.adaptive' and addon.get('enabled') is True
-                and match is not None and int(match.group(1)) >= 21)
+        return (addon.get('addonid') == addon_id and addon.get('enabled') is True
+                and match is not None and int(match.group(1)) >= minimum_major)
     except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
         return False
+
+
+def _adaptive_enabled():
+    return _inputstream_enabled('inputstream.adaptive', 21)
 
 
 def _adaptive_ready(adaptive_url, native_url, descriptor, cancel):
@@ -335,6 +339,7 @@ _FIXTURES = (
     (30047, 'source/expired-window/index.m3u8', 'AAC', True),
     (30048, 'source/stall/index.m3u8', 'AAC', True),
     (30049, 'source/finite/index.m3u8', 'AAC', True),
+    (30172, 'source/extended/index.m3u8', 'AAC', True),
     (30061, 'icy/explicit.mp3', 'MP3', False), (30062, 'icy/tildeats.mp3', 'MP3', False),
     (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
     (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
@@ -1034,21 +1039,42 @@ def run_plugin(argv):
                 raise ValueError('Invalid relay MIME type')
             playback_url = session['playback_url']
             adaptive_url = session.get('adaptive_playback_url')
-            adaptive = False
+            continuous_url = session.get('continuous_playback_url')
+            if continuous_url is not None and (
+                    action != 'play_fixture' or mime != 'application/vnd.apple.mpegurl'
+                    or not playback_url.endswith('.m3u8')
+                    or continuous_url != playback_url[:-5] + '.aac'):
+                raise ValueError('Invalid continuous relay response')
+            adaptive = buffered = False
             if adaptive_url is not None:
                 if (action != 'play_fixture' or mime != 'application/vnd.apple.mpegurl'
                         or not isinstance(adaptive_url, str) or not adaptive_url.endswith('.m3u8')
                         or _relay_path(adaptive_url, client.descriptor.port) != session_id):
                     raise ValueError('Invalid Adaptive relay response')
-                adaptive = _adaptive_enabled()
-                if adaptive:
-                    adaptive = _operation(lambda: _adaptive_ready(
+                buffered = (continuous_url is not None and
+                            _inputstream_enabled('inputstream.ffmpegdirect', 22))
+                adaptive = not buffered and _adaptive_enabled()
+                if buffered or adaptive:
+                    ready = _operation(lambda: _adaptive_ready(
                         adaptive_url, playback_url, client.descriptor, cancel), monitor, cancel)
-                if adaptive:
+                    buffered, adaptive = buffered and ready, adaptive and ready
+                if buffered:
+                    playback_url, mime = continuous_url, 'audio/aac'
+                elif adaptive:
                     playback_url = adaptive_url
             entry = xbmcgui.ListItem(label=station.name, path=playback_url)
+            # Master requires an explicit media type for resolved AAC URLs.
+            entry.getMusicInfoTag().setTitle(station.name)
+            # JSON-RPC can retain a video tag on the original plugin item.
+            # Resolve that ambiguous type explicitly to Kodi's music playlist.
+            entry.setProperty('playlist_type_hint', '0')
             entry.setProperty('IsPlayable', 'true')
-            if adaptive:
+            if buffered:
+                entry.setProperty('inputstream', 'inputstream.ffmpegdirect')
+                entry.setProperty('inputstream-player', 'videodefaultplayer')
+                entry.setProperty('inputstream.ffmpegdirect.stream_mode', 'timeshift')
+                entry.setProperty('inputstream.ffmpegdirect.is_realtime_stream', 'false')
+            elif adaptive:
                 entry.setProperty('inputstream', 'inputstream.adaptive')
                 entry.setProperty('inputstream.adaptive.play_timeshift_buffer', 'true')
             # Kodi's redirect/content lookup performs a disposable GET before

@@ -129,6 +129,7 @@ _SOURCE_FIXTURE_IDS = {
     'expired-window': 'fixture-30047',
     'stall': 'fixture-30048',
     'finite': 'fixture-30049',
+    'extended': 'fixture-30172',
 }
 _SOURCE_FIXTURE_PATHS = {
     'normal': '/source/normal/index.m3u8',
@@ -136,6 +137,7 @@ _SOURCE_FIXTURE_PATHS = {
     'expired-window': '/source/expired-window/index.m3u8',
     'stall': '/source/stall/index.m3u8',
     'finite': '/source/finite/index.m3u8',
+    'extended': '/source/extended/index.m3u8',
 }
 
 

@@ -4,6 +4,7 @@
     <!-- Kodi 21.3 Omega supplies xbmc.python 3.0.1; macOS runtime validation is recorded in docs/testing.md. -->
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="inputstream.adaptive" version="21.0.0" optional="true"/>
+    <import addon="inputstream.ffmpegdirect" version="22.2.10" optional="true"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>audio</provides>

@@ -57,6 +57,14 @@ class Resource:
     epoch: int = 0
 
 
+@dataclass(frozen=True)
+class ContinuousAudioState:
+    """Transport bounds only; delivered samples do not establish playback."""
+    started_from_zero: bool = False
+    next_sample: int = 0
+    terminal: bool = False
+
+
 class PlaybackSession:
     def __init__(self, station, source, cancel, base_url, sink, resource_limit,
                  ad_config=None, ad_client=None, cache_root=None, learned_lookup=None):
@@ -73,6 +81,10 @@ class PlaybackSession:
         self._resources[root.id] = root
         self.playback_url = base_url + self.route(root.id)
         self.adaptive_playback_url = None
+        self.continuous_playback_url = None
+        self.continuous_route = None
+        self._continuous_audio_state = ContinuousAudioState()
+        self._continuous_sequence = 0
         self.last_used = time.monotonic()
         self._claimed = False
         self.is_preview = False
@@ -117,6 +129,11 @@ class PlaybackSession:
                                   'audio_master')
                 self._resources[master.id] = master
                 self.adaptive_playback_url = base_url + self.route(master.id)
+            if station.uuid.startswith('fixture-') and self.ad is not None:
+                # An alternate representation of the pinned root consumes no
+                # extra resource slot. Ordinary radio playback never offers it.
+                self.continuous_route = '/media/%s/%s.aac' % (self.id, root.id)
+                self.continuous_playback_url = base_url + self.continuous_route
 
     def observe_icy_metadata(self, metadata, observed_at, monotonic_at):
         with self._lock:
@@ -272,6 +289,33 @@ class PlaybackSession:
                 return False
             self._claimed = True
             return True
+
+    def continuous_audio_state(self):
+        with self._lock:
+            state = self._continuous_audio_state
+            if self.cancel.is_set() and not state.terminal:
+                return ContinuousAudioState(state.started_from_zero, state.next_sample, True)
+            return state
+
+    def record_continuous_delivery(self, segment):
+        """Advance the exclusive ceiling only after a complete socket write."""
+        with self._lock:
+            state = self._continuous_audio_state
+            if self.cancel.is_set() or state.terminal:
+                return False
+            if (not self._claimed or segment.sequence != self._continuous_sequence
+                    or segment.start_sample != state.next_sample or segment.samples <= 0):
+                raise ValueError('Nonconsecutive continuous delivery')
+            self._continuous_sequence += 1
+            self._continuous_audio_state = ContinuousAudioState(
+                True, segment.start_sample + segment.samples, False)
+            return True
+
+    def finish_continuous_audio(self):
+        with self._lock:
+            state = self._continuous_audio_state
+            self._continuous_audio_state = ContinuousAudioState(
+                state.started_from_zero, state.next_sample, True)
 
     def close(self, reason='session_stopped'):
         self.cancel.set()

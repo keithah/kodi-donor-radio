@@ -1,0 +1,43 @@
+# FFmpegDirect realtime override experiment
+
+`inputstream.ffmpegdirect-22.2.10-realtime-override.patch` targets
+[inputstream.ffmpegdirect 22.2.10-Piers](https://github.com/xbmc/inputstream.ffmpegdirect/tree/70c378da893cdcfb031b54f84811c17c14b4fb2d),
+base commit `70c378da893cdcfb031b54f84811c17c14b4fb2d`.
+It changes the inputstream addon only. It contains no Kodi core change or native
+binary, and the radio addon does not install or require this private build.
+
+Official FFmpegDirect 22.2.10 reports every timeshift stream as realtime, even
+when `inputstream.ffmpegdirect.is_realtime_stream=false` is supplied. Kodi's
+VideoPlayer therefore applies its realtime startup clock policy. The patch
+preserves realtime as the omitted timeshift default and honors explicit true
+or false. Omitted regular/catchup properties become deterministically false;
+the previous property storage was uninitialized. The optional override resets
+on every open.
+
+The three production changes are in `Properties.h`, `StreamManager.cpp`, and
+`TimeshiftStream.cpp`. A standalone C++ test covers all nine combinations of
+stream mode and omitted/true/false override, and runs in the existing GCC/Clang
+CI matrix. Captured playback must additionally verify the actual VideoPlayer
+path; selecting an inputstream alone does not force it instead of PAPlayer.
+
+Apply with `git apply --check` followed by `git apply` from a clean checkout of
+the exact base commit. The patch includes its tests; run them independently of
+Kodi with:
+
+```sh
+cmake -S tests -B build-tests
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
+The local native build used the existing Kodi addon SDK (inputstream API 3.4.1,
+minimum 3.4.0), FFmpeg 9.0.2, macOS 26.5 SDK, arm64, and CMake's Xcode generator.
+XcodeBuildMCP compiled both stock and patched libraries successfully. Use the
+[upstream macOS build instructions](https://github.com/xbmc/inputstream.ffmpegdirect/tree/70c378da893cdcfb031b54f84811c17c14b4fb2d#mac-osx)
+with a matching Kodi SDK/dependency installation to reproduce a native build.
+
+The controlled continuous AAC clock remains diagnostic in the radio addon.
+Neither this patch nor the unit test establishes billable playback evidence;
+startup, extended-window, pause/seek, and starvation capture acceptance is a
+separate gate. Stock FFmpegDirect retains the startup limitation until an
+upstream fix is accepted and released.

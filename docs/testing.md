@@ -1339,3 +1339,11 @@ presentations never receive the experimental sample-zero mapper, even if ENDLIST
 arrives later. Success beacons remain disabled for live fixtures and ordinary
 stations. The bounded capture verifies removal of the observed freeze, not a
 session-absolute position after extended window/period retirement.
+
+
+## Continuous controlled audio and extended clocks (2026-10-27)
+
+See [the captured-audio investigation](testing-continuous-clock.md) for the
+continuous AAC fixture transport, exact playback dependencies, startup comparison,
+extended-window results, and reproducible measurement command. Live continuous
+clock positions remain diagnostic candidates; they do not enable success beacons.

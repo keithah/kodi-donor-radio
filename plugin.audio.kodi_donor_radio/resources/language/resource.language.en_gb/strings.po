@@ -495,3 +495,7 @@ msgstr ""
 msgctxt "#30171"
 msgid "Radio Browser did not record the vote. You may need to wait before trying again."
 msgstr ""
+
+msgctxt "#30172"
+msgid "Extended live ad fixture"
+msgstr ""

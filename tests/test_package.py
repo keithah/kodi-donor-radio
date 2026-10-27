@@ -70,6 +70,7 @@ def test_package_is_installable_source_only(package):
         assert [item.attrib for item in metadata.findall('requires/import')] == [
             {'addon': 'xbmc.python', 'version': '3.0.1'},
             {'addon': 'inputstream.adaptive', 'version': '21.0.0', 'optional': 'true'},
+            {'addon': 'inputstream.ffmpegdirect', 'version': '22.2.10', 'optional': 'true'},
         ]
         assert metadata.find("extension[@point='xbmc.addon.metadata']/license").text == 'GPL-2.0-or-later'
         license_text = archive.read(ADDON + '/LICENSE.txt').decode()

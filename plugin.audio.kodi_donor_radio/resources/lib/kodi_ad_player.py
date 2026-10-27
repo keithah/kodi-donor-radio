@@ -60,6 +60,9 @@ class KodiSessionClockAnchor:
         if presentation.segments[0].start_sample != 0:
             self.invalidate('sample_zero_unavailable')
             return None
+        return self._clock_position(seconds)
+
+    def _clock_position(self, seconds):
         if seconds < 0:
             if (self.last_clock is not None and
                     seconds < self.last_clock - self.BACKWARD_TOLERANCE):
@@ -75,6 +78,60 @@ class KodiSessionClockAnchor:
             seconds = max(seconds, self.last_clock)
         self.last_clock = seconds
         return seconds
+
+
+class KodiContinuousClockAnchor(KodiSessionClockAnchor):
+    """Diagnostic sample-zero candidate for the exact continuous AAC transport.
+
+    A completed socket write only bounds possible playback. It does not prove
+    that Kodi played those frames or establish success-beacon eligibility.
+    """
+    DELIVERED_TOLERANCE = 1024 / 48000  # One AAC frame, in seconds.
+
+    def __init__(self, session_id):
+        super().__init__(session_id)
+        self.last_next_sample = 0
+        self.pending_reason = None
+
+    def _backward_reset(self):
+        if not self.startup_pending:
+            self.invalidate('continuous_clock_reset')
+            return False
+        return super()._backward_reset()
+
+    def __call__(self, session, presentation, seconds):
+        if not self.valid or getattr(session, 'id', None) != self.session_id:
+            return None
+        self.pending_reason = None
+        if not math.isfinite(seconds):
+            self.invalidate('continuous_clock_invalid')
+            return None
+        try:
+            state = session.continuous_audio_state()
+            started, ceiling, terminal = state.started_from_zero, state.next_sample, state.terminal
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            self.invalidate('continuous_audio_unavailable')
+            return None
+        if type(started) is not bool or type(terminal) is not bool or type(ceiling) is not int:
+            self.invalidate('continuous_audio_invalid')
+            return None
+        if terminal:
+            self.invalidate('continuous_audio_terminal')
+            return None
+        if ceiling < self.last_next_sample:
+            self.invalidate('continuous_media_rewound')
+            return None
+        if not started and ceiling == 0:
+            self.pending_reason = 'continuous_audio_pending'
+            return None
+        if not started or ceiling <= 0:
+            self.invalidate('continuous_audio_invalid')
+            return None
+        if seconds > ceiling / 48000 + self.DELIVERED_TOLERANCE:
+            self.invalidate('continuous_clock_ahead_of_media')
+            return None
+        self.last_next_sample = ceiling
+        return self._clock_position(seconds)
 
 
 class KodiAdPlayback:
@@ -97,6 +154,7 @@ class KodiAdPlayback:
         self.last_sample = None
         self._clock_ready = False
         self._startup_samples = []
+        self._continuous_playback_url = None
 
     def enable_mapping(self, mapper):
         """Install a fixture mapper returning output seconds or None."""
@@ -123,6 +181,14 @@ class KodiAdPlayback:
                                      datetime.now(timezone.utc).isoformat(), time.monotonic(),
                                      {key: record[key] for key in ('placement_id', 'creative_id', 'reason')}))
 
+    def _continuous_route_matches(self, expected):
+        try:
+            return (isinstance(expected, str) and bool(expected) and
+                    getattr(self.session, 'continuous_playback_url', None) == expected and
+                    self.player.getPlayingFile() == expected)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return False
+
     def bind(self, session_id):
         if session_id == self.session_id:
             return
@@ -146,7 +212,12 @@ class KodiAdPlayback:
                                      allow_preroll_start=False)
             # The sample-zero mapping is deliberately limited to explicit
             # loopback fixtures; normal Radio Browser sessions stay unmapped.
-            self.enable_mapping(KodiSessionClockAnchor(session_id))
+            continuous_url = getattr(session, 'continuous_playback_url', None)
+            if self._continuous_route_matches(continuous_url):
+                self._continuous_playback_url = continuous_url
+                self.enable_mapping(KodiContinuousClockAnchor(session_id))
+            else:
+                self.enable_mapping(KodiSessionClockAnchor(session_id))
 
     def sample(self):
         session = self.session
@@ -163,7 +234,12 @@ class KodiAdPlayback:
             playing = bool(self.player.isPlaying())
             clock = float(self.player.getTime()) if playing else None
             caching = bool(self.is_caching())
-            position = self.mapper(session, presentation, clock) if self.mapper and clock is not None else None
+            route_matches = (self._continuous_playback_url is None or
+                             self._continuous_route_matches(self._continuous_playback_url))
+            if not route_matches and hasattr(self.mapper, 'invalidate'):
+                self.mapper.invalidate('continuous_route_changed')
+            position = (self.mapper(session, presentation, clock)
+                        if route_matches and self.mapper and clock is not None else None)
             mapped = position is not None and math.isfinite(position) and position >= 0
         except (RuntimeError, ValueError, TypeError, OverflowError):
             playing, position, mapped, caching = False, None, False, True
@@ -222,6 +298,17 @@ class KodiAdPlayback:
         # Preserve the mapped position in speed evidence so the tracker can
         # taint placements crossed at an untrusted rate.
         tracking_enabled = tracking_enabled and self.speed == 1 and not self.speed_changed
+        reason = getattr(self.mapper, 'reason', None)
+        continuous_candidate = self._continuous_playback_url is not None
+        if continuous_candidate:
+            # Keep the candidate visible for captured-audio comparison while
+            # giving the success tracker no mapped playback evidence.
+            tracking_enabled = False
+            tracker_samples = [PlaybackSample(self.session_id, 0.0, now, playing,
+                                              self.paused, self.seeking, False, caching,
+                                              self.speed, self.speed_changed)]
+            reason = (reason or getattr(self.mapper, 'pending_reason', None) or
+                      ('continuous_clock_unaccepted' if mapped else 'continuous_clock_unavailable'))
         if self.tracker is not None:
             self.manager.sink.emit(Event(
                 'ad_clock_sample', self.session_id, session.station.uuid,
@@ -231,8 +318,8 @@ class KodiAdPlayback:
                  'mapped': mapped, 'tracking_enabled': tracking_enabled,
                  'playing': playing, 'paused': self.paused,
                  'seeking': self.seeking, 'caching': caching,
-                 **({'reason': self.mapper.reason}
-                    if getattr(self.mapper, 'reason', None) else {})}))
+                 **({'candidate_only': True} if continuous_candidate else {}),
+                 **({'reason': reason} if reason else {})}))
         self.last_sample = tracker_samples[-1]
         for sample in tracker_samples:
             self.tracker.observe(presentation, sample)
@@ -269,7 +356,10 @@ class KodiAdPlayback:
             self._clock_ready = False
             self._startup_samples = []
             if hasattr(self.mapper, 'invalidate'):
-                self.mapper.invalidate()
+                if self._continuous_playback_url is not None:
+                    self.mapper.invalidate('continuous_clock_seek')
+                else:
+                    self.mapper.invalidate()
 
     def on_pause(self, session_id=None):
         if session_id is None or session_id == self.session_id:
@@ -303,3 +393,4 @@ class KodiAdPlayback:
         self.speed_changed = False
         self._clock_ready = False
         self._startup_samples = []
+        self._continuous_playback_url = None
