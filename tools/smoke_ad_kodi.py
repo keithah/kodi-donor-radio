@@ -64,17 +64,20 @@ def _seek_effect_observed(evidence):
     after = evidence.get('after_position')
     total = evidence.get('total_seconds')
     percentage = evidence.get('target_percentage')
+    max_abs_speed = evidence.get('max_abs_speed')
     elapsed = evidence.get('elapsed_seconds')
-    values = (before, after, total, percentage, elapsed)
+    values = (before, after, total, percentage, max_abs_speed, elapsed)
     if any(not isinstance(value, (int, float)) or isinstance(value, bool) or
            not math.isfinite(value) for value in values):
         return False
-    if total <= 0 or not 0 <= percentage <= 100:
+    if total <= 0 or max_abs_speed < 0 or not 0 <= percentage <= 100:
         return False
     target = total * percentage / 100
-    # Require arrival at target and movement beyond the normal speed-1 advance
-    # possible during the seek poll window.
-    return abs(after - target) <= 1 and after - before > elapsed + .5
+    # Require arrival at target and movement beyond the fastest observed normal
+    # playback during the seek poll window. Kodi can be in fast-forward before
+    # a test action, so elapsed wall time alone is not a sufficient baseline.
+    natural_advance = elapsed * max(1.0, max_abs_speed)
+    return abs(after - target) <= 1 and after - before > natural_advance + .5
 
 
 _RELAY_MEDIA_PATH = re.compile(r'/media/[0-9a-f]{48}/[0-9a-f]{48}(?:\.[a-z0-9]+)?')
@@ -269,6 +272,7 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
             before = None
             seek_evidence = None
             seek_started_at = None
+            seek_max_abs_speed = None
             try:
                 active = rpc('Player.GetActivePlayers', port=port)
                 playerid = active[0]['playerid'] if active else 0
@@ -277,6 +281,10 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
                     result = rpc('Player.PlayPause', {'playerid': playerid}, port=port)
                 elif action == 'seek':
                     seek_started_at = time.monotonic()
+                    speed = before.get('speed') if before else None
+                    if (isinstance(speed, (int, float)) and not isinstance(speed, bool)
+                            and math.isfinite(speed)):
+                        seek_max_abs_speed = abs(speed)
                     result = rpc('Player.Seek', {'playerid': playerid, 'value': {'percentage': 80}}, port=port)
                 elif action == 'stop':
                     result = rpc('Player.Stop', {'playerid': playerid}, port=port)
@@ -294,10 +302,17 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
                     state_observed = False
                     while before and before.get('canseek') is True:
                         current_position = after.get('time_seconds')
+                        speed = after.get('speed')
+                        if (isinstance(speed, (int, float)) and not isinstance(speed, bool)
+                                and math.isfinite(speed)):
+                            speed = abs(speed)
+                            seek_max_abs_speed = (speed if seek_max_abs_speed is None else
+                                                  max(seek_max_abs_speed, speed))
                         seek_evidence = {'before_position': prior_position,
                                          'after_position': current_position,
                                          'total_seconds': total,
                                          'target_percentage': 80,
+                                         'max_abs_speed': seek_max_abs_speed,
                                          'elapsed_seconds': max(0, time.monotonic() - seek_started_at)}
                         if _seek_effect_observed(seek_evidence):
                             state_observed = True

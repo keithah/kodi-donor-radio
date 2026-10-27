@@ -1294,7 +1294,9 @@ process were not changed.
 
 `tools/smoke_ad_kodi.py` now exposes the already-existing finite source fixture
 in the add-on test menu. It verifies that Kodi accepted each requested action
-and observed the resulting pause, resume, or seek effect. The current run passed
+and observed the resulting pause, resume, or seek effect. Seek validation
+accounts for the fastest playback speed observed during its poll interval, so
+fast-forward clock movement alone cannot pass as a seek. The current run passed
 normal live playback, finite VAST playback, pause/resume, seek, stop, expired
 window, mutation, and delayed-segment scenarios. The machine-readable player
 samples and fixture counters are in
@@ -1305,15 +1307,17 @@ samples and fixture counters are in
   pause interval the player clock held steady and Kodi reported speed zero.
 - The finite seek run moved to the requested late position. Beacon totals vary
   with whether Kodi reaches the break before the seek action; this is recorded
-  but not gated because the fixture counter does not timestamp each event.
+  but not gated because the fixture counter does not timestamp each event. On
+  the latest run, Kodi moved from 8.396 to 12.833 seconds toward the 80% target
+  in 1.265 seconds at 1× speed; the checker compares the jump with the possible
+  natural clock advance before accepting it as a seek.
 - Stop and expired-window runs recorded no success beacons. Live moving-window,
   mutation, and stall beacon totals are retained as observations, not strict
   expectations, because their clock mapping is not calibrated.
-- Moving-window, mutation, and stall beacon totals varied across runs. This
-  pass observed impression/start/first quartile on normal and mutation, and all
-  six events on stall; earlier runs produced different subsets. These
-  scenarios remain observational rather than event-count gates, and production
-  station tracking remains disabled.
+- The latest report recorded no beacons in the normal live, mutation, or stall
+  scenarios. Earlier runs produced different subsets. These scenarios remain
+  observational rather than event-count gates until their clock mapping is
+  calibrated, and production station tracking remains disabled.
 
 The desktop was locked during the final run, so visual inspection and local
 audio capture/listening remain unverified. This acceptance proves Kodi drove

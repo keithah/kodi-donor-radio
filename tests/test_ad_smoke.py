@@ -310,6 +310,7 @@ def test_kodi_smoke_does_not_count_natural_progress_as_a_seek():
                                              'after_position': 11.9,
                                              'total_seconds': 16.0,
                                              'target_percentage': 80,
+                                             'max_abs_speed': 1,
                                              'elapsed_seconds': .5}}],
               'timeline': [
                   {'playing': True, 'item_matches_expected': True,
@@ -329,6 +330,7 @@ def test_kodi_smoke_does_not_count_natural_progress_near_seek_target():
                                              'after_position': 11.9,
                                              'total_seconds': 16.0,
                                              'target_percentage': 80,
+                                             'max_abs_speed': 1,
                                              'elapsed_seconds': 2.5}}],
               'timeline': [
                   {'playing': True, 'item_matches_expected': True,
@@ -348,6 +350,7 @@ def test_kodi_smoke_accepts_seek_jump_beyond_elapsed_playback():
                                              'after_position': 12.833,
                                              'total_seconds': 16.042,
                                              'target_percentage': 80,
+                                             'max_abs_speed': 1,
                                              'elapsed_seconds': 1.5}}],
               'timeline': [
                   {'playing': True, 'item_matches_expected': True,
@@ -356,6 +359,26 @@ def test_kodi_smoke_accepts_seek_jump_beyond_elapsed_playback():
                    'time_seconds': 8.6, 'at': 0.6},
               ]}
     assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_does_not_count_fast_natural_progress_as_a_seek():
+    result = {'source': 'finite', 'requested_actions': ['seek'],
+              'actions': [{'action': 'seek', 'at': 8.0, 'accepted': True,
+                           'state_observed': True,
+                           'seek_evidence': {'before_position': 8.0,
+                                             'after_position': 12.8,
+                                             'total_seconds': 16.0,
+                                             'target_percentage': 80,
+                                             'max_abs_speed': 2,
+                                             'elapsed_seconds': 2.4}}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 8.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 8.6, 'at': 0.6},
+              ]}
+    assert any('seek' in failure and 'effect' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
 
 
 def test_decoder_probe_reports_counts_before_fixture_validation(monkeypatch, tmp_path):

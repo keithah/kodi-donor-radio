@@ -13,11 +13,7 @@
       "actions": [],
       "audible_output_verified": false,
       "fixture": {
-        "beacons": {
-          "placement-1/firstQuartile": 1,
-          "placement-1/impression": 1,
-          "placement-1/start": 1
-        },
+        "beacons": {},
         "requests": {
           "/ads/replacement.m3u8": 2,
           "/ads/replacement000.ts": 2,
@@ -37,9 +33,6 @@
           "/ads/source012.ts": 1,
           "/ads/source013.ts": 1,
           "/source/normal/index.m3u8": 11,
-          "/track/placement-1/firstQuartile": 1,
-          "/track/placement-1/impression": 1,
-          "/track/placement-1/start": 1,
           "/vast/direct": 2
         },
         "windows": {
@@ -56,25 +49,19 @@
           "playing": false
         },
         {
-          "at": 0.261,
+          "at": 0.264,
           "playing": false
         },
         {
-          "at": 0.54,
-          "cachepercentage": 100.0,
-          "canseek": false,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 0.0,
-          "total_seconds": 0.0
+          "at": 0.527,
+          "playing": false
         },
         {
-          "at": 1.007,
+          "at": 0.788,
+          "playing": false
+        },
+        {
+          "at": 1.251,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -88,7 +75,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 1.275,
+          "at": 1.516,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -98,11 +85,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.316,
+          "time_seconds": 0.332,
           "total_seconds": 0.0
         },
         {
-          "at": 1.542,
+          "at": 1.781,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -112,11 +99,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.738,
+          "time_seconds": 0.539,
           "total_seconds": 0.0
         },
         {
-          "at": 1.808,
+          "at": 2.041,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -130,7 +117,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 2.075,
+          "at": 2.304,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -140,11 +127,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.158,
+          "time_seconds": 1.154,
           "total_seconds": 0.0
         },
         {
-          "at": 2.333,
+          "at": 2.567,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -154,11 +141,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.366,
+          "time_seconds": 1.361,
           "total_seconds": 0.0
         },
         {
-          "at": 2.598,
+          "at": 2.832,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -168,11 +155,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.681,
+          "time_seconds": 1.361,
           "total_seconds": 0.0
         },
         {
-          "at": 2.86,
+          "at": 3.094,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -182,11 +169,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.896,
+          "time_seconds": 1.9020000000000001,
           "total_seconds": 0.0
         },
         {
-          "at": 3.121,
+          "at": 3.349,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -196,11 +183,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.315,
+          "time_seconds": 2.111,
           "total_seconds": 0.0
         },
         {
-          "at": 3.388,
+          "at": 3.615,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -210,11 +197,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.519,
+          "time_seconds": 2.529,
           "total_seconds": 0.0
         },
         {
-          "at": 3.655,
+          "at": 3.87,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -224,11 +211,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.721,
+          "time_seconds": 2.731,
           "total_seconds": 0.0
         },
         {
-          "at": 3.925,
+          "at": 4.135,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -238,11 +225,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.933,
+          "time_seconds": 2.941,
           "total_seconds": 0.0
         },
         {
-          "at": 4.206,
+          "at": 4.396,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -252,11 +239,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.3449999999999998,
+          "time_seconds": 3.344,
           "total_seconds": 0.0
         },
         {
-          "at": 4.472,
+          "at": 4.652,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -266,11 +253,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.3449999999999998,
+          "time_seconds": 3.344,
           "total_seconds": 0.0
         },
         {
-          "at": 4.731,
+          "at": 4.912,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -280,11 +267,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.927,
+          "time_seconds": 3.344,
           "total_seconds": 0.0
         },
         {
-          "at": 5.0,
+          "at": 5.175,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -294,11 +281,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.131,
+          "time_seconds": 3.922,
           "total_seconds": 0.0
         },
         {
-          "at": 5.271,
+          "at": 5.435,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -308,11 +295,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.342,
+          "time_seconds": 4.339,
           "total_seconds": 0.0
         },
         {
-          "at": 5.551,
+          "at": 5.695,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -322,11 +309,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.549,
+          "time_seconds": 4.5440000000000005,
           "total_seconds": 0.0
         },
         {
-          "at": 5.845,
+          "at": 5.953,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -336,11 +323,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.965,
+          "time_seconds": 4.757,
           "total_seconds": 0.0
         },
         {
-          "at": 6.11,
+          "at": 6.213,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -350,11 +337,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.179,
+          "time_seconds": 4.961,
           "total_seconds": 0.0
         },
         {
-          "at": 6.506,
+          "at": 6.474,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -364,11 +351,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.179,
+          "time_seconds": 5.169,
           "total_seconds": 0.0
         },
         {
-          "at": 6.79,
+          "at": 6.731,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -378,11 +365,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.789,
+          "time_seconds": 5.169,
           "total_seconds": 0.0
         },
         {
-          "at": 7.05,
+          "at": 6.996,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -392,11 +379,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.196,
+          "time_seconds": 5.169,
           "total_seconds": 0.0
         },
         {
-          "at": 7.321,
+          "at": 7.26,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -406,11 +393,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.4,
+          "time_seconds": 6.209,
           "total_seconds": 0.0
         },
         {
-          "at": 7.593,
+          "at": 7.525,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -420,11 +407,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.607,
+          "time_seconds": 6.409,
           "total_seconds": 0.0
         },
         {
-          "at": 7.878,
+          "at": 7.787,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -434,11 +421,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.019,
+          "time_seconds": 6.617,
           "total_seconds": 0.0
         },
         {
-          "at": 8.161,
+          "at": 8.052,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -448,11 +435,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.226,
+          "time_seconds": 6.822,
           "total_seconds": 0.0
         },
         {
-          "at": 8.45,
+          "at": 8.309,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -462,11 +449,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.226,
+          "time_seconds": 7.233,
           "total_seconds": 0.0
         },
         {
-          "at": 8.716,
+          "at": 8.566,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -476,11 +463,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.897,
+          "time_seconds": 7.233,
           "total_seconds": 0.0
         },
         {
-          "at": 8.976,
+          "at": 8.831,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -490,11 +477,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.098,
+          "time_seconds": 7.233,
           "total_seconds": 0.0
         },
         {
-          "at": 9.233,
+          "at": 9.091,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -504,11 +491,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.304,
+          "time_seconds": 7.233,
           "total_seconds": 0.0
         },
         {
-          "at": 9.49,
+          "at": 9.356,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -518,11 +505,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.512,
+          "time_seconds": 8.104,
           "total_seconds": 0.0
         },
         {
-          "at": 9.747,
+          "at": 9.621,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -532,11 +519,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.917,
+          "time_seconds": 8.528,
           "total_seconds": 0.0
         },
         {
-          "at": 10.009,
+          "at": 9.879,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -546,11 +533,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.128,
+          "time_seconds": 8.728,
           "total_seconds": 0.0
         },
         {
-          "at": 10.273,
+          "at": 10.145,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -560,11 +547,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.337,
+          "time_seconds": 8.936,
           "total_seconds": 0.0
         },
         {
-          "at": 10.561,
+          "at": 10.403,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -574,11 +561,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.337,
+          "time_seconds": 9.143,
           "total_seconds": 0.0
         },
         {
-          "at": 10.823,
+          "at": 10.664,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -588,11 +575,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.003,
+          "time_seconds": 9.354,
           "total_seconds": 0.0
         },
         {
-          "at": 11.086,
+          "at": 10.923,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -602,11 +589,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.206,
+          "time_seconds": 9.354,
           "total_seconds": 0.0
         },
         {
-          "at": 11.353,
+          "at": 11.178,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -616,11 +603,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.409,
+          "time_seconds": 9.354,
           "total_seconds": 0.0
         },
         {
-          "at": 11.645,
+          "at": 11.45,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -630,11 +617,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.818,
+          "time_seconds": 10.202,
           "total_seconds": 0.0
         },
         {
-          "at": 11.939,
+          "at": 11.738,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -644,11 +631,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.021,
+          "time_seconds": 10.618,
           "total_seconds": 0.0
         },
         {
-          "at": 12.224,
+          "at": 12.028,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -658,11 +645,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.225,
+          "time_seconds": 10.829,
           "total_seconds": 0.0
         },
         {
-          "at": 12.512,
+          "at": 12.317,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -672,11 +659,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.225,
+          "time_seconds": 11.041,
           "total_seconds": 0.0
         },
         {
-          "at": 12.801,
+          "at": 12.608,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -686,11 +673,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.225,
+          "time_seconds": 11.25,
           "total_seconds": 0.0
         },
         {
-          "at": 13.087,
+          "at": 12.909,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -700,11 +687,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.243,
+          "time_seconds": 11.25,
           "total_seconds": 0.0
         },
         {
-          "at": 13.374,
+          "at": 13.207,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -714,11 +701,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.444,
+          "time_seconds": 11.25,
           "total_seconds": 0.0
         },
         {
-          "at": 13.704,
+          "at": 13.491,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -728,11 +715,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.649000000000001,
+          "time_seconds": 12.241,
           "total_seconds": 0.0
         },
         {
-          "at": 14.046,
+          "at": 13.818,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -742,11 +729,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.072,
+          "time_seconds": 12.661,
           "total_seconds": 0.0
         },
         {
-          "at": 14.381,
+          "at": 14.11,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -756,11 +743,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.278,
+          "time_seconds": 12.868,
           "total_seconds": 0.0
         },
         {
-          "at": 14.664,
+          "at": 14.394,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -770,11 +757,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.278,
+          "time_seconds": 13.283,
           "total_seconds": 0.0
         },
         {
-          "at": 14.949,
+          "at": 14.681,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -784,11 +771,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.278,
+          "time_seconds": 13.283,
           "total_seconds": 0.0
         },
         {
-          "at": 15.248,
+          "at": 14.972,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -798,11 +785,39 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.353,
+          "time_seconds": 13.283,
           "total_seconds": 0.0
         },
         {
-          "at": 15.532,
+          "at": 15.259,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.283,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 15.543,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.354,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 15.837,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -816,7 +831,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 15.82,
+          "at": 16.124,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -826,11 +841,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.969,
+          "time_seconds": 14.97,
           "total_seconds": 0.0
         },
         {
-          "at": 16.105,
+          "at": 16.413,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -840,11 +855,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.175,
+          "time_seconds": 15.179,
           "total_seconds": 0.0
         },
         {
-          "at": 16.398,
+          "at": 16.695,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -854,11 +869,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.376,
+          "time_seconds": 15.382,
           "total_seconds": 0.0
         },
         {
-          "at": 16.688,
+          "at": 16.981,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -868,11 +883,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.376,
+          "time_seconds": 15.382,
           "total_seconds": 0.0
         },
         {
-          "at": 16.976,
+          "at": 17.271,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -882,7 +897,35 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.376,
+          "time_seconds": 15.382,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.56,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 16.465,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.847,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 16.667,
           "total_seconds": 0.0
         }
       ],
@@ -945,7 +988,7 @@
           "playing": false
         },
         {
-          "at": 0.55,
+          "at": 0.547,
           "cachepercentage": 0.0,
           "canseek": true,
           "item_matches_expected": true,
@@ -959,7 +1002,7 @@
           "total_seconds": 16.042
         },
         {
-          "at": 0.993,
+          "at": 0.976,
           "cachepercentage": 22.939783096313477,
           "canseek": true,
           "item_matches_expected": true,
@@ -969,12 +1012,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": -0.091,
+          "time_seconds": -0.092,
           "total_seconds": 16.042
         },
         {
-          "at": 1.255,
-          "cachepercentage": 26.667497634887695,
+          "at": 1.24,
+          "cachepercentage": 26.87944221496582,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -983,12 +1026,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.318,
+          "time_seconds": 0.312,
           "total_seconds": 16.042
         },
         {
-          "at": 1.529,
-          "cachepercentage": 27.98279571533203,
+          "at": 1.52,
+          "cachepercentage": 27.951627731323242,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -997,12 +1040,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.529,
+          "time_seconds": 0.524,
           "total_seconds": 16.042
         },
         {
           "at": 1.844,
-          "cachepercentage": 30.65079116821289,
+          "cachepercentage": 30.600923538208008,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1011,12 +1054,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.957,
+          "time_seconds": 0.949,
           "total_seconds": 16.042
         },
         {
-          "at": 2.116,
-          "cachepercentage": 31.95362091064453,
+          "at": 2.137,
+          "cachepercentage": 32.10946273803711,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1025,12 +1068,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.166,
+          "time_seconds": 1.151,
           "total_seconds": 16.042
         },
         {
-          "at": 2.438,
-          "cachepercentage": 34.521881103515625,
+          "at": 2.458,
+          "cachepercentage": 34.41590881347656,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1039,12 +1082,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.5779999999999998,
+          "time_seconds": 1.561,
           "total_seconds": 16.042
         },
         {
-          "at": 2.74,
-          "cachepercentage": 35.76860809326172,
+          "at": 2.773,
+          "cachepercentage": 35.70627212524414,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1053,12 +1096,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.778,
+          "time_seconds": 1.768,
           "total_seconds": 16.042
         },
         {
-          "at": 3.016,
-          "cachepercentage": 38.62361145019531,
+          "at": 3.042,
+          "cachepercentage": 38.255828857421875,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1067,12 +1110,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.196,
+          "time_seconds": 2.177,
           "total_seconds": 16.042
         },
         {
-          "at": 3.323,
-          "cachepercentage": 39.68333053588867,
+          "at": 3.36,
+          "cachepercentage": 39.56489181518555,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1081,12 +1124,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.406,
+          "time_seconds": 2.387,
           "total_seconds": 16.042
         },
         {
-          "at": 3.64,
-          "cachepercentage": 40.97369384765625,
+          "at": 3.681,
+          "cachepercentage": 42.3450927734375,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1095,12 +1138,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.613,
+          "time_seconds": 2.793,
           "total_seconds": 16.042
         },
         {
-          "at": 3.971,
-          "cachepercentage": 43.77259826660156,
+          "at": 3.972,
+          "cachepercentage": 43.411048889160156,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1109,12 +1152,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.022,
+          "time_seconds": 3.004,
           "total_seconds": 16.042
         },
         {
-          "at": 4.299,
-          "cachepercentage": 46.32838821411133,
+          "at": 4.286,
+          "cachepercentage": 46.247352600097656,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1123,12 +1166,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.432,
+          "time_seconds": 3.419,
           "total_seconds": 16.042
         },
         {
-          "at": 4.615,
-          "cachepercentage": 47.63121795654297,
+          "at": 4.594,
+          "cachepercentage": 47.24473571777344,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1137,12 +1180,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.641,
+          "time_seconds": 3.6189999999999998,
           "total_seconds": 16.042
         },
         {
-          "at": 4.934,
-          "cachepercentage": 49.96260070800781,
+          "at": 4.868,
+          "cachepercentage": 49.781822204589844,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1151,12 +1194,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.054,
+          "time_seconds": 4.026,
           "total_seconds": 16.042
         },
         {
-          "at": 5.292,
-          "cachepercentage": 51.26542663574219,
+          "at": 5.159,
+          "cachepercentage": 51.37763214111328,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1165,12 +1208,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.264,
+          "time_seconds": 4.242,
           "total_seconds": 16.042
         },
         {
-          "at": 5.574,
-          "cachepercentage": 54.095497131347656,
+          "at": 5.473,
+          "cachepercentage": 52.412418365478516,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1179,12 +1222,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.678,
+          "time_seconds": 4.448,
           "total_seconds": 16.042
         },
         {
-          "at": 5.887,
-          "cachepercentage": 55.09911346435547,
+          "at": 5.762,
+          "cachepercentage": 54.99937438964844,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1193,12 +1236,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.879,
+          "time_seconds": 4.8629999999999995,
           "total_seconds": 16.042
         },
         {
-          "at": 6.208,
-          "cachepercentage": 57.629974365234375,
+          "at": 6.063,
+          "cachepercentage": 56.28974151611328,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1207,12 +1250,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.285,
+          "time_seconds": 5.07,
           "total_seconds": 16.042
         },
         {
-          "at": 6.522,
-          "cachepercentage": 59.138511657714844,
+          "at": 6.342,
+          "cachepercentage": 58.84552764892578,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1221,12 +1264,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.487,
+          "time_seconds": 5.48,
           "total_seconds": 16.042
         },
         {
-          "at": 6.799,
-          "cachepercentage": 61.457427978515625,
+          "at": 6.644,
+          "cachepercentage": 60.17329406738281,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1235,12 +1278,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.899,
+          "time_seconds": 5.693,
           "total_seconds": 16.042
         },
         {
-          "at": 7.111,
-          "cachepercentage": 63.00336837768555,
+          "at": 6.961,
+          "cachepercentage": 62.978431701660156,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1249,12 +1292,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.107,
+          "time_seconds": 6.103,
           "total_seconds": 16.042
         },
         {
-          "at": 7.419,
-          "cachepercentage": 65.31604766845703,
+          "at": 7.26,
+          "cachepercentage": 64.29996490478516,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1263,12 +1306,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.518,
+          "time_seconds": 6.315,
           "total_seconds": 16.042
         },
         {
-          "at": 7.721,
-          "cachepercentage": 66.56277465820312,
+          "at": 7.541,
+          "cachepercentage": 66.56900787353516,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1277,12 +1320,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.718,
+          "time_seconds": 6.719,
           "total_seconds": 16.042
         },
         {
-          "at": 8.032,
-          "cachepercentage": 69.12479400634766,
+          "at": 7.837,
+          "cachepercentage": 67.83443450927734,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1291,12 +1334,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.129,
+          "time_seconds": 6.922,
           "total_seconds": 16.042
         },
         {
-          "at": 8.34,
-          "cachepercentage": 70.701904296875,
+          "at": 8.137,
+          "cachepercentage": 69.39907836914062,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1305,12 +1348,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.342,
+          "time_seconds": 7.133,
           "total_seconds": 16.042
         },
         {
-          "at": 8.662,
-          "cachepercentage": 73.27017211914062,
+          "at": 8.466,
+          "cachepercentage": 71.68682098388672,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1319,12 +1362,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.754,
+          "time_seconds": 7.54,
           "total_seconds": 16.042
         },
         {
-          "at": 8.936,
-          "cachepercentage": 74.29871368408203,
+          "at": 8.748,
+          "cachepercentage": 73.19535827636719,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1333,12 +1376,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.959,
+          "time_seconds": 7.742,
           "total_seconds": 16.042
         },
         {
-          "at": 9.253,
-          "cachepercentage": 76.92308044433594,
+          "at": 9.063,
+          "cachepercentage": 75.75115203857422,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1347,12 +1390,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.38,
+          "time_seconds": 8.152,
           "total_seconds": 16.042
         },
         {
-          "at": 9.571,
-          "cachepercentage": 78.20097351074219,
+          "at": 9.366,
+          "cachepercentage": 76.7672348022461,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1361,12 +1404,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.585,
+          "time_seconds": 8.355,
           "total_seconds": 16.042
         },
         {
-          "at": 9.89,
-          "cachepercentage": 80.73182678222656,
+          "at": 9.649,
+          "cachepercentage": 79.32302856445312,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1375,12 +1418,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.991,
+          "time_seconds": 8.765,
           "total_seconds": 16.042
         },
         {
-          "at": 10.204,
-          "cachepercentage": 82.24037170410156,
+          "at": 9.959,
+          "cachepercentage": 80.58845520019531,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1389,12 +1432,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.193,
+          "time_seconds": 8.968,
           "total_seconds": 16.042
         },
         {
-          "at": 10.488,
-          "cachepercentage": 84.55928039550781,
+          "at": 10.283,
+          "cachepercentage": 83.13801574707031,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1403,12 +1446,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.605,
+          "time_seconds": 9.377,
           "total_seconds": 16.042
         },
         {
-          "at": 10.792,
-          "cachepercentage": 85.84341430664062,
+          "at": 10.593,
+          "cachepercentage": 84.63408660888672,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1417,12 +1460,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.811,
+          "time_seconds": 9.577,
           "total_seconds": 16.042
         },
         {
-          "at": 11.092,
-          "cachepercentage": 88.36180114746094,
+          "at": 10.907,
+          "cachepercentage": 86.9717025756836,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1431,12 +1474,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.215,
+          "time_seconds": 9.992,
           "total_seconds": 16.042
         },
         {
-          "at": 11.396,
-          "cachepercentage": 89.68333435058594,
+          "at": 11.17,
+          "cachepercentage": 88.53010559082031,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1445,12 +1488,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.427,
+          "time_seconds": 10.202,
           "total_seconds": 16.042
         },
         {
-          "at": 11.668,
-          "cachepercentage": 92.46976470947266,
+          "at": 11.45,
+          "cachepercentage": 90.81785583496094,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1459,12 +1502,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.834,
+          "time_seconds": 10.609,
           "total_seconds": 16.042
         },
         {
-          "at": 11.964,
-          "cachepercentage": 93.75389862060547,
+          "at": 11.738,
+          "cachepercentage": 92.10198211669922,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1473,12 +1516,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.04,
+          "time_seconds": 10.815,
           "total_seconds": 16.042
         },
         {
-          "at": 12.313,
-          "cachepercentage": 95.05672454833984,
+          "at": 12.033,
+          "cachepercentage": 93.36117553710938,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1487,81 +1530,25 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.249,
+          "time_seconds": 11.017,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 12.319,
+          "cachepercentage": 95.47438049316406,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 11.475999999999999,
           "total_seconds": 16.042
         },
         {
           "at": 12.614,
-          "cachepercentage": 95.58658599853516,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 11.693999999999999,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 12.902,
-          "cachepercentage": 95.68009185791016,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 11.909,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 13.195,
-          "cachepercentage": 95.66139221191406,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 12.346,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 13.487,
-          "cachepercentage": 95.52424621582031,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 12.564,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 13.765,
-          "cachepercentage": 95.64268493652344,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 12.783,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 14.05,
           "cachepercentage": 95.56788635253906,
           "canseek": true,
           "item_matches_expected": true,
@@ -1571,67 +1558,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.211,
+          "time_seconds": 11.691,
           "total_seconds": 16.042
         },
         {
-          "at": 14.331,
-          "cachepercentage": 95.43698120117188,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 13.43,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 14.619,
-          "cachepercentage": 95.51802062988281,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 13.643,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 14.909,
-          "cachepercentage": 95.42451477050781,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 14.068,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 15.204,
-          "cachepercentage": 95.53671264648438,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 14.286,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 15.487,
+          "at": 12.904,
           "cachepercentage": 95.64891815185547,
           "canseek": true,
           "item_matches_expected": true,
@@ -1641,12 +1572,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.504,
+          "time_seconds": 11.904,
           "total_seconds": 16.042
         },
         {
-          "at": 15.776,
-          "cachepercentage": 95.58035278320312,
+          "at": 13.2,
+          "cachepercentage": 95.56165313720703,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1655,12 +1586,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.933,
+          "time_seconds": 12.33,
           "total_seconds": 16.042
         },
         {
-          "at": 16.065,
-          "cachepercentage": 95.68009185791016,
+          "at": 13.487,
+          "cachepercentage": 95.64269256591797,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1669,12 +1600,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.149,
+          "time_seconds": 12.543,
           "total_seconds": 16.042
         },
         {
-          "at": 16.356,
-          "cachepercentage": 95.72372436523438,
+          "at": 13.787,
+          "cachepercentage": 95.48684692382812,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1683,31 +1614,153 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.356,
+          "time_seconds": 12.758,
           "total_seconds": 16.042
         },
         {
-          "at": 16.618,
+          "at": 14.067,
+          "cachepercentage": 95.44944763183594,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.192,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 14.354,
+          "cachepercentage": 95.54918670654297,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.408,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 14.639,
+          "cachepercentage": 95.63021850585938,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.621,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 14.929,
+          "cachepercentage": 95.54295349121094,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.047,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 15.217,
+          "cachepercentage": 95.60528564453125,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.257,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 15.54,
+          "cachepercentage": 95.5429458618164,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.687,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 15.832,
+          "cachepercentage": 95.6364517211914,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.902,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 16.124,
+          "cachepercentage": 95.48684692382812,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.118,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 16.453,
+          "cachepercentage": 95.60528564453125,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.337,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 16.719,
           "playing": false
         },
         {
-          "at": 16.877,
+          "at": 16.971,
           "playing": false
         },
         {
-          "at": 17.142,
+          "at": 17.232,
           "playing": false
         },
         {
-          "at": 17.4,
+          "at": 17.491,
           "playing": false
         },
         {
-          "at": 17.651,
-          "playing": false
-        },
-        {
-          "at": 17.912,
+          "at": 17.744,
           "playing": false
         }
       ],
@@ -1718,14 +1771,14 @@
         {
           "accepted": true,
           "action": "pause",
-          "at": 3.007,
+          "at": 3.04,
           "result": "{'speed': 0}",
           "state_observed": true
         },
         {
           "accepted": true,
           "action": "resume",
-          "at": 5.246,
+          "at": 5.208,
           "result": "{'speed': 1}",
           "state_observed": true
         }
@@ -1780,15 +1833,15 @@
       "source": "finite",
       "timeline": [
         {
-          "at": 0.0,
+          "at": 0.001,
           "playing": false
         },
         {
-          "at": 0.253,
+          "at": 0.261,
           "playing": false
         },
         {
-          "at": 0.548,
+          "at": 0.552,
           "cachepercentage": 0.0,
           "canseek": true,
           "item_matches_expected": true,
@@ -1802,7 +1855,7 @@
           "total_seconds": 16.042
         },
         {
-          "at": 0.987,
+          "at": 1.004,
           "cachepercentage": 22.939783096313477,
           "canseek": true,
           "item_matches_expected": true,
@@ -1816,8 +1869,8 @@
           "total_seconds": 16.042
         },
         {
-          "at": 1.249,
-          "cachepercentage": 26.67996597290039,
+          "at": 1.266,
+          "cachepercentage": 26.88567543029785,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1826,11 +1879,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.32,
+          "time_seconds": 0.313,
           "total_seconds": 16.042
         },
         {
-          "at": 1.524,
+          "at": 1.547,
           "cachepercentage": 27.957860946655273,
           "canseek": true,
           "item_matches_expected": true,
@@ -1844,8 +1897,8 @@
           "total_seconds": 16.042
         },
         {
-          "at": 1.848,
-          "cachepercentage": 30.538585662841797,
+          "at": 1.861,
+          "cachepercentage": 30.76923179626465,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1854,12 +1907,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.939,
+          "time_seconds": 0.936,
           "total_seconds": 16.042
         },
         {
-          "at": 2.17,
-          "cachepercentage": 31.841415405273438,
+          "at": 2.168,
+          "cachepercentage": 32.022193908691406,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1868,12 +1921,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.148,
+          "time_seconds": 1.137,
           "total_seconds": 16.042
         },
         {
-          "at": 2.441,
-          "cachepercentage": 34.70888900756836,
+          "at": 2.491,
+          "cachepercentage": 34.291236877441406,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1882,12 +1935,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.568,
+          "time_seconds": 1.541,
           "total_seconds": 16.042
         },
         {
-          "at": 2.747,
-          "cachepercentage": 36.01171875,
+          "at": 2.789,
+          "cachepercentage": 35.5379638671875,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1896,12 +1949,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.7770000000000001,
+          "time_seconds": 1.741,
           "total_seconds": 16.042
         },
         {
-          "at": 3.178,
-          "cachepercentage": 38.343101501464844,
+          "at": 3.18,
+          "cachepercentage": 38.14362335205078,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1910,12 +1963,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.191,
+          "time_seconds": 2.159,
           "total_seconds": 16.042
         },
         {
-          "at": 3.482,
-          "cachepercentage": 39.246978759765625,
+          "at": 3.495,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1924,12 +1977,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 3.764,
-          "cachepercentage": 39.246978759765625,
+          "at": 3.778,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1938,12 +1991,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 4.064,
-          "cachepercentage": 39.246978759765625,
+          "at": 4.061,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1952,12 +2005,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 4.365,
-          "cachepercentage": 39.246978759765625,
+          "at": 4.359,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1966,12 +2019,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 4.65,
-          "cachepercentage": 39.246978759765625,
+          "at": 4.654,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1980,12 +2033,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 4.994,
-          "cachepercentage": 39.246978759765625,
+          "at": 4.948,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -1994,12 +2047,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 0,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 5.352,
-          "cachepercentage": 39.246978759765625,
+          "at": 5.344,
+          "cachepercentage": 39.10983657836914,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2008,12 +2061,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.296,
+          "time_seconds": 2.274,
           "total_seconds": 16.042
         },
         {
-          "at": 5.702,
-          "cachepercentage": 40.51240539550781,
+          "at": 5.644,
+          "cachepercentage": 40.425132751464844,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2022,12 +2075,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.499,
+          "time_seconds": 2.485,
           "total_seconds": 16.042
         },
         {
-          "at": 5.984,
-          "cachepercentage": 43.01832580566406,
+          "at": 5.967,
+          "cachepercentage": 42.700408935546875,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2036,12 +2089,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.901,
+          "time_seconds": 2.89,
           "total_seconds": 16.042
         },
         {
-          "at": 6.295,
-          "cachepercentage": 44.05934524536133,
+          "at": 6.278,
+          "cachepercentage": 43.98454284667969,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2050,12 +2103,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.108,
+          "time_seconds": 3.096,
           "total_seconds": 16.042
         },
         {
-          "at": 6.578,
-          "cachepercentage": 46.65253829956055,
+          "at": 6.556,
+          "cachepercentage": 46.552799224853516,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2064,12 +2117,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.524,
+          "time_seconds": 3.508,
           "total_seconds": 16.042
         },
         {
-          "at": 6.885,
-          "cachepercentage": 47.98030090332031,
+          "at": 6.857,
+          "cachepercentage": 47.855628967285156,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2078,12 +2131,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.737,
+          "time_seconds": 3.717,
           "total_seconds": 16.042
         },
         {
-          "at": 7.217,
-          "cachepercentage": 50.56102752685547,
+          "at": 7.18,
+          "cachepercentage": 50.3864860534668,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2092,12 +2145,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.151,
+          "time_seconds": 4.123,
           "total_seconds": 16.042
         },
         {
-          "at": 7.534,
-          "cachepercentage": 51.87009048461914,
+          "at": 7.487,
+          "cachepercentage": 51.88256072998047,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2106,12 +2159,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.361,
+          "time_seconds": 4.323,
           "total_seconds": 16.042
         },
         {
-          "at": 7.868,
-          "cachepercentage": 54.45705032348633,
+          "at": 7.812,
+          "cachepercentage": 54.43211364746094,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2120,12 +2173,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.776,
+          "time_seconds": 4.732,
           "total_seconds": 16.042
         },
         {
-          "at": 8.175,
-          "cachepercentage": 56.02169418334961,
+          "at": 8.136,
+          "cachepercentage": 55.46066665649414,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2134,12 +2187,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.987,
+          "time_seconds": 4.937,
           "total_seconds": 16.042
         },
         {
-          "at": 8.501,
-          "cachepercentage": 58.59618377685547,
+          "at": 8.42,
+          "cachepercentage": 58.29697036743164,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2148,12 +2201,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.4,
+          "time_seconds": 5.352,
           "total_seconds": 16.042
         },
         {
-          "at": 8.797,
-          "cachepercentage": 59.89278030395508,
+          "at": 8.748,
+          "cachepercentage": 59.31305694580078,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2162,12 +2215,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.608,
+          "time_seconds": 5.555,
           "total_seconds": 16.042
         },
         {
-          "at": 9.12,
-          "cachepercentage": 62.15559387207031,
+          "at": 9.078,
+          "cachepercentage": 61.831443786621094,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2176,12 +2229,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.011,
+          "time_seconds": 5.959,
           "total_seconds": 16.042
         },
         {
-          "at": 9.429,
-          "cachepercentage": 63.452186584472656,
+          "at": 9.4,
+          "cachepercentage": 63.377384185791016,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2190,12 +2243,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.219,
+          "time_seconds": 6.167,
           "total_seconds": 16.042
         },
         {
-          "at": 9.749,
-          "cachepercentage": 65.9705810546875,
+          "at": 9.71,
+          "cachepercentage": 65.976806640625,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2204,12 +2257,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.623,
+          "time_seconds": 6.584,
           "total_seconds": 16.042
         },
         {
-          "at": 10.053,
-          "cachepercentage": 67.31080627441406,
+          "at": 10.01,
+          "cachepercentage": 68.30195617675781,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2218,12 +2271,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.838,
+          "time_seconds": 6.997,
           "total_seconds": 16.042
         },
         {
-          "at": 10.329,
-          "cachepercentage": 70.19698333740234,
+          "at": 10.31,
+          "cachepercentage": 69.86036682128906,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2232,12 +2285,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.261,
+          "time_seconds": 7.207,
           "total_seconds": 16.042
         },
         {
-          "at": 10.642,
-          "cachepercentage": 71.23176574707031,
+          "at": 10.631,
+          "cachepercentage": 70.86398315429688,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2246,12 +2299,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.467,
+          "time_seconds": 7.408,
           "total_seconds": 16.042
         },
         {
-          "at": 10.973,
-          "cachepercentage": 73.85612487792969,
+          "at": 10.914,
+          "cachepercentage": 73.51327514648438,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2260,12 +2313,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.888,
+          "time_seconds": 7.833,
           "total_seconds": 16.042
         },
         {
-          "at": 11.235,
-          "cachepercentage": 75.14649200439453,
+          "at": 11.179,
+          "cachepercentage": 74.83480834960938,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2274,12 +2327,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.095,
+          "time_seconds": 8.045,
           "total_seconds": 16.042
         },
         {
-          "at": 11.506,
-          "cachepercentage": 76.72360229492188,
+          "at": 11.467,
+          "cachepercentage": 76.39321899414062,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2288,12 +2341,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.308,
+          "time_seconds": 8.255,
           "total_seconds": 16.042
         },
         {
-          "at": 11.808,
-          "cachepercentage": 79.06745147705078,
+          "at": 11.772,
+          "cachepercentage": 78.7183609008789,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2302,12 +2355,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.724,
+          "time_seconds": 8.668,
           "total_seconds": 16.042
         },
         {
-          "at": 12.094,
-          "cachepercentage": 80.35157775878906,
+          "at": 12.059,
+          "cachepercentage": 80.23313903808594,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2316,12 +2369,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.93,
+          "time_seconds": 8.871,
           "total_seconds": 16.042
         },
         {
-          "at": 12.38,
-          "cachepercentage": 82.93853759765625,
+          "at": 12.357,
+          "cachepercentage": 82.54581451416016,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2330,12 +2383,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.345,
+          "time_seconds": 9.282,
           "total_seconds": 16.042
         },
         {
-          "at": 12.699,
-          "cachepercentage": 84.2164306640625,
+          "at": 12.653,
+          "cachepercentage": 84.09799194335938,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2344,12 +2397,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.55,
+          "time_seconds": 9.491,
           "total_seconds": 16.042
         },
         {
-          "at": 12.999,
-          "cachepercentage": 86.97169494628906,
+          "at": 12.949,
+          "cachepercentage": 86.42937469482422,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2358,12 +2411,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.952,
+          "time_seconds": 9.905,
           "total_seconds": 16.042
         },
         {
-          "at": 13.291,
-          "cachepercentage": 88.03141784667969,
+          "at": 13.234,
+          "cachepercentage": 87.94415283203125,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2372,12 +2425,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.162,
+          "time_seconds": 10.108,
           "total_seconds": 16.042
         },
         {
-          "at": 13.58,
-          "cachepercentage": 90.79292297363281,
+          "at": 13.527,
+          "cachepercentage": 89.25321197509766,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2386,12 +2439,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.565,
+          "time_seconds": 10.318,
           "total_seconds": 16.042
         },
         {
-          "at": 13.865,
-          "cachepercentage": 91.8526382446289,
+          "at": 13.808,
+          "cachepercentage": 91.76536560058594,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2400,12 +2453,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.775,
+          "time_seconds": 10.721,
           "total_seconds": 16.042
         },
         {
-          "at": 14.143,
-          "cachepercentage": 93.15547180175781,
+          "at": 14.098,
+          "cachepercentage": 92.8313217163086,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2414,12 +2467,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.984,
+          "time_seconds": 10.932,
           "total_seconds": 16.042
         },
         {
-          "at": 14.428,
-          "cachepercentage": 94.69517517089844,
+          "at": 14.391,
+          "cachepercentage": 95.43698120117188,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2428,12 +2481,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.191,
+          "time_seconds": 11.35,
           "total_seconds": 16.042
         },
         {
-          "at": 14.716,
-          "cachepercentage": 95.40580749511719,
+          "at": 14.685,
+          "cachepercentage": 95.52425384521484,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2442,12 +2495,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.665,
+          "time_seconds": 11.564,
           "total_seconds": 16.042
         },
         {
-          "at": 15.013,
-          "cachepercentage": 95.33100891113281,
+          "at": 14.973,
+          "cachepercentage": 95.37464904785156,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2456,12 +2509,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.893,
+          "time_seconds": 11.78,
           "total_seconds": 16.042
         },
         {
-          "at": 15.299,
-          "cachepercentage": 95.4432144165039,
+          "at": 15.265,
+          "cachepercentage": 95.57411193847656,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2470,12 +2523,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.111,
+          "time_seconds": 12.212,
           "total_seconds": 16.042
         },
         {
-          "at": 15.593,
-          "cachepercentage": 95.38087463378906,
+          "at": 15.555,
+          "cachepercentage": 95.39334106445312,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2484,39 +2537,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.541,
+          "time_seconds": 12.423,
           "total_seconds": 16.042
         },
         {
-          "at": 15.881,
-          "cachepercentage": 95.50554656982422,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 12.761,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 16.17,
-          "cachepercentage": 95.5803451538086,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 12.973,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 16.468,
+          "at": 15.89,
           "cachepercentage": 95.49931335449219,
           "canseek": true,
           "item_matches_expected": true,
@@ -2526,12 +2551,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.4,
+          "time_seconds": 12.64,
           "total_seconds": 16.042
         },
         {
-          "at": 16.759,
-          "cachepercentage": 95.62398529052734,
+          "at": 16.184,
+          "cachepercentage": 95.45568084716797,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2540,12 +2565,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.62,
+          "time_seconds": 13.073,
           "total_seconds": 16.042
         },
         {
-          "at": 17.058,
-          "cachepercentage": 95.47438049316406,
+          "at": 16.468,
+          "cachepercentage": 95.5741195678711,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2554,12 +2579,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.836,
+          "time_seconds": 13.292,
           "total_seconds": 16.042
         },
         {
-          "at": 17.348,
-          "cachepercentage": 95.41204071044922,
+          "at": 16.747,
+          "cachepercentage": 95.4681396484375,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2568,12 +2593,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.266,
+          "time_seconds": 13.715,
           "total_seconds": 16.042
         },
         {
-          "at": 17.647,
-          "cachepercentage": 95.51177978515625,
+          "at": 17.037,
+          "cachepercentage": 95.55541229248047,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2582,12 +2607,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.482,
+          "time_seconds": 13.929,
           "total_seconds": 16.042
         },
         {
-          "at": 17.936,
-          "cachepercentage": 95.4619140625,
+          "at": 17.331,
+          "cachepercentage": 95.41827392578125,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2596,7 +2621,35 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.914,
+          "time_seconds": 14.147,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 17.628,
+          "cachepercentage": 95.60528564453125,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.577,
+          "total_seconds": 16.042
+        },
+        {
+          "at": 17.955,
+          "cachepercentage": 95.45568084716797,
+          "canseek": true,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.793,
           "total_seconds": 16.042
         }
       ],
@@ -2607,12 +2660,13 @@
         {
           "accepted": true,
           "action": "seek",
-          "at": 9.203,
-          "result": "{'percentage': 52.13813781738281, 'time': {'hours': 0, 'milliseconds': 364, 'minutes': 0, 'seconds': 8}, 'totaltime': {'",
+          "at": 9.223,
+          "result": "{'percentage': 52.33761215209961, 'time': {'hours': 0, 'milliseconds': 396, 'minutes': 0, 'seconds': 8}, 'totaltime': {'",
           "seek_evidence": {
             "after_position": 12.833,
-            "before_position": 8.364,
-            "elapsed_seconds": 1.2829863750000072,
+            "before_position": 8.396,
+            "elapsed_seconds": 1.2645054999999985,
+            "max_abs_speed": 1,
             "target_percentage": 80,
             "total_seconds": 16.042
           },
@@ -2652,15 +2706,15 @@
       "source": "finite",
       "timeline": [
         {
-          "at": 0.004,
+          "at": 0.0,
           "playing": false
         },
         {
-          "at": 0.265,
+          "at": 0.256,
           "playing": false
         },
         {
-          "at": 0.533,
+          "at": 0.522,
           "cachepercentage": 0.0,
           "canseek": true,
           "item_matches_expected": true,
@@ -2674,7 +2728,7 @@
           "total_seconds": 16.042
         },
         {
-          "at": 0.956,
+          "at": 0.945,
           "cachepercentage": 22.939783096313477,
           "canseek": true,
           "item_matches_expected": true,
@@ -2688,8 +2742,8 @@
           "total_seconds": 16.042
         },
         {
-          "at": 1.22,
-          "cachepercentage": 26.954246520996094,
+          "at": 1.208,
+          "cachepercentage": 26.891908645629883,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2698,12 +2752,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.324,
+          "time_seconds": 0.314,
           "total_seconds": 16.042
         },
         {
-          "at": 1.492,
-          "cachepercentage": 29.198354721069336,
+          "at": 1.49,
+          "cachepercentage": 28.1698055267334,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2712,12 +2766,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.724,
+          "time_seconds": 0.519,
           "total_seconds": 16.042
         },
         {
-          "at": 1.809,
-          "cachepercentage": 30.457550048828125,
+          "at": 1.772,
+          "cachepercentage": 30.8128662109375,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2726,12 +2780,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.926,
+          "time_seconds": 0.943,
           "total_seconds": 16.042
         },
         {
-          "at": 2.122,
-          "cachepercentage": 31.785314559936523,
+          "at": 2.091,
+          "cachepercentage": 31.835182189941406,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2740,12 +2794,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.139,
+          "time_seconds": 1.147,
           "total_seconds": 16.042
         },
         {
-          "at": 2.438,
-          "cachepercentage": 34.31616973876953,
+          "at": 2.418,
+          "cachepercentage": 34.65278625488281,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2754,12 +2808,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.545,
+          "time_seconds": 1.5590000000000002,
           "total_seconds": 16.042
         },
         {
-          "at": 2.742,
-          "cachepercentage": 35.849647521972656,
+          "at": 2.733,
+          "cachepercentage": 35.90574645996094,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2768,12 +2822,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.751,
+          "time_seconds": 1.76,
           "total_seconds": 16.042
         },
         {
-          "at": 3.023,
-          "cachepercentage": 38.23712921142578,
+          "at": 3.059,
+          "cachepercentage": 38.255828857421875,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2782,12 +2836,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.174,
+          "time_seconds": 2.177,
           "total_seconds": 16.042
         },
         {
-          "at": 3.338,
-          "cachepercentage": 39.50255584716797,
+          "at": 3.365,
+          "cachepercentage": 39.56489181518555,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2796,12 +2850,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.377,
+          "time_seconds": 2.387,
           "total_seconds": 16.042
         },
         {
-          "at": 3.652,
-          "cachepercentage": 42.07081604003906,
+          "at": 3.689,
+          "cachepercentage": 42.13938522338867,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2810,12 +2864,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.789,
+          "time_seconds": 2.8,
           "total_seconds": 16.042
         },
         {
-          "at": 3.957,
-          "cachepercentage": 43.62922668457031,
+          "at": 4.009,
+          "cachepercentage": 43.46714782714844,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2824,12 +2878,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.999,
+          "time_seconds": 3.013,
           "total_seconds": 16.042
         },
         {
-          "at": 4.268,
-          "cachepercentage": 45.966835021972656,
+          "at": 4.282,
+          "cachepercentage": 46.09151077270508,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2838,12 +2892,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.414,
+          "time_seconds": 3.434,
           "total_seconds": 16.042
         },
         {
-          "at": 4.545,
-          "cachepercentage": 47.21979904174805,
+          "at": 4.574,
+          "cachepercentage": 47.38810729980469,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2852,12 +2906,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.615,
+          "time_seconds": 3.642,
           "total_seconds": 16.042
         },
         {
-          "at": 4.845,
-          "cachepercentage": 49.794288635253906,
+          "at": 4.902,
+          "cachepercentage": 49.975067138671875,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2866,12 +2920,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.028,
+          "time_seconds": 4.057,
           "total_seconds": 16.042
         },
         {
-          "at": 5.128,
-          "cachepercentage": 51.31529998779297,
+          "at": 5.217,
+          "cachepercentage": 51.27165985107422,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2880,12 +2934,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.232,
+          "time_seconds": 4.265,
           "total_seconds": 16.042
         },
         {
-          "at": 5.446,
-          "cachepercentage": 52.6368293762207,
+          "at": 5.531,
+          "cachepercentage": 53.90849304199219,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2894,12 +2948,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.444,
+          "time_seconds": 4.688,
           "total_seconds": 16.042
         },
         {
-          "at": 5.742,
-          "cachepercentage": 55.27989196777344,
+          "at": 5.835,
+          "cachepercentage": 55.20508575439453,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2908,12 +2962,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.868,
+          "time_seconds": 4.896,
           "total_seconds": 16.042
         },
         {
-          "at": 6.019,
-          "cachepercentage": 56.32714080810547,
+          "at": 6.158,
+          "cachepercentage": 57.7484130859375,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2922,12 +2976,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.076,
+          "time_seconds": 5.304,
           "total_seconds": 16.042
         },
         {
-          "at": 6.325,
-          "cachepercentage": 58.85176086425781,
+          "at": 6.471,
+          "cachepercentage": 59.02630615234375,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2936,12 +2990,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.481,
+          "time_seconds": 5.509,
           "total_seconds": 16.042
         },
         {
-          "at": 6.61,
-          "cachepercentage": 60.1109619140625,
+          "at": 6.808,
+          "cachepercentage": 61.607032775878906,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2950,12 +3004,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.683,
+          "time_seconds": 5.923,
           "total_seconds": 16.042
         },
         {
-          "at": 6.9,
-          "cachepercentage": 62.685447692871094,
+          "at": 7.122,
+          "cachepercentage": 62.86622619628906,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2964,12 +3018,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.096,
+          "time_seconds": 6.125,
           "total_seconds": 16.042
         },
         {
-          "at": 7.189,
-          "cachepercentage": 64.1939926147461,
+          "at": 7.433,
+          "cachepercentage": 65.65266418457031,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2978,12 +3032,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.298,
+          "time_seconds": 6.532,
           "total_seconds": 16.042
         },
         {
-          "at": 7.469,
-          "cachepercentage": 65.22877502441406,
+          "at": 7.735,
+          "cachepercentage": 68.01521301269531,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -2992,12 +3046,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.504,
+          "time_seconds": 6.951,
           "total_seconds": 16.042
         },
         {
-          "at": 7.768,
-          "cachepercentage": 68.06507873535156,
+          "at": 8.065,
+          "cachepercentage": 69.57984924316406,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3006,12 +3060,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.9190000000000005,
+          "time_seconds": 7.162,
           "total_seconds": 16.042
         },
         {
-          "at": 8.089,
-          "cachepercentage": 69.3741455078125,
+          "at": 8.391,
+          "cachepercentage": 71.90499877929688,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3020,12 +3074,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.129,
+          "time_seconds": 7.575,
           "total_seconds": 16.042
         },
         {
-          "at": 8.379,
-          "cachepercentage": 71.70552062988281,
+          "at": 8.687,
+          "cachepercentage": 73.45094299316406,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3034,12 +3088,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.543,
+          "time_seconds": 7.783,
           "total_seconds": 16.042
         },
         {
-          "at": 8.661,
-          "cachepercentage": 73.21406555175781,
+          "at": 8.969,
+          "cachepercentage": 75.76361846923828,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3048,25 +3102,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.745,
+          "time_seconds": 8.194,
           "total_seconds": 16.042
         },
         {
-          "at": 8.95,
-          "cachepercentage": 75.5392074584961,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 8.157,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 10.614,
+          "at": 10.588,
           "cachepercentage": 97.94913482666016,
           "canseek": true,
           "item_matches_expected": true,
@@ -3080,8 +3120,8 @@
           "total_seconds": 16.042
         },
         {
-          "at": 10.893,
-          "cachepercentage": 96.0104751586914,
+          "at": 10.91,
+          "cachepercentage": 96.5777359008789,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3090,12 +3130,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.962,
+          "time_seconds": 13.173,
           "total_seconds": 16.042
         },
         {
-          "at": 11.149,
-          "cachepercentage": 96.62136840820312,
+          "at": 11.168,
+          "cachepercentage": 96.67123413085938,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3104,12 +3144,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.38,
+          "time_seconds": 13.388,
           "total_seconds": 16.042
         },
         {
-          "at": 11.416,
-          "cachepercentage": 96.409423828125,
+          "at": 11.46,
+          "cachepercentage": 96.49046325683594,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3118,12 +3158,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.586,
+          "time_seconds": 13.599,
           "total_seconds": 16.042
         },
         {
-          "at": 11.697,
-          "cachepercentage": 96.45306396484375,
+          "at": 11.745,
+          "cachepercentage": 96.48422241210938,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3132,12 +3172,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.793,
+          "time_seconds": 14.038,
           "total_seconds": 16.042
         },
         {
-          "at": 11.982,
-          "cachepercentage": 96.29098510742188,
+          "at": 12.064,
+          "cachepercentage": 96.30345153808594,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3146,12 +3186,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.207,
+          "time_seconds": 14.249,
           "total_seconds": 16.042
         },
         {
-          "at": 12.256,
-          "cachepercentage": 96.35331726074219,
+          "at": 12.373,
+          "cachepercentage": 96.16631317138672,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3160,12 +3200,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.417,
+          "time_seconds": 14.467,
           "total_seconds": 16.042
         },
         {
-          "at": 12.541,
-          "cachepercentage": 96.14761352539062,
+          "at": 12.673,
+          "cachepercentage": 96.07280731201172,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3174,12 +3214,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.624,
+          "time_seconds": 14.892,
           "total_seconds": 16.042
         },
         {
-          "at": 12.827,
-          "cachepercentage": 96.21617889404297,
+          "at": 12.97,
+          "cachepercentage": 96.18502044677734,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3188,12 +3228,12 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.035,
+          "time_seconds": 15.11,
           "total_seconds": 16.042
         },
         {
-          "at": 13.144,
-          "cachepercentage": 96.26605224609375,
+          "at": 13.283,
+          "cachepercentage": 96.02916717529297,
           "canseek": true,
           "item_matches_expected": true,
           "live": false,
@@ -3202,89 +3242,79 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.243,
+          "time_seconds": 15.325,
           "total_seconds": 16.042
         },
         {
-          "at": 13.412,
-          "cachepercentage": 96.29098510742188,
-          "canseek": true,
-          "item_matches_expected": true,
-          "live": false,
-          "player_caching": false,
-          "player_paused": false,
-          "playerid": 1,
-          "playing": true,
-          "speed": 1,
-          "time_seconds": 15.447,
-          "total_seconds": 16.042
-        },
-        {
-          "at": 13.67,
+          "at": 13.534,
           "playing": false
         },
         {
-          "at": 13.926,
+          "at": 13.788,
           "playing": false
         },
         {
-          "at": 14.182,
+          "at": 14.047,
           "playing": false
         },
         {
-          "at": 14.433,
+          "at": 14.301,
           "playing": false
         },
         {
-          "at": 14.69,
+          "at": 14.561,
           "playing": false
         },
         {
-          "at": 14.944,
+          "at": 14.815,
           "playing": false
         },
         {
-          "at": 15.2,
+          "at": 15.076,
           "playing": false
         },
         {
-          "at": 15.457,
+          "at": 15.337,
           "playing": false
         },
         {
-          "at": 15.713,
+          "at": 15.598,
           "playing": false
         },
         {
-          "at": 15.969,
+          "at": 15.859,
           "playing": false
         },
         {
-          "at": 16.225,
+          "at": 16.12,
           "playing": false
         },
         {
-          "at": 16.48,
+          "at": 16.381,
           "playing": false
         },
         {
-          "at": 16.736,
+          "at": 16.636,
           "playing": false
         },
         {
-          "at": 16.992,
+          "at": 16.897,
           "playing": false
         },
         {
-          "at": 17.248,
+          "at": 17.151,
           "playing": false
         },
         {
-          "at": 17.504,
+          "at": 17.412,
           "playing": false
         },
         {
-          "at": 17.76,
+          "at": 17.668,
+          "playing": false
+        },
+        {
+          "at": 17.929,
           "playing": false
         }
       ],
@@ -3295,7 +3325,7 @@
         {
           "accepted": true,
           "action": "stop",
-          "at": 3.046,
+          "at": 3.101,
           "result": "OK",
           "state_observed": true
         }
@@ -3334,11 +3364,11 @@
           "playing": false
         },
         {
-          "at": 0.256,
+          "at": 0.259,
           "playing": false
         },
         {
-          "at": 0.529,
+          "at": 0.549,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3352,7 +3382,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 0.974,
+          "at": 1.008,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3362,11 +3392,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": -0.091,
+          "time_seconds": -0.104,
           "total_seconds": 0.0
         },
         {
-          "at": 1.235,
+          "at": 1.273,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3376,11 +3406,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.32,
+          "time_seconds": 0.305,
           "total_seconds": 0.0
         },
         {
-          "at": 1.503,
+          "at": 1.539,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3390,11 +3420,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.529,
+          "time_seconds": 0.714,
           "total_seconds": 0.0
         },
         {
-          "at": 1.76,
+          "at": 1.801,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3404,11 +3434,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.943,
+          "time_seconds": 0.917,
           "total_seconds": 0.0
         },
         {
-          "at": 2.02,
+          "at": 2.058,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3418,11 +3448,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.144,
+          "time_seconds": 1.124,
           "total_seconds": 0.0
         },
         {
-          "at": 2.28,
+          "at": 2.317,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3432,11 +3462,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.345,
+          "time_seconds": 1.332,
           "total_seconds": 0.0
         },
         {
-          "at": 2.538,
+          "at": 2.582,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3446,11 +3476,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.345,
+          "time_seconds": 1.661,
           "total_seconds": 0.0
         },
         {
-          "at": 2.795,
+          "at": 2.841,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3460,47 +3490,47 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.975,
+          "time_seconds": 1.876,
           "total_seconds": 0.0
         },
         {
-          "at": 3.461,
+          "at": 3.523,
           "playing": false
         },
         {
-          "at": 3.716,
+          "at": 3.783,
           "playing": false
         },
         {
-          "at": 3.971,
+          "at": 4.035,
           "playing": false
         },
         {
-          "at": 4.227,
+          "at": 4.297,
           "playing": false
         },
         {
-          "at": 4.486,
+          "at": 4.558,
           "playing": false
         },
         {
-          "at": 4.743,
+          "at": 4.818,
           "playing": false
         },
         {
-          "at": 4.999,
+          "at": 5.079,
           "playing": false
         },
         {
-          "at": 5.251,
+          "at": 5.341,
           "playing": false
         },
         {
-          "at": 5.507,
+          "at": 5.602,
           "playing": false
         },
         {
-          "at": 5.765,
+          "at": 5.863,
           "playing": false
         }
       ],
@@ -3545,16 +3575,20 @@
           "playing": false
         },
         {
-          "at": 0.257,
+          "at": 0.261,
           "playing": false
         },
         {
-          "at": 0.524,
+          "at": 0.518,
+          "playing": false
+        },
+        {
+          "at": 0.798,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
           "live": false,
-          "player_caching": false,
+          "player_caching": true,
           "player_paused": false,
           "playerid": 1,
           "playing": true,
@@ -3563,7 +3597,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 0.979,
+          "at": 1.099,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3573,11 +3607,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": -0.092,
+          "time_seconds": 0.097,
           "total_seconds": 0.0
         },
         {
-          "at": 1.241,
+          "at": 1.364,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3587,11 +3621,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.316,
+          "time_seconds": 0.306,
           "total_seconds": 0.0
         },
         {
-          "at": 1.501,
+          "at": 1.621,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3601,11 +3635,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.522,
+          "time_seconds": 0.515,
           "total_seconds": 0.0
         },
         {
-          "at": 1.759,
+          "at": 1.877,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3615,11 +3649,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.929,
+          "time_seconds": 0.937,
           "total_seconds": 0.0
         },
         {
-          "at": 2.019,
+          "at": 2.143,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3629,11 +3663,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.133,
+          "time_seconds": 1.139,
           "total_seconds": 0.0
         },
         {
-          "at": 2.279,
+          "at": 2.398,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3643,11 +3677,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 2.539,
+          "at": 2.655,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3657,11 +3691,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 2.8,
+          "at": 2.92,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3671,11 +3705,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 3.066,
+          "at": 3.182,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3685,11 +3719,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 3.33,
+          "at": 3.437,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3699,11 +3733,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 3.588,
+          "at": 3.698,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3713,11 +3747,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 3.846,
+          "at": 3.954,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3727,11 +3761,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 4.102,
+          "at": 4.218,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3741,11 +3775,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 4.362,
+          "at": 4.481,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3755,11 +3789,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 4.622,
+          "at": 4.738,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3769,11 +3803,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 4.879,
+          "at": 4.999,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3783,11 +3817,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 5.136,
+          "at": 5.264,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3797,11 +3831,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 5.457,
+          "at": 5.52,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3811,11 +3845,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.338,
+          "time_seconds": 1.347,
           "total_seconds": 0.0
         },
         {
-          "at": 5.718,
+          "at": 5.777,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3825,11 +3859,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 5.978,
+          "at": 6.036,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3839,11 +3873,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 6.237,
+          "at": 6.293,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3853,11 +3887,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 6.497,
+          "at": 6.556,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3867,11 +3901,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 6.754,
+          "at": 6.82,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3881,11 +3915,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 7.015,
+          "at": 7.081,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3895,11 +3929,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 7.278,
+          "at": 7.336,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3909,11 +3943,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 7.546,
+          "at": 7.596,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3923,11 +3957,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.77,
+          "time_seconds": 4.86,
           "total_seconds": 0.0
         },
         {
-          "at": 7.805,
+          "at": 7.861,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3937,11 +3971,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 8.065,
+          "at": 8.124,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3951,11 +3985,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 8.326,
+          "at": 8.39,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3965,11 +3999,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 8.586,
+          "at": 8.653,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3979,11 +4013,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 8.843,
+          "at": 8.91,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -3993,11 +4027,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 9.104,
+          "at": 9.175,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4007,11 +4041,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 9.364,
+          "at": 9.44,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4021,11 +4055,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 9.628,
+          "at": 9.703,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4035,11 +4069,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.853,
+          "time_seconds": 6.885,
           "total_seconds": 0.0
         },
         {
-          "at": 9.897,
+          "at": 9.963,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4049,11 +4083,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 10.16,
+          "at": 10.226,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4063,11 +4097,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 10.423,
+          "at": 10.483,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4077,11 +4111,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 10.681,
+          "at": 10.739,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4091,11 +4125,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 10.945,
+          "at": 10.998,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4105,11 +4139,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 11.208,
+          "at": 11.263,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4119,11 +4153,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 11.507,
+          "at": 11.545,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4133,11 +4167,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.887,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 11.8,
+          "at": 11.848,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4147,11 +4181,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 8.996,
           "total_seconds": 0.0
         },
         {
-          "at": 12.186,
+          "at": 12.133,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4161,11 +4195,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 12.486,
+          "at": 12.423,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4175,11 +4209,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 12.79,
+          "at": 12.709,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4189,11 +4223,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 13.096,
+          "at": 12.994,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4203,11 +4237,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 13.397,
+          "at": 13.292,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4217,11 +4251,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 13.714,
+          "at": 13.588,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4231,11 +4265,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.954,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 14.021,
+          "at": 13.875,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4245,11 +4279,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 11.027,
           "total_seconds": 0.0
         },
         {
-          "at": 14.321,
+          "at": 14.163,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4259,11 +4293,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 14.642,
+          "at": 14.463,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4273,11 +4307,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 14.949,
+          "at": 14.788,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4287,11 +4321,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 15.255,
+          "at": 15.08,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4301,11 +4335,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 15.569,
+          "at": 15.378,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4315,11 +4349,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 15.88,
+          "at": 15.663,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4329,11 +4363,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.043,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 16.185,
+          "at": 15.948,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4343,11 +4377,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.131,
+          "time_seconds": 13.093,
           "total_seconds": 0.0
         },
         {
-          "at": 16.5,
+          "at": 16.242,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4357,11 +4391,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.131,
+          "time_seconds": 15.164,
           "total_seconds": 0.0
         },
         {
-          "at": 16.807,
+          "at": 16.541,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4371,7 +4405,63 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.131,
+          "time_seconds": 15.164,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 16.848,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.164,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.182,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.164,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.473,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.164,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.757,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.164,
           "total_seconds": 0.0
         }
       ],
@@ -4381,11 +4471,7 @@
       "actions": [],
       "audible_output_verified": false,
       "fixture": {
-        "beacons": {
-          "placement-1/firstQuartile": 1,
-          "placement-1/impression": 1,
-          "placement-1/start": 1
-        },
+        "beacons": {},
         "requests": {
           "/ads/replacement.m3u8": 2,
           "/ads/replacement000.ts": 2,
@@ -4406,9 +4492,6 @@
           "/ads/source014.ts": 1,
           "/ads/source015.ts": 1,
           "/source/mutation/index.m3u8": 11,
-          "/track/placement-1/firstQuartile": 1,
-          "/track/placement-1/impression": 1,
-          "/track/placement-1/start": 1,
           "/vast/direct": 2
         },
         "windows": {
@@ -4421,15 +4504,15 @@
       "source": "mutation",
       "timeline": [
         {
-          "at": 0.001,
+          "at": 0.0,
           "playing": false
         },
         {
-          "at": 0.256,
+          "at": 0.261,
           "playing": false
         },
         {
-          "at": 0.564,
+          "at": 0.52,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4443,7 +4526,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 1.018,
+          "at": 0.947,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4457,7 +4540,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 1.279,
+          "at": 1.207,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4467,11 +4550,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.324,
+          "time_seconds": 0.316,
           "total_seconds": 0.0
         },
         {
-          "at": 1.535,
+          "at": 1.47,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4481,11 +4564,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.527,
+          "time_seconds": 0.52,
           "total_seconds": 0.0
         },
         {
-          "at": 1.79,
+          "at": 1.728,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4495,11 +4578,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.941,
+          "time_seconds": 0.927,
           "total_seconds": 0.0
         },
         {
-          "at": 2.048,
+          "at": 1.991,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4509,11 +4592,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.148,
+          "time_seconds": 1.1280000000000001,
           "total_seconds": 0.0
         },
         {
-          "at": 2.309,
+          "at": 2.252,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4523,11 +4606,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.354,
+          "time_seconds": 1.332,
           "total_seconds": 0.0
         },
         {
-          "at": 2.574,
+          "at": 2.512,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4537,11 +4620,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.666,
+          "time_seconds": 1.332,
           "total_seconds": 0.0
         },
         {
-          "at": 2.835,
+          "at": 2.771,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4551,11 +4634,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.871,
+          "time_seconds": 1.9689999999999999,
           "total_seconds": 0.0
         },
         {
-          "at": 3.095,
+          "at": 3.033,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4565,11 +4648,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.076,
+          "time_seconds": 2.177,
           "total_seconds": 0.0
         },
         {
-          "at": 3.36,
+          "at": 3.298,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4579,11 +4662,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.487,
+          "time_seconds": 2.385,
           "total_seconds": 0.0
         },
         {
-          "at": 3.638,
+          "at": 3.562,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4593,11 +4676,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.694,
+          "time_seconds": 2.801,
           "total_seconds": 0.0
         },
         {
-          "at": 3.903,
+          "at": 3.818,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4607,11 +4690,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 2.9,
+          "time_seconds": 3.013,
           "total_seconds": 0.0
         },
         {
-          "at": 4.163,
+          "at": 4.082,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4621,11 +4704,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.312,
+          "time_seconds": 3.214,
           "total_seconds": 0.0
         },
         {
-          "at": 4.424,
+          "at": 4.345,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4635,11 +4718,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.312,
+          "time_seconds": 3.214,
           "total_seconds": 0.0
         },
         {
-          "at": 4.705,
+          "at": 4.601,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4649,11 +4732,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 3.7,
+          "time_seconds": 3.8120000000000003,
           "total_seconds": 0.0
         },
         {
-          "at": 4.965,
+          "at": 4.865,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4663,11 +4746,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.12,
+          "time_seconds": 4.014,
           "total_seconds": 0.0
         },
         {
-          "at": 5.252,
+          "at": 5.129,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4677,11 +4760,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.321,
+          "time_seconds": 4.223,
           "total_seconds": 0.0
         },
         {
-          "at": 5.513,
+          "at": 5.394,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4691,11 +4774,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.522,
+          "time_seconds": 4.64,
           "total_seconds": 0.0
         },
         {
-          "at": 5.768,
+          "at": 5.652,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4705,11 +4788,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 4.9399999999999995,
+          "time_seconds": 4.849,
           "total_seconds": 0.0
         },
         {
-          "at": 6.025,
+          "at": 5.918,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4719,11 +4802,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.149,
+          "time_seconds": 5.05,
           "total_seconds": 0.0
         },
         {
-          "at": 6.286,
+          "at": 6.183,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4733,11 +4816,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.149,
+          "time_seconds": 5.251,
           "total_seconds": 0.0
         },
         {
-          "at": 6.548,
+          "at": 6.44,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4747,11 +4830,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.149,
+          "time_seconds": 5.251,
           "total_seconds": 0.0
         },
         {
-          "at": 6.807,
+          "at": 6.705,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4761,11 +4844,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 5.975,
+          "time_seconds": 5.889,
           "total_seconds": 0.0
         },
         {
-          "at": 7.069,
+          "at": 6.971,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4775,11 +4858,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.183,
+          "time_seconds": 6.09,
           "total_seconds": 0.0
         },
         {
-          "at": 7.337,
+          "at": 7.234,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4789,11 +4872,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.39,
+          "time_seconds": 6.29,
           "total_seconds": 0.0
         },
         {
-          "at": 7.601,
+          "at": 7.498,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4803,11 +4886,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 6.5969999999999995,
+          "time_seconds": 6.7,
           "total_seconds": 0.0
         },
         {
-          "at": 7.869,
+          "at": 7.755,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4817,11 +4900,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.007,
+          "time_seconds": 6.915,
           "total_seconds": 0.0
         },
         {
-          "at": 8.142,
+          "at": 8.017,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4831,11 +4914,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.208,
+          "time_seconds": 7.127,
           "total_seconds": 0.0
         },
         {
-          "at": 8.404,
+          "at": 8.275,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4845,11 +4928,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.208,
+          "time_seconds": 7.337,
           "total_seconds": 0.0
         },
         {
-          "at": 8.662,
+          "at": 8.54,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4859,11 +4942,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.208,
+          "time_seconds": 7.337,
           "total_seconds": 0.0
         },
         {
-          "at": 8.922,
+          "at": 8.804,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4873,11 +4956,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.074,
+          "time_seconds": 7.993,
           "total_seconds": 0.0
         },
         {
-          "at": 9.181,
+          "at": 9.068,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4887,11 +4970,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.283,
+          "time_seconds": 8.206,
           "total_seconds": 0.0
         },
         {
-          "at": 9.439,
+          "at": 9.333,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4901,11 +4984,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.491,
+          "time_seconds": 8.411,
           "total_seconds": 0.0
         },
         {
-          "at": 9.713,
+          "at": 9.597,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4915,11 +4998,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.701,
+          "time_seconds": 8.826,
           "total_seconds": 0.0
         },
         {
-          "at": 9.969,
+          "at": 9.853,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4929,11 +5012,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.11,
+          "time_seconds": 9.028,
           "total_seconds": 0.0
         },
         {
-          "at": 10.238,
+          "at": 10.112,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4943,11 +5026,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.319,
+          "time_seconds": 9.232,
           "total_seconds": 0.0
         },
         {
-          "at": 10.496,
+          "at": 10.371,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4957,11 +5040,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.319,
+          "time_seconds": 9.232,
           "total_seconds": 0.0
         },
         {
-          "at": 10.752,
+          "at": 10.636,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4971,11 +5054,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.882,
+          "time_seconds": 9.232,
           "total_seconds": 0.0
         },
         {
-          "at": 11.011,
+          "at": 10.894,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4985,11 +5068,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.083,
+          "time_seconds": 10.109,
           "total_seconds": 0.0
         },
         {
-          "at": 11.268,
+          "at": 11.159,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -4999,11 +5082,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.29,
+          "time_seconds": 10.318,
           "total_seconds": 0.0
         },
         {
-          "at": 11.537,
+          "at": 11.435,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5013,11 +5096,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.704,
+          "time_seconds": 10.519,
           "total_seconds": 0.0
         },
         {
-          "at": 11.85,
+          "at": 11.726,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5027,11 +5110,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.909,
+          "time_seconds": 10.934,
           "total_seconds": 0.0
         },
         {
-          "at": 12.149,
+          "at": 12.015,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5041,11 +5124,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.118,
+          "time_seconds": 11.134,
           "total_seconds": 0.0
         },
         {
-          "at": 12.457,
+          "at": 12.3,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5055,11 +5138,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.328,
+          "time_seconds": 11.336,
           "total_seconds": 0.0
         },
         {
-          "at": 12.761,
+          "at": 12.592,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5069,11 +5152,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.911,
+          "time_seconds": 11.336,
           "total_seconds": 0.0
         },
         {
-          "at": 13.108,
+          "at": 12.883,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5083,11 +5166,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.113,
+          "time_seconds": 11.336,
           "total_seconds": 0.0
         },
         {
-          "at": 13.419,
+          "at": 13.18,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5097,11 +5180,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.526,
+          "time_seconds": 12.335,
           "total_seconds": 0.0
         },
         {
-          "at": 13.693,
+          "at": 13.465,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5111,11 +5194,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.732,
+          "time_seconds": 12.546,
           "total_seconds": 0.0
         },
         {
-          "at": 14.003,
+          "at": 13.756,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5125,11 +5208,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.933,
+          "time_seconds": 12.963,
           "total_seconds": 0.0
         },
         {
-          "at": 14.316,
+          "at": 14.05,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5139,11 +5222,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.354,
+          "time_seconds": 13.169,
           "total_seconds": 0.0
         },
         {
-          "at": 14.627,
+          "at": 14.34,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5153,11 +5236,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.354,
+          "time_seconds": 13.169,
           "total_seconds": 0.0
         },
         {
-          "at": 14.934,
+          "at": 14.628,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5167,11 +5250,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.001,
+          "time_seconds": 13.169,
           "total_seconds": 0.0
         },
         {
-          "at": 15.242,
+          "at": 14.916,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5181,11 +5264,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.206,
+          "time_seconds": 13.169,
           "total_seconds": 0.0
         },
         {
-          "at": 15.552,
+          "at": 15.205,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5195,11 +5278,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.626,
+          "time_seconds": 14.249,
           "total_seconds": 0.0
         },
         {
-          "at": 15.858,
+          "at": 15.495,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5209,11 +5292,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 14.834,
+          "time_seconds": 14.66,
           "total_seconds": 0.0
         },
         {
-          "at": 16.172,
+          "at": 15.782,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5223,11 +5306,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.246,
+          "time_seconds": 14.866,
           "total_seconds": 0.0
         },
         {
-          "at": 16.478,
+          "at": 16.066,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5237,11 +5320,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.246,
+          "time_seconds": 15.284,
           "total_seconds": 0.0
         },
         {
-          "at": 16.796,
+          "at": 16.348,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5251,7 +5334,77 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 15.246,
+          "time_seconds": 15.284,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 16.639,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.284,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 16.922,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 15.284,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.208,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 16.334,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.494,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 16.545,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.777,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 16.954,
           "total_seconds": 0.0
         }
       ],
@@ -5261,14 +5414,7 @@
       "actions": [],
       "audible_output_verified": false,
       "fixture": {
-        "beacons": {
-          "placement-1/complete": 1,
-          "placement-1/firstQuartile": 1,
-          "placement-1/impression": 1,
-          "placement-1/midpoint": 1,
-          "placement-1/start": 1,
-          "placement-1/thirdQuartile": 1
-        },
+        "beacons": {},
         "requests": {
           "/ads/replacement.m3u8": 2,
           "/ads/replacement000.ts": 2,
@@ -5287,12 +5433,6 @@
           "/ads/source012.ts": 1,
           "/source/stall/index.m3u8": 7,
           "/stall/source006.ts": 1,
-          "/track/placement-1/complete": 1,
-          "/track/placement-1/firstQuartile": 1,
-          "/track/placement-1/impression": 1,
-          "/track/placement-1/midpoint": 1,
-          "/track/placement-1/start": 1,
-          "/track/placement-1/thirdQuartile": 1,
           "/vast/direct": 2
         },
         "windows": {
@@ -5305,15 +5445,15 @@
       "source": "stall",
       "timeline": [
         {
-          "at": 0.005,
+          "at": 0.0,
           "playing": false
         },
         {
-          "at": 0.26,
+          "at": 0.252,
           "playing": false
         },
         {
-          "at": 0.517,
+          "at": 0.521,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5327,7 +5467,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 0.917,
+          "at": 0.939,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5341,7 +5481,7 @@
           "total_seconds": 0.0
         },
         {
-          "at": 1.189,
+          "at": 1.197,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5351,11 +5491,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.313,
+          "time_seconds": 0.327,
           "total_seconds": 0.0
         },
         {
-          "at": 1.449,
+          "at": 1.462,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5365,11 +5505,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.518,
+          "time_seconds": 0.539,
           "total_seconds": 0.0
         },
         {
-          "at": 1.72,
+          "at": 1.721,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5379,11 +5519,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 0.934,
+          "time_seconds": 0.953,
           "total_seconds": 0.0
         },
         {
-          "at": 1.984,
+          "at": 1.982,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5393,11 +5533,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.145,
+          "time_seconds": 1.155,
           "total_seconds": 0.0
         },
         {
-          "at": 2.241,
+          "at": 2.238,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5407,11 +5547,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 2.499,
+          "at": 2.503,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5421,11 +5561,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 2.802,
+          "at": 2.768,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5435,11 +5575,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 3.062,
+          "at": 3.025,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5449,11 +5589,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 3.324,
+          "at": 3.282,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5463,11 +5603,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 3.597,
+          "at": 3.539,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5477,11 +5617,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 3.854,
+          "at": 3.796,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5491,11 +5631,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 4.121,
+          "at": 4.057,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5505,11 +5645,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 4.401,
+          "at": 4.316,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5519,11 +5659,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 4.687,
+          "at": 4.577,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5533,11 +5673,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 4.948,
+          "at": 4.835,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5547,11 +5687,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 5.204,
+          "at": 5.098,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5561,11 +5701,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 5.465,
+          "at": 5.357,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5575,11 +5715,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 5.727,
+          "at": 5.613,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5589,11 +5729,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 5.987,
+          "at": 5.874,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5603,11 +5743,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 6.249,
+          "at": 6.135,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5617,11 +5757,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 6.509,
+          "at": 6.4,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5631,11 +5771,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 6.768,
+          "at": 6.665,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5645,11 +5785,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 7.032,
+          "at": 6.921,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5659,11 +5799,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 7.296,
+          "at": 7.187,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5673,11 +5813,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 7.555,
+          "at": 7.452,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5687,11 +5827,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 7.828,
+          "at": 7.711,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5701,11 +5841,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 8.109,
+          "at": 7.97,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5715,11 +5855,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 8.376,
+          "at": 8.232,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5729,11 +5869,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 1.347,
+          "time_seconds": 1.365,
           "total_seconds": 0.0
         },
         {
-          "at": 8.636,
+          "at": 8.488,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5743,11 +5883,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 8.892,
+          "at": 8.75,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5757,11 +5897,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 9.149,
+          "at": 9.015,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5771,11 +5911,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 9.409,
+          "at": 9.275,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5785,11 +5925,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 9.671,
+          "at": 9.532,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5799,11 +5939,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 9.927,
+          "at": 9.796,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5813,11 +5953,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 10.188,
+          "at": 10.057,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5827,11 +5967,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 10.447,
+          "at": 10.318,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5841,11 +5981,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 10.741,
+          "at": 10.579,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5855,11 +5995,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 7.7620000000000005,
+          "time_seconds": 7.693,
           "total_seconds": 0.0
         },
         {
-          "at": 11.01,
+          "at": 10.843,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5869,11 +6009,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.165,
+          "time_seconds": 7.905,
           "total_seconds": 0.0
         },
         {
-          "at": 11.306,
+          "at": 11.106,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5883,11 +6023,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.369,
+          "time_seconds": 8.309,
           "total_seconds": 0.0
         },
         {
-          "at": 11.61,
+          "at": 11.374,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5897,11 +6037,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.571,
+          "time_seconds": 8.509,
           "total_seconds": 0.0
         },
         {
-          "at": 11.884,
+          "at": 11.668,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5911,11 +6051,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 8.918,
+          "time_seconds": 8.71,
           "total_seconds": 0.0
         },
         {
-          "at": 12.198,
+          "at": 11.952,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5925,11 +6065,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.132,
+          "time_seconds": 9.065,
           "total_seconds": 0.0
         },
         {
-          "at": 12.494,
+          "at": 12.239,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5939,11 +6079,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.544,
+          "time_seconds": 9.27,
           "total_seconds": 0.0
         },
         {
-          "at": 12.807,
+          "at": 12.532,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5953,11 +6093,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 9.744,
+          "time_seconds": 9.482,
           "total_seconds": 0.0
         },
         {
-          "at": 13.116,
+          "at": 12.823,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5967,11 +6107,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.149,
+          "time_seconds": 9.895,
           "total_seconds": 0.0
         },
         {
-          "at": 13.385,
+          "at": 13.112,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5981,11 +6121,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.354,
+          "time_seconds": 10.102,
           "total_seconds": 0.0
         },
         {
-          "at": 13.69,
+          "at": 13.411,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -5995,11 +6135,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.559,
+          "time_seconds": 10.512,
           "total_seconds": 0.0
         },
         {
-          "at": 13.996,
+          "at": 13.702,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6009,11 +6149,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 10.977,
+          "time_seconds": 10.722,
           "total_seconds": 0.0
         },
         {
-          "at": 14.315,
+          "at": 13.991,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6023,11 +6163,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.185,
+          "time_seconds": 10.932,
           "total_seconds": 0.0
         },
         {
-          "at": 14.622,
+          "at": 14.276,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6037,11 +6177,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.606,
+          "time_seconds": 11.353,
           "total_seconds": 0.0
         },
         {
-          "at": 14.934,
+          "at": 14.557,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6051,11 +6191,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 11.817,
+          "time_seconds": 11.563,
           "total_seconds": 0.0
         },
         {
-          "at": 15.237,
+          "at": 14.838,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6065,11 +6205,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.235,
+          "time_seconds": 11.971,
           "total_seconds": 0.0
         },
         {
-          "at": 15.538,
+          "at": 15.132,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6079,11 +6219,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.437,
+          "time_seconds": 12.174,
           "total_seconds": 0.0
         },
         {
-          "at": 15.846,
+          "at": 15.416,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6093,11 +6233,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 12.85,
+          "time_seconds": 12.374,
           "total_seconds": 0.0
         },
         {
-          "at": 16.16,
+          "at": 15.709,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6107,11 +6247,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.059,
+          "time_seconds": 12.78,
           "total_seconds": 0.0
         },
         {
-          "at": 16.472,
+          "at": 15.999,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6121,11 +6261,11 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.47,
+          "time_seconds": 12.983,
           "total_seconds": 0.0
         },
         {
-          "at": 16.78,
+          "at": 16.283,
           "cachepercentage": 100.0,
           "canseek": false,
           "item_matches_expected": true,
@@ -6135,7 +6275,77 @@
           "playerid": 1,
           "playing": true,
           "speed": 1,
-          "time_seconds": 13.679,
+          "time_seconds": 13.4,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 16.576,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.606,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 16.867,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 13.806000000000001,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.156,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.223,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.454,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.429,
+          "total_seconds": 0.0
+        },
+        {
+          "at": 17.748,
+          "cachepercentage": 100.0,
+          "canseek": false,
+          "item_matches_expected": true,
+          "live": false,
+          "player_caching": false,
+          "player_paused": false,
+          "playerid": 1,
+          "playing": true,
+          "speed": 1,
+          "time_seconds": 14.839,
           "total_seconds": 0.0
         }
       ],
