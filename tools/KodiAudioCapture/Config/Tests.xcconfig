@@ -1,0 +1,5 @@
+#include "Shared.xcconfig"
+PRODUCT_BUNDLE_IDENTIFIER = org.kodi.donorradio.AudioCapture.UITests
+TEST_TARGET_NAME = KodiAudioCapture
+PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests
+INFOPLIST_FILE =
