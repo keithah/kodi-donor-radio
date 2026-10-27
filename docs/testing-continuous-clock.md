@@ -193,6 +193,42 @@ proposal is deferred at the user's request. Seamless resume remains unresolved;
 this change suppresses misleading tracking instead of claiming the omission is
 fixed.
 
+### Local PCM isolation of the resume omission
+
+A follow-up on 2026-10-27 opened a local PCM Matroska file directly in
+VideoPlayer through JSON-RPC on the same isolated Kodi master. The file contains
+the decoded replacement000/001 and source000/001 fixture audio. This bypasses
+the donor-radio addon, relay, HLS parsing, network transport and inputstream
+addons. The approved recorder captured the same Kodi process without rebuilding
+or changing its permissions.
+
+| Audio setting | Capture | Frames (48 kHz) | Quiet interval | Quiet duration minus settled source-alignment shift |
+| --- | --- | --- | --- | --- |
+| Low latency enabled (original setting) | `local-pcm-pause/4BB9F294` | 963,072 | 3.395–6.555 s | approximately 237 ms |
+| Low latency disabled | `local-pcm-standard-buffer/5F2D8262` | 970,752 | 3.270–6.785 s | approximately 432 ms |
+
+Both captures reported zero timing discontinuities. Full-file pre-pause matching
+includes a 64 ms startup resampling transition, so it must not be described as
+stable throughout. A separate settled-window analysis excludes the first 1.5 s
+and requires correlation >= 0.99. It finds 21/41 and 22/42 accepted before/after
+speech matches respectively; within-side offset spread is at most one 48 kHz
+sample. The quiet edges have approximately 10 ms combined uncertainty. These
+figures describe missing or inaudible source advancement in captured process
+audio, not physical speaker measurements or exact discarded-buffer counts.
+Full raw matches and `settled-pause-alignment.json` remain with each local capture
+under `/private/tmp/kodi-audio-validation-20261027/`.
+
+Kodi accepted the low-latency setting change through JSON-RPC. The original
+`true` value and restoration to `true` were read back before and after testing. Disabling it is rejected as a fix. An initial WAV attempt was
+rejected by Kodi's player-selection rules before playback and is not evidence.
+The Matroska runs establish that this omission does not require HLS or the addon.
+They agree with source tracing: ActiveAE's single-stream PAUSESTREAM path calls
+FlushEngine, which clears sink buffers. Keep-audio-device-alive controls idle
+suspension, not preservation of these samples; the default one-minute timeout
+already exceeds these three-second pauses. No core change was made, and no safe
+add-on-only preservation fix has been verified. Interrupted placement success
+reporting remains suppressed.
+
 The final packaged clean-break rerun (`qualified-final-clean/41AAC911`) recorded
 1,449,984 frames over 30.208 seconds without timing gaps. Midroll tone boundaries
 were 10.1–14.1 seconds; start/first-quartile/midpoint/third-quartile/complete arrived
