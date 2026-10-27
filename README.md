@@ -6,8 +6,9 @@ stations through a Python relay embedded in the addon service. Native Kodi
 listings, sequential setup dialogs, and a shared offline radio map are implemented.
 Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
 restricted to configured loopback HLS fixtures; general Radio Browser stations
-remain ad-free. Fixture success beacons use an experimental Kodi media-clock
-anchor and must not be treated as production-validated tracking.
+remain ad-free. Success beacons are limited to finite, sample-zero fixtures using an experimental
+Kodi media-clock candidate; live fixtures remain unmapped. Neither is
+production-validated tracking.
 
 **Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
@@ -124,9 +125,15 @@ replacement requires a complete, explicitly marked HLS break and an exact
 measured sample-count match. No-fill, unsupported media, or mismatch preserves
 the station's original break.
 
-Success beacons are experimental fixture behavior. Kodi's absolute playback
-clock has not been tied to decoded presentation samples across the moving window
-and ad discontinuities, and audible output has not been independently verified.
+Success beacons are experimental finite-fixture behavior. Captured process audio
+verified the finite sequence and pause/seek behavior on Kodi master. The default
+HLS reader can report a frozen position while buffered audio continues. Controlled
+ad fixtures can use an already enabled InputStream Adaptive 21+ backend with a
+validated audio-only master and stable composed program dates. Failed readiness
+checks retain native playback; the addon does not install or enable Adaptive.
+Initially live presentations stay unmapped even if they later acquire ENDLIST;
+a final end marker cannot establish where playback began. Physical-speaker
+output and a live rendered-position anchor remain unverified.
 These checks are release gates; the current build is not a production ad system.
 See the [monetization roadmap](docs/monetization-roadmap.md) and
 [validation record](docs/testing.md).

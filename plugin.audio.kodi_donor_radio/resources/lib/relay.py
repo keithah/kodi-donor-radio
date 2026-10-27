@@ -129,7 +129,7 @@ class _Handler(BaseHTTPRequestHandler):
             # Metadata lookup must not acquire/claim the stream, fetch, or observe cues.
             if resource.kind == 'continuous':
                 headers = session.source.response.headers
-            elif resource.kind in ('hls', 'playlist'):
+            elif resource.kind in ('hls', 'playlist', 'audio_master'):
                 headers = {'content-type': 'application/vnd.apple.mpegurl'}
             elif resource.kind == 'cached':
                 ad = session.ad
@@ -179,8 +179,10 @@ class _Handler(BaseHTTPRequestHandler):
                 else session.source.response.headers.get('content-type', '').split(';', 1)[0].strip().lower())
         if len(mime) > 128 or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime):
             mime = 'application/octet-stream'
-        self._reply(201, {'id': session.id, 'playback_url': session.playback_url,
-                          'mime_type': mime})
+        result = {'id': session.id, 'playback_url': session.playback_url, 'mime_type': mime}
+        if session.adaptive_playback_url is not None:
+            result['adaptive_playback_url'] = session.adaptive_playback_url
+        self._reply(201, result)
 
     def _learn_icy_marker(self):
         try:
@@ -247,15 +249,18 @@ class _Handler(BaseHTTPRequestHandler):
                         self._continuous(session)
                     finally:
                         manager.stop(session.id)
-                elif resource.kind in ('hls', 'playlist'):
+                elif resource.kind in ('hls', 'playlist', 'audio_master'):
                     # Fetch order and observation order agree within one rendition.
+                    audio_master = resource.kind == 'audio_master'
+                    if audio_master:
+                        resource = session.lookup(session.playback_url)
                     with resource.playlist_lock:
                         if session.cancel.is_set():
                             return self._reply(404)
                         ad = session.ad
                         if ad is not None and ad.terminal:
                             return self._reply(503)
-                        self._resource(session, resource)
+                        self._resource(session, resource, audio_master=audio_master)
                 elif resource.kind == 'cached':
                     self._cached(session, resource)
                 else:
@@ -358,7 +363,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._headers(status, headers, end - start + 1)
         self.wfile.write(data[start:end + 1])
 
-    def _resource(self, session, resource):
+    def _resource(self, session, resource, audio_master=False):
+        if audio_master and session.ad is None:
+            return self._reply(502)
         headers = {'User-Agent': USER_AGENT}
         value = self.headers.get('Range')
         if value:
@@ -417,9 +424,22 @@ class _Handler(BaseHTTPRequestHandler):
                             session.ad = None
                     else:
                         session.retire_cached()
+                        if audio_master:
+                            # render() has verified every source and creative as
+                            # clear AAC-LC, 48 kHz stereo MPEG-TS. Never apply this
+                            # codec declaration to the native fallback below.
+                            segments = ad.presentation().segments
+                            bandwidth = max((len(ad.read(segment.resource_id)) * 8 * 48000
+                                             + segment.samples - 1) // segment.samples
+                                            for segment in segments)
+                            rendered = ('#EXTM3U\n#EXT-X-VERSION:3\n'
+                                        '#EXT-X-STREAM-INF:BANDWIDTH=%d,CODECS="mp4a.40.2"\n'
+                                        '%s\n' % (bandwidth, session.playback_url)).encode('utf-8')
                         self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rendered))
                         self.wfile.write(rendered)
                         return
+                if audio_master:
+                    return self._reply(502)
                 routes = session.register_many([ref.url for ref in playlist.uri_references],
                                                [ref.kind for ref in playlist.uri_references])
                 registered = dict(zip([ref.url for ref in playlist.uri_references], routes))

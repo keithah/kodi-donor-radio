@@ -25,7 +25,7 @@ from ad_models import AdConfig
 from ad_media import CreativeCache
 from kodi_ad_player import KodiAdPlayback
 from events import JsonEventSink
-from http_client import Cancelled, HttpClient
+from http_client import Cancelled, HttpClient, read_bounded
 from models import Station
 from radio_browser import RadioBrowser
 from radio_ui import (DirectoryCacheStore, FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
@@ -38,6 +38,7 @@ from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
 AD_CREATE_TIMEOUT = 30.0
+ADAPTIVE_PREFLIGHT_TIMEOUT = 5.0
 PAGE_SIZE = 50
 GEO_SCAN_PAGES = 4
 MAX_OFFSET = 10000000
@@ -236,6 +237,53 @@ def _relay_path(value, port):
     except ValueError:
         pass
     return None
+
+
+def _adaptive_enabled():
+    """Use an already enabled audio-capable addon; never install or enable it."""
+    try:
+        raw = xbmc.executeJSONRPC(json.dumps({
+            'jsonrpc': '2.0', 'id': 1, 'method': 'Addons.GetAddonDetails',
+            'params': {'addonid': 'inputstream.adaptive', 'properties': ['enabled', 'version']}}))
+        if not isinstance(raw, str) or len(raw) > 16384:
+            return False
+        addon = json.loads(raw)['result']['addon']
+        version = addon.get('version', '')
+        match = re.fullmatch(r'([0-9]{1,3})\.[0-9]+\.[0-9]+(?:[.+-][a-zA-Z0-9.-]+)?', version)
+        return (addon.get('addonid') == 'inputstream.adaptive' and addon.get('enabled') is True
+                and match is not None and int(match.group(1)) >= 21)
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        return False
+
+
+def _adaptive_ready(adaptive_url, native_url, descriptor, cancel):
+    """Bound one exact-loopback master preflight before choosing Adaptive."""
+    from hls import parse_playlist
+    session_id = _relay_path(native_url, descriptor.port)
+    if session_id is None or _relay_path(adaptive_url, descriptor.port) != session_id:
+        return False
+    relay_origin = 'http://127.0.0.1:%d' % descriptor.port
+    try:
+        client = HttpClient(UrlPolicy(test_origins={relay_origin}), max_redirects=0)
+        deadline = time.monotonic() + ADAPTIVE_PREFLIGHT_TIMEOUT
+        with client.open(adaptive_url, {}, cancel, deadline=deadline,
+                         allowed_origin=relay_origin) as response:
+            if (response.status != 200
+                    or response.headers.get('content-type', '').split(';', 1)[0].strip().lower()
+                    != 'application/vnd.apple.mpegurl'
+                    or response.headers.get('content-encoding', 'identity').lower() != 'identity'):
+                return False
+            body = read_bounded(response, 4096)
+        playlist = parse_playlist(body.decode('utf-8-sig'), adaptive_url)
+        variants = [line for line in playlist.lines if line.startswith('#EXT-X-STREAM-INF:')]
+        return (playlist.is_master and len(variants) == 1
+                and variants[0].rstrip('\r\n').endswith(',CODECS="mp4a.40.2"')
+                and len(playlist.uri_references) == 1
+                and playlist.uri_references[0].url == native_url)
+    except Cancelled:
+        raise  # A user cancellation must stop the session, never start fallback.
+    except (OSError, ValueError):
+        return False
 
 
 def _station(value):
@@ -980,12 +1028,29 @@ def run_plugin(argv):
             session_id = _relay_path(session.get('playback_url',''), client.descriptor.port)
             if session_id is None or session.get('id') != session_id:
                 raise ValueError('Invalid relay response')
-            entry = xbmcgui.ListItem(label=station.name, path=session['playback_url'])
-            entry.setProperty('IsPlayable', 'true')
             mime = session.get('mime_type', 'application/octet-stream')
             if (not isinstance(mime, str) or len(mime) > 128
                     or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime)):
                 raise ValueError('Invalid relay MIME type')
+            playback_url = session['playback_url']
+            adaptive_url = session.get('adaptive_playback_url')
+            adaptive = False
+            if adaptive_url is not None:
+                if (action != 'play_fixture' or mime != 'application/vnd.apple.mpegurl'
+                        or not isinstance(adaptive_url, str) or not adaptive_url.endswith('.m3u8')
+                        or _relay_path(adaptive_url, client.descriptor.port) != session_id):
+                    raise ValueError('Invalid Adaptive relay response')
+                adaptive = _adaptive_enabled()
+                if adaptive:
+                    adaptive = _operation(lambda: _adaptive_ready(
+                        adaptive_url, playback_url, client.descriptor, cancel), monitor, cancel)
+                if adaptive:
+                    playback_url = adaptive_url
+            entry = xbmcgui.ListItem(label=station.name, path=playback_url)
+            entry.setProperty('IsPlayable', 'true')
+            if adaptive:
+                entry.setProperty('inputstream', 'inputstream.adaptive')
+                entry.setProperty('inputstream.adaptive.play_timeshift_buffer', 'true')
             # Kodi's redirect/content lookup performs a disposable GET before
             # decoder playback. That would consume our single continuous reader.
             # The service already resolved redirects and the authoritative MIME.
@@ -996,7 +1061,7 @@ def run_plugin(argv):
             else:
                 player = xbmc.Player()
                 _playback_arbiter().start(
-                    lambda: player.play(session['playback_url'], entry))
+                    lambda: player.play(playback_url, entry))
         except (OSError, ValueError, KeyError, TypeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)

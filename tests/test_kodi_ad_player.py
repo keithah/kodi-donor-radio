@@ -14,12 +14,104 @@ def _patch_player_clock(monkeypatch, clock):
         monotonic=clock, sleep=real_time.sleep, time=real_time.time))
 
 
+def _finite_presentation(placements=()):
+    end = max((placement.end_sample for placement in placements), default=48000)
+    return Presentation((OutputSegment(0, 0, 'finite-source', 0, end, None),),
+                        placements, True, initially_finite=True)
+
+
 def _session(identity="a"):
     return SimpleNamespace(id=identity, cancel=threading.Event(),
                            station=SimpleNamespace(uuid='fixture'),
                            source=SimpleNamespace(protocol='hls'),
-                           presentation=lambda: Presentation((), (), False),
+                           presentation=lambda: _finite_presentation(),
                            take_ad_errors=lambda: [])
+
+
+def test_live_clock_never_enables_success_tracking_and_logs_safe_reason(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    ad = ResolvedAd('creative', 'fixture.ts', 1.0, tuple(
+        TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
+        for event in ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')),
+        ())
+    session.presentation = lambda: Presentation(
+        (OutputSegment(0, 0, 'source', 0, 96000, None),),
+        (Placement('placement', ad, 24000, 72000),), False)
+    clocks = iter((.25, .5, .75, 1.0, 1.25, 1.5))
+    queued, records = [], []
+
+    class Worker:
+        def __init__(self, *_args): pass
+        def enqueue(self, *_args): queued.append(_args); return True
+        def close(self): pass
+
+    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=records.append))
+    adapter = KodiAdPlayback(manager,
+                             SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks)),
+                             client=SimpleNamespace(), fixture_origin='http://127.0.0.1:8765')
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    try:
+        for _ in range(6):
+            adapter.sample()
+        assert queued == []
+        observations = [record.to_dict()['details'] for record in records
+                        if record.kind == 'ad_clock_sample']
+        assert [item['raw_clock'] for item in observations] == [.25, .5, .75, 1, 1.25, 1.5]
+        assert all(item['mapped'] is False and item['tracking_enabled'] is False
+                   and item['reason'] == 'live_clock_unanchored' for item in observations)
+        assert 'http://' not in repr(observations)
+    finally:
+        adapter.close()
+
+
+def test_late_endlist_cannot_anchor_a_session_first_observed_after_live_playback():
+    from pathlib import Path
+    from ad_models import CachedSegment, MediaInfo
+    from ad_timeline import AdTimeline
+    from hls import parse_playlist
+
+    manifest = '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:2.005333,\nsource.ts\n'
+    segment = CachedSegment('source', Path('/unused'),
+                            MediaInfo('aac', 48000, 2, 96256, 0, 178560))
+    timeline = AdTimeline(None, 4)
+    timeline.update(parse_playlist(manifest, 'http://fixture.test/index.m3u8'),
+                    {'http://fixture.test/source.ts': segment})
+    final = timeline.update(parse_playlist(manifest + '#EXT-X-ENDLIST\n',
+                                           'http://fixture.test/index.m3u8'),
+                            {'http://fixture.test/source.ts': segment})
+    assert final.ended is True
+    anchor = KodiSessionClockAnchor('session')
+    assert anchor(SimpleNamespace(id='session'), final, .5) is None
+    assert anchor.valid is False
+
+
+def test_unknown_presentation_origin_cannot_enable_sample_zero_mapping():
+    anchor = KodiSessionClockAnchor('session')
+    unknown = Presentation((OutputSegment(0, 0, 'source', 0, 96000, None),), (), True)
+    assert anchor(SimpleNamespace(id='session'), unknown, .25) is None
+
+
+def test_finite_presentation_without_retained_sample_zero_cannot_anchor():
+    from pathlib import Path
+    from ad_models import CachedSegment, MediaInfo
+    from ad_timeline import AdTimeline
+    from hls import parse_playlist
+
+    manifest = ('#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:2.005333,\na.ts\n'
+                '#EXTINF:2.005333,\nb.ts\n#EXT-X-ENDLIST\n')
+    sources = {'http://fixture.test/' + name + '.ts': CachedSegment(
+        name, Path('/unused'), MediaInfo('aac', 48000, 2, 96256, 0, 178560))
+        for name in ('a', 'b')}
+    final = AdTimeline(None, 1).update(
+        parse_playlist(manifest, 'http://fixture.test/index.m3u8'), sources)
+    assert final.segments[0].start_sample == 96256
+    anchor = KodiSessionClockAnchor('session')
+    assert anchor(SimpleNamespace(id='session'), final, .25) is None
 
 
 def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkeypatch):
@@ -29,7 +121,7 @@ def test_loopback_ad_session_maps_raw_kodi_clock_and_sends_success_events(monkey
         TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
         for event in ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')),
         ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 24000, 72000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 24000, 72000),))
     clocks = iter((0.3, 0.5, 0.75, 1.0, 1.25, 1.5))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     records, queued = [], []
@@ -64,7 +156,7 @@ def test_startup_gate_does_not_replay_unverified_zero_as_preroll(monkeypatch, co
                     tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
                           for event in ('impression', 'start', 'firstQuartile')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 0, 48000),))
     clocks = iter((0.0, confirmation, .6))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
@@ -97,7 +189,7 @@ def test_fixture_clock_jump_does_not_cross_ad_completion(monkeypatch):
     session.ad_enabled = True
     ad = ResolvedAd('creative', 'fixture.ts', 1.0,
                     (TrackingUrl('complete', 'http://127.0.0.1:8765/track/placement/complete'),), ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 192528),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 0, 192528),))
     clocks = iter((1.37, 1.62, 1.87, 2.12, 2.37, 2.37, 7.77))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
@@ -148,17 +240,17 @@ def test_fixture_clock_anchor_is_sticky_and_invalidates_on_clock_reset(monkeypat
 def test_clock_anchor_invalidates_on_negative_reset_after_sample_zero():
     anchor = KodiSessionClockAnchor("session")
     session = SimpleNamespace(id="session")
-    assert anchor(session, None, 0.0) == 0.0
+    assert anchor(session, _finite_presentation(), 0.0) == 0.0
     anchor.confirm_startup()
-    assert anchor(session, None, -0.091) is None
+    assert anchor(session, _finite_presentation(), -0.091) is None
     assert anchor.valid is False
-    assert anchor(session, None, 0.25) is None
+    assert anchor(session, _finite_presentation(), 0.25) is None
 
 
 def test_startup_clock_reset_recovers_until_progress_confirms_anchor(monkeypatch):
     session = _session()
     session.ad_enabled = True
-    session.presentation = lambda: Presentation((), (), False)
+    session.presentation = lambda: _finite_presentation()
     clocks = iter((0.0, -0.091, .25, .5, .75))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     manager = SimpleNamespace(get=lambda identity: session,
@@ -180,15 +272,15 @@ def test_startup_clock_reset_recovers_until_progress_confirms_anchor(monkeypatch
 def test_clock_anchor_clamps_small_negative_jitter_at_zero():
     anchor = KodiSessionClockAnchor("session")
     session = SimpleNamespace(id="session")
-    assert anchor(session, None, 0.0) == 0.0
-    assert anchor(session, None, -0.03) == 0.0
+    assert anchor(session, _finite_presentation(), 0.0) == 0.0
+    assert anchor(session, _finite_presentation(), -0.03) == 0.0
     assert anchor.valid is True
 
 
 def test_fixture_adapter_marks_cache_state_untrackable(monkeypatch):
     session = _session()
     session.ad_enabled = True
-    session.presentation = lambda: Presentation((), (), False)
+    session.presentation = lambda: _finite_presentation()
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: .25)
     manager = SimpleNamespace(get=lambda identity: session,
                               sink=SimpleNamespace(emit=lambda event: None))
@@ -208,7 +300,7 @@ def test_startup_clock_reset_discards_pending_preroll_tracking(monkeypatch):
                     tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
                           for event in ('impression', 'start', 'firstQuartile')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 0, 48000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 0, 48000),))
     clocks = iter((0.0, 0.0, -0.091, .25))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
@@ -239,7 +331,7 @@ def test_pause_callback_discards_pending_startup_samples(monkeypatch):
                     tuple(TrackingUrl(event, 'http://127.0.0.1:8765/track/placement/' + event)
                           for event in ('impression', 'start', 'firstQuartile')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 24000, 72000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 24000, 72000),))
     clocks = iter((0.0, .25, .5))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
     queued = []
@@ -273,7 +365,7 @@ def test_cache_after_startup_cannot_emit_milestones(monkeypatch):
                           for event in ('impression', 'start', 'firstQuartile', 'midpoint',
                                         'thirdQuartile', 'complete')),
                     ())
-    session.presentation = lambda: Presentation((), (Placement('placement', ad, 14400, 62400),), False)
+    session.presentation = lambda: _finite_presentation((Placement('placement', ad, 14400, 62400),))
     clocks = iter((.1, .3, .6, .8))
     cache_states = iter((False, False, True, True))
     player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
@@ -313,9 +405,9 @@ def test_long_cache_plateau_taints_only_intersected_ad_after_close_resumption(mo
     events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
     ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
         TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
-    session.presentation = lambda: Presentation((), (
+    session.presentation = lambda: _finite_presentation((
         Placement('stalled', ad, 24000, 72000),
-        Placement('later', ad, 96000, 144000)), False)
+        Placement('later', ad, 96000, 144000)))
     # The cache plateau lasts 750 ms or longer, then resumes only 100 ms
     # beyond the last played clock. Proximity alone cannot recover delivery.
     clocks = iter((.25, .5) + (.5,) * cached_polls +
@@ -418,7 +510,7 @@ def test_fixture_adapter_records_clock_and_mapping_diagnostics(monkeypatch):
     adapter.close()
 
 
-def test_fixture_anchor_keeps_session_sample_origin_when_playlist_window_slides(monkeypatch):
+def test_fixture_anchor_rejects_unanchored_sliding_window(monkeypatch):
     session = _session()
     session.ad_enabled = True
     clocks = iter((20.0, 20.25))
@@ -434,8 +526,9 @@ def test_fixture_anchor_keeps_session_sample_origin_when_playlist_window_slides(
     _patch_player_clock(monkeypatch, lambda: next(times))
     adapter.sample()
     adapter.sample()
-    assert adapter.last_sample.position_seconds == 20.25
-    assert adapter.last_sample.mapped is True
+    assert adapter.last_sample.mapped is False
+    assert adapter.mapping_valid is False
+    assert adapter.mapper.reason == 'live_clock_unanchored'
     adapter.close()
 
 
@@ -576,7 +669,7 @@ def test_speed_callbacks_suppress_milestones_and_distrust_first_normal_sample(mo
     events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
     ad = ResolvedAd('creative', 'fixture.ts', 1.0, tuple(
         TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
-    session.presentation = lambda: Presentation((), (Placement('p', ad, 24000, 72000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('p', ad, 24000, 72000),))
     clocks = iter((.25, .5, .75, 1, 1.25, 1.5))
     queued, records = [], []
 
@@ -641,7 +734,7 @@ def test_cached_speed_change_keeps_crossed_placement_ambiguous(monkeypatch, cach
     events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
     ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
         TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
-    session.presentation = lambda: Presentation((), (Placement('p', ad, 2400, 50400),), False)
+    session.presentation = lambda: _finite_presentation((Placement('p', ad, 2400, 50400),))
     clocks = iter((0, .05, .1, .15, .3, .55, .8, 1.05))
     cache_states = iter((False, False, True, False, False, False, False, False))
     queued, records = [], []
@@ -695,9 +788,9 @@ def test_paused_speed_change_taints_started_ad_after_close_resumption(monkeypatc
     events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
     ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
         TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
-    session.presentation = lambda: Presentation((), (
+    session.presentation = lambda: _finite_presentation((
         Placement('paused', ad, 24000, 72000),
-        Placement('later', ad, 96000, 144000)), False)
+        Placement('later', ad, 96000, 144000)))
     clocks = iter((.25, .5, .6, .65, .75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3))
     cache_states = iter((False, False, caching) + (False,) * 11)
     queued, records = [], []
@@ -757,9 +850,9 @@ def test_unmapped_speed_round_trip_taints_started_ad_after_close_recovery(
     events = ('impression', 'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete')
     ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
         TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event) for event in events), ())
-    session.presentation = lambda: Presentation((), (
+    session.presentation = lambda: _finite_presentation((
         Placement('affected', ad, 24000, 72000),
-        Placement('later', ad, 96000, 144000)), False)
+        Placement('later', ad, 96000, 144000)))
     clocks = iter((.25, .5) + (.55,) * unavailable_count +
                   (.6, .75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3))
     unavailable = False
@@ -839,7 +932,7 @@ def test_non_normal_startup_cannot_later_manufacture_preroll_start(monkeypatch):
     session = _session()
     session.ad_enabled = True
     ad = ResolvedAd('creative', 'fixture.ts', 1, (TrackingUrl('start', 'http://127.0.0.1:8765/start'),), ())
-    session.presentation = lambda: Presentation((), (Placement('p', ad, 0, 48000),), False)
+    session.presentation = lambda: _finite_presentation((Placement('p', ad, 0, 48000),))
     clocks = iter((0, .05, .1, .15, .2))
     queued = []
 

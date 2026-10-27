@@ -186,7 +186,10 @@ def check_contents(contents):
     require(metadata.find("extension[@point='xbmc.python.pluginsource']/provides").text == 'audio',
             'Music plugin must provide audio')
     imports = [item.attrib for item in metadata.findall('requires/import')]
-    require(imports == [{'addon': 'xbmc.python', 'version': '3.0.1'}], 'Incorrect runtime dependency')
+    require(imports == [
+        {'addon': 'xbmc.python', 'version': '3.0.1'},
+        {'addon': 'inputstream.adaptive', 'version': '21.0.0', 'optional': 'true'},
+    ], 'Incorrect runtime dependency')
     info = metadata.find("extension[@point='xbmc.addon.metadata']")
     require(info is not None, 'Addon metadata missing')
     require(info.findtext('license') == 'GPL-2.0-or-later', 'Incorrect license metadata')

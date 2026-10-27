@@ -72,6 +72,7 @@ class PlaybackSession:
         self._root = root.id
         self._resources[root.id] = root
         self.playback_url = base_url + self.route(root.id)
+        self.adaptive_playback_url = None
         self.last_used = time.monotonic()
         self._claimed = False
         self.is_preview = False
@@ -92,10 +93,12 @@ class PlaybackSession:
                 and ad_config.fixture_origin.startswith('http://127.0.0.1:')
                 and (ad_config.preroll or ad_config.midroll)):
             self.ad_enabled = True
+            adaptive = station.uuid.startswith('fixture-') and resource_limit >= 3
             from ad_session import AdSession
             try:
                 self.ad = AdSession(ad_config, ad_client, cache_root or Path.cwd(), cancel,
-                                    resource_limit, source.final_url, self._record_ad_error)
+                                    resource_limit - int(adaptive), source.final_url,
+                                    self._record_ad_error)
                 self.ad.active_ids = self.active_cached_ids
                 if ad_config.preroll and not ad_config.midroll and not self.ad.preroll_available:
                     self.ad.close()
@@ -106,6 +109,14 @@ class PlaybackSession:
                 if isinstance(error, AdError):
                     self._record_ad_error(error)
                 self.ad = None
+            if adaptive and self.ad is not None:
+                # The master consumes one bounded, pinned slot. Its GET validates
+                # the composition before declaring a codec; native playback keeps
+                # its original root URL and unsupported-source fallback.
+                master = Resource(secrets.token_hex(24), 'composition:///audio.m3u8',
+                                  'audio_master')
+                self._resources[master.id] = master
+                self.adaptive_playback_url = base_url + self.route(master.id)
 
     def observe_icy_metadata(self, metadata, observed_at, monotonic_at):
         with self._lock:
@@ -182,7 +193,7 @@ class PlaybackSession:
     def route(self, resource_id):
         resource = self._resources[resource_id]
         suffix = ''
-        if resource.kind in ('hls', 'playlist'):
+        if resource.kind in ('hls', 'playlist', 'audio_master'):
             suffix = '.m3u8'
         elif resource.kind != 'continuous':
             filename = urlsplit(resource.url).path.rsplit('/', 1)[-1]
@@ -221,7 +232,7 @@ class PlaybackSession:
             excess = len(self._resources) + len(missing) - self.resource_limit
             removable = [key for key, resource in self._resources.items()
                          if key != self._root and not resource.active and resource.url not in requested
-                         and resource.kind != 'cached']
+                         and resource.kind not in ('cached', 'audio_master')]
             if excess > len(removable):
                 raise ResourceLimit('Session resource limit')
             for key in removable[:max(0, excess)]:

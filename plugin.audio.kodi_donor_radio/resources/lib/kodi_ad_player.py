@@ -12,13 +12,14 @@ from models import Event
 
 
 class KodiSessionClockAnchor:
-    """Candidate sample-zero mapping, restricted to controlled loopback fixtures.
+    """Candidate sample-zero mapping for initially finite loopback fixtures.
 
-    Composed fixture playlists request TIME-OFFSET=0, and Kodi's getTime() is
-    media-relative. The mapping assumes the returned clock begins at the first
-    composed sample; current Kodi runs have not verified that against decoded
-    media. Never use this candidate mapping for ordinary station sessions. A
-    backward clock reset invalidates it for the rest of the session.
+    Live fixtures can start partway through the presentation and their public
+    clock can freeze while buffered audio continues. Neither TIME-OFFSET=0 nor
+    a later ENDLIST proves their origin. Only a presentation first published
+    with ENDLIST and retaining sample zero may use this experimental candidate.
+    It is never a proven mapping for ordinary station sessions. A backward
+    clock reset invalidates it for the rest of the session.
     """
     BACKWARD_TOLERANCE = .05
 
@@ -27,9 +28,12 @@ class KodiSessionClockAnchor:
         self.valid = True
         self.last_clock = None
         self.startup_pending = True
+        self.reason = None
 
-    def invalidate(self):
+    def invalidate(self, reason=None):
         self.valid = False
+        if self.reason is None:
+            self.reason = reason
 
     def confirm_startup(self):
         """Make later backward jumps permanent clock failures."""
@@ -44,9 +48,17 @@ class KodiSessionClockAnchor:
         self.invalidate()
         return False
 
-    def __call__(self, session, _presentation, seconds):
+    def __call__(self, session, presentation, seconds):
         if (not self.valid or getattr(session, 'id', None) != self.session_id or
                 not math.isfinite(seconds)):
+            return None
+        if presentation is None or not presentation.segments:
+            return None
+        if not presentation.initially_finite or not presentation.ended:
+            self.invalidate('live_clock_unanchored')
+            return None
+        if presentation.segments[0].start_sample != 0:
+            self.invalidate('sample_zero_unavailable')
             return None
         if seconds < 0:
             if (self.last_clock is not None and
@@ -218,7 +230,9 @@ class KodiAdPlayback:
                 {'raw_clock': clock, 'mapped_position': position if mapped else None,
                  'mapped': mapped, 'tracking_enabled': tracking_enabled,
                  'playing': playing, 'paused': self.paused,
-                 'seeking': self.seeking, 'caching': caching}))
+                 'seeking': self.seeking, 'caching': caching,
+                 **({'reason': self.mapper.reason}
+                    if getattr(self.mapper, 'reason', None) else {})}))
         self.last_sample = tracker_samples[-1]
         for sample in tracker_samples:
             self.tracker.observe(presentation, sample)

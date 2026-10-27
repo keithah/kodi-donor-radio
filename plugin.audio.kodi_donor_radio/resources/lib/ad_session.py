@@ -6,6 +6,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from ad_media import CreativeCache, inspect_ts
 from ad_timeline import AdTimeline, TimelineEpochLimit
@@ -32,6 +33,7 @@ class AdSession:
                  on_error=None):
         self.config, self.client, self.cancel = config, client, cancel
         self.source_origin = origin(source_origin)
+        self._program_date_origin = None
         self.on_error = on_error
         self.creative = CreativeCache(cache_root, client, config.fixture_origin)
         self.resolver = VastResolver(client, config.fixture_origin)
@@ -255,6 +257,8 @@ class AdSession:
         if not presentation.segments:
             raise CompositionFailure('empty_composition')
         self._committed = True
+        if self._program_date_origin is None:
+            self._program_date_origin = datetime.now(timezone.utc)
         for segment in presentation.segments:
             self._published_order[segment.resource_id] = None
             self._published_order.move_to_end(segment.resource_id)
@@ -297,14 +301,18 @@ class AdSession:
                  '#EXT-X-MEDIA-SEQUENCE:%d' % first.sequence,
                  '#EXT-X-DISCONTINUITY-SEQUENCE:%d' % first.discontinuity]
         if self._initial:
-            # The Kodi adapter maps media-relative getTime() from the
-            # first output segment. Request an explicit sample-zero start
-            # for this fixture-only composed presentation.
+            # Request the beginning for fixture playback. This hint alone
+            # cannot establish Kodi's origin or enable live success tracking.
             lines.append('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES')
         last_disc = first.discontinuity
         for index, segment in enumerate(presentation.segments):
             if index and segment.discontinuity != last_disc:
                 lines.append('#EXT-X-DISCONTINUITY')
+            # Synthetic composed time is stable across reloads and discontinuities.
+            date = self._program_date_origin + timedelta(
+                microseconds=(segment.start_sample * 1000000 + 24000) // 48000)
+            lines.append('#EXT-X-PROGRAM-DATE-TIME:' +
+                         date.isoformat(timespec='microseconds').replace('+00:00', 'Z'))
             lines.append('#EXTINF:%.6f,' % (segment.samples / 48000))
             lines.append(route(segment.resource_id))
             last_disc = segment.discontinuity

@@ -67,7 +67,10 @@ def test_package_is_installable_source_only(package):
         assert metadata.attrib['version'] == '0.1.0'
         assert {(item.attrib['point'], item.attrib.get('library')) for item in metadata.findall('extension')} >= {
             ('xbmc.python.pluginsource', 'default.py'), ('xbmc.service', 'service.py')}
-        assert metadata.find('requires/import').attrib == {'addon': 'xbmc.python', 'version': '3.0.1'}
+        assert [item.attrib for item in metadata.findall('requires/import')] == [
+            {'addon': 'xbmc.python', 'version': '3.0.1'},
+            {'addon': 'inputstream.adaptive', 'version': '21.0.0', 'optional': 'true'},
+        ]
         assert metadata.find("extension[@point='xbmc.addon.metadata']/license").text == 'GPL-2.0-or-later'
         license_text = archive.read(ADDON + '/LICENSE.txt').decode()
         assert 'GNU GENERAL PUBLIC LICENSE' in license_text
@@ -75,6 +78,18 @@ def test_package_is_installable_source_only(package):
         assert len(license_text) > 17000
     result = run_tool('check_package.py', package)
     assert result.returncode == 0, result.stderr
+
+
+def test_package_checker_rejects_mandatory_adaptive_dependency(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    contents['addon.xml'] = contents['addon.xml'].replace(b'optional="true"', b'optional="false"')
+    with pytest.raises(ValueError, match='Incorrect runtime dependency'):
+        checker(contents)
 
 
 def test_package_checker_rejects_malformed_map_xml(package):

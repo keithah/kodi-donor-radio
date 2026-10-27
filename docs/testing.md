@@ -1324,3 +1324,18 @@ audio capture/listening remain unverified. This acceptance proves Kodi drove
 the add-on's finite controlled stream, replacement media, and fixture beacons;
 it does not prove audible output or establish a production clock anchor across
 a moving HLS window and discontinuities.
+
+## Captured audio and supported Adaptive clock path — 2026-10-27
+
+The later [captured-audio report](superpowers/reports/kodi-audio-capture-2026-10-27.md)
+records actual Kodi master process audio, pause/resume, and seeking. It supersedes
+the earlier lack of capture evidence above, without proving physical speaker output.
+
+A stalled live manifest exposed a default-reader clock freeze while buffered
+audio continued. Controlled ad fixtures now optionally use an already enabled
+InputStream Adaptive addon with a validated audio-only master and stable composed
+program dates; no Kodi-core patch is required for this path. Initially live
+presentations never receive the experimental sample-zero mapper, even if ENDLIST
+arrives later. Success beacons remain disabled for live fixtures and ordinary
+stations. The bounded capture verifies removal of the observed freeze, not a
+session-absolute position after extended window/period retirement.
