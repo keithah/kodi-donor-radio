@@ -149,9 +149,32 @@ def test_clock_anchor_invalidates_on_negative_reset_after_sample_zero():
     anchor = KodiSessionClockAnchor("session")
     session = SimpleNamespace(id="session")
     assert anchor(session, None, 0.0) == 0.0
+    anchor.confirm_startup()
     assert anchor(session, None, -0.091) is None
     assert anchor.valid is False
     assert anchor(session, None, 0.25) is None
+
+
+def test_startup_clock_reset_recovers_until_progress_confirms_anchor(monkeypatch):
+    session = _session()
+    session.ad_enabled = True
+    session.presentation = lambda: Presentation((), (), False)
+    clocks = iter((0.0, -0.091, .25, .5, .75))
+    player = SimpleNamespace(isPlaying=lambda: True, getTime=lambda: next(clocks))
+    manager = SimpleNamespace(get=lambda identity: session,
+                              sink=SimpleNamespace(emit=lambda event: None))
+    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
+                             fixture_origin="http://127.0.0.1:8765")
+    adapter.bind(session.id)
+    ticks = count()
+    _patch_player_clock(monkeypatch, lambda: 10.0 + next(ticks) * .25)
+    for _ in range(5):
+        adapter.sample()
+    assert adapter._clock_ready is True
+    assert adapter.mapper.valid is True
+    assert adapter.mapping_valid is True
+    assert adapter.last_sample.position_seconds == .75
+    adapter.close()
 
 
 def test_clock_anchor_clamps_small_negative_jitter_at_zero():
@@ -204,7 +227,8 @@ def test_startup_clock_reset_discards_pending_preroll_tracking(monkeypatch):
     for _ in range(4):
         adapter.sample()
     assert queued == []
-    assert adapter.mapping_valid is False
+    assert adapter._clock_ready is False
+    assert adapter.mapper.valid is True
     adapter.close()
 
 

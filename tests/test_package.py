@@ -102,6 +102,43 @@ def test_package_checker_rejects_missing_map_localization(package):
         checker(contents)
 
 
+def test_package_checker_rejects_map_decoder_different_from_checked_source(package):
+    import runpy
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    source = contents['resources/lib/radio_map.py']
+    original = b'return _validated_land_polygons(data[\'polygons\'])'
+    assert original in source
+    contents['resources/lib/radio_map.py'] = source.replace(original, b'return ()', 1)
+    with pytest.raises(ValueError, match='Packaged map decoder differs from checked source'):
+        checker(contents)
+
+
+def test_package_checker_does_not_import_map_decoder_or_mutate_import_path(package):
+    import runpy
+    import sys
+    checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
+    with zipfile.ZipFile(package) as archive:
+        prefix = ADDON + '/'
+        contents = {name[len(prefix):]: archive.read(name)
+                    for name in archive.namelist() if name.startswith(prefix)}
+    library_path = str(ROOT / ADDON / 'resources' / 'lib')
+    previous_path = list(sys.path)
+    previous_module = sys.modules.pop('radio_map', None)
+    sys.path[:] = [entry for entry in sys.path if entry != library_path]
+    try:
+        checker(contents)
+        assert library_path not in sys.path
+        assert 'radio_map' not in sys.modules
+    finally:
+        sys.path[:] = previous_path
+        if previous_module is not None:
+            sys.modules['radio_map'] = previous_module
+
+
 def test_package_checker_rejects_missing_relative_map_texture(package):
     import runpy
     checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']

@@ -26,9 +26,23 @@ class KodiSessionClockAnchor:
         self.session_id = session_id
         self.valid = True
         self.last_clock = None
+        self.startup_pending = True
 
     def invalidate(self):
         self.valid = False
+
+    def confirm_startup(self):
+        """Make later backward jumps permanent clock failures."""
+        self.startup_pending = False
+
+    def _backward_reset(self):
+        if self.startup_pending:
+            # Kodi may reset a just-started stream from zero to a negative
+            # pre-roll value. Let the adapter's progress gate re-anchor safely.
+            self.last_clock = None
+            return True
+        self.invalidate()
+        return False
 
     def __call__(self, session, _presentation, seconds):
         if (not self.valid or getattr(session, 'id', None) != self.session_id or
@@ -37,14 +51,14 @@ class KodiSessionClockAnchor:
         if seconds < 0:
             if (self.last_clock is not None and
                     seconds < self.last_clock - self.BACKWARD_TOLERANCE):
-                self.invalidate()
+                self._backward_reset()
                 return None
             if self.last_clock is None:
                 return None
             seconds = self.last_clock
         if self.last_clock is not None:
             if seconds < self.last_clock - self.BACKWARD_TOLERANCE:
-                self.invalidate()
+                self._backward_reset()
                 return None
             seconds = max(seconds, self.last_clock)
         self.last_clock = seconds
@@ -160,6 +174,8 @@ class KodiAdPlayback:
                     advance = raw_sample.position_seconds - first.position_seconds
                     if (0 < elapsed <= MAX_GAP and 0 < advance <= elapsed + START_TOLERANCE):
                         self._clock_ready = True
+                        if hasattr(self.mapper, 'confirm_startup'):
+                            self.mapper.confirm_startup()
                         tracking_enabled = True
                         # Confirm progress, but do not retroactively track from
                         # the first sample: a reset can occur between polls.

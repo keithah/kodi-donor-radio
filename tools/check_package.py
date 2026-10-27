@@ -2,6 +2,8 @@
 """Check an addon ZIP without extracting or importing its contents (stdlib only)."""
 import argparse
 import ast
+import json
+import math
 from pathlib import Path
 import re
 import stat
@@ -39,17 +41,46 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def check_land_geometry(payload):
-    """Validate bundled map geometry using the runtime decoder."""
-    library_path = Path(__file__).resolve().parents[1] / ADDON_ID / 'resources' / 'lib'
-    if str(library_path) not in sys.path:
-        sys.path.insert(0, str(library_path))
-    from radio_map import decode_land_polygons
-
+def check_land_geometry(payload, packaged_decoder):
+    """Validate map data without executing code from the package archive."""
+    decoder_path = (Path(__file__).resolve().parents[1] / ADDON_ID /
+                    'resources' / 'lib' / 'radio_map.py')
+    require(packaged_decoder == decoder_path.read_bytes(),
+            'Packaged map decoder differs from checked source')
+    require(len(payload) <= 2 * 1024 * 1024, 'Land coordinate file exceeds size limit')
     try:
-        polygons = decode_land_polygons(payload)
-    except ValueError as error:
-        raise ValueError('Invalid bundled land geometry: ' + str(error)) from error
+        data = json.loads(payload.decode('utf-8'))
+    except (UnicodeError, ValueError, RecursionError) as error:
+        raise ValueError('Invalid bundled land geometry JSON') from error
+    require(isinstance(data, dict) and
+            set(data) == {'schema_version', 'source', 'polygons'} and
+            type(data['schema_version']) is int and data['schema_version'] == 1 and
+            data['source'] == 'Natural Earth 1:110m land v4.1.0',
+            'Unsupported bundled land geometry schema or source')
+    polygons = data['polygons']
+    require(isinstance(polygons, list) and 0 < len(polygons) <= 25000,
+            'Invalid bundled land polygons')
+    point_count = 0
+    for polygon in polygons:
+        require(isinstance(polygon, list) and 0 < len(polygon) <= 25000,
+                'Invalid bundled land polygon rings')
+        for ring in polygon:
+            require(isinstance(ring, list) and len(ring) >= 4,
+                    'Bundled land rings must be closed with four points')
+            point_count += len(ring)
+            require(point_count <= 100000, 'Too many bundled land coordinates')
+            for point in ring:
+                require(isinstance(point, list) and len(point) == 2,
+                        'Invalid bundled land coordinate pair')
+                for value, low, high in ((point[0], -180, 180), (point[1], -90, 90)):
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        valid = low <= value <= high
+                    elif isinstance(value, float):
+                        valid = math.isfinite(value) and low <= value <= high
+                    else:
+                        valid = False
+                    require(valid, 'Invalid bundled land coordinate')
+            require(ring[0] == ring[-1], 'Bundled land rings must be closed')
     require(bool(polygons), 'Bundled map land geometry must not be empty')
 
 
@@ -144,7 +175,8 @@ def jpeg_dimensions(data):
 
 def check_contents(contents):
     require(set(contents) == FILES, 'Distribution must contain exactly the approved source manifest')
-    check_land_geometry(contents['resources/map/natural_earth_110m_land.json'])
+    check_land_geometry(contents['resources/map/natural_earth_110m_land.json'],
+                        contents['resources/lib/radio_map.py'])
     metadata = parse_xml(contents['addon.xml'])
     require(metadata.tag == 'addon' and metadata.get('id') == ADDON_ID
             and metadata.get('version') == VERSION, 'Incorrect addon identity/version')
