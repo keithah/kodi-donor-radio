@@ -104,6 +104,10 @@ msgctxt "#30048"
 msgid "Test ad: delayed source segment"
 msgstr ""
 
+msgctxt "#30049"
+msgid "Test ad: finite player controls"
+msgstr ""
+
 msgctxt "#30030"
 msgid "Local diagnostics"
 msgstr ""

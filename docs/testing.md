@@ -1282,3 +1282,41 @@ Kodi visual inspection of this texture integration is **pending**. The documente
 main-thread USB startup block on the local Kodi binaries prevents treating the
 older GUI observations as acceptance of this change. No new on-screen, audible,
 or runtime visual acceptance is claimed by these automated tests.
+
+## Kodi ad playback controls and beacon acceptance — 2026-10-26
+
+The local patched Kodi master build `23.0-ALPHA1 (22.90.701)`, Git
+`20261026-8091c14861`, ran with its isolated portable profile and the controlled
+ad fixture origin. Startup logs show both the Glinet composite USB device and
+USB Ethernet adapter attached; Kodi reached its home screen and accepted JSON-RPC
+playback commands on the test-only port. The installed Kodi 21.3 profile and
+process were not changed.
+
+`tools/smoke_ad_kodi.py` now exposes the already-existing finite source fixture
+in the add-on test menu. It verifies that Kodi accepted each requested action
+and observed the resulting pause, resume, or seek effect. The current run passed
+normal live playback, finite VAST playback, pause/resume, seek, stop, expired
+window, mutation, and delayed-segment scenarios. The machine-readable player
+samples and fixture counters are in
+`docs/superpowers/reports/kodi-addon-acceptance-2026-10-26.json`.
+
+- Finite no-action and pause/resume runs each recorded exactly one impression,
+  start, first quartile, midpoint, third quartile, and completion. During the
+  pause interval the player clock held steady and Kodi reported speed zero.
+- The finite seek run moved to the requested late position. Beacon totals vary
+  with whether Kodi reaches the break before the seek action; this is recorded
+  but not gated because the fixture counter does not timestamp each event.
+- Stop and expired-window runs recorded no success beacons. Live moving-window,
+  mutation, and stall beacon totals are retained as observations, not strict
+  expectations, because their clock mapping is not calibrated.
+- Moving-window, mutation, and stall beacon totals varied across runs. This
+  pass observed impression/start/first quartile on normal and mutation, and all
+  six events on stall; earlier runs produced different subsets. These
+  scenarios remain observational rather than event-count gates, and production
+  station tracking remains disabled.
+
+The desktop was locked during the final run, so visual inspection and local
+audio capture/listening remain unverified. This acceptance proves Kodi drove
+the add-on's finite controlled stream, replacement media, and fixture beacons;
+it does not prove audible output or establish a production clock anchor across
+a moving HLS window and discontinuities.

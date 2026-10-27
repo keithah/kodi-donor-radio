@@ -203,10 +203,157 @@ def test_kodi_smoke_ignores_negative_startup_clock_samples():
 
 
 def test_kodi_smoke_accepts_requested_item_when_successful_stop_precedes_clock_progress():
-    result = {'source': 'normal', 'actions': [{'action': 'stop', 'accepted': True}],
+    result = {'source': 'normal', 'actions': [{'action': 'stop', 'accepted': True,
+                                               'state_observed': True}],
               'timeline': [
                   {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.5},
                   {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.75},
+              ]}
+    assert smoke_ad_kodi.validate_observation(result) == []
+
+
+def test_kodi_smoke_fails_when_a_requested_player_action_is_rejected():
+    result = {'source': 'normal', 'actions': [
+        {'action': 'pause', 'accepted': False},
+        {'action': 'resume', 'accepted': True},
+        {'action': 'seek', 'accepted': False},
+    ], 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.0, 'at': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 0.6, 'at': 0.6},
+    ]}
+    failures = smoke_ad_kodi.validate_observation(result)
+    assert any('pause' in failure and 'rejected' in failure for failure in failures)
+    assert any('seek' in failure and 'rejected' in failure for failure in failures)
+
+
+def test_kodi_smoke_fails_when_player_accepts_an_action_without_its_effect():
+    result = {'source': 'finite', 'actions': [
+        {'action': 'pause', 'accepted': True, 'state_observed': False},
+        {'action': 'resume', 'accepted': True, 'state_observed': True},
+        {'action': 'seek', 'accepted': True, 'state_observed': False},
+    ], 'timeline': [
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 1.0, 'at': 0.0},
+        {'playing': True, 'item_matches_expected': True, 'time_seconds': 2.0, 'at': 1.0},
+    ]}
+    failures = smoke_ad_kodi.validate_observation(result)
+    assert any('pause' in failure and 'effect' in failure for failure in failures)
+    assert any('seek' in failure and 'effect' in failure for failure in failures)
+
+
+def test_kodi_smoke_fails_when_expected_beacons_are_missing():
+    result = {'source': 'finite',
+              'expected_beacons': {'placement-1/impression': 1,
+                                   'placement-1/start': 1,
+                                   'placement-1/complete': 1},
+              'fixture': {'beacons': {'placement-1/impression': 1,
+                                      'placement-1/start': 1}},
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.6, 'at': 0.6},
+              ]}
+    assert any('beacon counts' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_fails_when_a_requested_action_was_never_attempted():
+    result = {'source': 'finite', 'requested_actions': ['pause', 'resume'],
+              'actions': [{'action': 'pause', 'accepted': True, 'state_observed': True}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.6, 'at': 0.6},
+              ]}
+    assert any('attempt every requested action' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_fails_when_stop_is_accepted_but_player_remains_active():
+    result = {'source': 'normal', 'requested_actions': ['stop'],
+              'actions': [{'action': 'stop', 'accepted': True, 'state_observed': False}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 0.0, 'at': 0.5},
+              ]}
+    assert any('stop' in failure and 'effect' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_fails_when_clock_advances_between_pause_and_resume():
+    result = {'source': 'finite', 'requested_actions': ['pause', 'resume'],
+              'actions': [
+                  {'action': 'pause', 'at': 1.0, 'accepted': True, 'state_observed': True},
+                  {'action': 'resume', 'at': 4.0, 'accepted': True, 'state_observed': True},
+              ], 'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 1.0, 'speed': 0, 'at': 1.5},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 2.0, 'speed': 0, 'at': 2.5},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 3.0, 'speed': 0, 'at': 3.5},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 3.5, 'speed': 1, 'at': 4.5},
+              ]}
+    assert any('clock advanced while paused' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_does_not_count_natural_progress_as_a_seek():
+    result = {'source': 'finite', 'requested_actions': ['seek'],
+              'actions': [{'action': 'seek', 'at': 8.0, 'accepted': True,
+                           'state_observed': True,
+                           'seek_evidence': {'before_position': 11.4,
+                                             'after_position': 11.9,
+                                             'total_seconds': 16.0,
+                                             'target_percentage': 80,
+                                             'elapsed_seconds': .5}}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 11.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 11.6, 'at': 0.6},
+              ]}
+    assert any('seek' in failure and 'effect' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_does_not_count_natural_progress_near_seek_target():
+    result = {'source': 'finite', 'requested_actions': ['seek'],
+              'actions': [{'action': 'seek', 'at': 8.0, 'accepted': True,
+                           'state_observed': True,
+                           'seek_evidence': {'before_position': 9.4,
+                                             'after_position': 11.9,
+                                             'total_seconds': 16.0,
+                                             'target_percentage': 80,
+                                             'elapsed_seconds': 2.5}}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 9.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 9.6, 'at': 0.6},
+              ]}
+    assert any('seek' in failure and 'effect' in failure
+               for failure in smoke_ad_kodi.validate_observation(result))
+
+
+def test_kodi_smoke_accepts_seek_jump_beyond_elapsed_playback():
+    result = {'source': 'finite', 'requested_actions': ['seek'],
+              'actions': [{'action': 'seek', 'at': 8.0, 'accepted': True,
+                           'state_observed': True,
+                           'seek_evidence': {'before_position': 8.2,
+                                             'after_position': 12.833,
+                                             'total_seconds': 16.042,
+                                             'target_percentage': 80,
+                                             'elapsed_seconds': 1.5}}],
+              'timeline': [
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 8.0, 'at': 0.0},
+                  {'playing': True, 'item_matches_expected': True,
+                   'time_seconds': 8.6, 'at': 0.6},
               ]}
     assert smoke_ad_kodi.validate_observation(result) == []
 
@@ -246,6 +393,7 @@ def test_kodi_smoke_accepts_only_loopback_relay_media_item():
 @pytest.mark.parametrize(('source', 'fixture_id'), [
     ('normal', 'fixture-30045'), ('mutation', 'fixture-30046'),
     ('expired-window', 'fixture-30047'), ('stall', 'fixture-30048'),
+    ('finite', 'fixture-30049'),
 ])
 def test_kodi_smoke_menu_matches_expected_fixture_id(monkeypatch, source, fixture_id):
     expected = 'plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=' + fixture_id

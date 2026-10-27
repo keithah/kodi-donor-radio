@@ -56,6 +56,27 @@ def _time(value):
             value.get('seconds', 0) + value.get('milliseconds', 0) / 1000)
 
 
+def _seek_effect_observed(evidence):
+    """Require an observed jump to the requested target, beyond natural progress."""
+    if not isinstance(evidence, dict):
+        return False
+    before = evidence.get('before_position')
+    after = evidence.get('after_position')
+    total = evidence.get('total_seconds')
+    percentage = evidence.get('target_percentage')
+    elapsed = evidence.get('elapsed_seconds')
+    values = (before, after, total, percentage, elapsed)
+    if any(not isinstance(value, (int, float)) or isinstance(value, bool) or
+           not math.isfinite(value) for value in values):
+        return False
+    if total <= 0 or not 0 <= percentage <= 100:
+        return False
+    target = total * percentage / 100
+    # Require arrival at target and movement beyond the normal speed-1 advance
+    # possible during the seek poll window.
+    return abs(after - target) <= 1 and after - before > elapsed + .5
+
+
 _RELAY_MEDIA_PATH = re.compile(r'/media/[0-9a-f]{48}/[0-9a-f]{48}(?:\.[a-z0-9]+)?')
 
 
@@ -104,12 +125,14 @@ _SOURCE_FIXTURE_IDS = {
     'mutation': 'fixture-30046',
     'expired-window': 'fixture-30047',
     'stall': 'fixture-30048',
+    'finite': 'fixture-30049',
 }
 _SOURCE_FIXTURE_PATHS = {
     'normal': '/source/normal/index.m3u8',
     'mutation': '/source/mutation/index.m3u8',
     'expired-window': '/source/expired-window/index.m3u8',
     'stall': '/source/stall/index.m3u8',
+    'finite': '/source/finite/index.m3u8',
 }
 
 
@@ -131,12 +154,54 @@ def validate_observation(result):
     """Require the requested Kodi item and locally advancing player time."""
     active = [sample for sample in result['timeline'] if sample.get('playing')]
     failures = []
+    requested_actions = result.get('requested_actions')
+    if (isinstance(requested_actions, list) and
+            [action.get('action') for action in result.get('actions', [])] != requested_actions):
+        failures.append('Kodi did not attempt every requested action in order')
+    for action in result.get('actions', []):
+        if action.get('accepted') is False:
+            failures.append('Kodi rejected requested %s action' % action.get('action', 'unknown'))
+        if action.get('state_observed') is False:
+            failures.append('Kodi accepted %s without the expected playback effect' %
+                            action.get('action', 'unknown'))
+        if (action.get('action') == 'seek' and action.get('accepted') is True and
+                not _seek_effect_observed(action.get('seek_evidence'))):
+            failures.append('Kodi accepted seek without the expected playback effect')
+    actions = result.get('actions', [])
+    for index, action in enumerate(actions):
+        if action.get('action') != 'pause' or action.get('accepted') is not True:
+            continue
+        try:
+            pause_at = action['at']
+            resume = next(candidate for candidate in actions[index + 1:]
+                          if candidate.get('action') == 'resume')
+            resume_at = resume['at']
+        except (KeyError, StopIteration, TypeError):
+            failures.append('Kodi did not observe a complete pause/resume interval')
+            continue
+        interval = [sample for sample in result['timeline']
+                    if sample.get('playing') is True and
+                    sample.get('item_matches_expected') is True and
+                    isinstance(sample.get('at'), (int, float)) and
+                    pause_at < sample['at'] < resume_at]
+        positions = [sample.get('time_seconds') for sample in interval
+                     if isinstance(sample.get('time_seconds'), (int, float)) and
+                     not isinstance(sample.get('time_seconds'), bool) and
+                     math.isfinite(sample['time_seconds']) and sample['time_seconds'] >= 0]
+        if (len(positions) < 2 or any(sample.get('speed') != 0 for sample in interval) or
+                max(positions, default=0) - min(positions, default=0) > .5):
+            failures.append('Kodi player clock advanced while paused')
     first_expected = next((index for index, sample in enumerate(active)
                            if sample.get('item_matches_expected') is True), None)
     if first_expected is None or any(
             sample.get('item_matches_expected') is not True for sample in active[first_expected:]):
         failures.append('active Kodi item did not consistently match requested fixture')
     fixture = result.get('fixture')
+    expected_beacons = result.get('expected_beacons')
+    if isinstance(expected_beacons, dict):
+        actual_beacons = fixture.get('beacons') if isinstance(fixture, dict) else None
+        if actual_beacons != expected_beacons:
+            failures.append('fixture beacon counts did not match the scenario expectation')
     if isinstance(fixture, dict) and isinstance(fixture.get('requests'), dict):
         expected_path = _SOURCE_FIXTURE_PATHS.get(result.get('source'))
         if expected_path and fixture['requests'].get(expected_path, 0) < 1:
@@ -177,13 +242,14 @@ def validate_observation(result):
             # clock updates can accrue elapsed time across repeated polls.
             last_progress = (observed_at, position)
     stopped_as_requested = any(action.get('action') == 'stop' and action.get('accepted') is True
+                               and action.get('state_observed') is True
                                for action in result.get('actions', []))
     if bounded_progress < .5 and not stopped_as_requested:
         failures.append('requested Kodi item did not show 0.5s of bounded clock advance')
     return failures
 
 
-def observe(origin, port, source, duration, actions):
+def observe(origin, port, source, duration, actions, expected_beacons=None):
     with urlopen(origin + '/reset', timeout=3):
         pass
     file, label = _menu_file(port, source)
@@ -200,22 +266,67 @@ def observe(origin, port, source, duration, actions):
         elapsed = time.monotonic() - start
         if pending and elapsed >= pending[0][0]:
             _, action = pending.pop(0)
+            before = None
+            seek_evidence = None
+            seek_started_at = None
             try:
                 active = rpc('Player.GetActivePlayers', port=port)
                 playerid = active[0]['playerid'] if active else 0
+                before = sample(port, file, previous_file)
                 if action == 'pause' or action == 'resume':
                     result = rpc('Player.PlayPause', {'playerid': playerid}, port=port)
                 elif action == 'seek':
+                    seek_started_at = time.monotonic()
                     result = rpc('Player.Seek', {'playerid': playerid, 'value': {'percentage': 80}}, port=port)
                 elif action == 'stop':
                     result = rpc('Player.Stop', {'playerid': playerid}, port=port)
                 else:
                     raise ValueError(action)
-                action_results.append({'at': round(elapsed, 3), 'action': action, 'accepted': True,
-                                       'result': str(result)[:120]})
+                after = sample(port, file, previous_file)
+                if action in ('pause', 'resume'):
+                    expected_speed = 0 if action == 'pause' else 1
+                    state_observed = (result.get('speed') == expected_speed and
+                                      after.get('speed') == expected_speed)
+                elif action == 'seek':
+                    prior_position = before.get('time_seconds') if before else None
+                    total = before.get('total_seconds') if before else None
+                    seek_deadline = time.monotonic() + 2.5
+                    state_observed = False
+                    while before and before.get('canseek') is True:
+                        current_position = after.get('time_seconds')
+                        seek_evidence = {'before_position': prior_position,
+                                         'after_position': current_position,
+                                         'total_seconds': total,
+                                         'target_percentage': 80,
+                                         'elapsed_seconds': max(0, time.monotonic() - seek_started_at)}
+                        if _seek_effect_observed(seek_evidence):
+                            state_observed = True
+                            break
+                        if not after.get('playing') or time.monotonic() >= seek_deadline:
+                            break
+                        time.sleep(.2)
+                        after = sample(port, file, previous_file)
+                elif action == 'stop':
+                    stop_deadline = time.monotonic() + 2
+                    while (after.get('playing') is True and
+                           after.get('item_matches_expected') is True and
+                           time.monotonic() < stop_deadline):
+                        time.sleep(.1)
+                        after = sample(port, file, previous_file)
+                    state_observed = (after.get('playing') is not True or
+                                      after.get('item_matches_expected') is False)
+                else:
+                    state_observed = True
+                action_result = {'at': round(elapsed, 3), 'action': action, 'accepted': True,
+                                 'state_observed': bool(state_observed),
+                                 'result': str(result)[:120]}
+                if action == 'seek':
+                    action_result['seek_evidence'] = seek_evidence
+                action_results.append(action_result)
             except (OSError, RuntimeError) as error:
                 action_results.append({'at': round(elapsed, 3), 'action': action,
-                                       'accepted': False, 'error': type(error).__name__})
+                                       'accepted': False, 'state_observed': False,
+                                       'error': type(error).__name__})
         try:
             observation = sample(port, file, previous_file)
         except (OSError, RuntimeError) as error:
@@ -232,7 +343,10 @@ def observe(origin, port, source, duration, actions):
     time.sleep(.5)
     result = {'source': source, 'label': label, 'timeline': timeline,
             'actions': action_results, 'fixture': _stats(origin),
+            'requested_actions': [action for _, action in actions],
             'audible_output_verified': False, 'mapping_proven': False}
+    if expected_beacons is not None:
+        result['expected_beacons'] = expected_beacons
     result['validation_failures'] = validate_observation(result)
     return result
 
@@ -245,19 +359,32 @@ def main():
     parser.add_argument('--duration', type=float, default=17)
     args = parser.parse_args()
     scenarios = [
-        ('normal', [(3, 'pause'), (5, 'resume'), (9, 'seek')]),
-        ('normal', [(3, 'stop')]),
-        ('expired-window', []),
-        ('mutation', []),
-        ('stall', []),
+        # Moving live-window behavior is recorded, but not used as a beacon
+        # count gate until its native-clock mapping is calibrated.
+        ('normal', [], None),
+        ('finite', [], {'placement-1/impression': 1, 'placement-1/start': 1,
+                        'placement-1/firstQuartile': 1, 'placement-1/midpoint': 1,
+                        'placement-1/thirdQuartile': 1, 'placement-1/complete': 1}),
+        ('finite', [(3, 'pause'), (5, 'resume')],
+         {'placement-1/impression': 1, 'placement-1/start': 1,
+          'placement-1/firstQuartile': 1, 'placement-1/midpoint': 1,
+          'placement-1/thirdQuartile': 1, 'placement-1/complete': 1}),
+        # The seek may happen before or after VAST impression/start depending
+        # on Kodi's HLS prefetch; record those beacon totals without gating.
+        ('finite', [(9, 'seek')], None),
+        ('normal', [(3, 'stop')], {}),
+        ('expired-window', [], {}),
+        ('mutation', [], None),
+        ('stall', [], None),
     ]
     report = {'kind': 'kodi_player_observation', 'platform': platform.platform(),
               'jsonrpc_version': rpc('JSONRPC.Version', port=args.rpc_port),
               'scenarios': []}
-    for source, actions in scenarios:
+    for source, actions, expected_beacons in scenarios:
         report['scenarios'].append(observe(args.origin, args.rpc_port, source,
-                                           6 if actions == [(3, 'stop')] else args.duration,
-                                           actions))
+                                           6 if actions == [(3, 'stop')] else
+                                           max(args.duration, 18) if source == 'finite' else args.duration,
+                                           actions, expected_beacons))
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
     for result in report['scenarios']:

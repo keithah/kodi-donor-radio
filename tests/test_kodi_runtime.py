@@ -138,7 +138,8 @@ def test_controlled_ad_sources_appear_in_test_menu(kodi):
                 for url, _, _ in state.items]
     paths = {urlsplit(station.url).path for station in stations}
     assert {'/source/normal/index.m3u8', '/source/mutation/index.m3u8',
-            '/source/expired-window/index.m3u8', '/source/stall/index.m3u8'} <= paths
+            '/source/expired-window/index.m3u8', '/source/finite/index.m3u8',
+            '/source/stall/index.m3u8'} <= paths
     assert all(station.hls and station.codec == 'AAC' for station in stations
                if '/source/' in station.url)
     translations = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
@@ -595,7 +596,7 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==19
+    assert len(state.items)==20
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(station_payload(runtime._fixture_station(parse_qs(urlsplit(state.items[0][0]).query)['id'][0])))
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
@@ -1375,7 +1376,7 @@ def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(k
     browser = directory(monkeypatch, runtime)
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
     route(runtime, mode='tests')
-    assert len(state.items) == 19
+    assert len(state.items) == 20
     for link, item, folder in state.items:
         params = parse_qs(urlsplit(link).query)
         assert set(params) == {'mode', 'id'} and params['mode'] == ['play_fixture']

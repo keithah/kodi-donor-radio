@@ -286,6 +286,7 @@ _FIXTURES = (
     (30046, 'source/mutation/index.m3u8', 'AAC', True),
     (30047, 'source/expired-window/index.m3u8', 'AAC', True),
     (30048, 'source/stall/index.m3u8', 'AAC', True),
+    (30049, 'source/finite/index.m3u8', 'AAC', True),
     (30061, 'icy/explicit.mp3', 'MP3', False), (30062, 'icy/tildeats.mp3', 'MP3', False),
     (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
     (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
