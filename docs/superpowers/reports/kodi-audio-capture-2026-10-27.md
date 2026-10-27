@@ -21,6 +21,12 @@ and updated the location and station panels. Back to stations returned to the
 Donor Radio directory. These observations verify this navigation path on master;
 they do not cover every setup dialog, skin, or remote-control layout.
 
+The Settings dialog also rendered its interface, diagnostics, and developer
+fixture controls. Run setup opened Find a place; Choose a country then displayed
+the 240-entry country dialog. Escape canceled that flow and returned to the
+Donor Radio directory without choosing or saving a place. This covers the
+settings-to-setup entry and cancellation path, not completion of setup.
+
 ## Recorder and audio evidence
 
 The development helper was built and tested separately from the add-on. Its
@@ -28,7 +34,7 @@ initial ScreenCaptureKit build launched, but application enumeration required
 screen-recording permission. No such permission was granted. The helper was
 changed to a Core Audio process tap for the system-audio-only permission path.
 
-The Core Audio helper built successfully through XcodeBuildMCP; all 14 unit
+The Core Audio helper built successfully through XcodeBuildMCP; all 16 unit
 tests passed. Tests cover argument bounds, planar/interleaved sample ownership,
 bounded buffer overflow, native 44.1 kHz frame accounting, fractional input
 sample timestamps and validity flags, timing gaps, readiness, format changes,
@@ -36,6 +42,14 @@ and explicit failure for empty, interrupted, or entirely silent recordings.
 Automation tests also require nonzero exits for invalid targets or missing PIDs
 while retaining errors in manual mode.
 Independent review found no actionable correctness defects.
+
+Two additional regressions reproduced a canceled startup publishing readiness
+and activation after a delayed native return. The shared startup gate now
+serializes cancellation with readiness publication and checks it again before
+creating keep-awake assertions or showing Recording. The regressions failed
+before the fix and passed afterward; cleanup still waits for the native call
+to return, and canceled startup finalizes as failed with a nonzero automation
+exit. This fixes false readiness without claiming to cancel Core Audio's call.
 
 The first Core Audio run saved 1,441,280 frames at 48 kHz, all zero-valued. It
 correctly reported failure. The built application was then found to omit

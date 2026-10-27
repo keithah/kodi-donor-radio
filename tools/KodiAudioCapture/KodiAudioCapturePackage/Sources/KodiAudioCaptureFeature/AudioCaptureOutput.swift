@@ -8,6 +8,7 @@ final class AudioCaptureOutput: @unchecked Sendable {
     let directory: URL
     private let queue = DispatchQueue(label: "org.kodi.donorradio.AudioCapture.writer", qos: .userInitiated)
     private let writer: AudioRecordingWriter
+    private let startupGate: CaptureStartupGate
     private let onFailure: @Sendable (String) -> Void
     private var tap = AudioObjectID(kAudioObjectUnknown)
     private var aggregate = AudioObjectID(kAudioObjectUnknown)
@@ -24,8 +25,9 @@ final class AudioCaptureOutput: @unchecked Sendable {
     private var closed = false
     private var deviceStarted = false
 
-    init(writer: AudioRecordingWriter, onFailure: @escaping @Sendable (String) -> Void) {
+    init(writer: AudioRecordingWriter, startupGate: CaptureStartupGate, onFailure: @escaping @Sendable (String) -> Void) {
         self.writer = writer
+        self.startupGate = startupGate
         directory = writer.directory
         self.onFailure = onFailure
     }
@@ -59,10 +61,13 @@ final class AudioCaptureOutput: @unchecked Sendable {
         ring = createdRing
         try installListeners()
         ioProc = try Self.attachCallback(device: aggregate, ring: createdRing)
-        try Self.check(CaptureDeviceCallbackStart(ioProc), "Start audio-only recording; approve macOS audio recording access if requested")
-        deviceStarted = true
-        // No dependency on receiving audio: an idle target may remain silent until the fixture starts.
-        try writer.markRecordingStarted()
+        try startupGate.start(nativeStart: {
+            try Self.check(CaptureDeviceCallbackStart(ioProc), "Start audio-only recording; approve macOS audio recording access if requested")
+            deviceStarted = true
+        }, publishReady: {
+            // Cancellation during native start must never become a recording-ready manifest.
+            try writer.markRecordingStarted()
+        })
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10))
         timer.setEventHandler { [weak self] in self?.drain() }

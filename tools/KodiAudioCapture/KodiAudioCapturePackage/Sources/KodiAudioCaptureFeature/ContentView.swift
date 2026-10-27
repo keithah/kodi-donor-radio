@@ -68,7 +68,7 @@ public struct ContentView: View {
             }
             HStack {
                 if recorder.isActive {
-                    Button("Stop recording") { Task { await recorder.stop() } }
+                    Button(recorder.isStarting ? "Cancel setup" : "Stop recording") { Task { await recorder.stop() } }
                         .disabled(recorder.isStopping)
                 } else {
                     Button("Start recording") { recorder.beginRecording() }

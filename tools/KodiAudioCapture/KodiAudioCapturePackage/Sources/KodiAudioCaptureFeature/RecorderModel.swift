@@ -14,6 +14,7 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     @Published private(set) var errorMessage: String?
     @Published private(set) var isActive = false
     @Published private(set) var isStopping = false
+    @Published private(set) var isStarting = false
     @Published private(set) var recordingDirectory: URL?
     @Published private(set) var elapsed = 0.0
     @Published private(set) var capturedFrames: Int64 = 0
@@ -26,6 +27,7 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     private var output: AudioCaptureOutput?
     private var wakeAssertions: CaptureWakeAssertions?
     private var startTask: Task<Void, Never>?
+    private var startupGate: CaptureStartupGate?
     private var endTask: Task<Void, Never>?
     private var durationTask: Task<Void, Never>?
     private var stopRequested = false
@@ -95,6 +97,7 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
         stopPlayback()
         isActive = true
+        isStarting = true
         isStopping = false
         stopRequested = false
         endTask = nil
@@ -105,25 +108,32 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         status = "Preparing Kodi audio capture…"
         let seconds = duration
         let root = outputRoot
+        let gate = CaptureStartupGate()
+        startupGate = gate
         startTask = Task { [weak self] in
-            await self?.startSession(target: target, seconds: seconds, root: root)
+            await self?.startSession(target: target, seconds: seconds, root: root, gate: gate)
         }
     }
 
-    private func startSession(target: KodiProcess, seconds: Double, root: URL) async {
+    private func startSession(target: KodiProcess, seconds: Double, root: URL, gate: CaptureStartupGate) async {
         do {
             try validate(target)
             let writer = try AudioRecordingWriter(outputRoot: root, target: target, requestedDuration: seconds)
-            let sink = AudioCaptureOutput(writer: writer) { [weak self] message in
+            let sink = AudioCaptureOutput(writer: writer, startupGate: gate) { [weak self] message in
                 Task { @MainActor in await self?.stop(reason: "capture_error", error: message) }
             }
             output = sink
             recordingDirectory = writer.directory
-            guard !stopRequested else { throw CaptureFailure("Recording was cancelled before capture started.") }
+            guard !stopRequested else { throw CaptureStartupCancelled() }
+            status = "Waiting for macOS audio setup… Approve the audio-only recording request if one appears."
             try await sink.start(pid: target.pid)
-            wakeAssertions = try CaptureWakeAssertions()
-            try validate(target)
-            status = "Recording Kodi audio…"
+            try gate.performUnlessCancelled {
+                guard !stopRequested else { throw CaptureStartupCancelled() }
+                wakeAssertions = try CaptureWakeAssertions()
+                try validate(target)
+                isStarting = false
+                status = "Recording Kodi audio…"
+            }
             if !stopRequested {
                 let started = captureHostNanoseconds()
                 durationTask = Task { [weak self] in
@@ -143,16 +153,20 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 }
             }
         } catch {
-            await finalize(reason: "start_failed", error: Self.captureErrorDescription(error))
+            let reason = error is CaptureStartupCancelled ? "cancelled" : "start_failed"
+            await finalize(reason: reason, error: Self.captureErrorDescription(error))
         }
     }
 
     public func stop(reason: String = "manual", error: String? = nil) async {
         guard isActive else { return }
+        startupGate?.requestCancellation()
         stopRequested = true
         if let endTask { await endTask.value; return }
         isStopping = true
-        status = "Finishing recording…"
+        status = isStarting
+            ? "Cancellation requested. Waiting for macOS audio setup to return…"
+            : "Finishing recording…"
         let task = Task { [weak self] in
             guard let self else { return }
             await self.startTask?.value
@@ -179,7 +193,9 @@ public final class RecorderModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         errorMessage = finalError
         status = finalError == nil ? "Recording saved · \(capturedFrames.formatted()) audio frames." : "Recording failed. Evidence saved when available."
         isActive = false
+        isStarting = false
         isStopping = false
+        startupGate = nil
         exitIfRequested(failed: finalError != nil)
     }
 
