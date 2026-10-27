@@ -33,7 +33,7 @@ def shapefile(rings, shape_type=5):
 
 def archive(tmp_path, contents, version='4.1.0'):
     path = tmp_path / 'land.zip'
-    with zipfile.ZipFile(path, 'w') as output:
+    with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as output:
         output.writestr('ne_110m_land.shp', contents)
         output.writestr('ne_110m_land.VERSION.txt', version)
         output.writestr('ne_110m_land.dbf', b'private unused attributes')
@@ -78,6 +78,8 @@ def test_converter_rejects_invalid_local_archives_without_output(tmp_path, kind)
     result = convert(path, target)
     assert result.returncode != 0
     assert 'Conversion failed:' in result.stderr
+    if kind == 'excessive-member':
+        assert 'oversized ZIP member' in result.stderr
     assert not target.exists()
 
 

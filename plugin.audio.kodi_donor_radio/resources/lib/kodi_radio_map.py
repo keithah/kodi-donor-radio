@@ -531,6 +531,9 @@ class RadioMapWindow(xbmcgui.WindowXML):
         """Reuse or atomically install a local texture; artwork cannot disable the rail."""
         image = self.getControl(MAP_IMAGE_ID)
         image.setVisible(False)
+        # Kodi's Window.getControl wrapper returns ControlImage for XML image controls.
+        if not isinstance(image, xbmcgui.ControlImage):
+            return
         if self._profile_path is None or self._geometry_path is None:
             return
         temporary = destination = None

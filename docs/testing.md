@@ -142,7 +142,11 @@ prevents a reset that occurs between add-on polls from retroactively turning an
 unverified startup zero into a preroll beacon. Tests cover that no-replay case,
 confirmed midroll tracking, pause, caching and clock jumps. This stricter change
 still needs a fresh Kodi run; the 2026-10-26 no-replay run above predates it. The
-decoded-media anchor and audible output remain unverified. Focused tracking,
+decoded-media anchor and audible output remain unverified. Because the Kodi
+adapter sets `allow_preroll_start=False`, a preroll beginning at sample zero
+intentionally emits no impression, start, or quartile beacons: the withheld
+startup sample is not proof that playback entered the preroll. Older reports
+that show beacons from a zero-start preroll predate this behavior. Focused tracking,
 adapter and event tests passed **61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
 package build, `check_package.py`, and `git diff --check` passed for this source
 revision. The Kodi add-on checker remains unverified because its repository
