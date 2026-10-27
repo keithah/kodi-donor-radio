@@ -1336,8 +1336,9 @@ audio continued. Controlled ad fixtures now optionally use an already enabled
 InputStream Adaptive addon with a validated audio-only master and stable composed
 program dates; no Kodi-core patch is required for this path. Initially live
 presentations never receive the experimental sample-zero mapper, even if ENDLIST
-arrives later. Success beacons remain disabled for live fixtures and ordinary
-stations. The bounded capture verifies removal of the observed freeze, not a
+arrives later. Success beacons remain disabled on this live Adaptive path and for ordinary
+stations. The later explicitly qualified continuous fixture path is described
+below. The bounded capture verifies removal of the observed freeze, not a
 session-absolute position after extended window/period retirement.
 
 

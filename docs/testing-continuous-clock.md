@@ -240,3 +240,8 @@ Completion arrived at capture time 14.205 seconds; a separate two-frequency
 10 ms analysis placed the transition from replacement to programme at
 14.15–14.17 seconds. This supports completion after that recorded boundary
 in this run, while retaining the broader timing limitations above.
+
+Final source verification: **1,644 Python tests passed** in 178.65 seconds,
+including launch lifecycle, observation failure, caching and recovery regressions.
+The source-only release ZIP passed its manifest checker. No native recorder or
+Kodi-core build was performed for this change.
