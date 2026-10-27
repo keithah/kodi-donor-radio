@@ -130,6 +130,8 @@ _SOURCE_FIXTURE_IDS = {
     'stall': 'fixture-30048',
     'finite': 'fixture-30049',
     'extended': 'fixture-30172',
+    'late-break': 'fixture-30174',
+    'recovery': 'fixture-30175',
 }
 _SOURCE_FIXTURE_PATHS = {
     'normal': '/source/normal/index.m3u8',
@@ -138,6 +140,8 @@ _SOURCE_FIXTURE_PATHS = {
     'stall': '/source/stall/index.m3u8',
     'finite': '/source/finite/index.m3u8',
     'extended': '/source/extended/index.m3u8',
+    'late-break': '/source/late-break/index.m3u8',
+    'recovery': '/source/recovery/index.m3u8',
 }
 
 

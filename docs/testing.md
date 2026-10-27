@@ -1346,4 +1346,6 @@ session-absolute position after extended window/period retirement.
 See [the captured-audio investigation](testing-continuous-clock.md) for the
 continuous AAC fixture transport, exact playback dependencies, startup comparison,
 extended-window results, and reproducible measurement command. Live continuous
-clock positions remain diagnostic candidates; they do not enable success beacons.
+clock positions remain diagnostic candidates under ordinary playback. The later
+explicit Test ad tracking launch is restricted to the qualified loopback path;
+see that report for its captured results and remaining pause/resume limitation.

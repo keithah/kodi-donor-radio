@@ -155,6 +155,9 @@ class KodiAdPlayback:
         self._clock_ready = False
         self._startup_samples = []
         self._continuous_playback_url = None
+        self._continuous_qualified = False
+        self._av_started = False
+        self._observation_revision = 0
 
     def enable_mapping(self, mapper):
         """Install a fixture mapper returning output seconds or None."""
@@ -215,9 +218,29 @@ class KodiAdPlayback:
             continuous_url = getattr(session, 'continuous_playback_url', None)
             if self._continuous_route_matches(continuous_url):
                 self._continuous_playback_url = continuous_url
+                self._continuous_qualified = getattr(session, 'fixture_clock_qualified', False) is True
                 self.enable_mapping(KodiContinuousClockAnchor(session_id))
             else:
                 self.enable_mapping(KodiSessionClockAnchor(session_id))
+
+    def on_playback_started(self, session_id):
+        if session_id != self.session_id:
+            return
+        self._observation_revision += 1
+        if self._continuous_playback_url is not None and self._av_started:
+            self._continuous_qualified = False
+            self.mapper.invalidate('continuous_clock_restarted')
+
+    def on_av_started(self, session_id):
+        if session_id != self.session_id:
+            return
+        self._observation_revision += 1
+        if self._av_started and self._continuous_playback_url is not None:
+            self._continuous_qualified = False
+            self.mapper.invalidate('continuous_clock_restarted')
+        self._av_started = True
+        self._clock_ready = False
+        self._startup_samples = []
 
     def sample(self):
         session = self.session
@@ -229,20 +252,51 @@ class KodiAdPlayback:
         if presentation is None or self.tracker is None:
             return
         now = time.monotonic()
+        revision = self._observation_revision
         clock = None
         try:
+            route_before = (self._continuous_playback_url is None or
+                            self._continuous_route_matches(self._continuous_playback_url))
             playing = bool(self.player.isPlaying())
             clock = float(self.player.getTime()) if playing else None
             caching = bool(self.is_caching())
-            route_matches = (self._continuous_playback_url is None or
+            if self.session is not session:
+                return
+            route_matches = route_before and (self._continuous_playback_url is None or
                              self._continuous_route_matches(self._continuous_playback_url))
+            if self.session is not session:
+                return
             if not route_matches and hasattr(self.mapper, 'invalidate'):
                 self.mapper.invalidate('continuous_route_changed')
+            if self._continuous_playback_url is not None and (
+                    revision != self._observation_revision or self.session is not session
+                    or self.manager.get(session.id) is not session or session.cancel.is_set()
+                    or not 0 <= time.monotonic() - now <= MAX_GAP):
+                if hasattr(self.mapper, 'invalidate'):
+                    self.mapper.invalidate('continuous_observation_changed')
+                route_matches = False
+            if (self._continuous_playback_url is not None and self._continuous_qualified
+                    and self._av_started and not self.mapper.startup_pending and caching):
+                # Recovery can change the relationship between rendered audio
+                # and Kodi's clock, including while pause/resume re-arms the
+                # progress gate. Only a new session can qualify again.
+                self._continuous_qualified = False
+                self.mapper.invalidate('continuous_clock_cache')
             position = (self.mapper(session, presentation, clock)
                         if route_matches and self.mapper and clock is not None else None)
             mapped = position is not None and math.isfinite(position) and position >= 0
         except (RuntimeError, ValueError, TypeError, OverflowError):
+            if (self.session is session and self._continuous_qualified
+                    and self.mapper is not None and not self.mapper.startup_pending):
+                # An unavailable read can hide the very buffering transition
+                # that revokes the clock contract. Recovery cannot prove it away.
+                self._continuous_qualified = False
+                self.mapper.invalidate('continuous_observation_unavailable')
+                if self.tracker is not None:
+                    self.tracker.interrupt()
             playing, position, mapped, caching = False, None, False, True
+        if self.session is not session:
+            return
         self.mapping_valid = mapped
         raw_sample = PlaybackSample(self.session_id, position if mapped else 0.0,
                                     now, playing, self.paused, self.seeking, mapped, caching,
@@ -300,7 +354,9 @@ class KodiAdPlayback:
         tracking_enabled = tracking_enabled and self.speed == 1 and not self.speed_changed
         reason = getattr(self.mapper, 'reason', None)
         continuous_candidate = self._continuous_playback_url is not None
-        if continuous_candidate:
+        qualified = (continuous_candidate and self._continuous_qualified and self._av_started
+                     and getattr(self.mapper, 'valid', False))
+        if continuous_candidate and not qualified:
             # Keep the candidate visible for captured-audio comparison while
             # giving the success tracker no mapped playback evidence.
             tracking_enabled = False
@@ -318,7 +374,7 @@ class KodiAdPlayback:
                  'mapped': mapped, 'tracking_enabled': tracking_enabled,
                  'playing': playing, 'paused': self.paused,
                  'seeking': self.seeking, 'caching': caching,
-                 **({'candidate_only': True} if continuous_candidate else {}),
+                 **({'candidate_only': not qualified} if continuous_candidate else {}),
                  **({'reason': reason} if reason else {})}))
         self.last_sample = tracker_samples[-1]
         for sample in tracker_samples:
@@ -340,6 +396,7 @@ class KodiAdPlayback:
     def on_speed_changed(self, speed, session_id=None):
         if session_id is not None and session_id != self.session_id:
             return
+        self._observation_revision += 1
         try:
             speed = float(speed)
         except (TypeError, ValueError, OverflowError):
@@ -351,6 +408,7 @@ class KodiAdPlayback:
 
     def on_seek(self, session_id=None):
         if session_id is None or session_id == self.session_id:
+            self._observation_revision += 1
             self.seeking = True
             self.mapping_valid = False
             self._clock_ready = False
@@ -363,13 +421,26 @@ class KodiAdPlayback:
 
     def on_pause(self, session_id=None):
         if session_id is None or session_id == self.session_id:
+            self._observation_revision += 1
             self.paused = True
+            if self._continuous_playback_url is not None:
+                self._clock_ready = False
+                if self.tracker is not None:
+                    self.tracker.interrupt()
             if not self._clock_ready:
                 self._startup_samples = []
 
     def on_resume(self, session_id=None):
         if session_id is None or session_id == self.session_id:
+            self._observation_revision += 1
             self.paused = False
+            if self._continuous_playback_url is not None:
+                # An owned resume is interruption evidence even if Python saw
+                # the pause callback only after Kodi had already resumed.
+                self._clock_ready = False
+                self._startup_samples = []
+                if self.tracker is not None:
+                    self.tracker.interrupt()
 
     def on_end(self, reason, session_id=None):
         if session_id is not None and session_id != self.session_id:
@@ -380,6 +451,7 @@ class KodiAdPlayback:
         self.close()
 
     def close(self):
+        self._observation_revision += 1
         if self.tracker is not None:
             self.tracker.finish('cancelled')
         if self.worker is not None:
@@ -394,3 +466,5 @@ class KodiAdPlayback:
         self._clock_ready = False
         self._startup_samples = []
         self._continuous_playback_url = None
+        self._continuous_qualified = False
+        self._av_started = False

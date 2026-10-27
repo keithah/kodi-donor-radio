@@ -100,3 +100,24 @@ record with `outcome: no_candidates`, the pages read, and a selected count of
 zero. Exit status is 0 for normal outcomes (including no candidates and
 `unsupported`), 1 for discovery failure or any station-level policy,
 reachability, or parser failure, and 130 for Ctrl-C.
+
+## Explicit continuous-clock tracking checks
+
+Use the controlled test entry's **Test ad tracking** context menu action to request
+VideoPlayer explicitly. It requires enabled FFmpegDirect 22.2.10 and an exact
+continuous AAC route; selecting the ordinary row leaves tracking diagnostic.
+The single-use launch has bounded queue/preparation/qualification phases of
+30/40/30 seconds and cannot qualify a replacement
+session, fallback route or different fixture. Zero-start preroll success remains
+suppressed. Pause/resume interrupts the current ad; it cannot catch up missed
+quartiles or completion afterward. Buffering after established playback
+invalidates continuous qualification for the rest of that session.
+
+`/source/late-break/index.m3u8` places the break at source070–071, after the
+retained-window boundary. `/source/recovery/index.m3u8` holds the live source
+for 12 seconds and resumes consecutive media before a later complete break.
+Both need the extended generated assets. `/stats` includes a bounded 256-record
+tracking history with timestamps. On macOS these explicitly use unshifted
+`mach_absolute_time`, matching Core Audio's host clock; older Python monotonic
+clocks can have a process-relative epoch and must not be compared directly.
+Other platforms declare an unqualified Python monotonic clock domain.

@@ -239,21 +239,27 @@ def _relay_path(value, port):
     return None
 
 
-def _inputstream_enabled(addon_id, minimum_major):
-    """Use an already enabled audio-capable addon; never install or enable it."""
+def _inputstream_version(addon_id):
+    """Read an already enabled addon; never install or enable it."""
     try:
         raw = xbmc.executeJSONRPC(json.dumps({
             'jsonrpc': '2.0', 'id': 1, 'method': 'Addons.GetAddonDetails',
             'params': {'addonid': addon_id, 'properties': ['enabled', 'version']}}))
         if not isinstance(raw, str) or len(raw) > 16384:
-            return False
+            return None
         addon = json.loads(raw)['result']['addon']
         version = addon.get('version', '')
         match = re.fullmatch(r'([0-9]{1,3})\.[0-9]+\.[0-9]+(?:[.+-][a-zA-Z0-9.-]+)?', version)
-        return (addon.get('addonid') == addon_id and addon.get('enabled') is True
-                and match is not None and int(match.group(1)) >= minimum_major)
+        if addon.get('addonid') == addon_id and addon.get('enabled') is True and match is not None:
+            return version
     except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
-        return False
+        pass
+    return None
+
+
+def _inputstream_enabled(addon_id, minimum_major):
+    version = _inputstream_version(addon_id)
+    return version is not None and int(version.split('.', 1)[0]) >= minimum_major
 
 
 def _adaptive_enabled():
@@ -340,6 +346,8 @@ _FIXTURES = (
     (30048, 'source/stall/index.m3u8', 'AAC', True),
     (30049, 'source/finite/index.m3u8', 'AAC', True),
     (30172, 'source/extended/index.m3u8', 'AAC', True),
+    (30174, 'source/late-break/index.m3u8', 'AAC', True),
+    (30175, 'source/recovery/index.m3u8', 'AAC', True),
     (30061, 'icy/explicit.mp3', 'MP3', False), (30062, 'icy/tildeats.mp3', 'MP3', False),
     (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
     (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
@@ -1000,6 +1008,46 @@ def run_plugin(argv):
                 (30122 if favorite else 30121, 'favorite_remove' if favorite else 'favorite_add'),
                 (30123, 'map'), (30124, 'station_info'), (30168, 'vote'))])
         xbmcplugin.addDirectoryItem(handle, url(mode='play', uuid=summary.station_uuid), entry, isFolder=False)
+    if action == 'launch_fixture':
+        client, nonce = None, None
+        def cancel_launch(value):
+            if client is not None and isinstance(value, str) and _HEX48.fullmatch(value):
+                try: client.cancel_fixture_launch(value)
+                except (OSError, ValueError): pass
+        try:
+            station = _fixture_station(params.get('id', ''))
+            if (not station.hls or not ad_settings().enabled
+                    or _inputstream_version('inputstream.ffmpegdirect') != '22.2.10'):
+                raise ValueError('Qualified fixture playback unavailable')
+            client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
+            nonce = _operation(lambda: client.reserve_fixture_launch(station.uuid),
+                               monitor, cancel, cancel_launch)
+            if not isinstance(nonce, str) or not _HEX48.fullmatch(nonce):
+                raise ValueError('Invalid fixture launch')
+            # A named core survives plugin resolution. The inputstream-player
+            # default alone can be overridden by user player-selection rules.
+            request = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'Player.Open',
+                'params': {'item': {'file': url(mode='play_fixture', id=station.uuid,
+                                              launch_nonce=nonce)},
+                           'options': {'playername': 'VideoPlayer', 'resume': False}}})
+            if cancel.is_set() or monitor.abortRequested():
+                raise Cancelled('Request cancelled')
+            response = None
+            def start_fixture():
+                nonlocal response
+                if cancel.is_set() or monitor.abortRequested():
+                    raise Cancelled('Request cancelled')
+                response = xbmc.executeJSONRPC(request)
+            _playback_arbiter().start(start_fixture)
+            if not isinstance(response, str) or len(response) > 16384:
+                raise ValueError('Invalid playback response')
+            result = json.loads(response)
+            if not isinstance(result, dict) or result.get('result') != 'OK' or 'error' in result:
+                raise ValueError('Fixture playback rejected')
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            cancel_launch(nonce)
+            if not cancel.is_set(): _error(30011)
+        return
     if action in ('play', 'play_fixture'):
         client, session = None, None
         def stop(value):
@@ -1007,6 +1055,10 @@ def run_plugin(argv):
                 try: client.stop(value['id'])
                 except (OSError, ValueError): pass
         try:
+            launch_nonce = params.get('launch_nonce')
+            if launch_nonce is not None and (action != 'play_fixture' or handle < 0
+                    or not _HEX48.fullmatch(launch_nonce)):
+                raise ValueError('Invalid fixture launch')
             if action == 'play_fixture':
                 station = _fixture_station(params.get('id', ''))
             else:
@@ -1027,7 +1079,9 @@ def run_plugin(argv):
                 if handle >= 0:
                     xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
                 return
-            session = _operation(lambda: client.create(station), monitor, cancel, stop)
+            session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
+                                 if launch_nonce is not None else client.create(station),
+                                 monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')
             session_id = _relay_path(session.get('playback_url',''), client.descriptor.port)
@@ -1062,6 +1116,10 @@ def run_plugin(argv):
                     playback_url, mime = continuous_url, 'audio/aac'
                 elif adaptive:
                     playback_url = adaptive_url
+            if (launch_nonce is not None and buffered and playback_url == continuous_url
+                    and _inputstream_version('inputstream.ffmpegdirect') == '22.2.10'):
+                _operation(lambda: client.qualify_fixture_clock(session_id, launch_nonce),
+                           monitor, cancel)
             entry = xbmcgui.ListItem(label=station.name, path=playback_url)
             # Master requires an explicit media type for resolved AAC URLs.
             entry.getMusicInfoTag().setTitle(station.name)
@@ -1088,7 +1146,7 @@ def run_plugin(argv):
                 player = xbmc.Player()
                 _playback_arbiter().start(
                     lambda: player.play(playback_url, entry))
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)
             if handle >= 0:
@@ -1255,8 +1313,15 @@ def run_plugin(argv):
                 _error(30113)
         elif action == 'tests':
             if fixture_origin():
-                for label, _, _, _ in _FIXTURES:
-                    item(text(label), folder=False, playable=True, mode='play_fixture', id='fixture-%d' % label)
+                try:
+                    qualified = ad_settings().enabled
+                except ValueError:
+                    qualified = False
+                for label, _, _, hls in _FIXTURES:
+                    identifier = 'fixture-%d' % label
+                    context = [(30173, {'mode': 'launch_fixture', 'id': identifier})] if qualified and hls else ()
+                    item(text(label), folder=False, playable=True, context=context,
+                         mode='play_fixture', id=identifier)
         else:
             raise ValueError('Unknown navigation action')
     except Cancelled:
@@ -1285,7 +1350,7 @@ class RelayPlayer(xbmc.Player):
         self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin,
                                   is_caching=lambda: xbmc.getCondVisibility('Player.Caching'))
 
-    def onAVStarted(self):
+    def _started(self, av_started):
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
         old = self.owned
@@ -1298,10 +1363,17 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
         if current is not None:
             self.ads.bind(current)
+            if av_started:
+                self.ads.on_av_started(current)
+            else:
+                self.ads.on_playback_started(current)
             self._arm_current()
 
+    def onAVStarted(self):
+        self._started(True)
+
     def onPlayBackStarted(self):
-        self.onAVStarted()
+        self._started(False)
 
     def _finished(self, reason):
         # A stop callback for the old stream can arrive after a rapid switch.

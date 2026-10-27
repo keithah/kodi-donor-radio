@@ -596,13 +596,15 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==21
+    assert len(state.items)==23
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(station_payload(runtime._fixture_station(parse_qs(urlsplit(state.items[0][0]).query)['id'][0])))
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
     paths=[runtime._fixture_station(parse_qs(urlsplit(url).query)['id'][0]).url for url,_,_ in state.items]
     assert paths[5]=='http://127.0.0.1:8765/hls/missing-end/index.m3u8'
     assert 'http://127.0.0.1:8765/source/extended/index.m3u8' in paths
+    assert 'http://127.0.0.1:8765/source/late-break/index.m3u8' in paths
+    assert 'http://127.0.0.1:8765/source/recovery/index.m3u8' in paths
 
 
 @pytest.mark.parametrize('callback',['onPlayBackStopped','onPlayBackEnded','onPlayBackError'])
@@ -1377,7 +1379,7 @@ def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(k
     browser = directory(monkeypatch, runtime)
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
     route(runtime, mode='tests')
-    assert len(state.items) == 21
+    assert len(state.items) == 23
     for link, item, folder in state.items:
         params = parse_qs(urlsplit(link).query)
         assert set(params) == {'mode', 'id'} and params['mode'] == ['play_fixture']

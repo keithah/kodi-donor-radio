@@ -60,6 +60,17 @@ class AdTracker:
         self._progress = {}
         self._presentation = None
         self._finished = False
+        self._interrupted = False
+        self._interruption_origin = None
+
+    def interrupt(self):
+        """Withhold milestones for an ad whose audio was interrupted."""
+        if not self._interrupted:
+            self._interruption_origin = self._previous or self._last_good
+        self._interrupted = True
+        self._previous = self._previous_clock = None
+        self._stationary_since = None
+        self._seen_sample = True
 
     def _report(self, placement, event):
         state = self._progress[placement.id]
@@ -98,6 +109,10 @@ class AdTracker:
         if self._finished or sample.session_id != self.session_id:
             return
         self._presentation = presentation
+        if self._interrupted and sample.mapped:
+            self._taint_ambiguous(presentation, self._interruption_origin, sample)
+            self._interrupted = False
+            self._interruption_origin = None
         speed_untrusted = (sample.speed != 1 or sample.speed_changed or
                            sample.speed != self._last_speed)
         self._last_speed = sample.speed

@@ -6,9 +6,9 @@ stations through a Python relay embedded in the addon service. Native Kodi
 listings, sequential setup dialogs, and a shared offline radio map are implemented.
 Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
 restricted to configured loopback HLS fixtures; general Radio Browser stations
-remain ad-free. Success beacons are limited to finite, sample-zero fixtures using an experimental
-Kodi media-clock candidate; live fixtures remain unmapped. Neither is
-production-validated tracking.
+remain ad-free. Experimental success beacons require a qualified controlled
+fixture launch; ordinary live playback remains diagnostic. This is not
+production-validated or billable tracking.
 
 **Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
@@ -125,15 +125,20 @@ replacement requires a complete, explicitly marked HLS break and an exact
 measured sample-count match. No-fill, unsupported media, or mismatch preserves
 the station's original break.
 
-Success beacons are experimental finite-fixture behavior. Captured process audio
-verified the finite sequence and pause/seek behavior on Kodi master. The default
-HLS reader can report a frozen position while buffered audio continues. Controlled
-ad fixtures can use an already enabled InputStream Adaptive 21+ backend with a
-validated audio-only master and stable composed program dates. Failed readiness
-checks retain native playback; the addon does not install or enable Adaptive.
-Initially live presentations stay unmapped even if they later acquire ENDLIST;
-a final end marker cannot establish where playback began. Physical-speaker
-output and a live rendered-position anchor remain unverified.
+The controlled test menu's **Test ad tracking** context action explicitly selects
+Kodi VideoPlayer and qualifies the exact continuous AAC route with already-enabled
+FFmpegDirect 22.2.10. A short-lived, single-use launch ticket binds that selection
+to one fixture session. Tracking also requires owned AV startup, consecutive
+clock progress, and matching session and URL observations. Paused/interrupted ads,
+seeks, ambiguous clocks and zero-start prerolls cannot report completion.
+Buffering after established playback revokes that session’s qualification. Ordinary
+playback does not acquire this qualification. Adaptive/native fallbacks remain
+available, but do not acquire the continuous clock contract.
+
+Captured audio is used to check clock alignment and beacon timing on Kodi master;
+see the [measurement report](docs/testing-continuous-clock.md) for the tested
+build and limits. Pause/resume still has an observed audio omission and is not
+considered seamless. No Kodi-core pause change is included.
 These checks are release gates; the current build is not a production ad system.
 See the [monetization roadmap](docs/monetization-roadmap.md) and
 [validation record](docs/testing.md).

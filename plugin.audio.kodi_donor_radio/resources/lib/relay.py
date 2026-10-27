@@ -27,6 +27,7 @@ _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-c
                       'etag', 'last-modified', 'expires'})
 _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|mp3|mp4|m4s|m4a|ac3|ec3))?$')
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
+_FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
 _AD_RELOAD_INTERVAL = .5
 
 
@@ -155,28 +156,35 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label'):
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
         if self.path in ('/icy-marker/learn', '/icy-marker/label'):
             return self._learn_icy_marker()
+        if self.path in ('/fixture-launches', '/fixture-clock/qualify'):
+            return self._fixture_launch_control()
         try:
             lengths = self.headers.get_all('Content-Length', [])
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
                 return self._reply(400)
             body = self.rfile.read(int(lengths[0]))
             data = json.loads(body)
-            if not isinstance(data, dict) or set(data) != {'uuid', 'name', 'url', 'codec', 'hls'}:
+            fields = {'uuid', 'name', 'url', 'codec', 'hls'}
+            if not isinstance(data, dict) or set(data) not in (fields, fields | {'fixture_launch_nonce'}):
                 return self._reply(400)
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
+                return self._reply(400)
+            nonce = data.pop('fixture_launch_nonce', None)
+            if nonce is not None and (self.path != '/sessions' or not isinstance(nonce, str)
+                                      or re.fullmatch(r'[a-f0-9]{48}', nonce) is None):
                 return self._reply(400)
             station = Station(**data)
             if self.path == '/preview-sessions':
                 session = self.server.relay.manager.create_preview(station)
             else:
-                session = self.server.relay.manager.create(station)
+                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:
@@ -192,6 +200,30 @@ class _Handler(BaseHTTPRequestHandler):
         if session.continuous_playback_url is not None:
             result['continuous_playback_url'] = session.continuous_playback_url
         self._reply(201, result)
+
+    def _fixture_launch_control(self):
+        try:
+            lengths = self.headers.get_all('Content-Length', [])
+            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 512:
+                return self._reply(400)
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
+            data = json.loads(body)
+            fields = {'fixture_id'} if self.path == '/fixture-launches' else {'session_id', 'nonce'}
+            if not isinstance(data, dict) or set(data) != fields or any(
+                    not isinstance(data[key], str) for key in fields):
+                return self._reply(400)
+            manager = self.server.relay.manager
+            if self.path == '/fixture-launches':
+                nonce = manager.reserve_fixture_launch(data['fixture_id'])
+                return self._reply(201, {'nonce': nonce})
+            if any(re.fullmatch(r'[a-f0-9]{48}', data[key]) is None for key in fields):
+                return self._reply(400)
+            qualified = manager.qualify_fixture_clock(data['session_id'], data['nonce'])
+        except (ValueError, UnicodeError, RecursionError):
+            return self._reply(400)
+        return self._reply(204 if qualified else 409)
 
     def _learn_icy_marker(self):
         try:
@@ -220,6 +252,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(204 if learned else 409)
 
     def do_DELETE(self):
+        launch = _FIXTURE_LAUNCH.fullmatch(self.path) if self._valid_target() else None
+        if launch is not None:
+            if not self._authorized():
+                return self._reply(401)
+            self.server.relay.manager.cancel_fixture_launch(launch.group(1))
+            return self._reply(204)
         match = _SESSION.fullmatch(self.path) if self._valid_target() else None
         if match is None:
             return self._reply(404)
