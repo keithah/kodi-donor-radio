@@ -64,3 +64,21 @@ it does not read a predecoded PCM file. The matching diagnostic scripts and oper
 `owned-aac-lab/`. The exact source snapshot and hash manifest remain alongside
 the local capture evidence in `owned-renderer/decoder-source-final-a04d/`.
 Playback remains a lab experiment and does not imply production readiness.
+
+## Owned HLS continuation (LAB ONLY)
+
+`inputstream.ffmpegdirect-22.2.10-owned-hls-lab.patch` is an alternative to the
+owned-AAC patch, applied after the same realtime and startup/EOF prerequisites.
+It extends the diagnostic to the exact controlled loopback HLS URL. Source-only
+fixture and capture helpers are in `owned-hls-lab/`. The first 180-second HLS
+capture failed audible continuity despite complete frame counts; the plan
+`docs/superpowers/plans/2026-10-27-owned-hls-clock.md` records the investigation.
+Do not treat these diagnostic files as a released playback path.
+
+`ffmpeg-9.0.2-hls-recovery.patch` applies to FFmpeg 9.0.2 `libavformat/hls.c`.
+It permits an existing reader to recover from an exhausted playlist-hold limit
+when the exact next segment becomes available, preserving the input state until
+that segment opens. It was built into a private static archive for the inputstream
+addon; shared libraries and Kodi core were unchanged. The source-only regression
+harness is in `owned-hls-lab/ffmpeg-recovery/`. This fix does not recover media
+that has expired from an upstream playlist, nor establish audible clock accuracy.

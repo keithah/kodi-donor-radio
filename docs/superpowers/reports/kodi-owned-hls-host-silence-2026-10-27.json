@@ -1,0 +1,73 @@
+{
+  "overall_result": "failed_incomplete_source_stalled",
+  "mapping_proven": false,
+  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-host-silence/Kodi-2026-10-28T06-49-29Z-139BFED9-5619-4A4E-9EA8-40EB352E2131",
+  "reference_frames": 8641536,
+  "decoded_and_accepted_frames": 1344512,
+  "missing_reference_frames": 7297024,
+  "source_seconds_received": 28.010666666666665,
+  "reference_seconds": 180.032,
+  "last_native_state": {
+    "source_ended": false,
+    "failed": false,
+    "drained": false,
+    "queued_pcm_frames": 0
+  },
+  "captured_frames": 11045376,
+  "capture_discontinuities": 0,
+  "rms_audio_spans_seconds": [
+    [
+      1.055,
+      9.015
+    ],
+    [
+      9.565,
+      29.62
+    ]
+  ],
+  "first_pause_quiet_seconds": [
+    9.015,
+    9.565
+  ],
+  "uncommanded_internal_quiet_gaps_before_stall": 0,
+  "terminal_silence_seconds": [
+    29.62,
+    230.11
+  ],
+  "first_pause_tail_from_rpc_interval_ms": [
+    610.433833,
+    614.008375
+  ],
+  "first_resume_to_audio_from_rpc_interval_ms": [
+    155.276625,
+    156.968167
+  ],
+  "rms_edge_resolution_ms": 5,
+  "first_pause_callback_delay_from_rpc_interval_ms": [
+    105.125458,
+    108.7
+  ],
+  "prefix_20ms_min_stereo_correlation": 0.99999509992633,
+  "dense_40ms_windows_per_channel": 1391,
+  "dense_min_stereo_correlation": 0.9770755405788262,
+  "dense_offset_drift_within_spans_samples": 1,
+  "pause_offset_change_samples": 26624,
+  "pause_source_edge_residual_ms": -4.666666666667707,
+  "qualified_clock_subset": {
+    "scope": "first 28 seconds only, qualified steady waveform windows; not overall acceptance",
+    "samples": 18,
+    "unfitted_error_range_ms": [
+      -7.832497337659561,
+      3.0456132181484463
+    ],
+    "threshold_ms": 21.333333333333332,
+    "violations": 0
+  },
+  "limitations": [
+    "Source playback is incomplete; final reference tail is absent and natural EOF was not reached.",
+    "Later quiet minutes and later pause cycles cannot qualify source continuity or renderer-clock accuracy.",
+    "Waveform mappings are independent of tested clock; actual per-buffer capture timestamps are used.",
+    "5ms RMS edges and resampler/filter support prevent interpreting the negative source-edge residual as literal replay.",
+    "Captured process audio does not establish physical speaker timing or universal clock correctness."
+  ]
+}

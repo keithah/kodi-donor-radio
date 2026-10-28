@@ -1,0 +1,177 @@
+{
+  "source": "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg",
+  "configured_build": "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build",
+  "private_root": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery",
+  "original_sha256": {
+    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
+    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
+    "/Users/hermes/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
+  },
+  "shared_after_sha256": {
+    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
+    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
+    "/Users/hermes/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
+  },
+  "private_archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/build/libavformat/libavformat.a",
+  "private_sha256": {
+    "source/libavformat/hls.c": "ccf8912b7075fe90dffb3b85b943198de79a3692f7c46a66fe2bc2b88df6a829",
+    "build/libavformat/hls.o": "5bb4843e61dd3aa4cc4d18391116c8b50821e095df9a87fcbee5d97197e2a5d8",
+    "build/libavformat/libavformat.a": "878b90b409c959bdb89f2a6ea1e8f03360a370d1aa9a5be285507456f73bc0e6",
+    "artifacts/ffmpeg-9.0.2-hls-recovery.patch": "c490683604bee0da6216a97c852131219a29331e31de6097f2268f54f1a4479c"
+  },
+  "archive_update_commands": [
+    "ar r build/libavformat/libavformat.a build/libavformat/hls.o",
+    "ranlib -D build/libavformat/libavformat.a"
+  ],
+  "build_command": "make -C build V=1 libavformat/hls.o",
+  "fate_command": "make -j4 fate",
+  "fate_exit_code": 0,
+  "fate_test_count": 203,
+  "fate_scope": "Available tests in the existing configured build; no external FATE sample corpus supplied.",
+  "release_archive_hls_sha256": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
+  "base_hls_matches_release_archive": true,
+  "regression_stock": {
+    "probe": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-stock",
+    "reference_packets": 189,
+    "reference_frames": 193536,
+    "reference_pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+    "failures": {
+      "recover-once": [
+        "reader did not recover before its deadline",
+        "packet/PTS/payload sequence differs: 94 versus 189",
+        "decoded frames differs",
+        "decoded pcm_sha256 differs"
+      ],
+      "recover-twice": [
+        "reader did not recover before its deadline",
+        "packet/PTS/payload sequence differs: 94 versus 189",
+        "decoded frames differs",
+        "decoded pcm_sha256 differs",
+        "not all separate EOF recovery phases occurred"
+      ],
+      "recover-http11": [
+        "reader did not recover before its deadline",
+        "packet/PTS/payload sequence differs: 94 versus 189",
+        "decoded frames differs",
+        "decoded pcm_sha256 differs",
+        "not all separate EOF recovery phases occurred"
+      ],
+      "recover-no-persistent": [
+        "reader did not recover before its deadline",
+        "packet/PTS/payload sequence differs: 94 versus 189",
+        "decoded frames differs",
+        "decoded pcm_sha256 differs"
+      ]
+    }
+  },
+  "regression_final": {
+    "probe": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-final",
+    "reference_packets": 189,
+    "reference_frames": 193536,
+    "reference_pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+    "failures": {}
+  },
+  "regression_cases": {
+    "reference": {
+      "exit_code": 0,
+      "seconds": 1.382942417,
+      "publications": 0,
+      "summary": {
+        "event": "summary",
+        "packets": 189,
+        "frames": 193536,
+        "eof_count": 1,
+        "pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+        "result": 0
+      }
+    },
+    "recover-once": {
+      "exit_code": 0,
+      "seconds": 3.7433040419999997,
+      "publications": 1,
+      "summary": {
+        "event": "summary",
+        "packets": 189,
+        "frames": 193536,
+        "eof_count": 72,
+        "pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+        "result": 0
+      }
+    },
+    "recover-twice": {
+      "exit_code": 0,
+      "seconds": 6.952816750000001,
+      "publications": 2,
+      "summary": {
+        "event": "summary",
+        "packets": 189,
+        "frames": 193536,
+        "eof_count": 148,
+        "pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+        "result": 0
+      }
+    },
+    "recover-http11": {
+      "exit_code": 0,
+      "seconds": 6.641494916999999,
+      "publications": 2,
+      "summary": {
+        "event": "summary",
+        "packets": 189,
+        "frames": 193536,
+        "eof_count": 152,
+        "pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+        "result": 0
+      }
+    },
+    "recover-no-persistent": {
+      "exit_code": 0,
+      "seconds": 3.7451829579999973,
+      "publications": 1,
+      "summary": {
+        "event": "summary",
+        "packets": 189,
+        "frames": 193536,
+        "eof_count": 78,
+        "pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
+        "result": 0
+      }
+    },
+    "interrupt-held": {
+      "exit_code": 1,
+      "seconds": 2.179148583,
+      "publications": 0,
+      "summary": {
+        "event": "summary",
+        "packets": 94,
+        "frames": 96256,
+        "eof_count": 1,
+        "pcm_sha256": "143232a89b13b7a8138869c69a032c0f8971eef8dfea03bc638648279440d10a",
+        "result": -1414092869
+      }
+    }
+  },
+  "fixture_sha256": {
+    "artifacts/segment-00.ts": "0d551d5dcc72539e99f1ded92f8fa239844ae779c4e7535879727ef0e1e97847",
+    "artifacts/segment-01.ts": "5780150d94310462ff96849b39e103958a6950eb03cf9f8ad374d4e1270b5f35",
+    "artifacts/segment-02.ts": "8d69f4bc5db91a026dd220c45d6140d194c00752363d220ca6bea3f400c6c224",
+    "artifacts/segment-03.ts": "a0f0229eb0f56387bf9e35d9afcc198a30c5e6f19daf108378e61c60c64c94e6",
+    "artifacts/segment-04.ts": "693117640e176eb4f292866052e155620088e8f7d009c4c69da39181fced5330"
+  },
+  "harness_sha256": {
+    "tests/build_probe.py": "ca4c9eb76808207478941b8238348e8fde53c6d7f93469c479ebaf933f6fc67a",
+    "tests/generate_fixture.py": "3b91d4b78b27f9654093b92e60f072e7bad959bf8959d0d028ed6da02ce33489",
+    "tests/hls_recovery_probe.c": "7ec80273fe8b62f4193ee4e7edf9b0decd9f799602bfd1d2b4064e5e1eb798c9",
+    "tests/test_hls_recovery.py": "d8c0c92f1ef457815c54da94d8ccaf9512b7c15cc3f1ad96e0c87d1c4f4da097"
+  },
+  "link_commands": [
+    "logs/probe-stock-link.json",
+    "logs/probe-final-link.json"
+  ],
+  "archive_frozen": true,
+  "changed_archive_members_excluding_symbol_index": [
+    "hls.o"
+  ],
+  "archive_object_count": 549,
+  "preserved_harness_note": "Source-only repository copy adds output-directory creation and explicit archive containment validation. Original experiment harness hashes describe the tested external copy."
+}

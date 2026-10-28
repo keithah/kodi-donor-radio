@@ -1,0 +1,64 @@
+--- a/libavformat/hls.c
++++ b/libavformat/hls.c
+@@ -1717,20 +1717,19 @@
+                    v->start_seq_no - v->cur_seq_no);
+             v->cur_seq_no = v->start_seq_no;
+         }
+-        if (v->cur_seq_no > v->last_seq_no) {
+-            v->last_seq_no = v->cur_seq_no;
+-            v->m3u8_hold_counters = 0;
+-        } else if (v->last_seq_no == v->cur_seq_no) {
+-            v->m3u8_hold_counters++;
+-            if (v->m3u8_hold_counters >= c->m3u8_hold_counters) {
+-                return AVERROR_EOF;
+-            }
+-        } else {
+-            av_log(v->parent, AV_LOG_WARNING, "The m3u8 list sequence may have been wrapped.\n");
+-        }
+         if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
+             if (v->finished || v->is_subtitle)
+                 return AVERROR_EOF;
++            if (v->cur_seq_no > v->last_seq_no) {
++                v->last_seq_no = v->cur_seq_no;
++                v->m3u8_hold_counters = 0;
++            } else if (v->last_seq_no == v->cur_seq_no) {
++                v->m3u8_hold_counters++;
++                if (v->m3u8_hold_counters >= c->m3u8_hold_counters)
++                    return AVERROR_EOF;
++            } else {
++                av_log(v->parent, AV_LOG_WARNING, "The m3u8 list sequence may have been wrapped.\n");
++            }
+             while (av_gettime_relative() - v->last_load_time < reload_interval) {
+                 if (ff_check_interrupt(c->interrupt_callback))
+                     return AVERROR_EXIT;
+@@ -1739,6 +1738,11 @@
+             /* Enough time has elapsed since the last reload */
+             goto reload;
+         }
++
++        /* A caller may retry after the hold limit returned EOF. An exhausted
++         * counter must not reject the exact next segment once it is available. */
++        v->last_seq_no = v->cur_seq_no;
++        v->m3u8_hold_counters = 0;
+ 
+     }
+     return ret;
+@@ -1758,8 +1762,6 @@
+         if (ret < 0)
+             return ret;
+     }
+-
+-    v->input_read_done = 0;
+ 
+ restart:
+     ret = reload_playlist(v, c);
+@@ -1800,6 +1802,9 @@
+             goto restart;
+         }
+         segment_retries = 0;
++        /* Keep this set across reload errors: the old input is exhausted until
++         * the next segment has actually been opened (or its input swapped in). */
++        v->input_read_done = 0;
+         just_opened = 1;
+     }
+ 
