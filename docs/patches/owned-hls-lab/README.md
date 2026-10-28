@@ -63,3 +63,8 @@ physical speaker timing, arbitrary HLS sources, or production success beacons.
 Pause-to-quiet took 661–731 ms. See the buffered-capture report under
 `docs/superpowers/reports/`. This remains a diagnostic patch stack, not an enabled
 production playback adapter.
+
+Post-capture review also hardened the two post-decode teardown fallback branches
+to free the source packet and stop rather than hand original programme data to
+the host. The archived capture binary predates this defensive change; its hash
+and the captured-result scope remain unchanged.
