@@ -160,7 +160,7 @@ a later callback, which does not alter their recorded check timestamp.
 Before diagnostic playback, install the matching ffmpegdirect manifest as well
 as its native binary. Its `kodi.inputstream` extension must advertise both
 `terminal_eof` and `is_realtime_stream` in `listitemprops`, and its required
-imports must include `kodi.binary.instance.audioengine` (the validated local
+imports must include `kodi.binary.global.audioengine` (the validated local
 installation uses version 1.1.1). The diagnostic launcher reads the installed
 addon's actual `addon.xml` and refuses to start the monitor or playback when
 these declarations are missing or unreadable. Restoring an original manifest
