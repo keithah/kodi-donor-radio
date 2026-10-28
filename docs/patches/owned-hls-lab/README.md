@@ -187,3 +187,10 @@ cycles; it makes no action-status calls before an action's deadline. This is a
 bounded instrumentation hypothesis, not evidence that polling caused a captured
 audio gap or that reducing it fixes continuity. Runtime native-clock acquisition
 remains unchanged.
+
+The subsequent 1 Hz polling experiment also failed no-gap acceptance: the full
+repeat reached natural EOF but contained six unrequested quiet intervals.
+152 of 154 independent audio points had valid runtime estimates within the
+threshold; the other two were explicitly invalidated during pause callbacks.
+The preceding incomplete recorder attempt is retained separately. No competing
+jobs were stopped, and reduced polling is not claimed to fix sink starvation.

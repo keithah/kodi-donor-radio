@@ -64,3 +64,19 @@ retires on native drained rows; it has unit coverage but no new capture yet.
 Other jobs heavily load the Mac; this is a possible contributor, not proven
 causality. Any experiment pausing unrelated jobs requires user authorization
 and must restore them afterward. No core changes or recorder rebuilds are needed.
+
+## Reduced-poll experiment: failed audio acceptance
+
+The user declined pausing unrelated jobs; none were changed. The observer now
+checks pause deadlines before action-status calls and supports 1 Hz routine
+observations while retaining 100 ms action scheduling. This removed needless
+pre-deadline requests (previously up to 40 RPC connections per second).
+
+One attempt ended on the recorder's identity check at 148.843 seconds while the
+same Kodi process remained alive. Its partial recording is preserved. The full
+repeat completed natural EOF and explicitly retired the runtime clock on drain,
+but captured six unrequested quiet intervals, including a roughly 100 ms gap.
+Reduced polling therefore does not resolve the no-gap requirement. Of 154
+independent audio points, 152 had valid runtime estimates within threshold; two
+were invalidated by pause callback state. All are reported and the all-points
+gate remains failed. Do not push or enable beacons on this result.

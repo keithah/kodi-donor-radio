@@ -123,15 +123,116 @@
       "extra_quiet_gaps": 1,
       "status": "partial_not_release_acceptance",
       "limitation": "Unrequested 512-frame sink underflow at capture second 65.435; no-gap acceptance fails."
+    },
+    {
+      "capture": {
+        "kind": "incomplete_runtime_recording",
+        "capture": "Kodi-2026-10-28T16-56-04Z-8AA5D38E-766C-4D7F-8333-7941BC24343D",
+        "status": "failed",
+        "frames": 7144448,
+        "duration_seconds": 148.84266666666667,
+        "reason": "target_exited",
+        "error": "The selected Kodi process exited or changed. Refresh the list and choose it again.",
+        "kodi_pid": 32647,
+        "same_kodi_process_still_alive_after_failure": true,
+        "not_a_full_audio_or_clock_pass": true,
+        "next_attempt": "reduced-poll-retry; unchanged recorder and Kodi process"
+      },
+      "status": "incomplete_recorder_identity_failure_not_a_pass"
+    },
+    {
+      "capture": "Kodi-2026-10-28T17-01-24Z-4AC7593A-70D5-4511-B2B9-E44413F7EB46",
+      "code_commit": "9eac3b2",
+      "captured_frames": 11049984,
+      "timestamp_discontinuities": 0,
+      "poll_interval_seconds": 1.0,
+      "pause_scheduler_interval_seconds": 0.1,
+      "other_jobs_modified": false,
+      "native_ledger_sha256": "3be930dd614f4b53f58adc4c617152ccd2360b3d5e30a5ebdc1619d129511f8c",
+      "runtime_ledger_sha256": "3cbf94eebae7e1fc5d54c97c5695b3bed24a8ade92f262726f07bff4d34a009e",
+      "runtime_qualified_points": 154,
+      "runtime_valid_qualified_points": 152,
+      "runtime_invalid_qualified_points": 2,
+      "runtime_missing_qualified_points": 0,
+      "valid_runtime_error_range_ms": [
+        -7.540479400219624,
+        0.8940622664397324
+      ],
+      "valid_runtime_threshold_violations": 0,
+      "invalid_runtime_reasons": {
+        "control_not_playing": 2,
+        "acquiring": 2
+      },
+      "all_independently_qualified_gate_passed": false,
+      "runtime_all_rows": {
+        "total": 10317,
+        "valid": 8787,
+        "invalid": 1530,
+        "invalid_reasons": {
+          "control_not_playing": 1464,
+          "not_started_or_failed": 115,
+          "acquiring": 1522,
+          "nonfeed_uncertain": 116,
+          "before_control_boundary": 5,
+          "feed_acquisition": 5,
+          "backward_correction": 7,
+          "pause_tail_uncertain": 1344,
+          "observation_gap": 3,
+          "anchor_innovation": 1,
+          "invalid_query": 1,
+          "native_terminal": 1,
+          "drained_not_audible_end": 1
+        }
+      },
+      "runtime_age_ms": {
+        "query_to_receive": {
+          "min": 0.111729,
+          "max": 91.360543
+        },
+        "query_to_evaluate": {
+          "min": 0.142187,
+          "max": 91.429376
+        }
+      },
+      "natural_eof": true,
+      "terminal_wrapper_retired": true,
+      "extra_quiet_gaps": 6,
+      "extra_quiet_capture_seconds": [
+        [
+          139.57500000000002,
+          139.675
+        ],
+        [
+          139.725,
+          139.74
+        ],
+        [
+          139.915,
+          139.92000000000002
+        ],
+        [
+          139.99,
+          139.995
+        ],
+        [
+          140.01500000000001,
+          140.03
+        ],
+        [
+          153.305,
+          153.31
+        ]
+      ],
+      "status": "audio_acceptance_failed",
+      "interpretation": "Reduced diagnostic polling did not remove sink interruptions. Two runtime-invalid qualified audio points overlap callback revocation; the error above threshold belongs to an invalid point, not a valid estimate. No missing rows or invalid intervals are counted as passing."
     }
   ],
-  "postcapture_fix": "90a008d recognizes native drained/unset terminal rows; valid-play estimator math unchanged; not recaptured yet.",
-  "tests": "47 passed, 19 subtests passed",
+  "postcapture_fix": "90a008d terminal wrapper captured in final reduced-poll retry; native drained state now explicitly retires.",
+  "tests": "49 passed, 25 subtests passed; 12 frozen-estimator/analyzer unittest tests passed with NumPy runtime. Combined pytest attempt could not collect analyzer because Homebrew pytest environment lacks NumPy; rerun with correct runtime passed.",
   "remaining": [
-    "Isolate/retest the sink underrun before claiming no-gap acceptance.",
-    "Capture final terminal-state wrapper behavior.",
+    "Resolve captured downstream sink interruptions without Kodi-core changes. No-gap acceptance fails.",
     "Native telemetry still lacks authenticated per-session incarnation, control acknowledgment and output-device generation; diagnostic file ownership is not production clock integration.",
     "Production success beacons remain disabled."
   ],
-  "review_status": "Task review clear; CodeRabbit code review through da5efe3 had zero findings. Final exact-head Steward and CodeRabbit pending."
+  "review_status": "Exact-head final reviews pending; known audio acceptance blocker prevents push."
 }
