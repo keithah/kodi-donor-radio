@@ -1,5 +1,5 @@
 diff --git a/src/StreamManager.cpp b/src/StreamManager.cpp
-index 17ebfe2..c79af0f 100644
+index 17ebfe2..521964e 100644
 --- a/src/StreamManager.cpp
 +++ b/src/StreamManager.cpp
 @@ -6,6 +6,20 @@
@@ -89,12 +89,13 @@ index 17ebfe2..c79af0f 100644
  }
  
  bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props)
-@@ -224,14 +290,1231 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+@@ -213,6 +279,21 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+     httpProxy.SetProxyPassword(kodi::addon::GetSettingString("httpProxyPassword"));
+   }
  
-   m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.IsRealTimeStream(), m_properties.m_programProperty);
- 
-+  // Lab-only renderer. This exact loopback fixture, the old probe marker, and
-+  // a second opt-in marker must all be present before replacing programme AAC.
++  // Determine lab opt-in before TimeshiftStream::Open. The controlled HLS
++  // route defers its reader thread until StreamManager has copied all metadata
++  // and codec parameters needed by the lab renderer.
 +  const bool uniqueLoopbackFixture =
 +      m_streamUrl == "http://127.0.0.1:18789/long-unique.aac" ||
 +      m_streamUrl == "http://127.0.0.1:18789/live/index.m3u8";
@@ -103,6 +104,19 @@ index 17ebfe2..c79af0f 100644
 +  const bool ownedRendererMarker = std::ifstream(
 +      "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/enable").good();
 +  const bool ownedRendererOptIn = uniqueLoopbackFixture && oldProbeMarker && ownedRendererMarker;
++  m_properties.m_deferTimeshiftStart =
++      ownedRendererOptIn && m_streamUrl == "http://127.0.0.1:18789/live/index.m3u8" &&
++      m_properties.m_streamMode == StreamMode::TIMESHIFT;
++
+   if (m_properties.m_streamMode == StreamMode::CATCHUP)
+     m_stream = std::make_shared<FFmpegCatchupStream>(static_cast<IManageDemuxPacket*>(this), m_properties, httpProxy);
+   else if (m_properties.m_streamMode == StreamMode::TIMESHIFT)
+@@ -224,14 +305,1244 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+ 
+   m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.IsRealTimeStream(), m_properties.m_programProperty);
+ 
++  // Lab-only renderer. This exact loopback fixture and both markers are
++  // required before replacing programme AAC.
 +  if (m_opened && ownedRendererOptIn && !StartOwnedRenderer())
 +  {
 +    // Never fall back to audible source packets when a requested lab renderer
@@ -313,7 +327,28 @@ index 17ebfe2..c79af0f 100644
 +  m_ownedDrained = false;
 +  m_ownedFailed = false;
 +  m_ownedRendererActive = true;
-+  m_ownedThread = std::thread([this]() { RunOwnedRenderer(); });
++  try
++  {
++    if (m_ownedHlsFixture)
++    {
++      auto timeshift = std::dynamic_pointer_cast<ffmpegdirect::TimeshiftStream>(m_stream);
++      if (!timeshift || !timeshift->StartDeferred())
++      {
++        m_ownedRendererActive = false;
++        Log(LOGLEVEL_ERROR,
++            "OWNED_RENDERER: deferred TimeshiftStream reader could not start after metadata snapshot");
++        return false;
++      }
++    }
++    m_ownedThread = std::thread([this]() { RunOwnedRenderer(); });
++  }
++  catch (const std::exception& error)
++  {
++    m_ownedRendererActive = false;
++    m_ownedSourceStop = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: lab worker could not start: %s", error.what());
++    return false;
++  }
 +  Log(LOGLEVEL_INFO,
 +      "OWNED_RENDERER: AAC packet decoder enabled for exact loopback fixture; in-memory PCM queue capped at 64 seconds");
 +  return true;
@@ -1322,11 +1357,11 @@ index 17ebfe2..c79af0f 100644
  }
  
  void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabilities &caps)
-@@ -243,11 +1526,25 @@ void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabiliti
+@@ -243,11 +1554,25 @@ void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabiliti
  bool InputStreamFFmpegDirect::GetStreamIds(std::vector<unsigned int>& ids)
  {
    Log(LOGLEVEL_DEBUG, "GetStreamIds()");
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    ids = m_ownedStreamIdsSnapshot;
 +    return !ids.empty();
@@ -1336,7 +1371,7 @@ index 17ebfe2..c79af0f 100644
  
  bool InputStreamFFmpegDirect::GetStream(int streamid, kodi::addon::InputstreamInfo& info)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    if (!m_ownedAudioInfoSnapshotValid.load() ||
 +        streamid != m_ownedAudioStreamId)
@@ -1348,15 +1383,15 @@ index 17ebfe2..c79af0f 100644
    return m_stream->GetStream(streamid, info);
  }
  
-@@ -263,27 +1560,277 @@ bool InputStreamFFmpegDirect::OpenStream(int streamid)
+@@ -263,27 +1588,289 @@ bool InputStreamFFmpegDirect::OpenStream(int streamid)
  
  void InputStreamFFmpegDirect::DemuxReset()
  {
-+  if (m_ownedSourceOwnershipTransferred.load())
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    m_ownedFailed = true;
 +    m_ownedSourceStop = true;
-+    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after source handoff is unsupported; failing closed");
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after deferred HLS start is unsupported; failing closed");
 +    return;
 +  }
    m_stream->DemuxReset();
@@ -1381,11 +1416,11 @@ index 17ebfe2..c79af0f 100644
  
  void InputStreamFFmpegDirect::DemuxFlush()
  {
-+  if (m_ownedSourceOwnershipTransferred.load())
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    m_ownedFailed = true;
 +    m_ownedSourceStop = true;
-+    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after source handoff is unsupported; failing closed");
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after deferred HLS start is unsupported; failing closed");
 +    return;
 +  }
    m_stream->DemuxFlush();
@@ -1476,7 +1511,19 @@ index 17ebfe2..c79af0f 100644
 +  }
 +
 +  kodi::addon::InputstreamInfo info;
-+  if (!m_stream->GetStream(packet->iStreamId, info) ||
++  bool streamInfoAvailable = false;
++  if (m_ownedHlsFixture)
++  {
++    if (m_ownedAudioInfoSnapshotValid.load() && packet->iStreamId == m_ownedAudioStreamId)
++    {
++      info = m_ownedAudioInfoSnapshot;
++      info.SetExtraData(m_ownedAudioInfoSnapshot.GetExtraData());
++      streamInfoAvailable = true;
++    }
++  }
++  else
++    streamInfoAvailable = m_stream->GetStream(packet->iStreamId, info);
++  if (!streamInfoAvailable ||
 +      info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
 +      info.GetSampleRate() != 48000 || info.GetChannels() != 2)
 +  {
@@ -1628,36 +1675,36 @@ index 17ebfe2..c79af0f 100644
  }
  
  void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
-@@ -301,71 +1848,109 @@ void InputStreamFFmpegDirect::SetVideoResolution(unsigned int width, unsigned in
+@@ -301,71 +1888,109 @@ void InputStreamFFmpegDirect::SetVideoResolution(unsigned int width, unsigned in
  
  int InputStreamFFmpegDirect::GetTotalTime()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return m_ownedTotalTimeSnapshot;
    return m_stream->GetTotalTime();
  }
  
  int InputStreamFFmpegDirect::GetTime()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return m_ownedHostTimeMs.load();
    return m_stream->GetTime();
  }
  
  bool InputStreamFFmpegDirect::GetTimes(kodi::addon::InputstreamTimes& times)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return false; // Live timeshift window fields are updated by another thread.
    return m_stream->GetTimes(times);
  }
  
  bool InputStreamFFmpegDirect::PosTime(int ms)
  {
-+  if (m_ownedSourceOwnershipTransferred.load())
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    m_ownedFailed = true;
 +    m_ownedSourceStop = true;
-+    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after source handoff is unsupported; failing closed");
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after deferred HLS start is unsupported; failing closed");
 +    return false;
 +  }
    return m_stream->PosTime(ms);
@@ -1665,39 +1712,39 @@ index 17ebfe2..c79af0f 100644
  
  int InputStreamFFmpegDirect::GetChapter()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return 0;
    return m_stream->GetChapter();
  }
  
  int InputStreamFFmpegDirect::GetChapterCount()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return 0;
    return m_stream->GetChapterCount();
  }
  
  const char* InputStreamFFmpegDirect::GetChapterName(int ch)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return nullptr;
    return m_stream->GetChapterName(ch);
  }
  
  int64_t InputStreamFFmpegDirect::GetChapterPos(int ch)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return 0;
    return m_stream->GetChapterPos(ch);
  }
  
  bool InputStreamFFmpegDirect::SeekChapter(int ch)
  {
-+  if (m_ownedSourceOwnershipTransferred.load())
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +  {
 +    m_ownedFailed = true;
 +    m_ownedSourceStop = true;
-+    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after source handoff is unsupported; failing closed");
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after deferred HLS start is unsupported; failing closed");
 +    return false;
 +  }
    return m_stream->SeekChapter(ch);
@@ -1705,35 +1752,35 @@ index 17ebfe2..c79af0f 100644
  
  int InputStreamFFmpegDirect::ReadStream(uint8_t* buf, unsigned int size)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return -1;
    return m_stream->ReadStream(buf, size);
  }
  
  int64_t InputStreamFFmpegDirect::SeekStream(int64_t position, int whence /* SEEK_SET */)
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return -1;
    return m_stream->SeekStream(position, whence);
  }
  
  int64_t InputStreamFFmpegDirect::PositionStream()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return -1;
    return m_stream->PositionStream();
  }
  
  int64_t InputStreamFFmpegDirect::LengthStream()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return -1; // Unknown for the live host timeline; avoid unsynchronized window reads.
    return m_stream->LengthStream();
  }
  
  bool InputStreamFFmpegDirect::IsRealTimeStream()
  {
-+  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++  if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
 +    return m_ownedRealtimeSnapshot;
    return m_stream->IsRealTimeStream();
  }
@@ -1848,3 +1895,104 @@ index 4b3dea6..5c19214 100644
    bool m_opened;
  
    std::string m_streamUrl;
+diff --git a/src/stream/TimeshiftStream.cpp b/src/stream/TimeshiftStream.cpp
+index da4f55c..533a6d5 100644
+--- a/src/stream/TimeshiftStream.cpp
++++ b/src/stream/TimeshiftStream.cpp
+@@ -9,6 +9,8 @@
+ 
+ #include "../utils/Log.h"
+ 
++#include <exception>
++
+ #ifndef __STDC_CONSTANT_MACROS
+ #define __STDC_CONSTANT_MACROS
+ #endif
+@@ -26,6 +28,7 @@ TimeshiftStream::TimeshiftStream(IManageDemuxPacket* demuxPacketManager,
+                                  const HttpProxy& httpProxy)
+   : FFmpegStream(demuxPacketManager, props, httpProxy)
+   , m_terminalEof(props.m_terminalEof)
++  , m_deferredReaderStart(props.m_deferTimeshiftStart)
+ {
+   std::random_device randomDevice; //Will be used to obtain a seed for the random number engine
+   m_randomGenerator = std::mt19937(randomDevice()); //Standard mersenne_twister_engine seeded with randomDevice()
+@@ -39,8 +42,14 @@ TimeshiftStream::~TimeshiftStream()
+ 
+ bool TimeshiftStream::Open(const std::string& streamUrl, const std::string& mimeType, bool isRealTimeStream, const std::string& programProperty)
+ {
++  m_deferredOpenReady = false;
+   if (FFmpegStream::Open(streamUrl, mimeType, isRealTimeStream, programProperty))
+   {
++    if (m_deferredReaderStart)
++    {
++      m_deferredOpenReady = true;
++      return true;
++    }
+     if (Start())
+       return true;
+     else
+@@ -85,8 +94,29 @@ bool TimeshiftStream::Start()
+   return false;
+ }
+ 
++bool TimeshiftStream::StartDeferred()
++{
++  if (!m_deferredReaderStart || !m_deferredOpenReady)
++    return false;
++  try
++  {
++    if (!Start())
++      return false;
++    m_deferredOpenReady = false;
++    return true;
++  }
++  catch (const std::exception& error)
++  {
++    m_running = false;
++    Log(LOGLEVEL_ERROR, "%s - deferred Timeshift reader could not start: %s", __FUNCTION__,
++        error.what());
++    return false;
++  }
++}
++
+ void TimeshiftStream::Close()
+ {
++  m_deferredOpenReady = false;
+   m_running = false;
+   DemuxAbort();
+   if (m_inputThread.joinable())
+diff --git a/src/stream/TimeshiftStream.h b/src/stream/TimeshiftStream.h
+index f79cfd5..6209c00 100644
+--- a/src/stream/TimeshiftStream.h
++++ b/src/stream/TimeshiftStream.h
+@@ -44,6 +44,9 @@ public:
+   virtual int64_t LengthStream() override;
+   virtual bool IsRealTimeStream() override;
+ 
++  // Used only by the controlled lab route after stream metadata is snapshotted.
++  bool StartDeferred();
++
+ private:
+   void DoReadWrite();
+   bool Start();
+@@ -55,6 +58,8 @@ private:
+   std::atomic<bool> m_running = {false};
+   bool m_sourceEnded = false; // Protected by m_mutex; buffered packets remain readable.
+   const bool m_terminalEof;
++  const bool m_deferredReaderStart;
++  bool m_deferredOpenReady{false};
+   std::thread m_inputThread;
+   std::condition_variable m_condition;
+   std::mutex m_mutex;
+diff --git a/src/utils/Properties.h b/src/utils/Properties.h
+index e61a011..019629c 100644
+--- a/src/utils/Properties.h
++++ b/src/utils/Properties.h
+@@ -39,6 +39,7 @@ namespace ffmpegdirect
+     std::string m_programProperty;
+     std::optional<bool> m_isRealTimeStream;
+     bool m_terminalEof = false;
++    bool m_deferTimeshiftStart = false;
+     StreamMode m_streamMode = StreamMode::NONE;
+     OpenMode m_openMode = OpenMode::DEFAULT;
+     std::string m_manifestType;

@@ -68,3 +68,15 @@ Post-capture review also hardened the two post-decode teardown fallback branches
 to free the source packet and stop rather than hand original programme data to
 the host. The archived capture binary predates this defensive change; its hash
 and the captured-result scope remain unchanged.
+
+## Startup metadata ownership
+
+A post-review capture exposed an initialization race: Timeshift started its
+background reader before the lab renderer copied the stream table and codec
+parameters. The reader could rebuild that table during the copy. The current
+patch defers the reader only for the exact opted-in HLS lab route until metadata
+and decoder initialization are complete. Pre-play callbacks use the copied
+metadata immediately; the normal buffer seek-to-zero remains available. Thread
+launch failures return through cleanup. Ordinary Timeshift startup is unchanged.
+The failed attempt contains no programme audio and its stale shared telemetry
+was explicitly excluded; it is not a clock or playback pass.
