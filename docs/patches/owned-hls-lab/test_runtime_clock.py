@@ -179,6 +179,29 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(s.reason,'callback_stop')
         self.assertEqual(s.generation,generation)
         self.assertTrue(s.retired)
+    def test_native_drained_and_unset_states(self):
+        s=self.session(); e=frozen_module().Estimator()
+        terminal=row(0); terminal['control_state']='drained'; terminal['drained']=True
+        result=s.ingest(terminal,BASE)
+        self.assertNotIn('invalid_schema',result['reasons'])
+        self.assertEqual(result['estimate'],e.update(terminal))
+        self.assertTrue(s.retired)
+        generation=s.generation
+        s.control('play',BASE+1)
+        for i in range(1,12): self.assertFalse(s.ingest(row(i),BASE+i*20_000_000)['valid'])
+        self.assertEqual(s.generation,generation)
+        self.assertEqual(s.reason,'native_terminal')
+        unset=row(0); unset['control_state']='unset'
+        result=self.session().ingest(unset,BASE)
+        self.assertNotIn('invalid_schema',result['reasons'])
+        self.assertFalse(result['valid'])
+    def test_native_terminal_flags_retire_even_with_bad_numbers(self):
+        for flag in ('failed','drained'):
+            for value,retired in [(True,True),(1,False),('true',False)]:
+                s=self.session(); r=row(0); r['audioengine_delay_s']=None; r[flag]=value
+                result=s.ingest(r,BASE)
+                self.assertIn('invalid_schema',result['reasons'])
+                self.assertEqual(s.retired,retired)
     def test_reader(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'ledger'; reader=LedgerReader(p)

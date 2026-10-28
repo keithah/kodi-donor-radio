@@ -169,7 +169,7 @@ class RuntimeClockSession:
             return False
         d = row.get('audioengine_delay_s')
         return (type(d) in (int,float) and 0 <= d <= 2**63-1 and math.isfinite(d)
-                and row.get('control_state') in ('waiting','play','resume','pause','stop'))
+                and row.get('control_state') in ('waiting','play','resume','pause','stop','drained','unset'))
 
     def ingest(self, row, received_ns=None, identity=None):
         now = self.now_ns() if received_ns is None else received_ns
@@ -177,6 +177,10 @@ class RuntimeClockSession:
             reasons = []
             estimate = None
             query = None
+            # Exact terminal booleans revoke even when numeric evidence is bad.
+            # Truthy strings/integers cannot establish a native terminal flag.
+            if row.get('failed') is True or row.get('drained') is True or row.get('control_state') in ('stop','drained'):
+                self.retire('native_terminal')
             if not self.schema(row):
                 reasons.append('invalid_schema')
                 self.estimator.clear_anchor()
