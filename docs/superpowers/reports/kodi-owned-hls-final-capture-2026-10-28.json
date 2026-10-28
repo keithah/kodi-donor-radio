@@ -1,0 +1,171 @@
+{
+  "result": "bounded_clean_controlled_HLS_audio_and_offline_estimated_clock",
+  "mapping_proven": false,
+  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-startup-fixed/Kodi-2026-10-28T08-23-17Z-4BCCF2BA-18D4-494D-9154-85F8FA2A8142",
+  "native_sha256": "38d3f58bacbd4cd43332e46e65852f6907e6c3ad41366d8d4a8c8ed5733c37e9",
+  "unchanged_kodi_core_sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752",
+  "profile_condition": {
+    "audiooutput.lowlatency": false,
+    "scope": "isolated portable profile only",
+    "original_value": true,
+    "original_setting_restored": true,
+    "restoration_readback": true
+  },
+  "capture_frames": 11047424,
+  "capture_discontinuities": 0,
+  "reference_frames": 8641536,
+  "source_seconds": 180.032,
+  "source_packets": 8439,
+  "decoded_equals_accepted_equals_reference": true,
+  "source_ended": true,
+  "drained": true,
+  "native_failed": false,
+  "queued_pcm_frames": 0,
+  "prefix_20ms_min_correlation": 0.9999049521550629,
+  "tail_20ms_min_correlation": 0.9999935831630221,
+  "dense_windows_per_channel": 8980,
+  "dense_min_correlation": 0.9883420253621156,
+  "source_offsets_constant_in_each_span": true,
+  "full_05ms_rms_each_channel_extra_quiet_intervals": 0,
+  "pause_split_tails": 0,
+  "pause_latencies": [
+    {
+      "cycle": 0,
+      "quiet_seconds": [
+        8.9515,
+        9.495
+      ],
+      "pause_edge_latency_ms": [
+        672.7295,
+        674.382667
+      ],
+      "resume_edge_latency_ms": [
+        116.497375,
+        118.055625
+      ]
+    },
+    {
+      "cycle": 1,
+      "quiet_seconds": [
+        45.965,
+        48.524
+      ],
+      "pause_edge_latency_ms": [
+        701.835833,
+        707.194125
+      ],
+      "resume_edge_latency_ms": [
+        154.5765,
+        156.223292
+      ]
+    },
+    {
+      "cycle": 2,
+      "quiet_seconds": [
+        91.085,
+        110.4975
+      ],
+      "pause_edge_latency_ms": [
+        713.872208,
+        723.760875
+      ],
+      "resume_edge_latency_ms": [
+        113.054833,
+        115.067917
+      ]
+    },
+    {
+      "cycle": 3,
+      "quiet_seconds": [
+        161.0585,
+        163.596
+      ],
+      "pause_edge_latency_ms": [
+        732.85425,
+        737.597917
+      ],
+      "resume_edge_latency_ms": [
+        157.718,
+        161.274125
+      ]
+    }
+  ],
+  "edge_resolution_ms": 0.5,
+  "source_union_1ms_gain_range": [
+    0.943460840923119,
+    1.013385157257405
+  ],
+  "raw_clock": {
+    "qualified_samples": 171,
+    "error_range_ms": [
+      -27.440355148627305,
+      3.3119799331018385
+    ],
+    "violation_count": 1
+  },
+  "frozen_v2_clock": {
+    "all_original_qualified": {
+      "points": 171,
+      "error_range_ms": [
+        -7.499604148634376,
+        1.7723129331272958
+      ],
+      "violations": 0
+    },
+    "valid_original_qualified": {
+      "points": 171,
+      "error_range_ms": [
+        -7.499604148634376,
+        1.7723129331272958
+      ],
+      "violations": 0
+    },
+    "invalid_original_qualified": []
+  },
+  "frozen_v2_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
+  "v1_v2_exact_equivalent_finite_rows": 10345,
+  "late_clock_capture128_seconds_onward": {
+    "points": 70,
+    "range_ms": [
+      -7.320854481946526,
+      1.7723129331272958
+    ]
+  },
+  "live_window_retention": {
+    "segments_ingested_during_long_pause": [
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54
+    ],
+    "playlist_first_sequences_near_resume": [
+      49,
+      50
+    ],
+    "resumed_source_center_s": 85.03572916666667
+  },
+  "natural_idle_observed_capture_seconds": [
+    210.304776125,
+    210.304779208
+  ],
+  "observer_explicit_stop_action": false,
+  "kodi_archive_underflow_or_underrun_lines": 0,
+  "limits": [
+    "Controlled loopback 180.032-second HLS fixture on this Mac, this native build and buffered profile only.",
+    "No measured omission or replay; 40ms dense and 1ms seam comparisons plus 0.5ms silence scans do not prove bit-exact single-sample equivalence.",
+    "Clock qualification covers steady process capture only; startup, pause tails, resume acquisition, drain and device changes remain uncertain.",
+    "Raw clock failed one point; passing clock is the frozen offline estimator, with no fitted intercept or dropped qualified points.",
+    "No production-beacon, arbitrary-stream, general-device or physical-speaker mapping claim."
+  ],
+  "separate_normal_stop_smoke": {
+    "passed": true,
+    "idle_observed_seconds": 0.327324375,
+    "captured_audio": false
+  }
+}
