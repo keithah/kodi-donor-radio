@@ -6,6 +6,15 @@ base commit `70c378da893cdcfb031b54f84811c17c14b4fb2d`.
 It changes the inputstream addon only. It contains no Kodi core change or native
 binary, and the radio addon does not install or require this private build.
 
+`inputstream.ffmpegdirect-22.2.10-timeshift-startup-eof.patch` applies after
+the realtime override. It keeps the first timeshift packet seekable, waits
+briefly for buffered packets before reporting EOF, and only treats an upstream
+EOF as terminal when `inputstream.ffmpegdirect.terminal_eof=true` is explicitly
+provided. This property is forwarded through `addon.xml.in` and defaults off,
+so this change does not turn transient live-HLS reload EOFs into terminal EOF.
+Only the isolated diagnostic entry currently sets it for finite controlled
+fixtures; the shipped radio addon does not set it.
+
 Official FFmpegDirect 22.2.10 reports every timeshift stream as realtime, even
 when `inputstream.ffmpegdirect.is_realtime_stream=false` is supplied. Kodi's
 VideoPlayer therefore applies its realtime startup clock policy. The patch
