@@ -155,6 +155,30 @@ class RuntimeTests(unittest.TestCase):
                 self.assertFalse(s.snapshot(BASE+190_000_000)['valid'])
             finally:
                 release.set(); writer.join(2); callback.join(2)
+    def test_retirement_keeps_first_reason_and_generation(self):
+        s=self.session()
+        s.retire('ledger_failure')
+        generation=s.generation
+        for reason in ('ledger_failure','route_mismatch','monitor_exit'):
+            s.retire(reason)
+        for state in ('pause','resume','play','stop'):
+            s.control(state,BASE)
+        self.assertTrue(s.retired)
+        self.assertEqual(s.reason,'ledger_failure')
+        self.assertEqual(s.generation,generation)
+        self.assertFalse(s.snapshot(BASE)['valid'])
+        s.ingest(row(0),BASE)
+        self.assertEqual(s.reason,'ledger_failure')
+        self.assertEqual(s.generation,generation)
+    def test_terminal_callback_retirement_is_idempotent(self):
+        s=self.session()
+        s.control('stop',BASE)
+        generation=s.generation
+        s.control('resume',BASE+1)
+        s.retire('monitor_exit')
+        self.assertEqual(s.reason,'callback_stop')
+        self.assertEqual(s.generation,generation)
+        self.assertTrue(s.retired)
     def test_reader(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'ledger'; reader=LedgerReader(p)

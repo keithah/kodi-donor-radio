@@ -133,6 +133,8 @@ class RuntimeClockSession:
 
     def control(self, state, now=None):
         with self.lock:
+            if self.retired:
+                return
             now = self.now_ns() if now is None else now
             self.control_state = state
             self.reason = 'callback_'+state
@@ -150,6 +152,8 @@ class RuntimeClockSession:
 
     def retire(self, reason):
         with self.lock:
+            if self.retired:
+                return
             self.retired = True
             self.reason = reason
             self.generation += 1
