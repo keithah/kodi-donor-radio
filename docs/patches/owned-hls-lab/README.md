@@ -167,3 +167,14 @@ these declarations are missing or unreadable. Restoring an original manifest
 without the startup/EOF patch can silently discard the terminal EOF property
 and leave the renderer retrying EOF. The preflight checks manifest declarations;
 it does not replace native-binary identity validation.
+
+### Runtime capture status
+
+The live session bridge has now been exercised with recorded output estimates,
+not just offline replay. See
+`../../superpowers/reports/kodi-owned-hls-runtime-clock-progress-2026-10-28.json`.
+The first run passed 140 clock points but missed natural EOF because the test
+manifest did not forward terminal_eof. The corrected run passed 129 points and
+natural EOF, but recorded one unrequested 512-frame Darwin sink underrun.
+Neither run is complete no-gap release acceptance. Production beacons remain
+disabled, and authenticated native session ownership is still future work.
