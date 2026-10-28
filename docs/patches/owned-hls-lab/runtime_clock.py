@@ -1,4 +1,6 @@
 """Bounded diagnostic bridge. No production eligibility or authenticated native owner."""
+import ctypes
+import sys
 import hashlib
 import importlib.util
 import json
@@ -12,6 +14,30 @@ import uuid
 URL = 'http://127.0.0.1:18789/live/index.m3u8'
 SHA256 = '7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87'
 FRESH_NS = 100_000_000
+
+def mach_host_ns():
+    """Native Mach absolute clock, avoiding Python-version-dependent origins."""
+    if sys.platform != 'darwin':
+        raise RuntimeError('runtime clock requires macOS Mach clock')
+    return _mach_clock()
+
+def _make_mach_clock():
+    if sys.platform != 'darwin':
+        return None
+    library = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+    class Timebase(ctypes.Structure):
+        _fields_ = [('numer',ctypes.c_uint32),('denom',ctypes.c_uint32)]
+    info = Timebase()
+    library.mach_timebase_info.argtypes = [ctypes.POINTER(Timebase)]
+    library.mach_timebase_info.restype = ctypes.c_int
+    if library.mach_timebase_info(ctypes.byref(info)) != 0 or not info.denom:
+        raise RuntimeError('Mach timebase unavailable')
+    absolute = library.mach_absolute_time
+    absolute.restype = ctypes.c_uint64
+    absolute.argtypes = []
+    return lambda: absolute()*info.numer//info.denom
+
+_mach_clock = _make_mach_clock()
 
 def frozen_module():
     path = Path(__file__).resolve().parent / 'clock-candidate-v2' / 'estimator.py'
@@ -89,12 +115,13 @@ class LedgerReader:
             self.file.close()
 
 class RuntimeClockSession:
-    def __init__(self, selected_url, launch_ns=None):
+    def __init__(self, selected_url, launch_ns=None, now_ns=None):
+        self.now_ns = now_ns or mach_host_ns
         self.lock = threading.RLock()
         self.module = frozen_module()
         self.estimator = self.module.Estimator()
         self.launch_id = uuid.uuid4().hex
-        self.launch_ns = time.monotonic_ns() if launch_ns is None else launch_ns
+        self.launch_ns = self.now_ns() if launch_ns is None else launch_ns
         self.selected_url = selected_url
         self.retired = selected_url != URL
         self.control_state = 'waiting'
@@ -106,7 +133,7 @@ class RuntimeClockSession:
 
     def control(self, state, now=None):
         with self.lock:
-            now = time.monotonic_ns() if now is None else now
+            now = self.now_ns() if now is None else now
             self.control_state = state
             self.reason = 'callback_'+state
             self.generation += 1
@@ -141,8 +168,8 @@ class RuntimeClockSession:
                 and row.get('control_state') in ('waiting','play','resume','pause','stop'))
 
     def ingest(self, row, received_ns=None, identity=None):
+        now = self.now_ns() if received_ns is None else received_ns
         with self.lock:
-            now = time.monotonic_ns() if received_ns is None else received_ns
             reasons = []
             estimate = None
             query = None
@@ -170,17 +197,39 @@ class RuntimeClockSession:
                 reasons.append(self.reason)
             if estimate is not None:
                 reasons.extend(estimate['reasons'])
+            evaluated = self.now_ns()
+            if query is not None and not 0 <= evaluated-query <= FRESH_NS:
+                reasons.append('evaluation_freshness')
+                self.estimator.clear_anchor()
             out = dict(kind='runtime_clock_input', launch_id=self.launch_id,
                        launch_ns=self.launch_ns, generation=self.generation,
                        identity=identity, input=row, query_host_ns=query,
-                       received_ns=now, evaluated_ns=time.monotonic_ns() if received_ns is None else now,
+                       received_ns=now, evaluated_ns=evaluated,
                        estimate=estimate, valid=not reasons, reasons=list(dict.fromkeys(reasons)))
             self.last = out
             return out
 
+    def for_publication(self, row, now=None):
+        """Atomic state check only; returned evidence is historical as of this check."""
+        with self.lock:
+            now = self.now_ns() if now is None else now
+            result = dict(row)
+            result['reasons'] = list(row.get('reasons', []))
+            result['evaluated_valid'] = row.get('valid', False)
+            result['publication_checked_ns'] = now
+            if row.get('generation') != self.generation:
+                result['reasons'].append('superseded_generation')
+            if self.retired:
+                result['reasons'].append(self.reason)
+            query = row.get('query_host_ns')
+            if query is not None and not 0 <= now-query <= FRESH_NS:
+                result['reasons'].append('publication_freshness')
+            result['valid'] = row.get('valid', False) and not result['reasons']
+            return result
+
     def snapshot(self, now=None):
         with self.lock:
-            now = time.monotonic_ns() if now is None else now
+            now = self.now_ns() if now is None else now
             reasons = []
             if self.retired or self.control_state not in ('play','resume') or self.last is None:
                 reasons.append(self.reason)

@@ -1,3 +1,6 @@
+import os
+import queue
+import threading
 import ast
 import types
 import json
@@ -16,9 +19,14 @@ def row(i):
                 source_epoch=0, control_state='play', playback_started=True,
                 failed=False, drained=False)
 
+class DeterministicSession(RuntimeClockSession):
+    def ingest(self, row, received_ns=None, identity=None):
+        self.now_ns = lambda:received_ns
+        return super().ingest(row,received_ns,identity)
+
 class RuntimeTests(unittest.TestCase):
     def session(self):
-        s=RuntimeClockSession(URL, BASE-1)
+        s=DeterministicSession(URL, BASE-1)
         s.control('play', BASE-1)
         return s
     def test_equivalence_acquisition_and_snapshot(self):
@@ -102,6 +110,51 @@ class RuntimeTests(unittest.TestCase):
         player.onPlayBackSeek(1,2); player.onPlayBackError()
         self.assertEqual(calls[1:], [('control','resume'),('retire','non_unit_speed'),
                                     ('retire','seek'),('retire','playback_error')])
+    def test_evaluation_freshness_crossing(self):
+        ticks=iter([BASE+99_000_000,BASE+101_000_000])
+        s=RuntimeClockSession(URL,BASE-1,now_ns=lambda:next(ticks))
+        s.control('play',BASE-1)
+        r=row(0)
+        out=s.ingest(r)
+        self.assertIn('evaluation_freshness',out['reasons'])
+        self.assertEqual(out['received_ns'],BASE+99_000_000)
+        self.assertEqual(out['evaluated_ns'],BASE+101_000_000)
+    def test_queued_result_revoked_before_publication(self):
+        s=self.session()
+        for i in range(10): out=s.ingest(row(i),BASE+i*20_000_000)
+        self.assertTrue(out['valid'])
+        s.control('pause',BASE+190_000_000)
+        published=s.for_publication(out,BASE+190_000_000)
+        self.assertFalse(published['valid'])
+        self.assertTrue(published['evaluated_valid'])
+        self.assertIn('superseded_generation',published['reasons'])
+    def test_blocked_output_does_not_delay_pause_control(self):
+        tree=ast.parse(Path(__file__).with_name('monitor.py').read_text())
+        funcs=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('state','enqueue','flush_pending')]
+        s=self.session()
+        for i in range(10): s.ingest(row(i),BASE+i*20_000_000)
+        entered=threading.Event(); release=threading.Event(); paused=threading.Event()
+        def blocked_emit(row):
+            entered.set(); release.wait(2)
+        with tempfile.TemporaryDirectory() as d:
+            pending=queue.Queue(maxsize=100)
+            pending.put(s.snapshot(BASE+180_000_000))
+            scope=dict(session=s,ROOT=Path(d),time=types.SimpleNamespace(),
+                       clock=types.SimpleNamespace(mach_host_ns=lambda:BASE+190_000_000),
+                       control_lock=threading.Lock(),pending=pending,queue=queue,
+                       json=json,os=os,emit=blocked_emit)
+            exec(compile(ast.Module(body=funcs,type_ignores=[]),'monitor_functions','exec'),scope)
+            writer=threading.Thread(target=scope['flush_pending']); writer.start()
+            self.assertTrue(entered.wait(1))
+            def pause():
+                scope['state']('pause'); paused.set()
+            callback=threading.Thread(target=pause); callback.start()
+            try:
+                self.assertTrue(paused.wait(.5))
+                self.assertEqual((Path(d)/'control').read_text(),'pause')
+                self.assertFalse(s.snapshot(BASE+190_000_000)['valid'])
+            finally:
+                release.set(); writer.join(2); callback.join(2)
     def test_reader(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'ledger'; reader=LedgerReader(p)

@@ -132,8 +132,11 @@ wrapper validity/reasons. Snapshot transition records expose callback and
 freshness invalidation. Compare these written estimates against captured audio;
 replaying the estimator afterward does not establish runtime performance.
 
-Query age must be between zero and 100 ms in the macOS Mach nanosecond domain
-shared by native `mach_absolute_ns` and Python `time.monotonic_ns`. No snapshot
+Query age must be between zero and 100 ms at receipt and evaluation in the macOS Mach nanosecond domain
+read explicitly with `mach_absolute_time` and `mach_timebase_info` through ctypes.
+Python monotonic clock origins vary by interpreter and are not assumed equal.
+The callback ledger retains its legacy `monotonic_ns` key but records explicit
+Mach host nanoseconds. No snapshot
 extrapolation occurs. Pause revokes synchronously; resume clears acquisition and
 requires nine observations after its callback with native play/resume
 state. Stale rows remain in the evidence and reach the frozen estimator, but
@@ -144,3 +147,12 @@ This bridge does not authenticate native incarnation, native control revision,
 output device generation, or underlying sink-statistic age. Local line identity
 is reader evidence only. It does not prove physical speaker timing or production
 transport ownership. Production success beacons remain disabled.
+
+Telemetry parsing and disk output run outside the session lock. Callback control
+publication precedes queued callback/runtime logging. The output writer checks
+session generation and freshness immediately before writing; superseded rows
+retain `evaluated_valid` but become invalid. `publication_checked_ns` identifies
+the exact state-check time. These records describe historical observations;
+reading a valid JSONL record later never grants current eligibility. Only the
+locked session snapshot supplies current state. Disk writes may complete after
+a later callback, which does not alter their recorded check timestamp.
