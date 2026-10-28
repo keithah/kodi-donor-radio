@@ -15,6 +15,13 @@ class Player(xbmc.Player):
  def onPlayBackResumed(self): state('resume')
  def onPlayBackStopped(self): state('stop')
  def onPlayBackEnded(self): state('stop')
+# Start only after the previous monitor has removed monitor-ready.
+# Preserve the previous callback evidence while starting a fresh run.
+(ROOT/'monitor-stop').unlink(missing_ok=True)
+previous=ROOT/'callbacks.jsonl'
+if previous.exists():
+ previous.rename(ROOT/('callbacks-previous-%d.jsonl'%time.time_ns()))
+(ROOT/'monitor-ready').unlink(missing_ok=True)
 p=Player()
 m=xbmc.Monitor()
 state('waiting')

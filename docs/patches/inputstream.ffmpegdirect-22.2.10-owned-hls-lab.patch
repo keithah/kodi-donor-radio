@@ -1,5 +1,5 @@
 diff --git a/src/StreamManager.cpp b/src/StreamManager.cpp
-index 17ebfe2..53114fd 100644
+index 17ebfe2..f91d126 100644
 --- a/src/StreamManager.cpp
 +++ b/src/StreamManager.cpp
 @@ -6,6 +6,20 @@
@@ -89,7 +89,7 @@ index 17ebfe2..53114fd 100644
  }
  
  bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props)
-@@ -224,14 +290,1253 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+@@ -224,14 +290,1231 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
  
    m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.IsRealTimeStream(), m_properties.m_programProperty);
  
@@ -292,8 +292,6 @@ index 17ebfe2..53114fd 100644
 +  m_ownedPtsValid = false;
 +  m_ownedHostNextPts = 0.0;
 +  m_ownedHostPtsValid = false;
-+  m_ownedHostNextDeadline = {};
-+  m_ownedHostDeadlineValid = false;
 +  m_ownedFrameDuration = STREAM_SEC_TO_TIME(1024.0 / 48000.0);
 +  m_ownedDecodeArmed = false;
 +  m_ownedInitialPrefillComplete = false;
@@ -512,7 +510,9 @@ index 17ebfe2..53114fd 100644
 +
 +bool InputStreamFFmpegDirect::WriteOwnedTelemetryLine(const std::string& line)
 +{
-+  constexpr size_t maxRows = 20000;
++  // 180 seconds of 20 ms clock samples, up to 15 minutes of pause samples,
++  // packet records, and bounded startup/shutdown records fit under this cap.
++  constexpr size_t maxRows = 70000;
 +  std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
 +  if (!m_ownedTelemetryFile.is_open() || m_ownedTelemetryRows >= maxRows)
 +  {
@@ -1187,8 +1187,6 @@ index 17ebfe2..53114fd 100644
 +  m_ownedPtsValid = false;
 +  m_ownedHostNextPts = 0.0;
 +  m_ownedHostPtsValid = false;
-+  m_ownedHostNextDeadline = {};
-+  m_ownedHostDeadlineValid = false;
 +  m_ownedSourceEnded = false;
 +  m_ownedDecoderFlushed = false;
 +  m_ownedDrainStarted.store(false);
@@ -1210,7 +1208,6 @@ index 17ebfe2..53114fd 100644
 +  {
 +    m_ownedHostNextPts = packet->pts;
 +    m_ownedHostPtsValid = true;
-+    m_ownedHostDeadlineValid = false;
 +  }
 +  if (!std::isfinite(m_ownedHostNextPts))
 +    return false;
@@ -1240,8 +1237,7 @@ index 17ebfe2..53114fd 100644
 +  double pts = 0.0;
 +  int streamId = -1;
 +  int64_t demuxerId = 0;
-+  std::chrono::steady_clock::time_point outputDeadline{};
-+  const bool paceHls = m_ownedHlsFixture;
++  const bool hlsHostTimeline = m_ownedHlsFixture;
 +  constexpr size_t maxSyntheticFrames = (64 * 48000) / 1024;
 +  {
 +    std::lock_guard<std::mutex> lock(m_ownedMutex);
@@ -1250,10 +1246,10 @@ index 17ebfe2..53114fd 100644
 +                                                         : m_silenceAdtsFrame;
 +    if (!m_ownedRendererActive.load() || m_ownedDrained.load())
 +      return nullptr;
-+    const double nextPts = paceHls ? m_ownedHostNextPts : m_ownedNextPts;
-+    const bool ptsValid = paceHls ? m_ownedHostPtsValid : m_ownedPtsValid;
++    const double nextPts = hlsHostTimeline ? m_ownedHostNextPts : m_ownedNextPts;
++    const bool ptsValid = hlsHostTimeline ? m_ownedHostPtsValid : m_ownedPtsValid;
 +    if (!ptsValid || !std::isfinite(nextPts) ||
-+        (!paceHls && m_ownedSyntheticFrames >= maxSyntheticFrames) ||
++        (!hlsHostTimeline && m_ownedSyntheticFrames >= maxSyntheticFrames) ||
 +        m_ownedSyntheticFrames == std::numeric_limits<size_t>::max() ||
 +        m_ownedAudioStreamId < 0 || selectedSilenceFrame.empty())
 +    {
@@ -1267,7 +1263,7 @@ index 17ebfe2..53114fd 100644
 +    pts = nextPts;
 +    streamId = m_ownedAudioStreamId;
 +    demuxerId = m_ownedDemuxerId;
-+    if (paceHls)
++    if (hlsHostTimeline)
 +    {
 +      if (m_ownedHostOutputFrames == std::numeric_limits<uint64_t>::max())
 +      {
@@ -1281,29 +1277,11 @@ index 17ebfe2..53114fd 100644
 +          pts <= static_cast<double>(std::numeric_limits<int>::max()) * STREAM_TIME_BASE / 1000.0)
 +        m_ownedHostTimeMs.store(static_cast<int>(pts * 1000.0 / STREAM_TIME_BASE));
 +      ++m_ownedHostOutputFrames;
-+      const auto now = std::chrono::steady_clock::now();
-+      const auto framePeriod = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-+          std::chrono::duration<double>(1024.0 / 48000.0));
-+      if (!m_ownedHostDeadlineValid)
-+      {
-+        outputDeadline = now;
-+        m_ownedHostDeadlineValid = true;
-+      }
-+      else
-+      {
-+        outputDeadline = m_ownedHostNextDeadline + framePeriod;
-+        if (outputDeadline < now)
-+          outputDeadline = now;
-+      }
-+      m_ownedHostNextDeadline = outputDeadline;
 +    }
 +    else
 +      m_ownedNextPts += m_ownedFrameDuration;
 +    ++m_ownedSyntheticFrames;
 +  }
-+
-+  if (paceHls)
-+    std::this_thread::sleep_until(outputDeadline);
 +
 +  DEMUX_PACKET* packet = AllocateDemuxPacketFromInputStreamAPI(
 +      static_cast<int>(silenceFrame.size()));
@@ -1344,7 +1322,7 @@ index 17ebfe2..53114fd 100644
  }
  
  void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabilities &caps)
-@@ -243,11 +1548,25 @@ void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabiliti
+@@ -243,11 +1526,25 @@ void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabiliti
  bool InputStreamFFmpegDirect::GetStreamIds(std::vector<unsigned int>& ids)
  {
    Log(LOGLEVEL_DEBUG, "GetStreamIds()");
@@ -1370,7 +1348,7 @@ index 17ebfe2..53114fd 100644
    return m_stream->GetStream(streamid, info);
  }
  
-@@ -263,27 +1582,271 @@ bool InputStreamFFmpegDirect::OpenStream(int streamid)
+@@ -263,27 +1560,271 @@ bool InputStreamFFmpegDirect::OpenStream(int streamid)
  
  void InputStreamFFmpegDirect::DemuxReset()
  {
@@ -1644,7 +1622,7 @@ index 17ebfe2..53114fd 100644
  }
  
  void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
-@@ -301,11 +1864,15 @@ void InputStreamFFmpegDirect::SetVideoResolution(unsigned int width, unsigned in
+@@ -301,71 +1842,109 @@ void InputStreamFFmpegDirect::SetVideoResolution(unsigned int width, unsigned in
  
  int InputStreamFFmpegDirect::GetTotalTime()
  {
@@ -1660,7 +1638,12 @@ index 17ebfe2..53114fd 100644
    return m_stream->GetTime();
  }
  
-@@ -316,56 +1883,93 @@ bool InputStreamFFmpegDirect::GetTimes(kodi::addon::InputstreamTimes& times)
+ bool InputStreamFFmpegDirect::GetTimes(kodi::addon::InputstreamTimes& times)
+ {
++  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
++    return false; // Live timeshift window fields are updated by another thread.
+   return m_stream->GetTimes(times);
+ }
  
  bool InputStreamFFmpegDirect::PosTime(int ms)
  {
@@ -1738,12 +1721,7 @@ index 17ebfe2..53114fd 100644
  int64_t InputStreamFFmpegDirect::LengthStream()
  {
 +  if (m_ownedSourceOwnershipTransferred.load() && m_ownedHlsFixture)
-+  {
-+    kodi::addon::InputstreamTimes times;
-+    if (GetTimes(times) && times.GetPtsEnd() >= times.GetPtsBegin())
-+      return static_cast<int64_t>(times.GetPtsEnd() - times.GetPtsBegin());
-+    return -1;
-+  }
++    return -1; // Unknown for the live host timeline; avoid unsynchronized window reads.
    return m_stream->LengthStream();
  }
  
@@ -1755,7 +1733,7 @@ index 17ebfe2..53114fd 100644
  }
  
 diff --git a/src/StreamManager.h b/src/StreamManager.h
-index 4b3dea6..42f0913 100644
+index 4b3dea6..5c19214 100644
 --- a/src/StreamManager.h
 +++ b/src/StreamManager.h
 @@ -12,6 +12,15 @@
@@ -1774,7 +1752,7 @@ index 4b3dea6..42f0913 100644
  #include <string>
  
  #include <kodi/addon-instance/Inputstream.h>
-@@ -84,6 +93,91 @@ public:
+@@ -84,6 +93,89 @@ public:
  protected:
  
  private:
@@ -1826,8 +1804,6 @@ index 4b3dea6..42f0913 100644
 +  size_t m_ownedQueuedFrames{0};
 +  uint64_t m_ownedTotalDecodedFrames{0};
 +  size_t m_ownedSyntheticFrames{0};
-+  std::chrono::steady_clock::time_point m_ownedHostNextDeadline{};
-+  bool m_ownedHostDeadlineValid{false};
 +  double m_ownedHostNextPts{0.0};
 +  bool m_ownedHostPtsValid{false};
 +  uint64_t m_ownedHostOutputFrames{0};

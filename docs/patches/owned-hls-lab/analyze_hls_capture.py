@@ -7,9 +7,23 @@ use a fixed .73+n second grid and each buffer's actual Mach timestamp.
 """
 from pathlib import Path
 from control_context import add_control_context
-import argparse,bisect,collections,json,subprocess
+import argparse,bisect,collections,json,math,subprocess
 import numpy as np
 RATE=48000;WIDTH=1920
+
+def clock_candidate(row,reasons):
+ delay=row.get('audioengine_delay_s')
+ if not isinstance(delay,(int,float)) or isinstance(delay,bool) or not math.isfinite(delay):
+  reasons.append('invalid_clock_delay');return None
+ return row['accepted_adddata_frames']/RATE-delay
+
+def strict_json(value,**kwargs):
+ def clean(item):
+  if isinstance(item,float) and not math.isfinite(item):return None
+  if isinstance(item,dict):return {key:clean(val) for key,val in item.items()}
+  if isinstance(item,(list,tuple)):return [clean(val) for val in item]
+  return item
+ return json.dumps(clean(value),allow_nan=False,**kwargs)
 
 def direct(x,y):
  xx=float(x@x);yy=float(y@y)
@@ -104,11 +118,12 @@ def main():
   seen.add(ri);row=clock[ri];qs=row['delay_query_start_steady_ns'];qe=row['delay_query_end_steady_ns'];query_host=row['mach_absolute_ns']+((qs+qe)//2-row['steady_ns']);cf=host_frame(query_host);seg=find_segment(cf);reasons=[]
   if not seg or cf/RATE-seg['span']['start']<.2 or seg['span']['end']-cf/RATE<.2:reasons.append('transition_or_quiet')
   if not row['playback_started'] or row['failed'] or row['drained'] or row['control_state'] not in ['play','resume']:reasons.append('renderer_state')
-  entry={'grid_capture_seconds':float(target),'ledger_row':ri,'query_host_ns':query_host,'query_interval_ns':qe-qs,'capture_frame_from_actual_buffer_timestamp':cf,'control_state':row['control_state'],'accepted_frames':row['accepted_adddata_frames'],'delay_seconds':row['audioengine_delay_s'],'cache_seconds':row['cache_time_s'],'candidate_seconds':row['accepted_adddata_frames']/RATE-row['audioengine_delay_s'],'reasons':reasons,'channels':[]}
+  candidate=clock_candidate(row,reasons)
+  entry={'grid_capture_seconds':float(target),'ledger_row':ri,'query_host_ns':query_host,'query_interval_ns':qe-qs,'capture_frame_from_actual_buffer_timestamp':cf,'control_state':row['control_state'],'accepted_frames':row['accepted_adddata_frames'],'delay_seconds':row.get('audioengine_delay_s'),'cache_seconds':row['cache_time_s'],'candidate_seconds':candidate,'reasons':reasons,'channels':[]}
   if seg and seg['span']['start']+.02<cf/RATE<seg['span']['end']-.02:
    for ch in range(2):
     value=capture_match(cf,ch,seg)
-    if value:entry['channels'].append(dict(value,channel=ch,error_ms=(entry['candidate_seconds']-value['source_center_sample']/RATE)*1000))
+    if value:entry['channels'].append(dict(value,channel=ch,error_ms=(candidate-value['source_center_sample']/RATE)*1000 if candidate is not None else None))
    if len(entry['channels'])!=2 or any(x['correlation']<.99 for x in entry['channels']):reasons.append('waveform_correlation_under_099')
    if len(entry['channels'])==2 and abs(entry['channels'][0]['source_center_sample']-entry['channels'][1]['source_center_sample'])>1:reasons.append('stereo_mapping_disagreement')
   else:reasons.append('no_waveform_window')
@@ -120,5 +135,5 @@ def main():
  pts_residuals=[{'packet':x['packet_index'],'residual_us':x['source_pts']-x['decoded_frame_start']/RATE*1e6} for x in packets if x.get('source_pts') is not None and abs(x['source_pts']-x['decoded_frame_start']/RATE*1e6)>.1]
  report={'kind':'independent_unique_hls_audio_clock','mapping_proven':False,'capture':str(p),'reference_pcm':str(args.reference_pcm),'reference_frames':len(ref),'captured_frames':len(audio),'timing':{'errors':sorted(set(errors)),'reported_discontinuities':m['discontinuities'],'max_frame_grid_residual_ns':max(abs(int(t)-first-int(f)*1e9/RATE) for t,f in zip(ht,fo)),'lookup':'actual per-buffer host_pts_ns plus in-buffer sample position'},'rms_spans':spans,'segments':segments,'prefix_tail':ends,'internal_quiet_gaps':gaps,'clock':{'formula':'accepted_adddata_frames/48000 - audioengine_delay_s','threshold_ms':args.threshold_ms,'no_offset_fit':True,'alignment':'Full-reference waveform anchors independent of tested clock; local waveform matching uses only those anchors.','heldout_grid':'0.73+n seconds; nearest telemetry row evaluated at delay-query midpoint, no temporal clock interpolation','qualification':'>=200ms from audio transitions, playback_started, play/resume, not failed/drained, both waveform correlations>=.99 and stereo source positions agree within1sample','qualified_samples':len(qualified),'attempted_samples':len(heldout),'error_range_ms':[min(err),max(err)] if err else None,'violation_count':len(viol),'gate_passed':bool(qualified) and not viol,'excluded_reasons':dict(collections.Counter(r for x in heldout if not x['qualified'] for r in x['reasons'])),'samples':heldout},'native_ledger':{'packets':len(packets),'decoded_frames':cursor,'range_issues':packetissues,'last_clock':clock[-1],'source_pts_residuals':pts_residuals},'limits':['Overall audio acceptance fails if any uncommanded quiet gaps exist, independent of steady clock gate.','Process-tap acquisition timing is not physical speaker audibility; GetDelay includes downstream/device latency. No fitted constant removes a domain offset.','RMS edges use5ms bins; small source-edge residuals include filter/quantization uncertainty and are not exact omitted/repeated frame counts.','Matched qualified clock intervals do not prove paused, stalled, startup, drain or general-platform clock behavior.','First/last20ms and dense40ms waveform matches establish bounded source identity; they are not bit-exact output proof.']}
  add_control_context(report,p,args.callbacks)
- q=p/'hls-audio-clock-analysis.json';q.write_text(json.dumps(report,indent=2)+'\n');summary={k:report[k] for k in ['captured_frames','timing']};summary.update(internal_quiet_gaps=len(gaps),clock={k:v for k,v in report['clock'].items() if k!='samples'},prefix_tail=ends);(p/'hls-audio-clock-summary.txt').write_text(json.dumps(summary,indent=2)+'\n');print('SUMMARY',json.dumps(summary),flush=True);print(q)
+ q=p/'hls-audio-clock-analysis.json';q.write_text(strict_json(report,indent=2)+'\n');summary={k:report[k] for k in ['captured_frames','timing']};summary.update(internal_quiet_gaps=len(gaps),clock={k:v for k,v in report['clock'].items() if k!='samples'},prefix_tail=ends);(p/'hls-audio-clock-summary.txt').write_text(strict_json(summary,indent=2)+'\n');print('SUMMARY',strict_json(summary),flush=True);print(q)
 if __name__=='__main__':main()

@@ -32,3 +32,7 @@ or release acceptance result.
 
 The plan `docs/superpowers/plans/2026-10-27-kodi-pause-boundary.md` records binary
 identities, captured evidence, review findings and the restoration procedure.
+
+Monitor startup clears a stale stop sentinel and rotates the previous callback
+ledger before writing fresh readiness. Start only after the previous monitor
+has exited; the helpers still require one monitor session at a time.
