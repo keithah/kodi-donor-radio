@@ -18,7 +18,21 @@ def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+def normalized(value):
+    # Match strict runtime JSON emission while retaining the original bytes hash.
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: normalized(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [normalized(item) for item in value]
+    return value
+
+
 def query_time(row):
+    fields = ('mach_absolute_ns', 'delay_query_start_steady_ns', 'delay_query_end_steady_ns', 'steady_ns')
+    if any(type(row.get(field)) is not int for field in fields):
+        return None
     return row['mach_absolute_ns'] + (row['delay_query_start_steady_ns'] + row['delay_query_end_steady_ns']) // 2 - row['steady_ns']
 
 
@@ -36,7 +50,7 @@ def runtime_reasons(record, launch):
         invalid.append('invalid_runtime_timing')
     elif received-query > FRESH_NS or evaluated-query > FRESH_NS:
         invalid.append('query_freshness')
-    if type(query) is not int or query < launch['launch_ns']:
+    if type(query) is int and query < launch['launch_ns']:
         invalid.append('before_launch')
     return list(dict.fromkeys(invalid))
 
@@ -77,11 +91,15 @@ def evaluate(analysis, native_lines, runtime_rows):
             raise ValueError('runtime native ledger line missing or out of range')
         index = line - 1
         row, digest = native[index]
-        if row.get('kind') != 'clock_sample' or record.get('input') != row or identity.get('row_sha256') != digest:
+        if row.get('kind') != 'clock_sample' or normalized(record.get('input')) != normalized(row) or identity.get('row_sha256') != digest:
             raise ValueError('runtime native row identity mismatch')
         if index in recorded:
             raise ValueError('duplicate runtime native query row')
-        if record.get('query_host_ns') != query_time(row):
+        schema_invalid = (record.get('valid') is False and
+                          'invalid_schema' in (record.get('reasons') or []))
+        if record.get('query_host_ns') is None and schema_invalid:
+            pass  # Preserve unusable native inputs as invalid evidence, never a clock point.
+        elif record.get('query_host_ns') != query_time(row) or query_time(row) is None:
             raise ValueError('runtime query timestamp mismatch')
         recorded[index] = record
     samples = []
@@ -96,7 +114,7 @@ def evaluate(analysis, native_lines, runtime_rows):
         seen.add(ordinal)
         index = clocks[ordinal]
         native_row = native[index][0]
-        if point['query_host_ns'] != query_time(native_row):
+        if query_time(native_row) is None or point['query_host_ns'] != query_time(native_row):
             raise ValueError('analyzer query timestamp mismatch')
         channels = point['channels']
         if len(channels) != 2 or any(not finite(c.get('source_center_sample')) for c in channels):
@@ -108,7 +126,7 @@ def evaluate(analysis, native_lines, runtime_rows):
             invalid = runtime_reasons(record, launch)
             seconds = estimate.get('seconds')
             received, evaluated = record.get('received_ns'), record.get('evaluated_ns')
-            if type(received) is int and type(evaluated) is int:
+            if type(record.get('query_host_ns')) is int and type(received) is int and type(evaluated) is int:
                 result['query_to_receive_ms'] = (received-point['query_host_ns']) / 1e6
                 result['query_to_evaluate_ms'] = (evaluated-point['query_host_ns']) / 1e6
             result.update(status='invalid' if invalid else 'valid', reasons=list(dict.fromkeys(invalid)), seconds=seconds if finite(seconds) else None)
@@ -124,7 +142,7 @@ def evaluate(analysis, native_lines, runtime_rows):
     all_reasons = Counter(r for record in all_records for r in runtime_reasons(record, launch))
     all_valid = sum(not runtime_reasons(record, launch) for record in all_records)
     def ages(field):
-        values = [(r[field]-r['query_host_ns']) / 1e6 for r in all_records if type(r.get(field)) is int]
+        values = [(r[field]-r['query_host_ns']) / 1e6 for r in all_records if type(r.get(field)) is int and type(r.get('query_host_ns')) is int]
         return dict(min=min(values), max=max(values)) if values else dict(min=None, max=None)
     return dict(kind='independent_recorded_runtime_clock_evaluation', mapping_proven=False,
                 comparison='Exact native clock ordinal, line bytes hash and query midpoint; recorded runtime estimates only; no estimator replay or fitted offset.',

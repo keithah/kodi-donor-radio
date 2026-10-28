@@ -105,6 +105,39 @@ class RuntimeEvaluationTests(unittest.TestCase):
         self.assertEqual(result['all_runtime_rows'],dict(total=1,valid=1,invalid=0,invalid_reasons={}))
         self.assertEqual(result['age_ms']['query_to_receive'],dict(min=10,max=10))
 
+    def test_actual_invalid_schema_outputs_survive_strict_emission(self):
+        from runtime_clock import RuntimeClockSession
+        for missing_timestamp in (False, True):
+            report, lines, runtime = fixture()
+            row = json.loads(lines[1])
+            row.update(accepted_adddata_frames=48000, audioengine_delay_s=float('nan'),
+                       source_epoch=0, control_state='play', playback_started=True,
+                       failed=False, drained=False)
+            if missing_timestamp:
+                del row['mach_absolute_ns']
+                report['clock']['samples'][0]['qualified'] = False
+            lines[1] = json.dumps(row).encode()+b'\n'
+            session = RuntimeClockSession(EXPECTED_URL, 900_000_000, now_ns=lambda: 1_010_000_000)
+            session.control('play', 900_000_001)
+            identity = dict(ledger_line=2, row_sha256=hashlib.sha256(lines[1].rstrip(b'\n')).hexdigest())
+            actual = session.ingest(row, identity=identity)
+            self.assertIsNone(actual['query_host_ns'])
+            self.assertIn('invalid_schema', actual['reasons'])
+            emitted = json.loads(session.module.strict_json(actual))
+            runtime[0] = emitted
+            runtime[1].update(launch_id=session.launch_id, launch_ns=session.launch_ns)
+            result = evaluate(report, lines, runtime)
+            self.assertEqual(result['all_runtime_rows']['invalid'], 1)
+            self.assertIn('invalid_schema', result['all_runtime_rows']['invalid_reasons'])
+            self.assertEqual(result['age_ms']['query_to_receive'], dict(min=None, max=None))
+            self.assertFalse(result['gate_passed'])
+            if not missing_timestamp:
+                self.assertEqual(result['runtime_invalid'], 1)
+                self.assertIsNone(result['samples'][0]['query_to_receive_ms'])
+            # Normalization cannot bypass byte-level identity checks.
+            runtime[0]['identity']['row_sha256'] = 'bad'
+            with self.assertRaises(ValueError): evaluate(report, lines, runtime)
+
     def test_threshold_both_channels(self):
         report,lines,runtime=fixture()
         report['clock']['samples'][0]['channels'][1]['source_center_sample']=48000+1025
