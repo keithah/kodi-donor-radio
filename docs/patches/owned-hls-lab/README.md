@@ -109,3 +109,38 @@ measurements passed. The first attempt's recording stopped early on a transient
 identity-validation failure while Kodi remained alive and is not a full pass.
 See the raw-AAC capture report under `docs/superpowers/reports/` for identities,
 measurements and limits. No runtime mapper or production tracking is enabled.
+
+## Bounded runtime clock diagnostic
+
+Install `monitor.py`, its sibling `runtime_clock.py`, and the byte-identical
+`clock-candidate-v2/estimator.py` under the fixed owned-renderer directory. The
+loader verifies frozen SHA256 `7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87`.
+Start the monitor before launching the exact loopback route. Archive or remove
+the previous native ledger before monitor launch: a nonempty preexisting ledger
+fails closed. A new native file created between monitor readiness and AVStarted
+is accepted, but pre-callback observations cannot acquire eligibility.
+
+The 20 ms loop pins the fresh ledger's device/inode, consumes all complete rows
+without sampling, and rejects replacement, truncation, malformed JSON, lines
+above 16 KiB or unread batches above 256 KiB. Its separate runtime ledger is
+bounded to 80,000 records. Original native evidence is untouched; callback and
+runtime ledgers rotate on monitor startup. Partial final lines wait for newline.
+The reader's line number counts every native row, including non-clock events.
+Each runtime input records that identity, SHA256 of the exact native line,
+full native input, query/receive/evaluation timestamps, frozen estimate, and
+wrapper validity/reasons. Snapshot transition records expose callback and
+freshness invalidation. Compare these written estimates against captured audio;
+replaying the estimator afterward does not establish runtime performance.
+
+Query age must be between zero and 100 ms in the macOS Mach nanosecond domain
+shared by native `mach_absolute_ns` and Python `time.monotonic_ns`. No snapshot
+extrapolation occurs. Pause revokes synchronously; resume clears acquisition and
+requires nine observations after its callback with native play/resume
+state. Stale rows remain in the evidence and reach the frozen estimator, but
+clear acquisition before a later row can qualify. Epoch/counter changes, route
+mismatch, stop, seek, non-unit speed and native failure/drain retire the launch.
+
+This bridge does not authenticate native incarnation, native control revision,
+output device generation, or underlying sink-statistic age. Local line identity
+is reader evidence only. It does not prove physical speaker timing or production
+transport ownership. Production success beacons remain disabled.

@@ -1,0 +1,45 @@
+# Owned HLS runtime clock implementation plan
+
+> **For agentic workers:** Use superpowers:subagent-driven-development. Continue the user's approved clock work without a new approval loop.
+
+**Goal:** Evaluate the frozen clock during actual controlled playback, with a per-launch owner and explicit revocation, then compare the emitted results with captured audio.
+
+**Architecture:** The lab monitor owns one clock session and a bounded reader of the native telemetry file created after launch. It feeds every complete native clock observation to the unchanged V2 estimator. This is a diagnostic integration, not a production Session or beacon integration: the existing native ledger lacks authenticated incarnation and control acknowledgment.
+
+**Tech stack:** Python 3.8+, existing Kodi callbacks, unchanged native addon and Kodi core, frozen signed recorder.
+
+**Spec:** Existing approved `2026-10-27-owned-hls-clock.md` requirements, extended by this bounded runtime design.
+
+## Global constraints
+
+- Normal Kodi pause; no source seeks, flushes, replay or Kodi core changes.
+- Frozen V2 estimator and constants remain byte-identical.
+- Exact controlled loopback URL only. Production success beacons remain disabled.
+- Keep all recordings and reports, including failures. Never rebuild/resign recorder.
+- Clear Steward and CodeRabbit before pushing PR #4.
+
+## Review focus
+
+- Old, replaced, truncated or oversized telemetry cannot resurrect eligibility.
+- Pause callback revokes immediately; buffered pre-resume observations cannot qualify resume.
+- Invalid/missing/NaN fields and stale/future query timestamps fail closed.
+- Epoch changes, counter rewinds, stop and route changes permanently retire the launch.
+- Processing a batch must preserve all estimator observations while publishing only fresh results.
+
+### Task 1: Runtime session and monitor bridge
+
+Files: create `docs/patches/owned-hls-lab/runtime_clock.py` and `test_runtime_clock.py`; modify `monitor.py` and lab README only.
+
+Interfaces: RuntimeClockSession owns a frozen Estimator, a random launch ID, launch monotonic timestamp and exact selected URL. A bounded native-ledger reader records file device/inode on first fresh open, rejects preexisting nonempty files, replacement/truncation, and excessive line/batch size. Monitor writes a separate bounded `runtime-clock.jsonl` containing input row identity, query timestamp, receive/evaluation timestamps, frozen estimate and wrapper validity/reasons. No production mapper or tracker changes.
+
+- [x] Write failing tests for acquisition, frozen finite-row equivalence, pause immediate revocation, resume nine-row reacquisition, stale/future observations (100 ms freshness), invalid schema, epoch change/counter rewind, stop/route mismatch, partial lines, replacement/truncation and reader bounds.
+- [x] Implement strict schema around immutable dynamically loaded V2 module with verified SHA256 `7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87`. Reject nonfinite/bool numeric fields before estimator. Native query and Python monotonic clock share this macOS run's Mach domain; reject future or more than 100 ms old midpoint. Never extrapolate a snapshot.
+- [x] Process all complete clock rows; callbacks invalidate synchronously under a lock. Resume clears acquisition and requires row query timestamps after callback, plus play/resume native state. Terminal changes retire session. Sample loop at 20 ms, bounded IO, ledger writer separate from original telemetry. Preserve original control-file callback behavior and callback ledger.
+- [ ] Tests pass and independent task review clears. Commit changes; do not push.
+
+### Task 2: Captured runtime validation and final review
+
+- [ ] Reinstall unchanged native binary and diagnostic monitor into isolated test profile, preserving originals. Capture raw AAC/fMP4 with four normal pauses, including 20 seconds beyond rolling window, same buffered setting.
+- [ ] Archive native/runtime ledgers, callbacks, fixture requests and capture. Restore profile/files and quit test Kodi.
+- [ ] Compare contemporaneously emitted estimator points against independent source waveform, report invalid intervals and freshness/processing age. Frozen offline equivalence is a regression check, not a substitute for runtime result. Require existing 21.333 ms bound on qualified points and no detected gaps/replay in capture. Preserve failure and fix before claiming pass.
+- [ ] Run applicable tests, Steward exact-head primary/adversarial review and CodeRabbit. Resolve findings, then push to PR #4 and update evidence/remaining production boundary.
