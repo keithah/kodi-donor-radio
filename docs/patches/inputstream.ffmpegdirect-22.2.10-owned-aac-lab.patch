@@ -1,5 +1,5 @@
 diff --git a/src/StreamManager.cpp b/src/StreamManager.cpp
-index 17ebfe2..86d416d 100644
+index 17ebfe2..eef5449 100644
 --- a/src/StreamManager.cpp
 +++ b/src/StreamManager.cpp
 @@ -6,6 +6,12 @@
@@ -560,7 +560,7 @@ index 17ebfe2..86d416d 100644
  }
  
  void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabilities &caps)
-@@ -278,12 +799,120 @@ void InputStreamFFmpegDirect::DemuxFlush()
+@@ -278,12 +799,126 @@ void InputStreamFFmpegDirect::DemuxFlush()
  
  DEMUX_PACKET* InputStreamFFmpegDirect::DemuxRead()
  {
@@ -627,7 +627,10 @@ index 17ebfe2..86d416d 100644
 +    return nullptr;
 +  }
 +  if (!m_ownedRendererActive.load())
-+    return packet;
++  {
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
 +
 +  size_t sourceOffset = 0;
 +  size_t sourceFrameCount = 0;
@@ -654,7 +657,10 @@ index 17ebfe2..86d416d 100644
 +
 +  std::lock_guard<std::mutex> lock(m_ownedMutex);
 +  if (m_silenceAdtsFrame.empty())
-+    return packet;
++  {
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
 +  for (size_t frame = 0; frame < sourceFrameCount; ++frame)
 +    std::memcpy(packet->pData + frame * m_silenceAdtsFrame.size(), m_silenceAdtsFrame.data(),
 +                m_silenceAdtsFrame.size());

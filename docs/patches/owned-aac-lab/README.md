@@ -36,3 +36,5 @@ identities, captured evidence, review findings and the restoration procedure.
 Monitor startup clears a stale stop sentinel and rotates the previous callback
 ledger before writing fresh readiness. Start only after the previous monitor
 has exited; the helpers still require one monitor session at a time.
+
+Post-capture review hardened two inactive/empty-silence fallback branches to free the source packet and stop instead of returning audible programme data. The historical capture binary predates this defensive edit; it is not represented as a fresh AAC capture. The HLS continuation is a separate alternative patch.

@@ -16,7 +16,8 @@ configuration. Its only replaced archive member is the rebuilt `hls.o`.
 
 ## Fix and evidence
 
-`artifacts/ffmpeg-9.0.2-hls-recovery.patch` modifies only `libavformat/hls.c`:
+[`../../ffmpeg-9.0.2-hls-recovery.patch`](../../ffmpeg-9.0.2-hls-recovery.patch)
+(preserved as `artifacts/ffmpeg-9.0.2-hls-recovery.patch` in the external evidence folder) modifies only `libavformat/hls.c`:
 
 1. Count and enforce playlist holds only while the exact next sequence remains
    unavailable. Reset the hold state when that sequence becomes available.

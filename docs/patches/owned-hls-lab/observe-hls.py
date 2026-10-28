@@ -22,6 +22,23 @@ assert lib.mach_timebase_info(ctypes.byref(timebase)) == 0
 def host_ns():
     return lib.mach_absolute_time() * timebase.numer // timebase.denom
 
+def save_observation(capture, report, port):
+    # Preserve the completed timeline even if Kodi or the fixture has exited.
+    output = capture / 'kodi-clock-observation.json'
+    output.write_text(json.dumps(report, indent=2)+'\n')
+    try:
+        active = rpc('Player.GetActivePlayers', port=port)
+        if active:
+            rpc('Player.Stop', {'playerid':active[0]['playerid']}, port=port)
+    except (OSError, RuntimeError) as error:
+        report['stop_error'] = type(error).__name__
+    try:
+        with urlopen('http://127.0.0.1:18789/stats', timeout=3) as response:
+            report['fixture'] = json.load(response)
+    except (OSError, ValueError) as error:
+        report['fixture'] = {'error': type(error).__name__}
+    output.write_text(json.dumps(report, indent=2)+'\n')
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--output-root', type=Path, required=True)
@@ -124,11 +141,7 @@ def main():
             sample = {'error':type(error).__name__, 'response_host_ns':host_ns()}
         report['timeline'].append(sample)
         time.sleep(.1)
-    active = rpc('Player.GetActivePlayers', port=args.port)
-    if active:
-        rpc('Player.Stop', {'playerid':active[0]['playerid']}, port=args.port)
-    report['fixture'] = json.load(urlopen('http://127.0.0.1:18789/stats', timeout=3))
-    (capture / 'kodi-clock-observation.json').write_text(json.dumps(report, indent=2)+'\n')
+    save_observation(capture, report, args.port)
     print(json.dumps({'capture':str(capture), 'samples':len(report['timeline']),
                       'beacons':report['fixture'].get('beacons', {})}))
 
