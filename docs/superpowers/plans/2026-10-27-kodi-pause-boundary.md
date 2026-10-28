@@ -407,3 +407,75 @@ radio entry point and inputstream manifest were restored byte-for-byte to the
 saved originals, and both opt-in markers were removed. Native experiment
 sources, build outputs and captures remain preserved under the evidence root;
 no lab renderer is installed into the production addon.
+
+### Actual AAC decoding replaces the predecoded shortcut
+
+The selected lab renderer now decodes the incoming ADTS AAC packets with its
+own FFmpeg decoder and retains decoded stereo frames in a bounded ring. The
+old PCM file was renamed out of the expected path before testing; no native
+PCM-file read remains. Initial Seek(0) resets the decoder before AVStarted
+allows feeding. The host receives silent AAC packets until the programme
+queue has drained, then receives EOF. Source cursor accounting advances only
+by the frame count accepted by the public audio API.
+
+Independent review found and corrected three defects before the final run:
+opted-in setup failure now rejects playback instead of silently falling back
+to the original programme; the startup timeout depends on a worker-local armed
+deadline; and shared drain state is atomic. A missing-silence-asset regression
+first reproduced ordinary playback on the bad version, then verified rejection
+and an idle player on the corrected version. No new blocker was found in the
+final review of those fixes.
+
+Selected binary SHA-256:
+`a04d7cfc17daccb7a40fb050dddc2c1a64fe0b061745f1ee6484c449f878c730`.
+Final capture is `owned-renderer/capture-final/` under the native repair
+root, suffix `AD2E3CA2-FE8A-446E-A592-6BE531BFF541`. The structured report is
+`docs/superpowers/reports/kodi-owned-aac-pause-2026-10-27.json`.
+The decoded and accepted counts both equal 1,541,120 frames. Accepted cursors
+remain identical across each pause/resume pair. Both channels preserve the
+opening 20 ms (correlation >= 0.999999985), all measured 1 ms seam windows,
+and final 20 ms (>= 0.999974). All 1,589 settled windows per channel correlate
+>= 0.995456. The 2,786,304 captured frames have no timing discontinuities.
+Native drain and natural playback end occur before observer cleanup. Three
+fresh Stop/reopen cycles reach idle in 0.428–0.436 seconds, including paused
+Stop. The missing-asset rejection also passes on this exact binary.
+
+These results support controlled source continuity, not literal single-sample
+speaker identity or absolute-clock qualification. Pause still has a material
+0.61–0.73 second audible tail, and resumed audio starts about 0.14–0.17 seconds
+after Resume. The native pause callback and already queued engine audio are
+part of that delay. Production success beacons remain disabled/unqualified.
+
+A public GetCacheTime-based 100 ms prefeed-cap experiment was rejected: it
+introduced extra 70 ms and 25 ms quiet intervals before the second requested
+pause, with continuous capture timing. A shorter tail does not justify those
+interruptions. Its source, binary and failed capture are preserved externally;
+the selected source was restored exactly to the A04 manifest. Do not use the
+cache-cap build or describe its source-count ledger as proof of gapless output.
+
+The durable lab patch
+`docs/patches/inputstream.ffmpegdirect-22.2.10-owned-aac-lab.patch` applies
+after the realtime and startup/EOF candidates. It is limited to the exact
+loopback fixture and explicit marker files; it is not enabled or installed by
+the shipped addon. Matching diagnostic scripts are under
+`docs/patches/owned-aac-lab/`. The patch chain was applied to a clean upstream
+archive, its resulting files matched the frozen source, and reversing it
+restored the previous candidate. General HLS/ICY integration, session-specific
+control, later seeking, format/device changes and clock mapping remain work
+before this can become a release path.
+
+The isolated app and range server were stopped again after these tests. Its
+installed binary, manifest and Python entry point were restored byte-for-byte,
+and opt-in markers removed. No Kodi core changes were made.
+
+### Review gate status
+
+The first CodeRabbit working-tree review returned no findings. Its subsequent
+exact-commit review of `d9e1ccc` returned one major finding: persistent live-HLS
+EOF may require reader reinitialization. The same-reader retry exists in the
+upstream baseline; this finite-source patch adds backoff and opt-in termination,
+not HLS recovery. No untested reopen was added because it could replay or skip
+source media. The automatic gate is therefore not claimed passed. The Steward
+manifest for that commit covers the entire release branch; candidate-specific
+reviews and manifest readiness are not a completed full-branch Steward pass.
+This work must not be merged or released on the strength of these lab results.

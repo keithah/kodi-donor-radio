@@ -50,3 +50,17 @@ Neither this patch nor the unit test establishes billable playback evidence;
 startup, extended-window, pause/seek, and starvation capture acceptance is a
 separate gate. Stock FFmpegDirect retains the startup limitation until an
 upstream fix is accepted and released.
+
+## Owned AAC renderer lab patch (LAB ONLY)
+
+`inputstream.ffmpegdirect-22.2.10-owned-aac-lab.patch` applies after the
+realtime-override and timeshift-startup-eof patches above. It is a preserved
+diagnostic artifact, not production activation: it has no Kodi core changes,
+is not installed by the radio add-on, and requires the exact loopback fixture
+URL plus two explicit local marker files. The path accepts controlled AAC-LC
+48 kHz stereo only, decodes the actual AAC packets into a bounded 64-second
+PCM ring, and uses the Python monitor to exercise Kodi's normal pause/resume;
+it does not read a predecoded PCM file. The matching diagnostic scripts and operating limits are preserved in
+`owned-aac-lab/`. The exact source snapshot and hash manifest remain alongside
+the local capture evidence in `owned-renderer/decoder-source-final-a04d/`.
+Playback remains a lab experiment and does not imply production readiness.
