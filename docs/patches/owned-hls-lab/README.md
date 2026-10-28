@@ -178,3 +178,12 @@ manifest did not forward terminal_eof. The corrected run passed 129 points and
 natural EOF, but recorded one unrequested 512-frame Darwin sink underrun.
 Neither run is complete no-gap release acceptance. Production beacons remain
 disabled, and authenticated native session ownership is still future work.
+
+The external capture observer accepts `--poll-interval` from 0.1 to 5 seconds
+(default 0.1). Use `--poll-interval 1.0` to reduce routine status observation
+to roughly 1 Hz while investigating instrumentation overhead. Pause scheduling
+still checks wall deadlines every 100 ms and keeps all four original pause
+cycles; it makes no action-status calls before an action's deadline. This is a
+bounded instrumentation hypothesis, not evidence that polling caused a captured
+audio gap or that reducing it fixes continuity. Runtime native-clock acquisition
+remains unchanged.
