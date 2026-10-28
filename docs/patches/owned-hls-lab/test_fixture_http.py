@@ -27,8 +27,9 @@ class FragmentedFixtureHttpTests(unittest.TestCase):
             with socket.socket() as sock:
                 sock.bind(('127.0.0.1', 0))
                 port = sock.getsockname()[1]
+            repo_root = Path(__file__).resolve().parents[3]
             process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('serve_fixture.py')),
-                                        '--root', str(root), '--port', str(port)],
+                                        '--root', str(root), '--port', str(port), '--repo', str(repo_root)],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             base = 'http://127.0.0.1:%d' % port
             try:

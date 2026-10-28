@@ -95,9 +95,17 @@ Serve the generated root with `serve_fixture.py --root /path/to/new-fmp4-fixture
 The exact loopback URL remains unchanged for the native lab opt-in. The server
 emits a fixed EXT-X-MAP for init.mp4, serves its byte ranges, and retains the
 same sample-based rolling window. Initialization requests do not start the
-playlist clock. See RFC8216 sections3.3 and4.3.2.5 for initialization-map framing.
+playlist clock. See RFC 8216 sections 3.3 and 4.3.2.5 for initialization-map framing.
 
 Native telemetry must report `raw_aac` for this test; file extensions alone do
 not establish decoder-path coverage. General fMP4 edit lists, skip samples,
 changing initialization segments and codec changes remain outside qualification.
 The frozen estimator and native binary are unchanged for this format comparison.
+
+The final raw-AAC retry used the unchanged reviewed native binary and buffered
+profile. It preserved the complete source through four normal pauses and natural
+EOF, with no detected extra gaps or replay; all 132 qualified offline-clock
+measurements passed. The first attempt's recording stopped early on a transient
+identity-validation failure while Kodi remained alive and is not a full pass.
+See the raw-AAC capture report under `docs/superpowers/reports/` for identities,
+measurements and limits. No runtime mapper or production tracking is enabled.

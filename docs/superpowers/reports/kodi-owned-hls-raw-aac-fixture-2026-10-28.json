@@ -1,0 +1,11 @@
+{
+  "status": "pass",
+  "source_payload_hashes_matched_in_order": 8439,
+  "segment_count": 91,
+  "segment_packet_total": 8439,
+  "decoded_frames": 8641536,
+  "decoded_pcm_sha256": "0b7f508c5534424c42d7b70231e664f208cb48bd0934d166b5949f5549c16524",
+  "decoded_pcm_byte_identical_to_served_ts_reference": true,
+  "trim_side_data_packets": 0,
+  "metadata_identity": "beb8dbb1d70f935688c04d428d361bdf90cca0fc1d7bd82ac62bfeda81b98d03"
+}

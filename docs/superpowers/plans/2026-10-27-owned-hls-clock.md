@@ -150,3 +150,13 @@ routes. Do not alter the frozen estimator or native implementation merely to
 make the new capture pass. Reuse the normal four-pause capture schedule, verify
 that native telemetry actually selected raw AAC, and preserve any format/priming
 or startup failure rather than broadening production eligibility.
+
+The unchanged reviewed native binary also completed the raw-AAC/fMP4 capture.
+Its ledger records all 8,439 packets as raw_aac. Full source, four normal pauses
+and natural EOF were captured without detected extra gaps or repeated blocks;
+the frozen estimator retained all 132 qualified points within the same error
+threshold. The first attempt failed the recorder's identity check at 78 seconds
+while Kodi remained alive, so it is retained as incomplete capture evidence.
+Neither run expands trim/edit-list, changing-init, low-latency or production
+tracking support. The next integration boundary is a session-owned runtime clock
+with explicit uncertainty/revocation; the estimator remains offline today.

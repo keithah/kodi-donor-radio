@@ -1,0 +1,190 @@
+{
+  "result": "bounded_clean_raw_AAC_fMP4_HLS_audio_and_offline_clock_retry",
+  "mapping_proven": false,
+  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-raw-aac-validation/capture-retry/Kodi-2026-10-28T08-52-14Z-FB52BC6C-9D1F-4881-9451-11B999818ED6",
+  "native_sha256": "38d3f58bacbd4cd43332e46e65852f6907e6c3ad41366d8d4a8c8ed5733c37e9",
+  "unchanged_kodi_core_sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752",
+  "profile_condition": {
+    "audiooutput.lowlatency": false,
+    "scope": "isolated portable profile",
+    "original_value": true,
+    "restored_readback": true
+  },
+  "original_installed_addon_files_restored": true,
+  "capture_frames": 11046400,
+  "capture_discontinuities": 0,
+  "source_frames": 8641536,
+  "source_seconds": 180.032,
+  "source_packets": 8439,
+  "native_packet_formats": {
+    "raw_aac": 8439
+  },
+  "native_pts_ticks_per_second": {
+    "1000000": 8439
+  },
+  "native_pts_vs_decoded_seconds_range": [
+    -2.842170943040401e-14,
+    2.842170943040401e-14
+  ],
+  "container_timebase": [
+    1,
+    48000
+  ],
+  "fixture_ASC_bytes": 2,
+  "fixture_skip_discard_side_data_packets": 0,
+  "fixture_initial_padding": 0,
+  "reference_f32_sha256": "0b7f508c5534424c42d7b70231e664f208cb48bd0934d166b5949f5549c16524",
+  "native_decoded_equals_accepted_equals_reference": true,
+  "source_ended": true,
+  "drained": true,
+  "native_failed": false,
+  "prefix_20ms_min_correlation": 0.99999509992633,
+  "tail_20ms_min_correlation": 0.9971726681660729,
+  "dense_windows_per_channel": 8979,
+  "dense_min_correlation": 0.9775725969918319,
+  "source_offset_drift_within_span_max_samples": 1,
+  "full_05ms_per_channel_extra_quiet_intervals": 0,
+  "pause_split_tails": 0,
+  "pause_latencies": [
+    {
+      "cycle": 0,
+      "quiet_seconds": [
+        9.971,
+        10.5145
+      ],
+      "pause_edge_latency_ms": [
+        645.251375,
+        646.943875
+      ],
+      "resume_edge_latency_ms": [
+        107.697542,
+        109.767084
+      ]
+    },
+    {
+      "cycle": 1,
+      "quiet_seconds": [
+        47.07,
+        49.501
+      ],
+      "pause_edge_latency_ms": [
+        707.216292,
+        709.841917
+      ],
+      "resume_edge_latency_ms": [
+        126.584542,
+        128.284959
+      ]
+    },
+    {
+      "cycle": 2,
+      "quiet_seconds": [
+        92.0725,
+        111.5595
+      ],
+      "pause_edge_latency_ms": [
+        693.217042,
+        697.709375
+      ],
+      "resume_edge_latency_ms": [
+        154.58525,
+        156.30725
+      ]
+    },
+    {
+      "cycle": 3,
+      "quiet_seconds": [
+        162.035,
+        164.5515
+      ],
+      "pause_edge_latency_ms": [
+        657.256792,
+        661.103709
+      ],
+      "resume_edge_latency_ms": [
+        140.902667,
+        142.8415
+      ]
+    }
+  ],
+  "edge_resolution_ms": 0.5,
+  "source_union_1ms_gain_range": [
+    0.9294036143904804,
+    1.0315704383532716
+  ],
+  "raw_clock": {
+    "qualified_samples": 132,
+    "error_range_ms": [
+      -13.81110340022218,
+      3.252275096571111
+    ],
+    "violation_count": 0
+  },
+  "frozen_v2_clock": {
+    "all_original_qualified": {
+      "points": 132,
+      "error_range_ms": [
+        -7.217376148645371,
+        1.6104795997620158
+      ],
+      "violations": 0
+    },
+    "valid_original_qualified": {
+      "points": 132,
+      "error_range_ms": [
+        -7.217376148645371,
+        1.6104795997620158
+      ],
+      "violations": 0
+    },
+    "invalid_original_qualified": []
+  },
+  "frozen_v2_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
+  "v1_v2_exact_equivalent_finite_rows": 10343,
+  "clock_capture128_seconds_onward": {
+    "points": 52,
+    "range_ms": [
+      -7.064272148639361,
+      1.6104795997620158
+    ]
+  },
+  "live_window_retention": {
+    "segments_ingested_during_long_pause": [
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54
+    ],
+    "playlist_first_sequences_near_resume": [
+      49,
+      50
+    ],
+    "resumed_source_center_s": 85.31091666666667
+  },
+  "natural_idle_observed_capture_seconds": [
+    211.088982916,
+    211.088987458
+  ],
+  "observer_explicit_stop_action": false,
+  "sink_underflow_or_underrun_lines_within_retry": 0,
+  "other_log_sink_events_excluded_by_timestamp": 4,
+  "earlier_attempt": {
+    "result": "capture helper failed identity check after78.037333 seconds; Kodi exit not established",
+    "full_audio_clock_acceptance": false,
+    "later_first_run_sink_events_not_captured": true,
+    "evidence": "../capture-first/capture-failure-summary.json"
+  },
+  "limits": [
+    "One controlled AAC-LC48k stereo fMP4 HLS fixture, unchanged native build and buffered profile; not general stream/device support.",
+    "The fixture has two-byte ASC, zero initial padding, no skip/discard packet side data and a decoded reference identical to served TS; other MP4 priming/edit-list semantics remain untested.",
+    "No measured source omission/replay; dense40ms and seam1ms matching with0.5ms silence scans do not establish bit-exact single-sample equivalence.",
+    "Clock results are qualified steady process capture only; startup, pause tails, acquisition, drain and device changes remain uncertain.",
+    "No fitted intercept or excluded qualified point; no physical speaker timing or production beacon claim."
+  ]
+}

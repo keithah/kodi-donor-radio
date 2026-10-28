@@ -1,17 +1,19 @@
 # Monetization follow-on roadmap
 
-The branch now implements controlled loopback-only VAST audio preparation,
-preroll, HLS midroll replacement and fixture success beacons on the embedded
-Python relay. General Radio Browser playback remains outside ad insertion. The
-fixture-only sample-zero Kodi clock mapping remains unproven against decoded
-presentation position. A successful master run verified the no-replay startup
-gate, the normal-scenario fixture beacons, and zero success beacons in the
-expired-window, mutation, and stall scenarios before the playback-speed guard
-was added. Two later clean launches of the speed-guard package blocked during
-Kodi USB peripheral initialization before addon execution. Stall jumps taint placements
-whose playback interval is ambiguous. Audible output is unverified, so
-the VAST/HLS work is not production-ready. The remaining stages below require
-controlled acceptance evidence before expanding demand or station coverage.
+The branch implements Radio Browser discovery and controlled loopback-only VAST
+preparation, preroll, HLS midroll replacement and guarded fixture tracking.
+General Radio Browser playback remains outside ad insertion.
+
+The separate native inputstream lab has captured a complete 180.032-second HLS
+programme through four normal Kodi pauses without detected gaps or replay in the
+tested buffered profile. Its frozen offline clock estimator passed all 171
+qualified measurements. The raw player/delay clock, low-latency mode, startup and
+pause-tail timing remain unqualified. The native lab is preserved as optional
+source patches; it is not installed or required by the shipped Python addon.
+No production success beacons are enabled from this evidence. See
+`docs/superpowers/reports/kodi-owned-hls-final-capture-2026-10-28.txt` for the exact
+build, captured scope and remaining limits. Earlier USB/startup/stall failures
+remain historical evidence rather than the current acceptance status.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
 that is a project assumption rather than independently verified repository
@@ -28,9 +30,10 @@ production demand, settle consent inputs, creative expiry/reuse, contractual
 tracking semantics, and any broader VAST requirements. Do not expand advertising
 origins or enable production success beacons until the Kodi clock mapping passes.
 
-Remaining evidence: launch the post-speed-guard package on Kodi master, then
-correlate Kodi time to decoded media across moving HLS windows and both ad
-discontinuities. Verify seek/reset/ambiguous-jump behavior and heard output
+Remaining evidence: connect a qualified live source clock to the actual addon
+playback session, then correlate ad placement and tracking across moving HLS
+windows and both ad discontinuities. The offline native lab estimator does not
+yet provide that runtime contract. Verify seek/reset/ambiguous-jump behavior and heard output
 separately. Existing deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
 malformed input and incompatible media. Fetching or caching a creative must never
 count as an impression. Stop/cancel must not emit completion, and retries must
