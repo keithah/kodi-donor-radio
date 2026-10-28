@@ -80,3 +80,24 @@ metadata immediately; the normal buffer seek-to-zero remains available. Thread
 launch failures return through cleanup. Ordinary Timeshift startup is unchanged.
 The failed attempt contains no programme audio and its stale shared telemetry
 was explicitly excluded; it is not a clock or playback pass.
+
+## Raw AAC in fragmented MP4
+
+`generate_fmp4_fixture.py --source-root /path/to/validated-ts-fixture --root
+/path/to/new-fmp4-fixture` copy-muxes the existing AAC access units without
+re-encoding. Run it with developer FFmpeg/FFprobe installed. It refuses a
+nonempty output directory and publishes staged assets only after checking every
+fragment's packet hashes, PTS/DTS/duration, absence of trimming metadata and
+byte-identical decoded PCM. Source and output paths are diagnostic data; these
+tools are not installed in the radio addon.
+
+Serve the generated root with `serve_fixture.py --root /path/to/new-fmp4-fixture`.
+The exact loopback URL remains unchanged for the native lab opt-in. The server
+emits a fixed EXT-X-MAP for init.mp4, serves its byte ranges, and retains the
+same sample-based rolling window. Initialization requests do not start the
+playlist clock. See RFC8216 sections3.3 and4.3.2.5 for initialization-map framing.
+
+Native telemetry must report `raw_aac` for this test; file extensions alone do
+not establish decoder-path coverage. General fMP4 edit lists, skip samples,
+changing initialization segments and codec changes remain outside qualification.
+The frozen estimator and native binary are unchanged for this format comparison.

@@ -18,6 +18,10 @@ DEFAULT_REPO=Path('/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio')
 class RollingTimeline:
     def __init__(self, metadata):
         self.rate=metadata['sample_rate'];self.segments=metadata['segments'];self.anchor=None
+        self.init_segment=metadata.get('init_segment')
+        if self.init_segment is not None and self.init_segment!='init.mp4':raise ValueError('Unsupported initialization asset')
+        extension='m4s' if self.init_segment else 'ts'
+        if any(s['filename']!='segment%03d.%s'%(i,extension) for i,s in enumerate(self.segments)):raise ValueError('Unexpected segment asset')
         self.ends=[s['end_sample'] for s in self.segments]
         if self.rate!=48000 or not 1<=len(self.segments)<=128:raise ValueError('Unsupported bounded fixture')
         previous=0
@@ -37,7 +41,7 @@ class RollingTimeline:
         first=max(0,count-6);visible=[]
         for s in self.segments[first:count]:
             visible.append(dict(s,program_date_time_ns=(anchor['source_zero_utc_ns_numerator']+s['start_sample']*1_000_000_000)//self.rate))
-        return {'started':self.anchor is not None,'sample_rate':self.rate,'anchor':anchor if self.anchor else None,'first_sequence':first,'published_count':count,'endlist':count==len(self.segments),'media_elapsed_samples':media_samples,'segments':visible}
+        return {'init_segment':self.init_segment,'started':self.anchor is not None,'sample_rate':self.rate,'anchor':anchor if self.anchor else None,'first_sequence':first,'published_count':count,'endlist':count==len(self.segments),'media_elapsed_samples':media_samples,'segments':visible}
 
 def pdt(ns):
     seconds,nanos=divmod(ns,1_000_000_000)
@@ -46,7 +50,8 @@ def pdt(ns):
 def render_playlist(snapshot):
     rate=snapshot['sample_rate'];segs=snapshot['segments']
     target=max(1,math.ceil(max(s['samples'] for s in segs)/rate))
-    lines=['#EXTM3U','#EXT-X-VERSION:3','#EXT-X-TARGETDURATION:%d'%target,'#EXT-X-MEDIA-SEQUENCE:%d'%snapshot['first_sequence']]
+    lines=['#EXTM3U','#EXT-X-VERSION:%d'%(7 if snapshot.get('init_segment') else 3),'#EXT-X-TARGETDURATION:%d'%target,'#EXT-X-MEDIA-SEQUENCE:%d'%snapshot['first_sequence']]
+    if snapshot.get('init_segment'):lines.append('#EXT-X-MAP:URI="%s"'%snapshot['init_segment'])
     for s in segs:
         lines.extend(['#EXT-X-PROGRAM-DATE-TIME:'+pdt(s['program_date_time_ns']),'#EXTINF:%.9f,'%(s['samples']/rate),s['filename']])
     if snapshot['endlist']:lines.append('#EXT-X-ENDLIST')
@@ -59,12 +64,13 @@ def main():
     from ad_fixture_server import make_tracking_clock
     now,clock=make_tracking_clock()
     lock=threading.RLock();timeline=RollingTimeline(metadata);requests=Counter();ledger=deque(maxlen=2048);run_id=str(uuid.uuid4());asset_map={s['filename']:s for s in metadata['segments']}
-    if not all((assets/name).is_file() for name in asset_map):raise ValueError('Generated TS assets are missing')
+    required_assets=list(asset_map)+([timeline.init_segment] if timeline.init_segment else [])
+    if not all((assets/name).is_file() for name in required_assets):raise ValueError('Generated fixture assets are missing')
     log_path=root/'requests.jsonl'
     def write_event(row):
         with log_path.open('a') as f:f.write(json.dumps(dict(row,run_id=run_id),sort_keys=True)+'\n')
     def persist_state():
-        state={'run_id':run_id,'clock':clock,'anchor':timeline.anchor,'metadata_identity':metadata['metadata_identity'],'source_first_pts':metadata['first_pts'],'pts_timebase':[1,90000],'sample_rate':48000}
+        state={'run_id':run_id,'clock':clock,'anchor':timeline.anchor,'metadata_identity':metadata['metadata_identity'],'source_first_pts':metadata['first_pts'],'pts_timebase':metadata.get('pts_timebase',[1,90000]),'sample_rate':48000}
         temporary=root/'server-state.json.tmp';temporary.write_text(json.dumps(state,indent=2)+'\n');os.replace(temporary,root/'server-state.json')
     def clock_pair():
         before=now();utc=time.time_ns();after=now();return (before+after)//2,utc,(after-before+1)//2
@@ -89,12 +95,14 @@ def main():
                     before=timeline.anchor;s=timeline.snapshot(host,utc,activate=not head,uncertainty_ns=uncertainty)
                     if before is None and timeline.anchor is not None:write_event({'event':'clock_started','host_ns':host,'anchor':timeline.anchor});persist_state()
                     body=render_playlist(s).encode();mime='application/vnd.apple.mpegurl'
-                elif re.fullmatch(r'/live/segment\d{3}\.ts',route) and route.rsplit('/',1)[1] in asset_map:
-                    name=route.rsplit('/',1)[1];sequence=asset_map[name]['sequence'];body=(assets/name).read_bytes();mime='video/mp2t'
+                elif route=='/live/init.mp4' and timeline.init_segment:
+                    body=(assets/timeline.init_segment).read_bytes();mime='audio/mp4'
+                elif re.fullmatch(r'/live/segment\d{3}\.(?:ts|m4s)',route) and route.rsplit('/',1)[1] in asset_map:
+                    name=route.rsplit('/',1)[1];sequence=asset_map[name]['sequence'];body=(assets/name).read_bytes();mime='audio/mp4' if timeline.init_segment else 'video/mp2t'
                 else:status=404;route='other';body=b'Not found\n';mime='text/plain'
                 if route not in ['/stats','/reset']:
                     s=timeline.snapshot(host,utc);row={'event':'request','method':'HEAD' if head else 'GET','route':route,'status':status,'host_ns':host,'first_sequence':s['first_sequence'],'published_count':s['published_count'],'endlist':s['endlist'],'sequence':sequence,'expired':sequence is not None and sequence<s['first_sequence']}
-            if mime=='video/mp2t' and self.headers.get('Range'):
+            if mime in ('video/mp2t','audio/mp4') and self.headers.get('Range'):
                 match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers['Range'])
                 if match:
                     start=int(match.group(1));end=min(int(match.group(2)) if match.group(2) else len(body)-1,len(body)-1)

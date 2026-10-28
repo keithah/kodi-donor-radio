@@ -129,3 +129,24 @@ Audio still fails: a roughly 10.667 ms source delay near capture second 78 and
 a split late manual-pause tail need resolution. The unchanged candidate is
 being repeated with the corrected four-pause schedule. No addon PR push is
 permitted until the requested acceptance and both review gates clear.
+
+## Reviewed TS baseline completed; raw-AAC coverage next
+
+The final reviewed native build `38d3f58` passed the 180.032-second controlled
+MPEG-TS capture with four normal pauses, retained audio beyond the visible HLS
+window and natural EOF. Independent waveform checks detected no extra gaps or
+repeated source blocks. The frozen offline estimator retained all 171 qualified
+points within the predeclared threshold. This requires the isolated buffered
+profile (`audiooutput.lowlatency=false`); it does not qualify low-latency mode,
+physical speaker timing, pause tails or production success beacons. Evidence
+and review are preserved in PR #4 at `c82d2ac`.
+
+Continue the already planned raw-AAC validation by copy-muxing the same unique
+AAC access units into fragmented MP4. Verify packet payload/order and decode the
+actual served initialization segment/fragments for an independent reference.
+Extend only the loopback fixture server with a fixed initialization-map asset,
+retain the six-segment timing/window contract, and test both old TS and new MP4
+routes. Do not alter the frozen estimator or native implementation merely to
+make the new capture pass. Reuse the normal four-pause capture schedule, verify
+that native telemetry actually selected raw AAC, and preserve any format/priming
+or startup failure rather than broadening production eligibility.

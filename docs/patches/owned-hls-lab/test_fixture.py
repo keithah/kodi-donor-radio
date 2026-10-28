@@ -13,6 +13,26 @@ class RollingFixtureTests(unittest.TestCase):
             segs.append({'sequence':i,'filename':'segment%03d.ts'%i,'start_sample':start,'end_sample':end,'samples':end-start})
             start=end
         return RollingTimeline({'sample_rate':48000,'segments':segs})
+    def test_fragmented_mp4_keeps_init_map_when_window_retires(self):
+        original=self.make()
+        metadata={'sample_rate':48000,'segments':[dict(segment,filename=segment['filename'].replace('.ts','.m4s')) for segment in original.segments],'init_segment':'init.mp4'}
+        timeline=RollingTimeline(metadata)
+        timeline.snapshot(100_000_000_000,1_800_000_000_000_000_000,True)
+        playlist=render_playlist(timeline.snapshot(111_989_333_334,0))
+        self.assertIn('#EXT-X-VERSION:7\n',playlist)
+        self.assertEqual(playlist.count('#EXT-X-MAP:URI="init.mp4"'),1)
+        self.assertIn('#EXT-X-MEDIA-SEQUENCE:1\n',playlist)
+        self.assertIn('segment001.m4s',playlist)
+        self.assertNotIn('segment000.m4s',playlist)
+
+    def test_fixture_rejects_unsafe_or_inconsistent_init_assets(self):
+        original=self.make()
+        for name in ['../init.mp4','https://example.com/init.mp4','bad".mp4','init.ts']:
+            with self.subTest(name=name),self.assertRaises(ValueError):
+                RollingTimeline({'sample_rate':48000,'segments':original.segments,'init_segment':name})
+        with self.assertRaises(ValueError):
+            RollingTimeline({'sample_rate':48000,'segments':original.segments,'init_segment':'init.mp4'})
+
     def test_head_does_not_start_clock_and_first_get_publishes_only_zero(self):
         t=self.make(); h=t.snapshot(100_000_000_000,1_800_000_000_000_000_000,activate=False)
         self.assertFalse(h['started']); self.assertIsNone(t.anchor)
