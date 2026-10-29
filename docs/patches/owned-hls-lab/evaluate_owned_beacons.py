@@ -21,7 +21,7 @@ FRACTIONS=dict(zip(EVENTS,(0,0,.25,.5,.75,1)))
 # Accounting bounds only; these never extend clock or beacon freshness.
 SHUTDOWN_TAIL_MAX_ROWS=64
 SHUTDOWN_TAIL_MAX_NS=3_000_000_000
-MATCHER_VERSION='owned-fractional-sinc96-v1'
+MATCHER_VERSION='owned-fractional-sinc96-v2'
 MATCHER_METHOD=dict(version=MATCHER_VERSION,heldout_frames=1920,training_frames=2400,
                     training_separation_frames=2400,sinc_taps=96,sinc_window='normalized_Blackman',
                     phase_bound_samples=[-1,1],coarse_phase_step_samples=.05,fine_phase_step_samples=.005,
@@ -342,7 +342,9 @@ class CaptureMatcher:
                 left=max(0,a-(96 if a>0 else 0));right=min(len(self.audio),b+(96 if b<len(self.audio) else 0))
                 pieces=[part for x,y in pieces for part in ((x,min(y,left)),(max(x,right),y)) if part[1]>part[0]]
             for cut in cuts:
-                pieces=[part for x,y in pieces for part in ((x,min(y,cut)),(max(x,cut),y)) if part[1]>part[0]]
+                # Guard the entire interpolation stencil, not just the nominal
+                # window: adjacent stored frames can be separated in host time.
+                pieces=[part for x,y in pieces for part in ((x,min(y,cut-96)),(max(x,cut+96),y)) if part[1]>part[0]]
             for lower,upper in pieces:
                 self.regions.append(dict(id=len(self.regions),segment=segment,lower=lower,upper=upper,
                                          prefix=onset is not None and lower==onset,
@@ -502,7 +504,7 @@ class CaptureMatcher:
 
 
 def evaluate(joined,matcher):
-    errors=list(joined['errors']);clock=[];events=[];callbacks=joined['callbacks']
+    errors=list(joined['errors']);clock=[];events=[];threshold_matches=[];callbacks=joined['callbacks']
     for snapshot in joined['qualified']:
         match=matcher.match(snapshot['query_host_ns'])
         result=dict(row_sequence=snapshot['row_sequence'],row_sha256=snapshot['row_sha256'],mapped_seconds=snapshot['seconds'],capture=match)
@@ -533,6 +535,9 @@ def evaluate(joined,matcher):
                 item['timing']=event_timing(event['threshold_seconds'],matched['source_seconds'],network)
                 try:
                     threshold_host=matcher.threshold_host(event['threshold_seconds'],matched)
+                    # Retain the independently rematched cached object: a later
+                    # audio query can revoke it through source-order evidence.
+                    threshold_matches.append(matcher.match(threshold_host))
                     delay=(decision['decision_ns']-threshold_host)/1e9
                     item['timing'].update(threshold_host_ns=threshold_host,threshold_to_decision_seconds=delay)
                     if delay < -TOLERANCE or delay>DECISION_BOUND:errors.append('event_decision_timing')
@@ -545,6 +550,15 @@ def evaluate(joined,matcher):
                 if decision['decision_ns']>=pause_ns or event['authorization']['authorization_ns']>=pause_ns:
                     errors.append('paused_ad_backfill')
         events.append(item)
+    # Source-order checks can revoke earlier cached qualifications while matching
+    # a later pause, event or threshold (including an undelivered decision).
+    # Derive the final gate from every required dependency after all matches.
+    if any(not row['capture']['qualified'] for row in clock):errors.append('qualified_clock_capture_uncertain')
+    if any(item['delivered'] and not item['capture_at_decision']['qualified'] for item in events):
+        errors.append('event_capture_uncertain')
+    if any(not point['qualified'] for point in threshold_matches):errors.append('event_threshold_uncertain')
+    if sum(p['capture']['qualified'] and b_start<=p['capture']['source_seconds']<b_end for p in paused)!=1:
+        errors.append('paused_ad_overlap_inconclusive')
     return dict(kind='independent_owned_beacon_audit',gate_passed=not errors,errors=sorted(set(errors)),
                 matcher_method=MATCHER_METHOD,estimator_replayed=False,clock_tolerance_seconds=TOLERANCE,decision_bound_seconds=DECISION_BOUND,
                 qualified_clock_points=len(clock),clock=clock,events=events,pauses=paused,native_accounting=joined['native_accounting'],

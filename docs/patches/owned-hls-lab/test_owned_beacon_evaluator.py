@@ -186,6 +186,66 @@ class OwnedEvaluatorTests(unittest.TestCase):
         self.assertEqual(len(e.expected_events(.25)),30)
 
 
+class FinalQualificationTests(unittest.TestCase):
+    def audit(self,target):
+        # Isolate the audit consumer while exercising the real source-order
+        # mutation. All required event, pause and threshold evidence starts valid.
+        first=32.768;clock_ns=1000000000;pause_ns=3000000000
+        sources={clock_ns:first,pause_ns:first};regions={clock_ns:clock_ns,pause_ns:pause_ns}
+        events=[];thresholds={}
+        for i,(creative,event) in enumerate(sorted(e.expected_events(first))):
+            lo,hi=e.PLACEMENTS[creative]
+            threshold=(lo+(hi-lo)*e.FRACTIONS[event])*1024/e.RATE
+            ns=2000000000+i*1000;threshold_ns=ns-100
+            sources[ns]=sources[threshold_ns]=threshold
+            regions[ns]=regions[threshold_ns]=ns;thresholds[ns]=threshold_ns
+            events.append(dict(creative=creative,event=event,delivered=True,decision=dict(decision_ns=ns),
+                authorization=dict(authorization_ns=ns+100),receipt=dict(receipt_mach_ns=ns+100),
+                threshold_seconds=threshold))
+        dependency={'clock':clock_ns,'pause':pause_ns,'decision':2000000000,'threshold':1999999900}.get(target)
+        cancel_ns=1999999950 if target=='threshold' else 4000000000
+        if dependency is not None:
+            sources[cancel_ns]=sources[dependency]-64/e.RATE;regions[cancel_ns]=regions[dependency]
+        events.append(dict(creative='b_paused',event='start',delivered=False,
+            decision=dict(decision_ns=cancel_ns),authorization=dict(authorization_ns=cancel_ns+1),
+            threshold_seconds=first))
+        class Matcher:
+            def __init__(self):self.source_order=[];self.cache={}
+            def match(self,ns):
+                if ns in self.cache:return self.cache[ns]
+                if ns not in sources:return dict(qualified=False,reason='waveform_correlation')
+                source=sources[ns]
+                point=dict(qualified=True,host_ns=ns,source_seconds=source,
+                    capture_frame=(ns-clock_ns)*e.RATE/1e9,region_id=regions[ns],
+                    channels=[dict(source_center_sample=source*e.RATE) for _ in range(2)])
+                e.CaptureMatcher._check_source_order(self,point);self.cache[ns]=point
+                return point
+            def threshold_host(self,threshold,decision):
+                ns=thresholds[decision['host_ns']]
+                if not self.match(ns)['qualified']:raise ValueError('threshold_pause_uncertainty')
+                return ns
+        joined=dict(errors=[],qualified=[dict(query_host_ns=clock_ns,row_sequence=1,row_sha256='test',seconds=first)],
+            events=events,callbacks=[dict(event='pause',issued_mach_ns=pause_ns)],native_accounting={},
+            http_receipts=[],tracking_decisions=[],authorizations=[])
+        return e.evaluate(joined,Matcher())
+    def test_canceled_decision_invalidating_required_clock_fails_final_gate(self):
+        result=self.audit('clock')
+        self.assertFalse(result['clock'][0]['capture']['qualified'])
+        self.assertIn('qualified_clock_capture_uncertain',result['errors'])
+        self.assertFalse(result['gate_passed'])
+    def test_late_invalidated_pause_decision_and_threshold_fail_final_gate(self):
+        for target,reason in (('pause','paused_ad_overlap_inconclusive'),
+                              ('decision','event_capture_uncertain'),('threshold','event_threshold_uncertain')):
+            with self.subTest(target=target):
+                result=self.audit(target)
+                self.assertIn(reason,result['errors'])
+                self.assertFalse(result['gate_passed'])
+    def test_uncertain_canceled_decision_alone_does_not_fail_required_evidence(self):
+        result=self.audit(None)
+        self.assertTrue(result['gate_passed'],result['errors'])
+        self.assertFalse(result['events'][-1]['capture_at_decision']['qualified'])
+
+
 class CapturePointTests(unittest.TestCase):
     def matcher(self):
         try:import numpy as np
@@ -304,6 +364,18 @@ class FractionalCaptureTests(unittest.TestCase):
         m=self.matcher();m.host[m.offset>=16384]+=10000000
         v=self.point(m,21000);self.assertTrue(v['qualified'],v)
         with self.assertRaises(ValueError):m.threshold_host(12000/e.RATE,v)
+    def test_recorder_cut_rejects_filter_edges_and_keeps_all_sinc_support_on_one_side(self):
+        m=self.matcher();cut=16384;m.host[m.offset>=cut]+=10000000
+        for frame in (cut-1,cut-46,cut-95,cut,cut+6,cut+46,cut+95):
+            with self.subTest(frame=frame):self.assertFalse(self.point(m,frame)['qualified'])
+        for frame in (cut-97,cut+97):
+            point=self.point(m,frame);self.assertTrue(point['qualified'],point)
+            for channel in point['channels']:
+                for start,stop in (channel['heldout_capture_frames'],channel['training']['capture_frames']):
+                    # Actual 96-tap support, including the final output frame.
+                    if frame<cut:self.assertLessEqual(stop+48,cut)
+                    else:self.assertGreaterEqual(start-47,cut)
+        with self.assertRaises(ValueError):m.threshold_host((cut-200-99.51)/e.RATE,point)
     def test_clock_metadata_cannot_select_alignment(self):
         m=self.matcher();v=self.point(m,14000)
         other=self.matcher();other.analysis['clock']={'seconds':-900,'accepted_frames':99999999,'threshold':999}

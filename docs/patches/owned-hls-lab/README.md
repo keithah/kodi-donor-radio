@@ -612,7 +612,8 @@ stereo positions must agree within one source sample. Gains are reported without
 fitting them. Recorded clock estimates never select a source window or phase.
 
 Per-channel 0.5 ms quiet bins, exact zeros and recorder timestamp gaps delimit
-regions. Interior quiet edges carry a 96-frame filter guard. Source bounds
+regions. Interior quiet edges and both sides of recorder timestamp cuts carry
+a 96-frame filter guard covering the full interpolation support. Source bounds
 prevent short/negative slices; unavailable windows produce structured
 uncertainty. Threshold times are independently rematched in the same region.
 The method does not interpolate across silence, stitch a source jump, change
@@ -630,4 +631,7 @@ match. This does not make an interior silent interval matchable. Cached matches
 also check source progress in capture-time order, allowing one sample of
 uncertainty. Contradictory later audio evidence invalidates both endpoints while
 retaining their numerical waveforms, regardless of which query was requested
-first. No global one-sample limit is imposed on gradual drift over a long span.
+first. The final gate revalidates every required clock, pause, delivered decision
+and threshold after all matching, including canceled decisions. An uncertain
+canceled decision alone does not fail the required evidence. No global
+one-sample limit is imposed on gradual drift over a long span.
