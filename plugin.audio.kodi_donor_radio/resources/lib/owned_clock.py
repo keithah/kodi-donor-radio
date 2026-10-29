@@ -599,7 +599,8 @@ class OwnedClockTransport:
             result = []
             for line in lines:
                 row = _json(line)
-                if row.get('kind')=='clock_sample' or row.get('kind','').startswith('hal_'):
+                kind=row.get('kind')
+                if kind=='clock_sample' or (isinstance(kind,str) and kind.startswith('hal_')):
                     result.append(provider.ingest(line))
             return tuple(result)
         except (OSError,ValueError,UnicodeError,RecursionError,OwnedTransportError) as exc:

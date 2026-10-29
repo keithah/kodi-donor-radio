@@ -222,6 +222,18 @@ def test_transport_pins_and_bounds(tmp_path,damage):
     tr.close()
 
 
+@pytest.mark.parametrize('kind',[None,False,1,{}])
+def test_transport_rejects_non_string_native_ledger_kind_without_attribute_error(tmp_path,kind):
+    b=binding();tr=clock.OwnedClockTransport.create(tmp_path,b)
+    p=clock.OwnedClockProvider(b,estimator_factory,lambda:BASE)
+    d=tmp_path/NONCE;ledger=d/'native.jsonl';hello_path=d/'hello.json'
+    ledger.write_text(json.dumps({'kind':kind})+'\n');ledger.chmod(0o600)
+    hello_path.write_text(json.dumps(hello()));hello_path.chmod(0o600)
+    assert tr.poll(p)==()
+    assert not p.retired
+    tr.close()
+
+
 def test_acknowledgment_gap_is_permanent():
     p,t=session(); p.control('pause',BASE+1); p.control('resume',BASE+2)
     r=row(0,revision=4,state='resume',issued=BASE+2,applied=BASE+3)

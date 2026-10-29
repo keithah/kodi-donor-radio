@@ -61,7 +61,11 @@ int main(int argc,char** argv){
   // benchmark intentionally contends five worker chains, so keep the fake
   // owner's polling cadence below one tenth of that ceiling rather than
   // manufacturing a stale fifth chain with a 5ms idle sleep.
-  std::this_thread::sleep_for(std::chrono::microseconds(mode=="benchmark"?200:200));
+  // Under the real pre-lock 20ms authorization deadline the fake owner must
+  // service its exact-next queue promptly even while control/gain polling is
+  // active.  This is still an ordinary polling owner, not a bypass of the
+  // serialized authorization slot.
+  std::this_thread::sleep_for(std::chrono::microseconds(mode=="benchmark"?50:200));
  }
  return 8;
 }

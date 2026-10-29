@@ -21,6 +21,7 @@ import time
 NONCE = 'a' * 32
 INCARNATION = 'b' * 32
 TIMELINE = 'c' * 64
+AUTHORIZATION_BUDGET_NS=20_000_000
 
 
 def mach_host_ns():
@@ -103,6 +104,12 @@ def validate_response(raw, expected):
     return response
 
 
+def require_slot_budget(slot_attempt_ns, slot_acquired_ns):
+    """Match the provider: request lifetime starts before the IO lock."""
+    if slot_acquired_ns-slot_attempt_ns>AUTHORIZATION_BUDGET_NS:
+        raise TimeoutError('benchmark_authorization_slot_timeout')
+
+
 def gain(revision):
     return dict(nonce=NONCE, incarnation=INCARNATION, timeline_sha256=TIMELINE,
                 output_backend='hal_callback_v1', hal_contract_version=1, device_generation=1,
@@ -179,7 +186,11 @@ def main():
             slot_attempt=mach_host_ns()
             with slot:
                 slot_acquired=mach_host_ns();number=next(sequence);started=mach_host_ns()
-                value=request(final,number,started,stage,event_digest=event_digest,parent=parent,
+                require_slot_budget(slot_attempt,slot_acquired)
+                # `probe()` starts its deadline before taking io_lock.  The
+                # benchmark must submit the same pre-slot request start rather
+                # than excluding genuine contention from the 20ms action gate.
+                value=request(final,number,slot_attempt,stage,event_digest=event_digest,parent=parent,
                               decision_ns=decision_ns,queue_ns=queue_ns)
                 write_private(authorization / ('request-%06d.json' % number),value)
                 response_path=authorization / ('response-%06d.json' % number)

@@ -58,6 +58,13 @@ def test_response_is_validated_before_an_action_timestamp_can_be_taken():
     else:raise AssertionError('mismatched reply accepted')
 
 
+def test_pre_slot_deadline_rejects_delayed_exact_next_authorization():
+    benchmark.require_slot_budget(100,100+benchmark.AUTHORIZATION_BUDGET_NS)
+    try:benchmark.require_slot_budget(100,101+benchmark.AUTHORIZATION_BUDGET_NS)
+    except TimeoutError as exc:assert str(exc)=='benchmark_authorization_slot_timeout'
+    else:raise AssertionError('pre-lock latency excluded from action budget')
+
+
 def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
     assert benchmark.gain(6000)['revision'] == 6000
     assert benchmark.gain(6000)['effective_epoch'] == 1
