@@ -13,7 +13,7 @@
   "estimator_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
   "source_pcm_sha256": "0b7f508c5534424c42d7b70231e664f208cb48bd0934d166b5949f5549c16524",
   "change": "Request USER_INITIATED QoS on the exact lab route's dedicated addon renderer thread; record setter and readback results. Other threads and process policies unchanged.",
-  "diagnosis": "Baseline gap follows a 56.081 ms renderer iteration, 55.846 ms spent in a requested 5 ms sleep. Local diagnostics are complete; measured locks and IO do not explain that interval. Audio remained queued and host supply also stalled, so this does not prove the addon feeder alone caused the downstream sink underrun.",
+  "diagnosis": "Baseline gap follows a 56.081 ms renderer iteration, 55.846 ms spent in a requested 5 ms sleep. All 33 diagnostic snapshots at capture 193.9-194.6 seconds were available with zero contention or long-event loss; the full baseline had 36 contention drops and one unavailable snapshot outside that window. Measured work stages in that neighborhood do not explain the sleep overshoot. Audio remained queued and host supply also stalled, so this does not prove the addon feeder alone caused the downstream sink underrun.",
   "result": "Same QoS addon binary completed two fresh 230-second recordings with no detected extra quiet intervals or skipped/replayed source blocks at the tested resolution. All 251 independently qualified recorded runtime estimates passed 21.333 ms tolerance. This supports a controlled responsiveness improvement, not universal causality or production qualification.",
   "runs": [
     {
@@ -99,7 +99,19 @@
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }
-      }
+      },
+      "gap_neighborhood_diagnostics": {
+        "capture_seconds": [
+          193.9,
+          194.6
+        ],
+        "snapshots": 33,
+        "unavailable_snapshots": 0,
+        "dropped_contention": 0,
+        "dropped_events": 0
+      },
+      "sink_warnings_scanned": true,
+      "sink_warnings_scope": "Playback window; startup before playback is excluded."
     },
     {
       "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-validation",
@@ -182,7 +194,9 @@
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }
-      }
+      },
+      "sink_warnings_scanned": true,
+      "sink_warnings_scope": "Playback window; startup before playback is excluded."
     },
     {
       "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-repeat-validation",
@@ -240,7 +254,7 @@
         "dropped_contention": 19,
         "dropped_events": 0
       },
-      "sink_warnings": null,
+      "sink_warnings": [],
       "evidence_sha256": {
         "capture/Kodi-2026-10-29T03-44-17Z-8CC16AF8-C0F0-4BE4-979F-B765F23BEEDB/capture.json": "7a4ffcf5a00792c8547d18e803d557a713e8174e8ce6f29c8316a782d88a0a82",
         "hls-clock-ledger.jsonl": "38977f1d7ac8e83293f383e0977842dc07adee106d2416a1d2cd79e1e8e856bb",
@@ -265,7 +279,9 @@
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }
-      }
+      },
+      "sink_warnings_scanned": true,
+      "sink_warnings_scope": "Playback window; startup before playback is excluded."
     }
   ],
   "tests": {

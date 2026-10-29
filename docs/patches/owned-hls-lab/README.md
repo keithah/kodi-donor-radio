@@ -248,10 +248,13 @@ I/O behavior remains; this change is not a real-time scheduling guarantee.
 
 The instrumented default-QoS baseline still captured one extra 512-frame output
 interruption. Immediately beforehand, a requested 5 ms feeder sleep took
-55.846 ms. Local measurements were complete and other measured work stages were
-short, but the owned AE cache remained populated and silent host delivery also
-stalled. This identifies a scheduling-related interval without proving that the
-addon feeder alone caused the sink underrun.
+55.846 ms. All 33 diagnostic snapshots in the gap neighborhood (capture
+193.9–194.6 seconds) were available with no contention or long-event loss.
+The full baseline had 36 contention drops and one unavailable snapshot outside
+that window. Measured work stages in the neighborhood did not explain the
+sleep overshoot, but the owned AE cache remained populated and silent host
+delivery also stalled. This identifies a scheduling-related interval without
+proving that the addon feeder alone caused the sink underrun.
 
 Two consecutive recordings with the same feeder-QoS addon binary then passed
 the controlled repeated-capture gate: the complete 180.032-second source, four
