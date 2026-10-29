@@ -243,3 +243,32 @@ is an experiment precondition, never proof of seamless output. The request ends
 with that thread. Compare captured output and operation brackets against the
 diagnostic baseline, retaining both results. The original shared-lock and file
 I/O behavior remains; this change is not a real-time scheduling guarantee.
+
+### Recorded scheduling comparison
+
+The instrumented default-QoS baseline still captured one extra 512-frame output
+interruption. Immediately beforehand, a requested 5 ms feeder sleep took
+55.846 ms. Local measurements were complete and other measured work stages were
+short, but the owned AE cache remained populated and silent host delivery also
+stalled. This identifies a scheduling-related interval without proving that the
+addon feeder alone caused the sink underrun.
+
+Two consecutive recordings with the same feeder-QoS addon binary then passed
+the controlled repeated-capture gate: the complete 180.032-second source, four
+normal pause/resume cycles, natural EOF, and no detected extra quiet intervals
+or skipped/repeated source blocks at the tested resolution. Independent waveform
+checks included the prefix, tail, every pause seam and dense overlapping windows
+in both channels. All 125 and 126 independently qualified recorded runtime-clock
+points passed the unchanged 21.333 ms tolerance, spanning -7.868 to +1.666 ms.
+Maximum feeder sleep overshoot was 19.476 and 21.711 ms versus 50.846 ms in the
+baseline. The independent audit confirmed native/runtime row identity and actual
+captured buffer timestamps; estimator replay is not the runtime evidence.
+
+See `../../superpowers/reports/kodi-owned-hls-stall-investigation-2026-10-28.json`
+for identities and archives. Kodi core and the signed recorder were unchanged;
+other jobs remained running. The original profile and installed addon files were
+restored. These results clear the controlled candidate's repeated-capture check,
+not arbitrary-load reliability or general-station/production mapping. Previous
+failed recordings remain preserved. Production beacons remain disabled for this
+path; authenticated native ownership and broader adapter qualification remain
+work for a later implementation.

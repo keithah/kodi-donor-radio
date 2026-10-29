@@ -1,0 +1,271 @@
+{
+  "kind": "owned_hls_addon_stall_investigation",
+  "date": "2026-10-28",
+  "baseline_commit": "c63f83d43ba92309a7adb0711e87aeca01e8f119",
+  "controlled_two_run_gate_passed": true,
+  "mapping_proven": false,
+  "production_beacons_enabled": false,
+  "kodi_core_changed": false,
+  "recorder_rebuilt": false,
+  "other_jobs_changed": false,
+  "core_sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752",
+  "recorder_sha256": "35eaed2cf477104f5459b5f0ac49c9bb1d0c9bd3361f075cc141e114854f9a58",
+  "estimator_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
+  "source_pcm_sha256": "0b7f508c5534424c42d7b70231e664f208cb48bd0934d166b5949f5549c16524",
+  "change": "Request USER_INITIATED QoS on the exact lab route's dedicated addon renderer thread; record setter and readback results. Other threads and process policies unchanged.",
+  "diagnosis": "Baseline gap follows a 56.081 ms renderer iteration, 55.846 ms spent in a requested 5 ms sleep. Local diagnostics are complete; measured locks and IO do not explain that interval. Audio remained queued and host supply also stalled, so this does not prove the addon feeder alone caused the downstream sink underrun.",
+  "result": "Same QoS addon binary completed two fresh 230-second recordings with no detected extra quiet intervals or skipped/replayed source blocks at the tested resolution. All 251 independently qualified recorded runtime estimates passed 21.333 ms tolerance. This supports a controlled responsiveness improvement, not universal causality or production qualification.",
+  "runs": [
+    {
+      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-stall-validation",
+      "capture": "Kodi-2026-10-29T03-27-15Z-CC53F813-6831-46A2-A963-23FD80F3F278",
+      "native_sha256": "f5cb90f48cbf60682580edf89182607d59f8e82e5feca870b741e1e2084540ed",
+      "captured_frames": 11043328,
+      "timestamp_discontinuities": 0,
+      "source_frames": 8641536,
+      "native_terminal": {
+        "source_ended": true,
+        "drained": true,
+        "failed": false,
+        "decoded_total_frames": 8641536,
+        "accepted_adddata_frames": 8641536,
+        "queued_pcm_frames": 0
+      },
+      "natural_idle": {
+        "capture_seconds": 211.534101208,
+        "playing": false,
+        "request_host_ns": 3886127991173500,
+        "response_host_ns": 3886127991177166
+      },
+      "normal_pause_resume_actions": 8,
+      "extra_output_gaps": 1,
+      "controlled_audio_checks_passed": false,
+      "runtime_clock": {
+        "qualified": 123,
+        "valid": 123,
+        "invalid": 0,
+        "missing": 0,
+        "violations": 0,
+        "error_range_ms": [
+          -7.424353815309814,
+          0.6969799331031368
+        ],
+        "gate_passed": true
+      },
+      "qos": [
+        {
+          "status": 0,
+          "qos_class": 21,
+          "relative_priority": 0
+        }
+      ],
+      "sleep_overshoot_max_ms": 50.845582,
+      "renderer_loop_max_ms": 56.081084,
+      "diagnostic_loss": {
+        "unavailable_snapshots": 1,
+        "dropped_contention": 36,
+        "dropped_events": 0
+      },
+      "sink_warnings": [
+        "2026-10-28 20:30:30.002 T:217223504 warning <general>: DARWINOSX: underflow (0 vs 4096 bytes)"
+      ],
+      "evidence_sha256": {
+        "capture/Kodi-2026-10-29T03-27-15Z-CC53F813-6831-46A2-A963-23FD80F3F278/capture.json": "14df35a1edbcf16c9fb4941fb86b674bbc48716444dcb5e378abaf5fc4e84542",
+        "hls-clock-ledger.jsonl": "79a4afed72ebebb35738b0aa1e01528c7d458fb83d519415aacddee6af8a57cc",
+        "runtime-clock.jsonl": "0bd332ddf1a0ed20c63d3df05f7b7ebb3422f00c6dee88f4bb4ef2ee72a1bcc6",
+        "runtime-clock-evaluation.json": "909e196a2c2185fc5190fa30d3b16f8e27507aa955b60698c040ba46a9126daf",
+        "runtime-audio-audit.json": "f3302e86a745b7f6d7110024e928da401b065c5c126d640abdf1144baa26fcc8",
+        "stall-summary.json": "72277997e33f0604e9e77c9eb68759ff30cb3423ea1de002d5bb76e4f6e87928"
+      },
+      "restoration": {
+        "default.py": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
+          "restored": true
+        },
+        "addon.xml": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
+          "restored": true
+        },
+        "native.dylib": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
+          "restored": true
+        }
+      }
+    },
+    {
+      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-validation",
+      "capture": "Kodi-2026-10-29T03-37-41Z-95ED0F29-F07B-4190-91FB-FEB05FF25E45",
+      "native_sha256": "37c0ce739be0bc621938999fd52cefcd56f17e601e2c709830dbd9fabb9b8254",
+      "captured_frames": 11048960,
+      "timestamp_discontinuities": 0,
+      "source_frames": 8641536,
+      "native_terminal": {
+        "source_ended": true,
+        "drained": true,
+        "failed": false,
+        "decoded_total_frames": 8641536,
+        "accepted_adddata_frames": 8641536,
+        "queued_pcm_frames": 0
+      },
+      "natural_idle": {
+        "capture_seconds": 210.630880625,
+        "playing": false,
+        "request_host_ns": 3886752720185666,
+        "response_host_ns": 3886752720189083
+      },
+      "normal_pause_resume_actions": 8,
+      "extra_output_gaps": 0,
+      "controlled_audio_checks_passed": true,
+      "runtime_clock": {
+        "qualified": 125,
+        "valid": 125,
+        "invalid": 0,
+        "missing": 0,
+        "violations": 0,
+        "error_range_ms": [
+          -7.651187400229631,
+          1.6663132664120894
+        ],
+        "gate_passed": true
+      },
+      "qos": [
+        {
+          "status": 0,
+          "qos_class": 25,
+          "relative_priority": 0
+        }
+      ],
+      "sleep_overshoot_max_ms": 19.475958,
+      "renderer_loop_max_ms": 30.6875,
+      "diagnostic_loss": {
+        "unavailable_snapshots": 0,
+        "dropped_contention": 23,
+        "dropped_events": 0
+      },
+      "sink_warnings": [],
+      "evidence_sha256": {
+        "capture/Kodi-2026-10-29T03-37-41Z-95ED0F29-F07B-4190-91FB-FEB05FF25E45/capture.json": "6e1a5709ef501722254084fffb245a3a2bed2c7b96241904d36e0890b4b20ebf",
+        "hls-clock-ledger.jsonl": "010aec5f14f5445cb1090bab37b71c551363bed7aba9b04b0fc2b47c7468903b",
+        "runtime-clock.jsonl": "9c77cbbc49b9fdf9e01bd76d5ce3a48024187bcaa12aaf71907553010e804909",
+        "runtime-clock-evaluation.json": "5043b9ed585ba8dd6a2ae0d3d75b06c80e8f099cb06d89137f6a06afc69f3106",
+        "runtime-audio-audit.json": "42e9923f5849486af5869672401ebd57c6043c5765225dc788aeb21fa1486b86",
+        "stall-summary.json": "5f18a805a2cda950352128db828e69aa7cca3866c79d9b7403ad951b9765ec94"
+      },
+      "restoration": {
+        "default.py": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
+          "restored": true
+        },
+        "addon.xml": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
+          "restored": true
+        },
+        "native.dylib": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
+          "restored": true
+        }
+      }
+    },
+    {
+      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-repeat-validation",
+      "capture": "Kodi-2026-10-29T03-44-17Z-8CC16AF8-C0F0-4BE4-979F-B765F23BEEDB",
+      "native_sha256": "37c0ce739be0bc621938999fd52cefcd56f17e601e2c709830dbd9fabb9b8254",
+      "captured_frames": 11049472,
+      "timestamp_discontinuities": 0,
+      "source_frames": 8641536,
+      "native_terminal": {
+        "source_ended": true,
+        "drained": true,
+        "failed": false,
+        "decoded_total_frames": 8641536,
+        "accepted_adddata_frames": 8641536,
+        "queued_pcm_frames": 0
+      },
+      "natural_idle": {
+        "capture_seconds": 211.051863375,
+        "playing": false,
+        "request_host_ns": 3887149540309166,
+        "response_host_ns": 3887149540313166
+      },
+      "normal_pause_resume_actions": 8,
+      "extra_output_gaps": 0,
+      "controlled_audio_checks_passed": true,
+      "runtime_clock": {
+        "qualified": 126,
+        "valid": 126,
+        "invalid": 0,
+        "missing": 0,
+        "violations": 0,
+        "error_range_ms": [
+          -7.8682104819449705,
+          1.217795014810008
+        ],
+        "gate_passed": true
+      },
+      "qos": [
+        {
+          "status": 0,
+          "qos_class": 25,
+          "relative_priority": 0
+        }
+      ],
+      "sleep_overshoot_max_ms": 21.71075,
+      "renderer_loop_max_ms": 28.140792,
+      "diagnostic_loss": {
+        "unavailable_snapshots": 0,
+        "dropped_contention": 19,
+        "dropped_events": 0
+      },
+      "sink_warnings": null,
+      "evidence_sha256": {
+        "capture/Kodi-2026-10-29T03-44-17Z-8CC16AF8-C0F0-4BE4-979F-B765F23BEEDB/capture.json": "7a4ffcf5a00792c8547d18e803d557a713e8174e8ce6f29c8316a782d88a0a82",
+        "hls-clock-ledger.jsonl": "38977f1d7ac8e83293f383e0977842dc07adee106d2416a1d2cd79e1e8e856bb",
+        "runtime-clock.jsonl": "15242afc20fa3913f34536407837debb318788c9b61c273e9b6f7a826307d05f",
+        "runtime-clock-evaluation.json": "34508bb9ddedd72b7b1fda300929f4429ada55cba73015dd88c16cc99d8228e3",
+        "runtime-audio-audit.json": "473fd58c4c7e067a2457e4cf4f009d2ed230fe1e1c4646d1af255202df3ba3d5",
+        "stall-summary.json": "05f77080baf9a2263c34ab1c5843d9d81186c4e192c7ee99f925a2c60cd6cf49"
+      },
+      "restoration": {
+        "default.py": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
+          "restored": true
+        },
+        "addon.xml": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
+          "restored": true
+        },
+        "native.dylib": {
+          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
+          "restored": true
+        }
+      }
+    }
+  ],
+  "tests": {
+    "focused_pytest_passed": 59,
+    "pytest_subtests_passed": 25,
+    "frozen_estimator_unittest_passed": 12,
+    "standalone_cpp14_aggregation": "passed",
+    "patch_reproduction": "both additive patches recreate exact built native source",
+    "native_builds": "diagnostic and QoS builds succeeded with XcodeBuildMCP"
+  },
+  "limits": [
+    "Controlled raw AAC/fMP4 HLS fixture only, with audiooutput.lowlatency=false.",
+    "Normal Kodi pause drains queued audio before quiet; the user-facing delay is not removed.",
+    "Source continuity was checked against independent captured waveforms; resampled output is not bit-identical source PCM.",
+    "Native ledger ownership lacks authenticated incarnation/control/output-device generation.",
+    "Startup/acquisition, pause tails, drain and physical speaker timing are not clock-qualified.",
+    "Earlier failures remain preserved; one baseline and two candidate runs do not prove arbitrary-load or general-station reliability.",
+    "Diagnostics perturb scheduling and report explicit loss; missing events cannot exclude a stall.",
+    "No native binary ships in the source-only radio addon package; these remain opt-in lab patches."
+  ]
+}

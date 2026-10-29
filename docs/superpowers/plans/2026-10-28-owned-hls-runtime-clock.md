@@ -41,7 +41,7 @@ Interfaces: RuntimeClockSession owns a frozen Estimator, a random launch ID, lau
 
 - [x] Reinstall unchanged native binary and diagnostic monitor into isolated test profile, preserving originals. Capture raw AAC/fMP4 with four normal pauses, including 20 seconds beyond rolling window, same buffered setting.
 - [x] Archive native/runtime ledgers, callbacks, fixture requests and capture. Restore profile/files and quit test Kodi.
-- [ ] Compare contemporaneously emitted estimator points against independent source waveform, report invalid intervals and freshness/processing age. Frozen offline equivalence is a regression check, not a substitute for runtime result. Require existing 21.333 ms bound on qualified points and no detected gaps/replay in capture. Preserve failure and fix before claiming pass.
+- [x] Compare contemporaneously emitted estimator points against independent source waveform, report invalid intervals and freshness/processing age. Frozen offline equivalence is a regression check, not a substitute for runtime result. Require existing 21.333 ms bound on qualified points and no detected gaps/replay in capture. Preserve failure and fix before claiming pass.
 - [ ] Run applicable tests, Steward exact-head primary/adversarial review and CodeRabbit. Resolve findings, then push to PR #4 and update evidence/remaining production boundary.
 
 ## Captured progress and unresolved acceptance
@@ -102,3 +102,19 @@ queue depths before choosing a fix. Durations include descheduling; a long sysca
 bracket is not proof of disk or lock causality. Missing diagnostics never prove
 absence of a stall. Retest any actual fix with the same normal pause schedule,
 source reference, natural EOF and frozen runtime clock; retain every failure.
+
+## Controlled scheduling candidate: repeated capture passed
+
+The diagnostic baseline localized a 56.081 ms feeder iteration almost entirely
+to sleep overshoot, with one captured 512-frame silence block. Shared-lock and
+file-write measurements did not explain that interval. The populated AE cache
+and simultaneous host delivery delay leave downstream scheduling as an important
+limit on causal attribution.
+
+The addon-only current-thread USER_INITIATED QoS candidate then completed two
+consecutive unchanged recordings with no extra quiet intervals, preserved source
+seams and natural EOF. All 251 independently qualified recorded runtime-clock
+points passed. The repeated controlled gate is now met; prior failures and all
+production/physical-output limits remain documented. See the stall-investigation
+report. Final Steward and CodeRabbit review follow the evidence commit before
+any push; production mapping and success beacons are not enabled by this result.
