@@ -89,6 +89,35 @@ def test_close_claims_slot_after_cancelling_queued_waiters(tmp_path):
     assert transport.fd is None
 
 
+def test_close_racing_probe_release_closes_authorization_descriptor(tmp_path,monkeypatch):
+    import json
+    p,now,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
+    release_entered=threading.Event();allow_release=threading.Event();proofs=[]
+    original_release=transport.slot.release
+    def paused_release(before=None):
+        release_entered.set()
+        assert allow_release.wait(1)
+        return original_release(before)
+    monkeypatch.setattr(transport.slot,'release',paused_release)
+    def responder():
+        path=transport.path/'request-000001.json';until=time.monotonic()+1
+        while not path.exists() and time.monotonic()<until:time.sleep(.0005)
+        raw=path.read_bytes();request=json.loads(raw)
+        response=response_for(request,request_sha256=auth.sha(raw))
+        name=transport.path/'response-000001.json';name.write_bytes(auth.canonical(response));name.chmod(0o600)
+    server=threading.Thread(target=responder);server.start()
+    probe=threading.Thread(target=lambda:proofs.append(transport.probe(
+        p.binding,ev,p.generation,'tracker',decision_id='e'*64,
+        lease_expiry_ns=now[0]+500_000_000)))
+    probe.start()
+    assert release_entered.wait(1)
+    transport.close()
+    allow_release.set()
+    probe.join(1);server.join(1)
+    assert not probe.is_alive() and proofs[0] is not None
+    assert transport.fd is None
+
+
 def prepared():
     from test_owned_hal_clock import setup,ready,query,raw
     p,now=setup();s=ready(p,now);ev=p.ingest(raw(query(10,s,qualified=True)))

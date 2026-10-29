@@ -1,9 +1,21 @@
 from pathlib import Path
 import sys
 import unittest
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from analyze_hls_capture import endpoint_anchors, heldout_clock_indices
+from analyze_hls_capture import endpoint_anchors, heldout_clock_indices, validate_capture_integrity
+
+
+def test_capture_integrity_checks_remain_explicit():
+    validate_capture_integrity({'status': 'completed', 'total_frames': 12}, 12)
+    with pytest.raises(ValueError, match='capture_not_completed'):
+        validate_capture_integrity({'status': 'failed', 'total_frames': 12}, 12)
+    for frames in (11, 13):
+        with pytest.raises(ValueError, match='capture_frame_count_mismatch'):
+            validate_capture_integrity({'status': 'completed', 'total_frames': 12}, frames)
+    with pytest.raises(ValueError, match='capture_frame_count_mismatch'):
+        validate_capture_integrity({'status': 'completed', 'total_frames': True}, 1)
 
 
 class EndpointAnchorTests(unittest.TestCase):

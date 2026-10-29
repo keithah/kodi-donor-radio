@@ -60,10 +60,20 @@ class FullReferenceMatcher:
    x=self.reference[::stride,ch].astype(float);size=1<<(len(x)+k-2).bit_length();cs=np.r_[0.,np.cumsum(x*x)];self.cache[ch]=(len(x),size,np.fft.rfft(x,size),np.maximum(cs[k:]-cs[:-k],1e-30))
   n,size,xf,e=self.cache[ch];dot=np.fft.irfft(xf*np.fft.rfft(t[::-1],size),size)[k-1:n];score=dot/np.sqrt(e*max(float(t@t),1e-30));i=int(np.argmax(score));refined=local_match(self.reference[:,ch],template,i*stride,24);other=score.copy();other[max(0,i-600):min(len(other),i+601)]=-np.inf;refined['coarse_nonlocal_correlation']=float(np.max(other));return refined
 
+def validate_capture_integrity(metadata,audio_frames):
+ if not isinstance(metadata,dict) or metadata.get('status')!='completed':
+  raise ValueError('capture_not_completed')
+ expected=metadata.get('total_frames')
+ if type(expected) is not int or expected<0 or audio_frames!=expected:
+  raise ValueError('capture_frame_count_mismatch')
+
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--capture',required=True,type=Path);ap.add_argument('--reference-pcm',required=True,type=Path);ap.add_argument('--ledger',required=True,type=Path);ap.add_argument('--callbacks',type=Path);ap.add_argument('--threshold-ms',type=float,default=1024/48);args=ap.parse_args();p=args.capture.resolve();m=json.load(open(p/'capture.json'));assert m['status']=='completed';pcm=p/'capture-analysis.f32'
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--capture',required=True,type=Path);ap.add_argument('--reference-pcm',required=True,type=Path);ap.add_argument('--ledger',required=True,type=Path);ap.add_argument('--callbacks',type=Path);ap.add_argument('--threshold-ms',type=float,default=1024/48);args=ap.parse_args();p=args.capture.resolve();m=json.load(open(p/'capture.json'))
+ if not isinstance(m,dict) or m.get('status')!='completed':raise ValueError('capture_not_completed')
+ pcm=p/'capture-analysis.f32'
  if not pcm.exists():subprocess.run(['ffmpeg','-v','error','-y','-i',str(p/'audio.caf'),'-ac','2','-ar','48000','-f','f32le',str(pcm)],check=True)
- audio=np.memmap(pcm,dtype='<f4',mode='r').reshape(-1,2);ref=np.memmap(args.reference_pcm,dtype='<f4',mode='r').reshape(-1,2);assert len(audio)==m['total_frames'];matcher=FullReferenceMatcher(ref)
+ audio=np.memmap(pcm,dtype='<f4',mode='r').reshape(-1,2);ref=np.memmap(args.reference_pcm,dtype='<f4',mode='r').reshape(-1,2)
+ validate_capture_integrity(m,len(audio));matcher=FullReferenceMatcher(ref)
  timing=[json.loads(x) for x in open(p/'timing.jsonl')];ht=np.array([x['host_pts_ns'] for x in timing],dtype=np.int64);fo=np.array([x['frame_offset'] for x in timing],dtype=np.int64);first=int(ht[0]);errors=[];total=0
  for i,x in enumerate(timing):
   if x['frame_offset']!=total:errors.append('frame_offset_gap')

@@ -75,10 +75,13 @@ class FairAuthorizationSlot:
                     self._waiters.popleft();self._held=True;return True
                 self._condition.wait(min(.001,max(0,(deadline_ns-now)/1e9)))
 
-    def release(self):
+    def release(self,before=None):
         with self._condition:
             if not self._held:raise RuntimeError('authorization_slot_release')
-            self._held=False;self._condition.notify_all()
+            try:
+                if before:before()
+            finally:
+                self._held=False;self._condition.notify_all()
 
     def try_acquire(self,allow_cancelled_waiters=False):
         with self._condition:
@@ -168,12 +171,15 @@ class HalAuthorizationTransport:
             self.failed=True;self.cancel.set();return None
         finally:
             if acquired:
-                if self.closing and self.fd is not None:os.close(self.fd);self.fd=None
-                self.slot.release()
+                def close_if_closing():
+                    if self.closing and self.fd is not None:
+                        os.close(self.fd);self.fd=None
+                self.slot.release(close_if_closing)
 
     def cancel_now(self):self.cancel.set();self.slot.wake()
     def close(self):
-        self.closing=True;self.cancel.set();self.slot.wake()
+        with self.slot._condition:self.closing=True
+        self.cancel.set();self.slot.wake()
         # Cancellation is set before this claim, so queued waiters can only
         # remove their own tokens and cannot start an exchange.  Claiming even
         # while they drain closes the descriptor without relying on a holder's
