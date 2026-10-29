@@ -228,6 +228,8 @@ class AdSession:
                     raise CompositionFailure('session_closed')
                 if origin(playlist.final_url) != self.source_origin:
                     raise CompositionFailure('source_origin_changed')
+                source_finite = any(line.strip() == '#EXT-X-ENDLIST'
+                                    for line in playlist.lines)
                 # A complete break may appear in the first source window before
                 # asynchronous midroll preparation finishes. Publish the safe
                 # programme prefix, then expose the interval on a later reload.
@@ -247,11 +249,11 @@ class AdSession:
             with self._lock:
                 if self._closed or self._terminal:
                     raise CompositionFailure('session_closed')
-                return self._compose_locked(playlist, route, sources)
+                return self._compose_locked(playlist, route, sources, source_finite)
 
-    def _compose_locked(self, playlist, route, sources):
+    def _compose_locked(self, playlist, route, sources, source_finite=None):
         try:
-            presentation = self.timeline.update(playlist, sources)
+            presentation = self.timeline.update(playlist, sources, source_finite)
         except TimelineEpochLimit as error:
             raise CompositionFailure(str(error)) from error
         if not presentation.segments:

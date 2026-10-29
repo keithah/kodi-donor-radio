@@ -186,7 +186,9 @@ Covered spec sections: resolver/deadlines (2), media/cache (1/3), preroll/midrol
 
 Execution method was selected as subagent-driven. This is the original implementation
 plan; early task checkboxes were not maintained during execution. Tasks 1–8 code is
-implemented and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`;
-Task 10 is implemented and reviewed. Task 11 addresses a CodeRabbit finding.
-Kodi clock-anchor acceptance, audible output, post-speed-guard Kodi playback,
-and final exact-commit release review remain open. Task 11 is implemented and independently reviewed; post-speed-guard Kodi master acceptance remains blocked before add-on startup by USB enumeration.
+implemented and reviewed per `docs/superpowers/reports/2026-10-22-vast-controlled-ads-checkpoint.md`.
+Tasks 10 and 11 are implemented and independently reviewed; Task 11 addresses a
+CodeRabbit finding. Kodi clock-anchor acceptance, audible output, and
+post-speed-guard Kodi playback remain open. Kodi master acceptance is blocked
+before add-on startup by USB enumeration, and final exact-commit release review
+remains open.

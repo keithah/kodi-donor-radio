@@ -522,16 +522,21 @@ def _search_page(key, fetch, monitor, cancel):
                 raise ValueError('Search cache too large')
             document = json.loads(raw)
             if (not isinstance(document, dict) or set(document) != {'version', 'pages'} or
-                    type(document['version']) is not int or document['version'] != 1 or
+                    type(document['version']) is not int or document['version'] != 2 or
                     not isinstance(document['pages'], list) or len(document['pages']) > 64):
                 raise ValueError('Invalid search cache')
             identities = set()
             for page in document['pages']:
-                if (not isinstance(page, dict) or set(page) != {'key', 'rows', 'more'} or
+                if (not isinstance(page, dict) or set(page) != {'key', 'rows', 'more', 'stored_at'} or
                         not isinstance(page['key'], str) or not _HEX64.fullmatch(page['key']) or
                         page['key'] in identities or type(page['more']) is not bool or
                         not isinstance(page['rows'], list) or len(page['rows']) > PAGE_SIZE):
                     raise ValueError('Invalid search page')
+                stored_at = page['stored_at']
+                if (type(stored_at) is int and stored_at < 0 or
+                        type(stored_at) is float and (not math.isfinite(stored_at) or stored_at < 0) or
+                        type(stored_at) not in (int, float)):
+                    raise ValueError('Invalid search timestamp')
                 for row in page['rows']:
                     StationSummary.from_dict(row)
                 identities.add(page['key'])
@@ -542,15 +547,25 @@ def _search_page(key, fetch, monitor, cancel):
     identity = hashlib.sha256(key.encode('utf-8')).hexdigest()
     _check_ui_cancel(monitor, cancel)
     match = next((page for page in pages if page['key'] == identity), None)
-    if match is not None:
+    now = time.time()
+    if match is not None and 0 <= now - match['stored_at'] < 86400:
         return [StationSummary.from_dict(row) for row in match['rows']], match['more']
-    rows, more = _operation(fetch, monitor, cancel)
+    try:
+        rows, more = _operation(fetch, monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        if match is None:
+            raise
+        return [StationSummary.from_dict(row) for row in match['rows']], match['more']
     _check_ui_cancel(monitor, cancel)
     rows = [_summary(row) for row in rows]
-    pages.append({'key': identity, 'rows': [row.to_dict() for row in rows], 'more': more})
+    pages = [page for page in pages if page['key'] != identity]
+    pages.append({'key': identity, 'rows': [row.to_dict() for row in rows], 'more': more,
+                  'stored_at': now})
     pages = pages[-64:]
     while pages:
-        payload = json.dumps({'version': 1, 'pages': pages}, ensure_ascii=False, allow_nan=False,
+        payload = json.dumps({'version': 2, 'pages': pages}, ensure_ascii=False, allow_nan=False,
                              separators=(',', ':'))
         if len(payload.encode('utf-8')) <= _SEARCH_BYTES:
             save_property(payload)

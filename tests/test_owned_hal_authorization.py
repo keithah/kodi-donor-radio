@@ -8,6 +8,13 @@ if spec:import owned_hal_authorization as auth
 else:auth=None
 
 
+def wait_for_pending(slot, expected):
+    until = time.monotonic() + 1
+    while slot.pending != expected:
+        assert time.monotonic() < until, f'authorization waiters did not reach {expected}'
+        time.sleep(.0001)
+
+
 def test_native_probe_is_required_not_cached_snapshot():
     assert auth is not None,'fresh native authorization module absent'
     r=dict(request_start_ns=100,deadline_ns=20_000_100,query_host_ns=100,
@@ -30,23 +37,28 @@ def test_fair_slot_serves_waiters_in_fifo_order():
         if slot.acquire(now()+1_000_000_000,now,cancel):
             order.append(number);slot.release()
     first=threading.Thread(target=waiter,args=(0,));first.start();assert entered[0].wait(1)
-    while slot.pending!=1:time.sleep(.0001)
+    wait_for_pending(slot, 1)
     second=threading.Thread(target=waiter,args=(1,));second.start();assert entered[1].wait(1)
-    while slot.pending!=2:time.sleep(.0001)
+    wait_for_pending(slot, 2)
     slot.release();first.join(1);second.join(1)
     assert order==[0,1] and slot.pending==0
 
 
 def test_fair_slot_removes_timeout_and_cancelled_waiters():
-    slot=auth.FairAuthorizationSlot();now=time.monotonic_ns;holder_cancel=threading.Event()
+    slot=auth.FairAuthorizationSlot();clock=[time.monotonic_ns()];now=lambda:clock[0]
+    holder_cancel=threading.Event()
     assert slot.acquire(now()+1_000_000_000,now,holder_cancel)
     timeout=[];cancelled=[];stop=threading.Event()
-    timed=threading.Thread(target=lambda:timeout.append(slot.acquire(now()+2_000_000,now,threading.Event())))
+    timed_deadline=now()+2_000_000
+    timed=threading.Thread(target=lambda:timeout.append(slot.acquire(timed_deadline,now,threading.Event())))
     blocked=threading.Thread(target=lambda:cancelled.append(slot.acquire(now()+1_000_000_000,now,stop)))
     timed.start();blocked.start()
-    while slot.pending!=2:time.sleep(.0001)
+    wait_for_pending(slot, 2)
+    clock[0]=timed_deadline+1
+    slot.wake()
+    timed.join(1)
     stop.set();slot.wake();timed.join(1);blocked.join(1)
-    assert timeout==[False] and cancelled==[False] and slot.pending==0
+    assert not timed.is_alive() and timeout==[False] and cancelled==[False] and slot.pending==0
     slot.release()
 
 

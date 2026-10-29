@@ -30,6 +30,12 @@ def direct(x,y):
  if xx<1e-15:return None
  return {'correlation':float(x@y/np.sqrt(max(xx*yy,1e-30))),'gain':float(x@y/xx),'relative_rms_error':float(np.sqrt(((x-y)@(x-y))/xx))}
 
+def endpoint_anchors(segments,channel):
+ anchored=[segment['channels'][channel]['anchors'] for segment in segments
+           if segment['channels'][channel]['anchors']]
+ if not anchored:return None,None
+ return anchored[0][0],anchored[-1][-1]
+
 def local_match(reference,template,guess,radius):
  lo=max(0,int(round(guess))-radius);hi=min(len(reference),int(round(guess))+radius+len(template));x=reference[lo:hi].astype(float);t=template.astype(float)
  dot=np.correlate(x,t,'valid');cs=np.r_[0.,np.cumsum(x*x)];energy=np.maximum(cs[len(t):]-cs[:-len(t)],1e-30);score=dot/np.sqrt(energy*max(float(t@t),1e-30));i=int(np.argmax(score))
@@ -92,7 +98,9 @@ def main():
    if values:seg['channels'][ch]['dense']={'windows':len(values),'step_samples':960,'window_samples':WIDTH,'minimum_correlation':min(x['correlation'] for x in values),'below_0975':sum(x['correlation']<.975 for x in values),'gain_range':[min(x['gain'] for x in values),max(x['gain'] for x in values)],'offset_range':[min(x['offset_samples'] for x in values),max(x['offset_samples'] for x in values)]}
  ends=[]
  for ch in range(2):
-  firsta=segments[0]['channels'][ch]['anchors'][0];lasta=segments[-1]['channels'][ch]['anchors'][-1];out={'channel':ch}
+  firsta,lasta=endpoint_anchors(segments,ch);out={'channel':ch}
+  if firsta is None:
+   out['prefix']=out['tail']=None;ends.append(out);continue
   for label,start,offset in [('prefix',0,firsta['offset_samples']),('tail',len(ref)-960,lasta['offset_samples'])]:
    options=[]
    for delta in range(-16,17):

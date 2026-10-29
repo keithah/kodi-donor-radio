@@ -8,6 +8,35 @@ import pytest
 from ad_session import AdSession
 
 
+def test_midroll_prefix_preserves_original_finite_playlist_state(monkeypatch):
+    from types import SimpleNamespace
+    from hls import parse_playlist
+    from url_policy import origin
+
+    url = 'http://radio.test/live.m3u8'
+    playlist = parse_playlist(
+        '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n'
+        '#EXTINF:2.0,\na.ts\n#EXT-X-CUE-OUT:4.0\n'
+        '#EXTINF:2.0,\nb.ts\n#EXTINF:2.0,\nc.ts\n#EXT-X-ENDLIST\n', url)
+    session = AdSession.__new__(AdSession)
+    session._render_lock = Lock()
+    session._lock = RLock()
+    session._closed = False
+    session._terminal = False
+    session.source_origin = origin(url)
+    session.config = SimpleNamespace(midroll=True)
+    session._midroll_done = Event()
+    session._cache_window = lambda _playlist: {}
+    session._compose_locked = lambda selected, _route, _sources, source_finite=None: (
+        selected, source_finite)
+
+    rendered, source_finite = session.render(playlist, lambda identity: identity)
+
+    assert rendered.segments == playlist.segments[:1]
+    assert not any(line.strip() == '#EXT-X-ENDLIST' for line in rendered.lines)
+    assert source_finite is True
+
+
 def test_published_source_read_does_not_wait_for_playlist_render_lock():
     session = AdSession.__new__(AdSession)
     session._lock = Lock()

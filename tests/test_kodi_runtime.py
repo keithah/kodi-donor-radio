@@ -2303,6 +2303,37 @@ def test_directory_cache_search_evicts_oldest_and_bounds_bytes(kodi, monkeypatch
     assert state.items[0][1].label == 'localized-30006'
 
 
+def test_directory_cache_search_expires_and_uses_stale_page_on_fetch_failure(kodi, monkeypatch):
+    from types import SimpleNamespace
+    runtime, state, _profile = kodi
+    browser = directory(monkeypatch, runtime)
+    now = [1000.0]
+    monkeypatch.setattr(runtime, 'time', SimpleNamespace(time=lambda: now[0]))
+    browser.search_page = lambda *args: ([STATION], True)
+
+    route(runtime, mode='search', name='jazz')
+    property_name = 'kodi_donor_radio.search_pages'
+    document = json.loads(state.window_properties[property_name])
+    assert document['version'] == 2
+    initial = document['pages'][0]
+    assert initial['stored_at'] == 1000.0
+
+    now[0] += 86401
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='jazz')
+
+    assert state.items[0][1].label == 'Station One'
+    stale = json.loads(state.window_properties[property_name])['pages'][0]
+    assert stale['stored_at'] == 1000.0
+
+    browser.search_page = lambda *args: ([], False)
+    route(runtime, mode='search', name='jazz')
+    refreshed = json.loads(state.window_properties[property_name])['pages'][0]
+    assert refreshed['stored_at'] == now[0]
+    assert refreshed['more'] is False
+
+
 def test_directory_cache_storage_errors_do_not_hide_live_results(kodi, monkeypatch):
     runtime, state, profile = kodi
     directory(monkeypatch, runtime)

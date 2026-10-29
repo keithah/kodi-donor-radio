@@ -427,10 +427,12 @@ def finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,rece
         if decision.get('reason')!='queued':errors.append('authorized_unqueued_decision')
         if len(matched)!=1:errors.append('missing_or_duplicate_receipt');continue
         index,receipt=matched[0];used_receipts.add(index)
+        authorization_ns=auth.get('authorization_ns')
         if (receipt.get('accepted') is not True or receipt.get('duplicate') is not False or receipt.get('receipt_bound_exhausted') is True
                 or receipt.get('status')!=204 or receipt.get('method')!='GET'
                 or type(receipt.get('receipt_mach_ns')) is not int
-                or receipt['receipt_mach_ns']<auth.get('authorization_ns',0)):
+                or type(authorization_ns) is not int
+                or receipt['receipt_mach_ns']<authorization_ns):
             errors.append('invalid_http_receipt')
         events.append(dict(creative=name,event=event,delivered=True,decision=decision,authorization=auth,
                            receipt=receipt,threshold_seconds=threshold))

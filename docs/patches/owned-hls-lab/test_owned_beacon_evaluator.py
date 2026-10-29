@@ -73,6 +73,15 @@ class OwnedEvaluatorTests(unittest.TestCase):
         for changed in ({'generation':2},{'authorization_ns':1200000000},{'authorized':False}):
             raw,rows,receipts=self.evidence();rows[-1].update(changed)
             self.assertTrue(e.join_evidence(raw,rows,receipts)['errors'])
+
+    def test_noninteger_authorization_timestamp_is_reported_without_aborting(self):
+        raw,rows,receipts=self.evidence()
+        rows[-1]['authorization_ns']=None
+
+        result=e.join_evidence(raw,rows,receipts)
+
+        self.assertIn('authorization_chronology',result['errors'])
+        self.assertIn('invalid_http_receipt',result['errors'])
     def test_missing_contemporaneous_input_and_stale_publication_fail(self):
         raw,rows,receipts=self.evidence()
         missing=[r for r in rows if r['kind']!='owned_clock_input']
