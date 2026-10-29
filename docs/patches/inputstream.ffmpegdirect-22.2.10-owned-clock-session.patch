@@ -280,7 +280,7 @@
        m_ownedFailed = true;
        break;
      }
-@@ -1290,11 +1384,34 @@
+@@ -1290,11 +1384,35 @@
    {
      owned_stall::Span loopSpan(m_ownedStalls, owned_stall::RendererLoop, MachAbsoluteNowNs, m_ownedHlsFixture);
      const uint64_t controlStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
@@ -296,7 +296,8 @@
 +        std::vector<std::string> commands;
 +        if (!m_ownedClockTransport->Poll(m_ownedClock->Control().revision, commands))
 +          RevokeOwnedClock("command_transport");
-+        else for (const auto& wire : commands)
++        // Evidence retirement never suppresses the individually validated safe prefix.
++        for (const auto& wire : commands)
 +        {
 +          // Apply each feeder gate, then publish its ack before the next transition.
 +          // No AddData occurs between these transitions. Ack is not audible silence.
@@ -319,7 +320,7 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::ControlRead, controlStart, MachAbsoluteNowNs());
 
-@@ -1343,10 +1460,16 @@
+@@ -1343,10 +1461,16 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::GetSpace, spaceStart, MachAbsoluteNowNs());
      if (shouldFeed && availableFrames != 0)
@@ -336,7 +337,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: Kodi audio stream did not become ready; aborting lab playback");
        return;
-@@ -1386,6 +1509,7 @@
+@@ -1386,6 +1510,7 @@
        sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
        if (sourceEnded && !m_ownedDrainStarted.load())
        {
@@ -344,7 +345,7 @@
          m_ownedStream->Drain(false);
          m_ownedDrainStarted.store(true);
          Log(LOGLEVEL_INFO,
-@@ -1424,6 +1548,7 @@
+@@ -1424,6 +1549,7 @@
 
  void InputStreamFFmpegDirect::StopOwnedRenderer()
  {
@@ -352,7 +353,7 @@
    // The source worker owns m_stream->DemuxRead after the first anchored packet.
    // Join it before closing or mutating that source and before decoder teardown.
    m_ownedSourceStop = true;
-@@ -1435,6 +1560,7 @@
+@@ -1435,6 +1561,7 @@
    if (m_ownedThread.joinable())
      m_ownedThread.join();
    m_ownedRendererActive = false;
@@ -360,7 +361,7 @@
    m_ownedStream.reset();
    {
      std::lock_guard<std::mutex> lock(m_ownedMutex);
-@@ -1462,6 +1588,7 @@
+@@ -1462,6 +1589,7 @@
 
  bool InputStreamFFmpegDirect::OwnedPlaybackStarted()
  {
@@ -368,7 +369,7 @@
    if (m_ownedPlaybackStarted.load())
      return true;
    std::ifstream control(
-@@ -1571,6 +1698,7 @@
+@@ -1571,6 +1699,7 @@
          m_ownedSyntheticFrames == std::numeric_limits<size_t>::max() ||
          m_ownedAudioStreamId < 0 || selectedSilenceFrame.empty())
      {
@@ -376,7 +377,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR,
            "OWNED_RENDERER: cannot maintain a bounded silent AAC timeline; aborting lab playback");
-@@ -1585,6 +1713,7 @@
+@@ -1585,6 +1714,7 @@
      {
        if (m_ownedHostOutputFrames == std::numeric_limits<uint64_t>::max())
        {
@@ -384,7 +385,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS host frame ledger overflowed");
          return nullptr;
-@@ -1605,6 +1734,7 @@
+@@ -1605,6 +1735,7 @@
        static_cast<int>(silenceFrame.size()));
    if (!packet)
    {
@@ -392,7 +393,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not allocate silent AAC tail packet");
      return nullptr;
-@@ -1688,8 +1818,10 @@
+@@ -1688,8 +1819,10 @@
 
  void InputStreamFFmpegDirect::DemuxReset()
  {
@@ -403,7 +404,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after deferred HLS start is unsupported; failing closed");
-@@ -1700,6 +1832,7 @@
+@@ -1700,6 +1833,7 @@
 
  void InputStreamFFmpegDirect::DemuxAbort()
  {
@@ -411,7 +412,7 @@
    if (m_ownedRendererActive.load() && m_ownedHlsFixture)
    {
      m_ownedSourceStop = true;
-@@ -1717,8 +1850,10 @@
+@@ -1717,8 +1851,10 @@
 
  void InputStreamFFmpegDirect::DemuxFlush()
  {
@@ -422,7 +423,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after deferred HLS start is unsupported; failing closed");
-@@ -1765,6 +1900,7 @@
+@@ -1765,6 +1901,7 @@
        return nullptr;
      if (!FlushOwnedDecoder())
      {
@@ -430,7 +431,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite EOF");
        return nullptr;
-@@ -1802,6 +1938,7 @@
+@@ -1802,6 +1939,7 @@
    {
      if (m_ownedPlaybackStarted.load())
      {
@@ -438,7 +439,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: playback started before a successful seek-to-zero; aborting");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1827,6 +1964,7 @@
+@@ -1827,6 +1965,7 @@
        info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
        info.GetSampleRate() != 48000 || info.GetChannels() != 2)
    {
@@ -446,7 +447,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: stream format changed outside the controlled AAC fixture");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1840,6 +1978,7 @@
+@@ -1840,6 +1979,7 @@
    if (!DecodeOwnedPacket(packet, packetIsAdts, sourceFrameCount,
                           decodedStartFrame, decodedEndFrame))
    {
@@ -454,7 +455,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR,
          "OWNED_RENDERER: AAC packet decode, framing, or bounded PCM queue failed; aborting lab playback");
-@@ -1866,6 +2005,7 @@
+@@ -1866,6 +2006,7 @@
            m_silenceRawAacFrame.empty() ||
            m_silenceRawAacFrame.size() > static_cast<size_t>(packet->iSize))
        {
@@ -462,7 +463,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR,
              "OWNED_RENDERER: raw AAC packet cannot be replaced by one validated silence access unit");
-@@ -1882,6 +2022,7 @@
+@@ -1882,6 +2023,7 @@
      }
      if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
      {
@@ -470,7 +471,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1908,6 +2049,7 @@
+@@ -1908,6 +2050,7 @@
        packetAdtsFrameCount != sourceFrameCount ||
        replacementBytes > static_cast<size_t>(packet->iSize))
    {
@@ -478,7 +479,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source packet is not replaceable AAC-LC ADTS; aborting lab playback");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1933,6 +2075,7 @@
+@@ -1933,6 +2076,7 @@
    }
    if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
    {
@@ -486,7 +487,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1943,14 +2086,18 @@
+@@ -1943,14 +2087,18 @@
 
  bool InputStreamFFmpegDirect::DemuxSeekTime(double time, bool backwards, double& startpts)
  {
@@ -505,7 +506,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after source handoff is unsupported; failing closed");
-@@ -1958,6 +2105,7 @@
+@@ -1958,6 +2106,7 @@
    }
    if (m_ownedRendererActive.load() && OwnedPlaybackStarted())
    {
@@ -513,7 +514,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after AVStarted is unsupported; aborting lab qualification");
      return false;
-@@ -1975,6 +2123,7 @@
+@@ -1975,6 +2124,7 @@
 
  void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
  {
@@ -521,7 +522,7 @@
    m_stream->DemuxSetSpeed(speed);
  }
 
-@@ -2009,8 +2158,10 @@
+@@ -2009,8 +2159,10 @@
 
  bool InputStreamFFmpegDirect::PosTime(int ms)
  {
@@ -532,7 +533,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after deferred HLS start is unsupported; failing closed");
-@@ -2049,8 +2200,10 @@
+@@ -2049,8 +2201,10 @@
 
  bool InputStreamFFmpegDirect::SeekChapter(int ch)
  {
@@ -543,7 +544,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after deferred HLS start is unsupported; failing closed");
-@@ -2068,6 +2221,7 @@
+@@ -2068,6 +2222,7 @@
 
  int64_t InputStreamFFmpegDirect::SeekStream(int64_t position, int whence /* SEEK_SET */)
  {
@@ -551,7 +552,7 @@
    if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
      return -1;
    return m_stream->SeekStream(position, whence);
-@@ -2131,3 +2285,45 @@
+@@ -2131,3 +2286,45 @@
  };
 
  ADDONCREATOR(CMyAddon)
@@ -760,7 +761,7 @@
 +} // namespace owned_clock
 --- /dev/null
 +++ b/src/OwnedClockTransport.h
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,163 @@
 +#pragma once
 +#include "OwnedClockProtocol.h"
 +#include <cerrno>
@@ -834,56 +835,75 @@
 +    if(!Write(ledger,line+"\n")) return false;
 +    ledgerBytes+=line.size()+1; return true;
 +  }
-+  // One directory scan detects future revisions; reads are capped at eight per iteration.
-+  // Previously observed immutable records are checked by inode/size/nanosecond change stamps.
++  // The result is permanent evidence validity, not permission to use pending.
++  // Even after retirement, pending contains only individually validated exact-next
++  // controls from the original pinned directory. Never discard a safe prefix.
 +  bool Poll(unsigned revision,std::vector<std::string>& pending) {
 +    pending.clear();
 +    struct stat current{};
 +    if(directory<0 || lstat(path.c_str(),&current)!=0 || !S_ISDIR(current.st_mode) ||
 +       current.st_dev!=identity.st_dev || current.st_ino!=identity.st_ino ||
-+       current.st_uid!=geteuid() || (current.st_mode&0777)!=0700 || revision>64) return false;
++       current.st_uid!=geteuid() || (current.st_mode&0777)!=0700 || revision>64)
++      return ownershipIntact=false;
 +    struct stat hello{};
-+    if(fstatat(directory,"hello.json",&hello,AT_SYMLINK_NOFOLLOW)!=0 || !File(hello) || !Same(hello,helloIdentity))return false;
++    if(fstatat(directory,"hello.json",&hello,AT_SYMLINK_NOFOLLOW)!=0 || !File(hello) || !Same(hello,helloIdentity))
++      ownershipIntact=false;
 +    int scanFd=openat(directory,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
 +    DIR* scan=scanFd>=0?fdopendir(scanFd):nullptr;
-+    if(!scan) {if(scanFd>=0)close(scanFd);return false;}
-+    std::array<bool,64> present{}; bool good=true;
++    if(!scan) {if(scanFd>=0)close(scanFd);return ownershipIntact=false;}
++    std::array<bool,64> present{};
 +    errno=0;
 +    while (dirent* entry=readdir(scan)) {
 +      const std::string name(entry->d_name);
 +      if(name.compare(0,8,"command-")!=0) continue;
-+      if(name.size()!=18 || name.substr(14)!=".txt") {good=false;break;}
-+      unsigned n=0;
-+      for(size_t i=8;i<14;++i) {if(name[i]<'0'||name[i]>'9') {good=false;break;} n=n*10+name[i]-'0';}
-+      if(!good || n==0 || n>64) {good=false;break;}
++      if(name.size()!=18 || name.substr(14)!=".txt") {ownershipIntact=false;continue;}
++      unsigned n=0; bool canonical=true;
++      for(size_t i=8;i<14;++i) {
++        if(name[i]<'0'||name[i]>'9') {canonical=false;break;}
++        n=n*10+name[i]-'0';
++      }
++      if(!canonical || n==0 || n>64) {ownershipIntact=false;continue;}
 +      present[n-1]=true;
 +    }
-+    if(errno)good=false;
-+    closedir(scan); if(!good)return false;
-+    bool gap=false;
++    const bool scanComplete=errno==0;
++    closedir(scan);
++    if(!scanComplete)return ownershipIntact=false;
++    unsigned firstMissing=65;
 +    for(unsigned i=0;i<64;++i) {
-+      if(!present[i]) {gap=true;if(i<revision)return false;continue;}
-+      if(gap)return false;
++      if(!present[i]) {
++        if(i<revision) ownershipIntact=false; // Old evidence cannot veto a new pause.
++        else if(firstMissing==65) firstMissing=i+1;
++        continue;
++      }
++      if(i>=revision && firstMissing!=65) {
++        ownershipIntact=false;
++        if(firstMissing<controlBarrier)controlBarrier=firstMissing;
++      }
 +      char name[32];std::snprintf(name,sizeof(name),"command-%06u.txt",i+1);
 +      struct stat st{};
-+      if(fstatat(directory,name,&st,AT_SYMLINK_NOFOLLOW)!=0 || !File(st) || st.st_size<=0 || st.st_size>512) return false;
-+      if(seen[i] && !Same(st,records[i]))return false;
-+      if(i<revision || pending.size()>=8)continue;
++      if(fstatat(directory,name,&st,AT_SYMLINK_NOFOLLOW)!=0 || !File(st) ||
++         st.st_size<=0 || st.st_size>512 || (seen[i] && !Same(st,records[i]))) {
++        ownershipIntact=false;
++        if(i>=revision && i+1<controlBarrier)controlBarrier=i+1;
++        continue;
++      }
++      if(i<revision || i+1>=controlBarrier || pending.size()>=8)continue;
 +      int fd=openat(directory,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
 +      struct stat pinned{}; char bytes[513];
-+      if(fd<0)return false;
++      if(fd<0) {ownershipIntact=false;controlBarrier=i+1;continue;}
 +      const bool pinnedOk=fstat(fd,&pinned)==0 && File(pinned) && Same(st,pinned);
 +      const ssize_t n=pinnedOk?read(fd,bytes,sizeof(bytes)):-1;
 +      struct stat after{}; const bool stable=fstat(fd,&after)==0 && Same(pinned,after);
 +      close(fd);
-+      if(!pinnedOk || !stable || n!=st.st_size)return false;
++      if(!pinnedOk || !stable || n!=st.st_size) {ownershipIntact=false;controlBarrier=i+1;continue;}
 +      Command command;
 +      const std::string wire(bytes,static_cast<size_t>(n));
-+      if(!Parse(wire,command) || command.revision!=i+1)return false;
++      if(!Parse(wire,command) || command.revision!=i+1) {ownershipIntact=false;controlBarrier=i+1;continue;}
 +      records[i]=st; seen[i]=true;pending.push_back(wire);
 +    }
-+    return true;
++    return ownershipIntact;
 +  }
++
 +private:
 +  static bool Write(int fd,const std::string& bytes) {
 +    size_t offset=0;
@@ -897,6 +917,8 @@
 +  }
 +  int directory{-1},ledger{-1};
 +  off_t ledgerBytes{0};
++  bool ownershipIntact{true};
++  unsigned controlBarrier{65}; // An invalid unacknowledged revision is never skipped or repaired.
 +  std::string path;
 +  struct stat identity{},ledgerIdentity{},helloIdentity{};
 +  std::array<struct stat,64> records{};

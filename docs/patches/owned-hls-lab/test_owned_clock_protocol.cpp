@@ -174,6 +174,59 @@ int main() {
     CHECK(symlink((commandsDir+"/command-000001.txt").c_str(),(symlinkCommand+"/command-000001.txt").c_str())==0);
     std::vector<std::string> pending; CHECK(!t.Poll(0,pending));
   }
+  // Damaging acknowledged evidence retires the clock but must not suppress later
+  // individually valid exact-next audio controls from the same pinned session.
+  for (const std::string& damage : {"old-command", "old-missing", "hello"}) {
+    const std::string controls=std::string(directory)+"/retired-"+damage;
+    CHECK(mkdir(controls.c_str(),0700)==0);
+    Transport transport; CHECK(transport.Open(controls,"{}\n"));
+    Authority owner(nonce,incarnation);
+    auto publish=[&](unsigned revision,const std::string& state) {
+      char name[32];std::snprintf(name,sizeof(name),"/command-%06u.txt",revision);
+      std::ofstream(controls+name)<<Wire(revision,state,10+revision);
+      CHECK(chmod((controls+name).c_str(),0600)==0);
+    };
+    auto apply=[&](bool evidenceExpected,unsigned revision,const std::string& state) {
+      std::vector<std::string> pending;
+      const bool intact=transport.Poll(owner.Control().revision,pending);
+      CHECK(intact==evidenceExpected);
+      if (!intact) owner.Revoke("command_transport");
+      CHECK(pending.size()==1);
+      CHECK(owner.Apply(pending.front(),100));
+      CHECK(owner.Control().revision==revision && owner.Control().state==state);
+    };
+    publish(1,"waiting"); apply(true,1,"waiting");
+    publish(2,"play"); apply(true,2,"play");
+    owner.ConfirmSource(true); CHECK(owner.Eligible(owner.Generation()));
+    if(damage=="old-command") std::ofstream(controls+"/command-000001.txt")<<"damaged\n";
+    else if(damage=="old-missing") CHECK(unlink((controls+"/command-000001.txt").c_str())==0);
+    else std::ofstream(controls+"/hello.json")<<"damaged\n";
+    publish(3,"pause"); apply(false,3,"pause"); CHECK(owner.Retired());
+    publish(4,"resume"); apply(false,4,"resume"); CHECK(!owner.Eligible(owner.Generation()));
+    publish(5,"stop"); apply(false,5,"stop"); CHECK(owner.Retired());
+  }
+  // A later malformed record must not discard a safe contiguous prefix. It also
+  // must never be skipped, or become an accepted control by rewriting its file.
+  const std::string prefixDir=std::string(directory)+"/prefix";
+  CHECK(mkdir(prefixDir.c_str(),0700)==0);
+  {
+    Transport t; CHECK(t.Open(prefixDir,"{}\n"));
+    std::ofstream(prefixDir+"/command-000001.txt")<<Wire(1,"waiting",11);
+    std::ofstream(prefixDir+"/command-000002.txt")<<Wire(2,"play",12);
+    std::ofstream(prefixDir+"/command-000003.txt")<<"malformed\n";
+    for(unsigned i=1;i<=3;++i) {
+      char name[32];std::snprintf(name,sizeof(name),"/command-%06u.txt",i);
+      CHECK(chmod((prefixDir+name).c_str(),0600)==0);
+    }
+    std::vector<std::string> pending;
+    CHECK(!t.Poll(0,pending)); CHECK(pending.size()==2);
+    Authority owner(nonce,incarnation); owner.Revoke("command_transport");
+    for(const auto& wire:pending) CHECK(owner.Apply(wire,100));
+    CHECK(owner.Control().state=="play" && owner.Control().revision==2 && owner.Retired());
+    CHECK(!t.Poll(2,pending)); CHECK(pending.empty());
+    std::ofstream(prefixDir+"/command-000003.txt")<<Wire(3,"pause",13);
+    CHECK(!t.Poll(2,pending)); CHECK(pending.empty());
+  }
   // Keep test directories for inspection, like the diagnostic's retained evidence.
   std::cout << "owned clock protocol checks passed (NDEBUG-safe)\n";
 }

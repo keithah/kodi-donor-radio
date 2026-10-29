@@ -328,7 +328,12 @@ eight commands and publishes an acknowledgment for every applied transition.
 The source reader sees the same applied pause gate through an atomic value.
 Acknowledgment means the feeder gate was applied; it does not mean immediate
 audible pause. Ownership failure preserves the source queue and normal audio
-failure behavior; subsequent valid sequential controls can still apply.
+failure behavior; subsequent valid sequential controls can still apply. A damaged
+acknowledged command or immutable hello permanently retires clock evidence but
+does not suppress individually validated next controls from the unchanged pinned
+session. A valid pending prefix is applied before a malformed future revision;
+malformed or gapped unacknowledged revisions remain barriers and cannot be
+skipped or repaired by rewriting files.
 
 Every native clock row retains the frozen estimator inputs and adds `ownership`:
 protocol, nonce, incarnation, timeline_sha256, strictly increasing
