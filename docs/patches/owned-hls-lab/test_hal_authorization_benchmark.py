@@ -32,6 +32,17 @@ def test_final_probe_uses_a_distinct_native_query_identity():
     assert benchmark.request(final, 32764, 1_010_000_000)['row_sequence'] == 2
 
 
+def test_staged_request_carries_exact_parent_response_hash():
+    row=benchmark.query(1_000_000_000,sequence=2)
+    tracker=benchmark.request(row,32754,1_000_000_000,'tracker',event_digest='e'*64)
+    tracker['response_sha256']='a'*64
+    queue=benchmark.request(row,32755,1_000_000_001,'queue',event_digest='e'*64,parent=tracker,decision_ns=9)
+    assert queue['parent_id']==32754 and queue['parent_sha256']=='a'*64
+    queue['response_sha256']='b'*64
+    dispatch=benchmark.request(row,32756,1_000_000_002,'dispatch',event_digest='e'*64,parent=queue,decision_ns=9,queue_ns=10)
+    assert dispatch['parent_id']==32755 and dispatch['parent_sha256']=='b'*64 and dispatch['queue_ns']==10
+
+
 def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
     assert benchmark.gain(6000)['revision'] == 6000
     assert benchmark.gain(6000)['effective_epoch'] == 1
