@@ -26,6 +26,15 @@ class ManifestTests(unittest.TestCase):
             path.write_text(prefix+'terminal_eof|is_realtime_stream|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet'+suffix)
             launcher.validate_lab_manifest(path,owned=True)
 
+    def test_video_control_queue_property_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'addon.xml'
+            base='<addon id="inputstream.ffmpegdirect"><requires><import addon="kodi.binary.global.audioengine"/></requires><extension point="kodi.inputstream" listitemprops="terminal_eof|is_realtime_stream|owned_player_mode|owned_player_core'
+            path.write_text(base+'"/></addon>')
+            with self.assertRaises(RuntimeError):launcher.validate_lab_manifest(path,video=True,video_control=True)
+            path.write_text(base+'|owned_player_queue_tenths"/></addon>')
+            launcher.validate_lab_manifest(path,video=True,video_control=True)
+
     def test_present_passes(self):
         self.validate()
     def test_missing_each_required_property_fails(self):

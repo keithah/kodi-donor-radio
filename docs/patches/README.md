@@ -111,3 +111,38 @@ retains the four pause schedule and records any forced stop. The launcher record
 agreement, native late-pause ordering, natural EOF/tail, no gaps/replay, and all
 clock/beacon gates require fresh captured qualification. This mode remains an
 experiment, with production paths disabled.
+
+
+The fixture-only `videoplayer_video_v1` experiment uses the same explicit
+VideoPlayer request and original retained AAC source proof, but projects exactly
+one VIDEO stream and no host audio: rawvideo I420,16×16,10fps,384-byte limited-range
+black frames. Source AAC metadata and decoding remain separate. Select it with
+`--owned-fixture <fixture> --player-mode videoplayer_video_v1`; the observer now
+requires one actual video player and exact resolved dynpath, using its returned
+ID for the unchanged four normal pause cycles. This is diagnostic presentation,
+not a finished radio GUI or an enabled production route.
+
+This mode requires observed `videoplayer.queuetimesize=40`, bound as integer
+`video_queue_tenths` through launch/monitor-ready/hello/ownership and native
+`owned_player_queue_tenths=40`. No settings are changed. Frames begin at PTS0 and
+advance100ms; issuance is capped at `floor(accepted_adddata_frames/4800)+60`.
+At the cap, empty non-EOF retries keep cancellation responsive. The six-second
+allowance covers the four-second core queue, up to six render buffers and startup
+margin; it is neither required prefill nor audible headroom. A30s Mach deadline
+from native Open requires acknowledgement of the real onAVStarted play command.
+
+At first owned-drained, tracking remains retired and generation freezes. The
+owned CAEStream stays alive for an explicit1s Mach hold with empty retries, then
+normal EOF; cancel/error bypass it. This empirical safeguard covers the prior
+~284ms drain-to-audible-tail observation but proves no sink latency. Video PTS is
+never an audio clock. `host_representation.stream_type=video` identifies video
+frame counts and separately records Open/start ACK/final frame/drain/hold/EOF
+Mach times. Legacy host AAC counters remain zero; actual AAC source/decoded and
+accepted audio counters retain their meanings. Host terminal telemetry is a
+separate non-clock row. Downstream queued tail remains unknown.
+
+Actual codec/pixel format, absence of a host audio stream, real startup/control
+callbacks, full captured prefix/tail, natural EOF, no extra gaps/replay and all
+clock/beacon gates require two fresh captures. Ordinary video presentation may
+negotiate refresh/fullscreen under the user's existing settings; output guards
+remain active. No display policy changes or fresh qualification are implied.

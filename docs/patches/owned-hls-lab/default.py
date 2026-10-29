@@ -2,7 +2,7 @@
 import os
 import sys
 
-def validate_lab_manifest(path, owned=False, video=False):
+def validate_lab_manifest(path, owned=False, video=False, video_control=False):
     """Refuse a misinstalled diagnostic before monitor startup or playback."""
     import xml.etree.ElementTree as ET
     try:
@@ -15,6 +15,7 @@ def validate_lab_manifest(path, owned=False, video=False):
     required = {'terminal_eof', 'is_realtime_stream'}
     if owned: required.update(('owned_clock_nonce','owned_clock_timeline','owned_clock_first_packet'))
     if video: required.update(('owned_player_mode','owned_player_core'))
+    if video_control: required.add('owned_player_queue_tenths')
     if len(extensions) != 1 or not required.issubset(set(extensions[0].get('listitemprops', '').split('|'))):
         raise RuntimeError('Owned HLS lab requires terminal_eof and is_realtime_stream in kodi.inputstream listitemprops')
     dependencies = root.findall("requires/import[@addon='kodi.binary.global.audioengine']")
@@ -23,7 +24,7 @@ def validate_lab_manifest(path, owned=False, video=False):
 
 
 def player_contract(mode):
-    modes={'paplayer_pcm_v1':'PAPlayer','videoplayer_pcm_v1':'VideoPlayer'}
+    modes={'paplayer_pcm_v1':'PAPlayer','videoplayer_pcm_v1':'VideoPlayer','videoplayer_video_v1':'VideoPlayer'}
     if mode not in modes:raise ValueError('explicit_player_mode_required')
     return mode,modes[mode]
 
@@ -41,20 +42,26 @@ def owned_item_properties(binding):
     mode,core=player_contract(binding['player_mode'])
     if binding['requested_core']!=core or binding['selected_url']!='http://127.0.0.1:18789/live/index.m3u8':
         raise ValueError('resolved_player_binding')
-    return {'inputstream':'inputstream.ffmpegdirect',
+    video=mode=='videoplayer_video_v1'
+    queue=binding.get('video_queue_tenths')
+    if (video and (type(queue) is not int or queue!=40)) or (not video and queue is not None):
+        raise ValueError('resolved_video_queue_binding')
+    properties={'inputstream':'inputstream.ffmpegdirect',
         'inputstream-player':'videodefaultplayer' if core=='VideoPlayer' else 'audiodefaultplayer',
         'inputstream.ffmpegdirect.stream_mode':'timeshift','inputstream.ffmpegdirect.is_realtime_stream':'false',
         'inputstream.ffmpegdirect.terminal_eof':'true','inputstream.ffmpegdirect.owned_clock_nonce':binding['nonce'],
         'inputstream.ffmpegdirect.owned_clock_timeline':binding['timeline_sha256'],
         'inputstream.ffmpegdirect.owned_clock_first_packet':binding['first_packet_sha256'],
         'inputstream.ffmpegdirect.owned_player_mode':mode,'inputstream.ffmpegdirect.owned_player_core':core}
+    if video:properties['inputstream.ffmpegdirect.owned_player_queue_tenths']='40'
+    return properties
 
 
 def owned_item(binding):
     import xbmcgui
     item=xbmcgui.ListItem(label='Owned clock controlled beacons',path=binding['selected_url'])
     item.setMimeType('application/vnd.apple.mpegurl');item.setContentLookup(False)
-    item.getMusicInfoTag().setTitle('Owned clock controlled beacons')
+    (item.getVideoInfoTag() if binding['player_mode']=='videoplayer_video_v1' else item.getMusicInfoTag()).setTitle('Owned clock controlled beacons')
     for name,value in owned_item_properties(binding).items():item.setProperty(name,value)
     return item
 
@@ -77,6 +84,7 @@ def resolve_owned(nonce,mode):
             raise ValueError('resolved_launch_binding')
         ready=json.loads(transport._read_immutable('monitor-ready.json',2048)[0])
         expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
+        if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
         expected['kind']='owned_monitor_ready'
         if ready!=expected:raise ValueError('resolved_monitor_binding')
         if (transport.directory/'hello.json').exists() or (transport.directory/'native.jsonl').exists():
@@ -102,7 +110,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
     from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns
     from owned_ad_playback import canonical_timeline
     import runtime_clock
-    validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer')
+    validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1')
     runtime_clock.frozen_module()  # Refuse altered estimator before native Open.
     settings={}
     for setting in ('audiodevice','lowlatency','channels','config','processquality','stereoupmix','passthrough'):
@@ -114,11 +122,13 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
     if 'error' in response:raise RuntimeError('Cannot verify VideoPlayer queue setting')
     settings['videoplayer.queuetimesize']=response['result']['value']
     fixture_api.validate_profile(settings)
+    if mode=='videoplayer_video_v1' and (type(settings['videoplayer.queuetimesize']) is not int or settings['videoplayer.queuetimesize']!=40):
+        raise RuntimeError('Video control requires observed queue40')
     nonce=uuid.uuid4().hex
     presentation,proof=fixture_api.resolve_presentation(Path(fixture),nonce)
     timeline=canonical_timeline(presentation,fixture_api.FIRST_PACKET)
     binding=OwnedClockBinding(nonce,None,fixture_api.sha(timeline),fixture_api.FIRST_PACKET,
-                              fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core)
+                              fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core,video_queue_tenths=40 if mode=="videoplayer_video_v1" else None)
     transport=OwnedClockTransport.create(SESSION_ROOT,binding)
     directory=transport.directory
     def private_write(name,raw):

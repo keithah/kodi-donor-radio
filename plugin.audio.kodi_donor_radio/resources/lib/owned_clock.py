@@ -79,9 +79,12 @@ class OwnedClockBinding:
     source_origin: int = 0
     player_mode: str = "paplayer_pcm_v1"
     requested_core: str = "PAPlayer"
+    video_queue_tenths: object = None
 
     def __post_init__(self):
-        if ((self.player_mode,self.requested_core) not in (("paplayer_pcm_v1","PAPlayer"),("videoplayer_pcm_v1","VideoPlayer"))
+        if ((self.player_mode,self.requested_core) not in (("paplayer_pcm_v1","PAPlayer"),("videoplayer_pcm_v1","VideoPlayer"),("videoplayer_video_v1","VideoPlayer"))
+                or (self.player_mode=="videoplayer_video_v1" and (type(self.video_queue_tenths) is not int or self.video_queue_tenths!=40))
+                or (self.player_mode!="videoplayer_video_v1" and self.video_queue_tenths is not None)
                 or not _hex(self.nonce,32) or (self.incarnation is not None and not _hex(self.incarnation,32))
                 or not _hex(self.timeline_sha256,64) or not _hex(self.first_packet_sha256,64)
                 or not _uint(self.launch_mach_ns) or not _uint(self.native_pid) or not self.native_pid
@@ -161,6 +164,8 @@ class OwnedClockProvider:
             valid = (isinstance(hello,dict) and type(hello.get('protocol')) is int and hello['protocol']==1
                 and hello.get('player_mode','paplayer_pcm_v1')==b.player_mode
                 and hello.get('requested_core','PAPlayer')==b.requested_core
+                and hello.get('video_queue_tenths')==b.video_queue_tenths
+                and (b.video_queue_tenths is None or type(hello.get('video_queue_tenths')) is int)
                 and hello.get('nonce')==b.nonce and _hex(hello.get('incarnation'),32)
                 and (b.incarnation is None or hello['incarnation']==b.incarnation)
                 and hello.get('timeline_sha256')==b.timeline_sha256
@@ -210,9 +215,20 @@ class OwnedClockProvider:
     def _host_evidence(self, row, own):
         b = self.binding
         if (own.get('player_mode','paplayer_pcm_v1') != b.player_mode
-                or own.get('requested_core','PAPlayer') != b.requested_core):
+                or own.get('requested_core','PAPlayer') != b.requested_core
+                or own.get('video_queue_tenths') != b.video_queue_tenths
+                or (b.video_queue_tenths is not None and type(own.get('video_queue_tenths')) is not int)):
             self.retire('player_mode_mismatch'); return False
-        if b.player_mode != 'videoplayer_pcm_v1':
+        if b.player_mode == 'videoplayer_video_v1':
+            host=row.get('host_representation')
+            expected=dict(version=1,stream_type='video',codec='rawvideo',fourcc=0x30323449,
+                width=16,height=16,fps_rate=10,fps_scale=1,packet_bytes=384,packet_duration_s=.1,lead_frames=60)
+            accepted=row.get('accepted_adddata_frames')
+            if (not isinstance(host,dict) or any(type(host.get(k)) is not type(v) or host[k]!=v for k,v in expected.items())
+                    or host.get('failed') is not False or not _uint(host.get('video_frames'))
+                    or not _uint(accepted) or accepted>8641536 or host['video_frames']>accepted//4800+60):
+                self.retire('video_control_evidence');return False
+        if b.requested_core != 'VideoPlayer':
             return True  # Archived v1 PAPlayer rows retain their original interpretation.
         before, after = own.get('host_mode_generation_before'), own.get('host_mode_generation_after')
         caller, observed = own.get('host_caller_id'), own.get('host_caller_observed_mach_ns')

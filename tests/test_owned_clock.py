@@ -413,3 +413,47 @@ def test_video_generation_change_is_pending_then_reacquires():
     assert not feed(p,t,r).valid and not p.retired
     for i in range(1,10):result=feed(p,t,video_evidence(row(i)))
     assert result.valid
+
+
+def video_control_evidence(r):
+    video_evidence(r)
+    r['ownership'].update(player_mode='videoplayer_video_v1',video_queue_tenths=40)
+    r['host_representation']=dict(version=1,stream_type='video',codec='rawvideo',fourcc=0x30323449,
+        width=16,height=16,fps_rate=10,fps_scale=1,packet_bytes=384,packet_duration_s=.1,lead_frames=60,
+        video_frames=20,failed=False)
+    return r
+
+
+def test_video_control_binding_queue_and_qualified_source_clock():
+    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+    for value in (None,39,41,40.0,True,'40'):
+        with pytest.raises(ValueError):binding(**dict(mode,video_queue_tenths=value))
+    with pytest.raises(ValueError):binding(video_queue_tenths=40)
+    t=[BASE];p=clock.OwnedClockProvider(binding(**mode),estimator_factory,lambda:t[0])
+    assert p.bind_hello(hello(**mode));p.control('play',BASE-25)
+    r=video_control_evidence(row(-1,revision=1,state='waiting',issued=BASE-100,applied=BASE-40))
+    r.update(mach_absolute_ns=BASE-10,steady_ns=BASE-10,delay_query_start_steady_ns=BASE-10,delay_query_end_steady_ns=BASE-10)
+    feed(p,t,r)
+    for i in range(9):result=feed(p,t,video_control_evidence(row(i)))
+    assert result.valid and not p.retired
+    # A video PTS does not replace owned-audio evidence.
+    r=video_control_evidence(row(9));r['first_source_pts']=100
+    assert not feed(p,t,r).valid
+
+
+@pytest.mark.parametrize('damage',['hello_queue','own_queue','audio','codec','size','budget','missing'])
+def test_video_control_binding_and_projection_fail_closed(damage):
+    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+    t=[BASE];p=clock.OwnedClockProvider(binding(**mode),estimator_factory,lambda:t[0])
+    h=hello(**mode)
+    if damage=='hello_queue':h.pop('video_queue_tenths')
+    if not p.bind_hello(h):assert damage=='hello_queue' and p.retired;return
+    p.control('play',BASE-25)
+    r=video_control_evidence(row(0))
+    if damage=='own_queue':r['ownership']['video_queue_tenths']=39
+    if damage=='audio':r['host_representation']['stream_type']='audio'
+    if damage=='codec':r['host_representation']['codec']='aac'
+    if damage=='size':r['host_representation']['packet_bytes']=385
+    if damage=='budget':r['host_representation']['video_frames']=71
+    if damage=='missing':r.pop('host_representation')
+    assert not feed(p,t,r).valid and p.retired

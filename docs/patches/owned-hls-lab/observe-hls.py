@@ -23,22 +23,23 @@ assert lib.mach_timebase_info(ctypes.byref(timebase)) == 0
 def host_ns():
     return lib.mach_absolute_time() * timebase.numer // timebase.denom
 
-def expected_player(target_file, port):
+def expected_player(target_file, port, expected_type="audio"):
     players=rpc('Player.GetActivePlayers',port=port)
     if not players:return None
-    if len(players)!=1 or type(players[0].get('playerid')) is not int or players[0].get('type')!='audio':
-        raise RuntimeError('Expected one pure-audio player')
+    if len(players)!=1 or type(players[0].get('playerid')) is not int or players[0].get('type')!=expected_type:
+        raise RuntimeError('Expected one player of the explicitly selected type')
     player=players[0]
     item=rpc('Player.GetItem',{'playerid':player['playerid'],'properties':['file','dynpath']},port=port).get('item',{})
     if item.get('dynpath')!=target_file:raise RuntimeError('Playing item mismatch')
-    return dict(player,file=item.get('file'),dynpath=item['dynpath']) # audio ID/type do not attest the core name
+    return dict(player,file=item.get('file'),dynpath=item['dynpath']) # ID/type do not attest the core name
 
 def save_observation(capture, report, port):
     # Preserve the completed timeline even if Kodi or the fixture has exited.
     output = capture / 'kodi-clock-observation.json'
     output.write_text(json.dumps(report, indent=2)+'\n')
     try:
-        active = expected_player(report.get('target_file','http://127.0.0.1:18789/live/index.m3u8'),port)
+        active = expected_player(report.get('target_file','http://127.0.0.1:18789/live/index.m3u8'),port,
+            'video' if report.get('player_mode')=='videoplayer_video_v1' else 'audio')
         report['observer_forced_stop']=bool(active)
         if active:
             rpc('Player.Stop', {'playerid':active['playerid']}, port=port)
@@ -73,7 +74,8 @@ def observe(report, args, target_file):
             event = {'action':action, 'request_host_ns':host_ns()}
             gate_ready = True
             try:
-                actual = expected_player(target_file,args.port)
+                actual = expected_player(target_file,args.port,
+                    "video" if getattr(args,"player_mode",None)=="videoplayer_video_v1" else "audio")
                 if not actual and action == 'pause':
                     gate_ready = False
                 elif not actual:
@@ -108,7 +110,8 @@ def observe(report, args, target_file):
         if time.monotonic() >= next_observation:
             next_observation = time.monotonic() + args.poll_interval
             try:
-                active = expected_player(target_file,args.port)
+                active = expected_player(target_file,args.port,
+                    "video" if getattr(args,"player_mode",None)=="videoplayer_video_v1" else "audio")
                 t0 = host_ns()
                 if active:
                     props = rpc('Player.GetProperties', {'playerid':active['playerid'],
@@ -132,7 +135,7 @@ def main():
     p.add_argument('--output-root', type=Path, required=True)
     p.add_argument('--source', default='extended')
     p.add_argument('--owned-fixture',type=Path)
-    p.add_argument('--player-mode',choices=['paplayer_pcm_v1','videoplayer_pcm_v1'],default='paplayer_pcm_v1')
+    p.add_argument('--player-mode',choices=['paplayer_pcm_v1','videoplayer_pcm_v1','videoplayer_video_v1'],default='paplayer_pcm_v1')
     p.add_argument('--port', type=int, default=19093)
     p.add_argument('--pause-at', type=float, default=3)
     p.add_argument('--pause-duration', type=float, default=3)
@@ -142,7 +145,7 @@ def main():
     p.add_argument('--action', choices=['none','pause','seek'], default='none')
     p.add_argument('--ready-timeout', type=float, default=180)
     args = p.parse_args()
-    if args.player_mode=='videoplayer_pcm_v1' and not args.owned_fixture:p.error('VideoPlayer mode requires --owned-fixture')
+    if args.player_mode!='paplayer_pcm_v1' and not args.owned_fixture:p.error('VideoPlayer mode requires --owned-fixture')
     deadline = time.monotonic() + args.ready_timeout
     capture = None
     existing = set(args.output_root.glob("*/capture.json"))

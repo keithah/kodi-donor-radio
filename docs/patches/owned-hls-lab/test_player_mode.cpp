@@ -10,8 +10,11 @@ int main() {
  for(const auto& pair : {std::make_pair("other","VideoPlayer"),{"videoplayer_pcm_v1",""},{"","VideoPlayer"},{"videoplayer_pcm_v1","PAPlayer"}}) {
   State bad; CHECK(!bad.Configure(pair.first,pair.second));CHECK(bad.Get().retired);
  }
- auto setup=[](State& v){CHECK(v.Configure("videoplayer_pcm_v1","VideoPlayer"));CHECK(v.Observe(71,0,"VideoPlayer",0,100));};
- owned_override::State noOverride;CHECK(noOverride.Reset(false));CHECK(noOverride.OwnerBegin(99));
+ for(const char* name:{"videoplayer_pcm_v1","videoplayer_video_v1"}) {
+ const char* queue=std::string(name)=="videoplayer_video_v1" ? "40" : "";
+ auto setup=[&](State& v){CHECK(v.Configure(name,"VideoPlayer",queue));CHECK(v.Observe(71,0,"VideoPlayer",0,100));};
+ State applicable;setup(applicable);
+ owned_override::State noOverride;CHECK(noOverride.Reset(!applicable.Video()));CHECK(noOverride.OwnerBegin(99));
  int tokens=0;noOverride.Control(99,2,true,0,10,[&](void*){++tokens;return 0;},11);
  CHECK(!noOverride.Acquire(noOverride.Get().generation,71,"VideoPlayer",true,[&]{++tokens;return owned_override::StartResult{nullptr,0};},12));
  noOverride.Suspend(13);noOverride.ResumeNative();noOverride.Finish(99,[&](void*){++tokens;return 0;},14);
@@ -36,7 +39,7 @@ int main() {
   int calls=0;CHECK(!bad.Arm(p,[&]{++calls;return true;}));CHECK(calls==0 && bad.Get().retired);
  }
  for(int n=0;n<4;++n){State bad;setup(bad);CHECK(!bad.Observe(n==0?72:71,n==1?-1:0,n==2?"PAPlayer":"VideoPlayer",n==3?-1:0,102));CHECK(bad.Get().retired);}
- State unseen;CHECK(unseen.Configure("videoplayer_pcm_v1","VideoPlayer"));CHECK(!unseen.Arm(good,[]{return true;}));
+ State unseen;CHECK(unseen.Configure(name,"VideoPlayer",queue));CHECK(!unseen.Arm(good,[]{return true;}));
  State failed;setup(failed);CHECK(!failed.Arm(good,[]{return false;}));CHECK(failed.Get().retired && !failed.Get().armed);
  State stopped;setup(stopped);stopped.Retire();CHECK(!stopped.Observe(71,0,"VideoPlayer",0,103));
  // Actual unchanged authority: resume before a delayed native pause never repairs it.
@@ -46,5 +49,6 @@ int main() {
  CHECK(a.Apply(wire(3,"pause",3),3));CHECK(!a.Eligible(a.Generation()));CHECK(a.Apply(wire(4,"resume",4),4));
  a.Speed(0);a.Speed(1000);CHECK(!a.Eligible(a.Generation()));CHECK(a.Apply(wire(4,"resume",4),5));CHECK(!a.Eligible(a.Generation()));
  CHECK(a.Apply(wire(5,"pause",6),6));a.Speed(0);a.Speed(1000);CHECK(a.Apply(wire(6,"resume",7),7));CHECK(a.Eligible(a.Generation()));
+ }
  std::cout<<"explicit player mode / retained decode once / identity / pause fences passed\n";
 }

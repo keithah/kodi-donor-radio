@@ -70,8 +70,6 @@ class ObservationSchedulingTests(unittest.TestCase):
             elapsed=event['request_host_ns']/1e9
             self.assertTrue(due<=elapsed<=due+.100001)
 
-if __name__ == '__main__':
-    unittest.main()
 
 class PlayerIdentityTests(unittest.TestCase):
     def test_audio_id_is_accepted_without_claiming_core(self):
@@ -95,3 +93,16 @@ class ResolvedIdentityTests(unittest.TestCase):
             return {'item':{'file':'plugin://original','dynpath':'fixture'}}
         with patch.object(observer,'rpc',side_effect=rpc):
             self.assertEqual(observer.expected_player('fixture',19093)['dynpath'],'fixture')
+
+class VideoControlIdentityTests(unittest.TestCase):
+    def test_video_mode_uses_actual_id_and_exact_dynpath(self):
+        def rpc(method,params=None,**kwargs):
+            if method=='Player.GetActivePlayers':return [{'playerid':7,'type':'video'}]
+            self.assertEqual(params['playerid'],7)
+            return {'item':{'file':'plugin://original','dynpath':'fixture'}}
+        with patch.object(observer,'rpc',side_effect=rpc):
+            self.assertEqual(observer.expected_player('fixture',19093,'video')['playerid'],7)
+            with self.assertRaises(RuntimeError):observer.expected_player('fixture',19093,'audio')
+
+if __name__ == '__main__':
+    unittest.main()

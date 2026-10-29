@@ -33,6 +33,16 @@ class FixtureBeaconTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 f.validate_ready(dict(ready,**{key:value}),binding)
 
+    def test_video_queue_ready_binding(self):
+        binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123,
+                     player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+        ready=dict(binding,kind='owned_monitor_ready')
+        self.assertTrue(f.validate_ready(ready,binding))
+        for value in (None,39,41):
+            with self.assertRaises(ValueError):f.validate_ready(dict(ready,video_queue_tenths=value),binding)
+        del ready['video_queue_tenths']
+        with self.assertRaises(ValueError):f.validate_ready(ready,binding)
+
     def test_ready_publication_is_complete_and_exclusive(self):
         import os
         binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123)

@@ -103,6 +103,7 @@ class OwnedAdPlayback:
                 or provider.binding.launch_mach_ns!=binding.launch_mach_ns
                 or provider.binding.player_mode!=binding.player_mode
                 or provider.binding.requested_core!=binding.requested_core
+                or provider.binding.video_queue_tenths!=binding.video_queue_tenths
                 or provider.binding.native_pid!=binding.native_pid
                 or provider.binding.selected_url!=binding.selected_url
                 or (binding.incarnation is not None and provider.binding.incarnation!=binding.incarnation)
