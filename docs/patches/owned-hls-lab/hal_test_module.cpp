@@ -38,3 +38,8 @@ extern "C" __attribute__((visibility("default"))) int drop_owner() {
  session.reset();owner.reset();return Quarantined()?1:0;
 }
 extern "C" __attribute__((visibility("default"))) void release_fake_cleanup() {release_cleanup.store(true);}
+
+extern "C" __attribute__((visibility("default"))) int clean_owner() {
+ release_cleanup.store(true);const auto result=owner->Cleanup(UINT64_MAX);
+ session.reset();owner.reset();return result==CleanupResult::clean&&Quarantined()?1:0;
+}

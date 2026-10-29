@@ -769,7 +769,9 @@ for HAL_FLAGS in '' '-DNDEBUG' '-DNDEBUG -O2'; do
     "$HAL_LAB/test_hal_device.cpp" "$HAL_SRC/OwnedHalDevice.cpp" \
     -framework CoreAudio -framework CoreFoundation -o "$HAL_OUT/device"
   for HAL_CASE in ok layout buffers pin resolve read add create start route \
-      stop remove destroy hang hang_remove hang_destroy callback_hang; do
+      stop remove destroy hang hang_remove hang_destroy callback_hang \
+      cancel_before cancel_pin cancel_add cancel_create cancel_race \
+      delayed_entry delayed_failed never_exposed_second; do
     "$HAL_OUT/device" "$HAL_CASE"
   done
   clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -dynamiclib -I"$HAL_SRC" \
@@ -779,6 +781,7 @@ for HAL_FLAGS in '' '-DNDEBUG' '-DNDEBUG -O2'; do
     "$HAL_LAB/test_hal_lifetime_macos.cpp" -o "$HAL_OUT/dyld"
   "$HAL_OUT/dyld" "$HAL_OUT/module.dylib" unpin
   "$HAL_OUT/dyld" "$HAL_OUT/module.dylib"
+  "$HAL_OUT/dyld" "$HAL_OUT/module.dylib" retained-clean
   clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -dynamiclib -I"$HAL_SRC" \
     -DOwnedHalModuleIdentityV1=DeliberatelyWrongIdentity "$HAL_LAB/hal_test_module.cpp" \
     -framework CoreAudio -framework CoreFoundation -o "$HAL_OUT/mismatch.dylib"
@@ -787,11 +790,19 @@ done
 ```
 
 Use a POSIX shell for this example (`sh`/`bash`), so the flag variable splits as
-shown. Each device fault runs in its own process because quarantine intentionally
-cannot be reset. The unpinned control proves actual unloading; the pinned test
-drops the ordinary loader reference, destroys the owner during a hung cleanup,
-and still invokes the real retained callback/context. Neither is proof of live
-speaker continuity or timing.
+shown. Each device fault runs in its own process. Once any registration API has
+received the context, it remains retained and the session slot stays quarantined
+until process exit, even after successful cleanup. `clean` means OS cleanup
+completed; it does not mean memory was reclaimed or delayed entry was excluded.
+A fresh process is required for another exposed HAL session. Never-exposed
+contexts may release their slot after cleanup wins the terminal arbitration.
+
+The unpinned control proves actual unloading. The pinned variants drop the
+ordinary loader reference and destroy the owner after either hung or successful
+cleanup, then invoke the real retained callback/context. Cancellation tests cover
+before Prepare and deterministic registration boundaries; the lifetime harness
+checks both cleanup/timeout winners with a competing owner. These tests do not
+establish live speaker continuity or timing.
 
 The IOProc relies on CoreAudio's documented zero-on-entry buffers. Malformed
 buffer counts/lengths retire without traversing or writing their storage. Pure

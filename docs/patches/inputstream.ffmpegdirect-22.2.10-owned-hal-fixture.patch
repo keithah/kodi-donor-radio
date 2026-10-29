@@ -287,7 +287,7 @@
 +}
 --- /dev/null
 +++ b/src/OwnedHalDevice.h
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,31 @@
 +#pragma once
 +#include "OwnedHalLifetime.h"
 +#include <CoreAudio/CoreAudio.h>
@@ -309,12 +309,19 @@
 +struct HalRuntime;
 +class HalSessionState {public:HalSessionState();HalCore& Core()noexcept;private:friend class HalDevice;std::shared_ptr<HalRuntime> state_;};
 +class HalDevice {public:explicit HalDevice(DeviceApi api=PublicDeviceApi());
-+  HalDevice(const HalDevice&)=delete;HalDevice& operator=(const HalDevice&)=delete;~HalDevice();Status Prepare(HalSessionState&)noexcept;Status Start()noexcept;Status CheckGuards()noexcept;void RequestStop()noexcept;CleanupResult Cleanup(uint64_t)noexcept;private:DeviceApi api_;std::shared_ptr<HalRuntime> state_;};
++  HalDevice(const HalDevice&)=delete;HalDevice& operator=(const HalDevice&)=delete;~HalDevice();Status Prepare(HalSessionState&)noexcept;Status Start()noexcept;Status CheckGuards()noexcept;void RequestStop()noexcept;CleanupResult Cleanup(uint64_t)noexcept;private:
++  bool Cancelled()noexcept;
++  DeviceApi api_;
++  // Owner-only shared_ptr; never accessed by RequestStop. The published core
++  // remains owned by state_ until this facade's destruction.
++  std::shared_ptr<HalRuntime> state_;
++  std::atomic<HalCore*> published_core_{nullptr};
++  std::atomic<uint64_t> stop_requested_{0};};
 +
 +}
 --- /dev/null
 +++ b/src/OwnedHalDevice.cpp
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,239 @@
 +#include "OwnedHalDevice.h"
 +#include <CoreFoundation/CoreFoundation.h>
 +#include <mach/mach_time.h>
@@ -405,12 +412,13 @@
 +  DeviceApi api{};
 +  DeviceContract contract{};
 +  AudioDeviceIOProcID proc=nullptr;
-+  std::atomic<uint64_t> callbacks{0},listener_generation{0},cleanup_state{0};
++  std::atomic<uint64_t> callbacks{0},listener_generation{0};
++  CleanupArbiter cleanup;
 +  std::atomic<bool> cleanup_started{false};
 +  uint32_t listeners=0;
-+  bool claimed=false,prepared=false,start_attempted=false,started=false;
-+  // Self-reference is set before any registration. Clean teardown breaks it;
-+  // quarantine keeps exactly this independent state alive until process exit.
++  bool claimed=false,prepared=false,start_attempted=false,started=false,pinned=false,exposed=false;
++  // Set before registration. Once any registration API receives this pointer,
++  // it remains retained until process exit, even after successful OS cleanup.
 +  std::shared_ptr<HalRuntime> keep_alive;
 +};
 +namespace {
@@ -443,35 +451,68 @@
 +  if(s->proc&&s->start_attempted&&s->api.stop(s->contract.device,s->proc)!=noErr)clean=false;
 +  if(s->proc&&s->api.destroy(s->contract.device,s->proc)!=noErr)clean=false;
 +  for(uint32_t n=0;n<s->listeners;++n)if(s->api.remove(s->contract,n,Listener,s.get())!=noErr)clean=false;
-+  // Successful unregisters close entry; existing callbacks must also leave.
++  // Observe already-entered callbacks, but never infer closure of queued entry
++  // from successful unregisters or a zero counter. Exposed state is retained.
 +  while(clean&&s->callbacks.load(std::memory_order_acquire)!=0)s->api.wait_tick();
-+  if(clean&&!Quarantined()) {
-+    s->keep_alive.reset();ModuleGate().Release();s->cleanup_state.store(1,std::memory_order_release);
-+  }else {
-+    ModuleGate().Quarantine();s->cleanup_state.store(2,std::memory_order_release);
++  const CleanupResult outcome=clean?CleanupResult::clean:CleanupResult::failed;
++  if(s->cleanup.Choose(outcome)) {
++    if(clean&&!s->exposed) {s->keep_alive.reset();ModuleGate().Release();}
++    else ModuleGate().Quarantine();
 +  }
++  // A timeout winner keeps both its claim and context. A late worker cannot
++  // change that result or quarantine a later successfully admitted session.
++
++}
++// Owner-only. For retained outcomes the original claim has never been released,
++// so idempotent quarantine cannot affect a newly admitted owner. This also
++// ensures a reported retained result has visible quarantine before return.
++CleanupResult ReportCleanup(HalRuntime& s,CleanupResult result)noexcept {
++  if(s.exposed||result!=CleanupResult::clean)ModuleGate().Quarantine();
++  else s.claimed=false;
++  return result;
 +}
 +}
 +HalSessionState::HalSessionState():state_(std::make_shared<HalRuntime>()){}
 +HalCore& HalSessionState::Core()noexcept{return state_->core;}
-+HalDevice::HalDevice(DeviceApi api):api_(api){}
-+HalDevice::~HalDevice(){if(state_&&state_->claimed&&!Quarantined())Cleanup(UINT64_MAX);}
++HalDevice::HalDevice(DeviceApi api):api_(api){
++  static_assert(ATOMIC_POINTER_LOCK_FREE==2&&ATOMIC_LLONG_LOCK_FREE==2,"bounded cancellation requires lock-free atomics");
++}
++HalDevice::~HalDevice(){if(state_&&state_->claimed)Cleanup(UINT64_MAX);}
++bool HalDevice::Cancelled()noexcept {
++  if(!stop_requested_.load())return false;
++  if(state_)state_->core.Retire(Reason::cancelled);return true;
++}
 +Status HalDevice::Prepare(HalSessionState& session)noexcept {
++  if(stop_requested_.load()){session.Core().Retire(Reason::cancelled);return Status::retired;}
 +  if(Quarantined())return Status::quarantined;
 +  if(state_||session.state_->claimed||session.state_->core.Retired()||!api_.pin||!api_.now_ns||!api_.ticks||!api_.wait_tick||!api_.resolve||!api_.read||!api_.add||!api_.remove||!api_.create||!api_.start||!api_.stop||!api_.destroy)return Status::invalid;
 +  if(!ModuleGate().Claim())return Quarantined()?Status::quarantined:Status::invalid;
 +  state_=session.state_;auto& s=*state_;s.api=api_;s.claimed=true;
-+  if(!s.core.Ready()||!s.callbacks.is_lock_free()||!s.listener_generation.is_lock_free()||api_.pin()!=Status::ok) {
++  published_core_.store(&s.core);
++  // SC store/load pairs with RequestStop's latch-store/pointer-load: either
++  // the canceller observes this pointer or this owner observes cancellation.
++  if(Cancelled())return Status::retired;
++  if(!s.core.Ready()||!s.callbacks.is_lock_free()||!s.listener_generation.is_lock_free()||!s.cleanup.Ready()||api_.pin()!=Status::ok) {
 +    // Nothing has registered. In particular, a failed pin must never dispatch
 +    // an asynchronous cleanup function whose containing image can unload.
 +    s.core.Retire(Reason::route);s.claimed=false;ModuleGate().Release();return Status::invalid;
 +  }
++  s.pinned=true;
++  if(Cancelled())return Status::retired;
 +  if(api_.resolve(s.contract)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}
++  if(Cancelled())return Status::retired;
 +  s.keep_alive=state_;
 +  const uint64_t guard=s.listener_generation.load();
-+  for(uint32_t n=0;n<kGuardCount;++n){if(api_.add(s.contract,n,Listener,&s)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}++s.listeners;}
++  for(uint32_t n=0;n<kGuardCount;++n){
++    if(Cancelled())return Status::retired;
++    s.exposed=true; // before the call, including failed registration attempts
++    if(api_.add(s.contract,n,Listener,&s)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}
++    ++s.listeners;if(Cancelled())return Status::retired;
++  }
 +  if(api_.read(s.contract)!=noErr||api_.read(s.contract)!=noErr||s.listener_generation.load()!=guard||s.core.Retired()) {s.core.Retire(Reason::route);return Status::invalid;}
++  s.exposed=true;
 +  if(api_.create(s.contract.device,IOProc,&s,&s.proc)!=noErr){s.proc=nullptr;s.core.Retire(Reason::route);return Status::invalid;}
++  if(Cancelled())return Status::retired;
 +  s.prepared=true;return Status::ok;
 +}
 +Status HalDevice::CheckGuards()noexcept {
@@ -487,11 +528,21 @@
 +  if(api_.start(s.contract.device,s.proc)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}
 +  s.started=true;return s.core.Retired()?Status::retired:Status::ok;
 +}
-+void HalDevice::RequestStop()noexcept {if(state_)state_->core.Retire(Reason::cancelled);}
++void HalDevice::RequestStop()noexcept {
++  stop_requested_.store(1);
++  if(auto* core=published_core_.load())core->Retire(Reason::cancelled);
++}
 +CleanupResult HalDevice::Cleanup(uint64_t deadline)noexcept {
 +  if(!state_||!state_->claimed)return CleanupResult::clean;
 +  auto s=state_;s->core.Retire(Reason::cleanup);
-+  if(Quarantined()&&s->cleanup_started.load()&&s->cleanup_state.load()==0)return CleanupResult::timeout_quarantined;
++  CleanupResult result=CleanupResult::failed;
++  if(s->cleanup.Result(result))return ReportCleanup(*s,result);
++  if(!s->pinned) {
++    // Cancellation can win before pinning, with no exposed context. Keep that
++    // entire cleanup synchronous so no unpinned worker can outlive the caller.
++    if(s->cleanup.Choose(CleanupResult::clean)){s->keep_alive.reset();ModuleGate().Release();}
++    s->cleanup.Result(result);return ReportCleanup(*s,result);
++  }
 +  uint64_t now=api_.now_ns(),maximum=0;
 +  if(!AddNs(now,2000000000,maximum))maximum=UINT64_MAX;
 +  deadline=std::min(deadline,maximum);
@@ -499,18 +550,20 @@
 +  if(s->cleanup_started.compare_exchange_strong(expected,true)) {
 +    // Even failure to create a cleanup worker must retain live callback state.
 +    s->keep_alive=s;
-+    try{std::thread(CleanupWorker,s).detach();}catch(...){ModuleGate().Quarantine();return CleanupResult::failed;}
++    try{std::thread(CleanupWorker,s).detach();}
++    catch(...){if(s->cleanup.Choose(CleanupResult::failed))ModuleGate().Quarantine();}
 +  }
-+  while(s->cleanup_state.load(std::memory_order_acquire)==0&&now<deadline) {api_.wait_tick();now=api_.now_ns();}
-+  const auto result=s->cleanup_state.load(std::memory_order_acquire);
-+  if(result==1){s->claimed=false;return CleanupResult::clean;}
-+  if(result==2)return CleanupResult::failed;
-+  ModuleGate().Quarantine();return CleanupResult::timeout_quarantined;
++  while(!s->cleanup.Result(result)&&now<deadline) {api_.wait_tick();now=api_.now_ns();}
++  if(s->cleanup.Choose(CleanupResult::timeout_quarantined))ModuleGate().Quarantine();
++  // Choose is single-winner: a stale pending read can never quarantine after
++  // clean completion released the claim to another session.
++  s->cleanup.Result(result);
++  return ReportCleanup(*s,result);
 +}
 +}
 --- /dev/null
 +++ b/src/OwnedHalLifetime.h
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,69 @@
 +#pragma once
 +#include "OwnedHalCore.h"
 +#include <dlfcn.h>
@@ -529,6 +582,24 @@
 +  bool IsQuarantined()const noexcept {return (state_.load()&2)!=0;}
 +private:
 +  std::atomic<uint64_t> state_{0};
++};
++// One terminal choice per session. Choose(clean) precedes claim release;
++// timeout/failure callers that lose the CAS must never touch the module gate.
++class CleanupArbiter {
++public:
++ bool Ready()const noexcept{return outcome_.is_lock_free();}
++ bool Choose(CleanupResult result)noexcept {
++   uint64_t expected=0;return outcome_.compare_exchange_strong(expected,Encode(result));
++ }
++ bool Result(CleanupResult& result)const noexcept {
++   const uint64_t value=outcome_.load();if(!value)return false;
++   result=value==1?CleanupResult::clean:(value==2?CleanupResult::failed:CleanupResult::timeout_quarantined);return true;
++ }
++private:
++ static uint64_t Encode(CleanupResult result)noexcept {
++   return result==CleanupResult::clean?1:(result==CleanupResult::failed?2:3);
++ }
++ std::atomic<uint64_t> outcome_{0};
 +};
 +// Hidden inline functions give one registry per loaded addon, not a symbol that
 +// another plugin can interpose. A successful self-reference is NEVER dlclosed.
