@@ -6,6 +6,7 @@ uses its actual Mach time and independent stereo waveform matching. The existing
 whole-audio analyzer supplies capture-only anchors within each audible span.
 """
 import argparse
+import bisect
 from collections import Counter, OrderedDict
 import hashlib
 import json
@@ -234,6 +235,13 @@ def join_hal_evidence(native_lines,rows,receipts):
     if consumed!=list(range(1,len(inputs)+1)):errors.append('native_input_order')
     if consumed!=list(native):errors.append('native_input_missing')
     if len(inputs)!=len(all_snapshots):errors.append('input_snapshot_accounting')
+    # Segment lookup is ordered by its source host tick.  A query can only be
+    # covered by the immediate predecessor (or, at a shared edge, its next
+    # neighbor); scanning every segment for every query both hid overlap bugs
+    # and turned the final audit into O(N*M).
+    segment_index=sorted((Fraction(row['output_ticks']*row['timebase_numer'],row['timebase_denom']),seq,row)
+                         for seq,(_,row) in segments.items() if row.get('copied_frames'))
+    segment_starts=[entry[0] for entry in segment_index]
     snapshots={};qualified=[]
     for record,snapshot in zip(inputs,all_snapshots):
         sequence=record.get('row_sequence');entry=native.get(sequence)
@@ -250,8 +258,11 @@ def join_hal_evidence(native_lines,rows,receipts):
                     or snapshot['native_generation']!=query['native_gate']
                     or any(snapshot[k]!=query[k] for k in HAL_PROOF_KEYS if k!='backend')
                     or snapshot['backend']!='hal_callback_v1'):raise ValueError('hal_snapshot_identity')
-            t=lambda s:Fraction(s['output_ticks']*s['timebase_numer'],s['timebase_denom'])
-            covering=[v for _,v in segments.values() if v['copied_frames'] and t(v)<=q<t(v)+Fraction(v['copied_frames']*10**9,RATE)]
+            point=Fraction(q);position=bisect.bisect_right(segment_starts,point)
+            covering=[]
+            for candidate in segment_index[max(0,position-1):position+1]:
+                start,_,value=candidate;end=start+Fraction(value['copied_frames']*10**9,RATE)
+                if start<=point<end:covering.append(value)
             if len(covering)!=1 or covering[0]['sequence']!=query['segment_sequence']:raise ValueError('hal_query_coverage')
             segment=covering[0];source=segment['source_start']+int((q-t(segment))*RATE/10**9)
             if (snapshot['seconds']!=source/RATE or source!=query['source_frame'] or segment['muted']
@@ -266,14 +277,75 @@ def join_hal_evidence(native_lines,rows,receipts):
             if not q<=received<=checked<=q+100_000_000:raise ValueError('snapshot_freshness')
             if zero is None or zero[1]['source_start']!=0 or query['source_zero_sha256']!=zero[0]:raise ValueError('hal_source_zero')
             if len(qualified)==1:
-                if (source<=1024 or q<=t(zero[1])+Fraction(1024*10**9,RATE)
+                zero_start=Fraction(zero[1]['output_ticks']*zero[1]['timebase_numer'],zero[1]['timebase_denom'])
+                if (source<=1024 or q<=zero_start+Fraction(1024*10**9,RATE)
                         or checked>query['initial_deadline_ns'] or query['initial_deadline_ns']!=int(t(zero[1]))+120_000_000):
                     raise ValueError('hal_initial_opportunity')
         except (KeyError,ValueError,TypeError,ZeroDivisionError,OverflowError) as exc:
             errors.append(str(exc) if isinstance(exc,ValueError) else 'hal_proof_schema')
     accounting=dict(native_clock_rows=len(native),consumed_sequences=consumed,excluded_terminal_tail=[],
                     unaccounted_rows=[n for n in native if n not in consumed],hal_segment_rows=len(segments))
+    audit_hal_authorization_chain(rows,errors)
     return finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,receipts,hal=True)
+
+
+def audit_hal_authorization_chain(rows,errors):
+    """Require every tracker/queue/dispatch decision to have one native proof.
+
+    The raw native response echoes its request.  That lets the offline
+    evaluator independently bind ledger records to the native request/reply
+    pair, including each proof hash and both parent links; a Python-only row
+    can therefore never manufacture a delivery authorization.
+    """
+    probes=[row for row in rows if row.get('kind')=='owned_hal_probe']
+    proofs={}
+    for probe in probes:
+        response=probe.get('response');proof_id=response.get('request_id') if isinstance(response,dict) else None
+        digest=probe.get('response_sha256')
+        if (type(proof_id) is not int or type(digest) is not str or len(digest)!=64
+                or response.get('stage') not in ('tracker','queue','dispatch')
+                or digest in proofs or proof_id in proofs):
+            errors.append('hal_native_proof_schema');continue
+        if response.get('request_sha256')!=probe.get('request_sha256'):
+            errors.append('hal_native_request_reply_binding');continue
+        proofs[proof_id]=(digest,response)
+    def proof(record,stage,parent=None):
+        proof_id=record.get('proof_id');item=proofs.get(proof_id)
+        if item is None or item[0]!=record.get('proof_sha256'):
+            errors.append('hal_stage_native_proof');return None
+        _,response=item
+        if response.get('stage')!=stage or response.get('decision_id')!=record.get('decision_id'):
+            errors.append('hal_stage_native_binding');return None
+        if 'authorized' in record and response.get('authorized')!=record.get('authorized'):
+            errors.append('hal_stage_authorization_binding');return None
+        if parent is not None and (response.get('parent_id')!=parent[0] or response.get('parent_sha256')!=parent[1]):
+            errors.append('hal_stage_parent_chain');return None
+        return proof_id,item[0],response
+    trackers={}
+    for record in (row for row in rows if row.get('kind')=='owned_hal_tracker_authorization'):
+        item=proof(record,'tracker')
+        if item is None:continue
+        if record.get('decision_id') in trackers or item[2].get('parent_id')!=0 or item[2].get('parent_sha256')!='':errors.append('hal_tracker_chain')
+        trackers[record.get('decision_id')]=item
+    queues={}
+    for record in (row for row in rows if row.get('kind')=='owned_beacon_queue'):
+        tracker=trackers.get(record.get('decision_id'));item=proof(record,'queue',tracker) if tracker else None
+        if tracker is None:errors.append('hal_queue_tracker_missing')
+        if item is None:continue
+        if item[2].get('event_digest')!=record.get('event_digest') or item[2].get('decision_ns')!=record.get('decision_ns'):
+            errors.append('hal_queue_event_binding')
+        key=(record.get('decision_id'),record.get('placement_id'),record.get('event'))
+        if key in queues:errors.append('hal_queue_replayed')
+        queues[key]=item
+    for record in (row for row in rows if row.get('kind')=='owned_beacon_authorization'):
+        stage=record.get('authorization_stage')
+        key=(record.get('decision_id'),record.get('placement_id'),record.get('event'))
+        queue=queues.get(key)
+        item=proof(record,stage,queue) if stage in ('queue','dispatch') and queue else None
+        if queue is None:errors.append('hal_dispatch_queue_missing')
+        if item is None:continue
+        if (item[2].get('event_digest')!=record.get('event_digest') or item[2].get('decision_ns')!=record.get('decision_ns')
+                or (stage=='dispatch' and item[2].get('queue_ns')!=record.get('queue_ns'))):errors.append('hal_dispatch_event_binding')
 
 
 def finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,receipts,hal=False):

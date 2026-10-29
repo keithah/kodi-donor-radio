@@ -15,3 +15,13 @@ Focused verification:
 - `benchmark-12/result.json` passed with 32,763 retained authorization requests, 6,000 gain records, 64 controls, five authorized final requests, a 9.333166 ms maximum request-to-action time, a 5.083 microsecond maximum native bracket, and one observed exact-next gain renewal.
 
 The repository native patch is reproduced from the preserved Task 3 source snapshot. It is ready for the controller's required arm64 Release Xcode build, independent review, installation, and captured-audio acceptance. No Kodi core, recorder, device, job, or capture action was performed by this implementation task.
+
+## Review-loop addendum
+
+The activation gate now requires a private, owner-supplied native candidate manifest. It binds the freeze's exact `OwnedHalClock.h`, `OwnedHalAuthorization.h`, and `OwnedClockTransport.h` digests to the actual installed dylib and addon manifest hashes; absent, writable, symlinked, mismatched, or swapped artifacts fail closed. The final evaluator now audits each tracker, queue, and dispatch record against its native request/reply evidence and parent proof chain. Its segment coverage lookup uses ordered sequence neighbors rather than an O(N*M) scan.
+
+All attempts remain under `OUT/hal-task3-1793300802259852000/benchmark-01` through `benchmark-15`: 01--10 are preserved setup/protocol failures; 11--12 are the earlier serial candidates; 13 found the new staged driver's missing response-file parent hash; 14 proved that correction but intentionally failed the fifth chain's freshness bound under the old 5ms fake-owner poll. Neither failure was retried unchanged.
+
+Changed candidate `benchmark-15/result.json` passed the required maximum-population staged contention run: 32,753 retained requests plus five tracker/queue/dispatch chains (32,768 total), 6,000 gain records, 64 controls, and five concurrent workers. All 15 final native replies were authorized. Measured maxima were 3.531584 ms request-start-to-action, 22.333 microseconds native bracket, and 920.125 microseconds response-receipt-to-action; each is below its respective 20ms, 5ms, and 5ms frozen bound. The exact-next gain renewal was observed.
+
+The regenerated native patch digest is `f9bb4339907f42b7bb602393fc52550c41dc425a9d2ed642e762a1415671ffe3`. It applies cleanly to a fresh 22.2.10 HEAD snapshot at `/private/tmp/hal-patch-reproduction.rmq4am`; the resulting source contains the final startup-readiness declarations, two-argument `WriteHalSegment` declaration, and three-argument/default-bounded `GainJson` declaration. The independently preserved Release dylib is not overwritten. This records source/harness reproduction only and makes no new Release-build claim.

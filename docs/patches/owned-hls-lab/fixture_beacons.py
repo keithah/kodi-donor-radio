@@ -338,8 +338,39 @@ if __name__=='__main__':
     print(json.dumps(generate(args.root,args.contract),indent=2))
 
 
+def _hal_native_manifest(library):
+    """Return the owner-supplied, non-symlinked native candidate manifest.
+
+    The Python freeze deliberately does not authorize a clock candidate by
+    itself: a launch must name the exact installed dylib and addon manifest
+    that a local builder measured.  Keeping that hand-off explicit prevents a
+    source-only digest from accidentally authorizing a different installed
+    inputstream binary.
+    """
+    configured=os.environ.get('KODI_DONOR_HAL_NATIVE_MANIFEST')
+    path=Path(configured) if configured else Path(library)/'owned-hal-native-manifest.json'
+    if not path.is_absolute() or path.is_symlink():raise ValueError('hal_native_manifest_path')
+    try:stat=path.stat()
+    except OSError as exc:raise ValueError('hal_native_manifest_missing') from exc
+    if not path.is_file() or stat.st_uid!=os.getuid() or stat.st_mode&0o022:raise ValueError('hal_native_manifest_trust')
+    return path,read_json(path)
+
+
+def _manifest_file(manifest,key):
+    entry=manifest.get(key)
+    if not isinstance(entry,dict):raise ValueError('hal_native_manifest_schema')
+    raw_path=entry.get('path');digest=entry.get('sha256')
+    if not isinstance(raw_path,str) or not Path(raw_path).is_absolute() or not re.fullmatch(r'[0-9a-f]{64}',str(digest)):
+        raise ValueError('hal_native_manifest_schema')
+    path=Path(raw_path)
+    if path.is_symlink() or not path.is_file() or path.stat().st_uid!=os.getuid() or path.stat().st_mode&0o022:
+        raise ValueError('hal_native_artifact_trust')
+    if file_sha(path)!=digest:raise ValueError('hal_native_artifact_hash')
+    return path
+
+
 def load_hal_clock(library):
-    """Verify the distinct HAL candidate bytes before any native activation."""
+    """Verify the freeze and the exact installed native candidate at activation."""
     directory=Path(__file__).resolve().parent/'hal-clock-v1'
     contract=json.loads((directory/'contract.json').read_bytes())
     freeze=json.loads((directory/'freeze.json').read_bytes())
@@ -351,4 +382,15 @@ def load_hal_clock(library):
         raise ValueError('hal_provider_hash')
     if sha((Path(library)/'owned_hal_authorization.py').read_bytes())!=freeze['authorization_provider_sha256']:
         raise ValueError('hal_authorization_provider_hash')
+    _,manifest=_hal_native_manifest(library)
+    if manifest.get('schema')!='owned-hal-native-manifest-v1':raise ValueError('hal_native_manifest_schema')
+    source=manifest.get('native_source_sha256')
+    if not isinstance(source,dict):raise ValueError('hal_native_manifest_schema')
+    required={'native_clock_sha256':'src/OwnedHalClock.h',
+              'native_authorization_sha256':'src/OwnedHalAuthorization.h',
+              'native_transport_sha256':'src/OwnedClockTransport.h'}
+    if any(source.get(path)!=freeze.get(field) for field,path in required.items()):
+        raise ValueError('hal_native_source_binding')
+    _manifest_file(manifest,'dylib')
+    _manifest_file(manifest,'addon_manifest')
     return freeze

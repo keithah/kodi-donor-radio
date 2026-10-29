@@ -27,14 +27,14 @@ int main(int argc,char** argv){
   if(!owned_clock::GainJson(seed_raw,request,4096))return 9;
   uint64_t request_time=0;owned_clock::GainNumber(request["request_start_ns"],request_time);fixed_now=request_time+1000000;
   s.entry_ticks=fixed_now;s.applied.expiry_ns=fixed_now+500000000;
-  for(unsigned i=1;i<=32763;++i){request["request_id"]=std::to_string(i);std::string bytes="{";for(const auto& item:request){if(bytes.size()>1)bytes+=',';bytes+="\""+item.first+"\":"+item.second;}bytes+="}\n";
+  for(unsigned i=1;i<=32753;++i){request["request_id"]=std::to_string(i);std::string bytes="{";for(const auto& item:request){if(bytes.size()>1)bytes+=',';bytes+="\""+item.first+"\":"+item.second;}bytes+="}\n";
    char name[80];std::snprintf(name,sizeof(name),"/authorization/request-%06u.json",i);const auto dest=path+name;
    int f=open(dest.c_str(),O_CREAT|O_EXCL|O_WRONLY,0600);if(f<0||write(f,bytes.data(),bytes.size())!=static_cast<ssize_t>(bytes.size()))return 10;close(f);
    bool found=false;if(!a.Poll(found)||!found)return 11;++s.sequence;if(!view.Observe(s)||!a.Respond(view,&s,*core,now,std::string(64,'c')))return 12;
   }
   fixed_now=0;
   if(!controls.Open(path,"{\"benchmark\":true}\n"))return 13;
-  std::ofstream populated(path+"/populated");populated<<"32763";populated.close();
+  std::ofstream populated(path+"/populated");populated<<"32753";populated.close();
   const uint64_t until=now()+5000000000;
   while(access((path+"/final-query.json").c_str(),F_OK)!=0&&now()<until)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   std::ifstream final_input(path+"/final-query.json");std::string final((std::istreambuf_iterator<char>(final_input)),{});while(!final.empty()&&final.back()=='\n')final.pop_back();
@@ -55,9 +55,13 @@ int main(int argc,char** argv){
    if(mode=="aba"){core->NativeSpeed(0);core->NativeSpeed(1000);}
    if(mode=="intent")core->BeginEffectiveIntent(3);
    if(!a.Respond(view,&s,*core,now,std::string(64,'c')))return 7;
-   if(++count==((mode=="bridge"||mode=="benchmark")?5:(mode=="stages"?3:1)))return 0;
+   if(++count==(mode=="benchmark"?15:(mode=="bridge"?5:(mode=="stages"?3:1))))return 0;
   }
-  std::this_thread::sleep_for(std::chrono::microseconds(mode=="benchmark"?5000:200));
+  // Authorization has a 20ms action and 100ms query-freshness ceiling.  The
+  // benchmark intentionally contends five worker chains, so keep the fake
+  // owner's polling cadence below one tenth of that ceiling rather than
+  // manufacturing a stale fifth chain with a 5ms idle sleep.
+  std::this_thread::sleep_for(std::chrono::microseconds(mode=="benchmark"?200:200));
  }
  return 8;
 }

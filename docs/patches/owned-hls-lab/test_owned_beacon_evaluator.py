@@ -7,6 +7,33 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import evaluate_owned_beacons as e
 
 class OwnedEvaluatorTests(unittest.TestCase):
+    def hal_chain(self):
+        rows=[];proofs=[]
+        def add(number,stage,decision='d'*64,event='',parent=(0,''),decision_ns=0,queue_ns=0):
+            digest=('%064x'%number);request=('%064x'%(number+100))
+            response=dict(request_id=number,stage=stage,request_sha256=request,decision_id=decision,event_digest=event,
+                          parent_id=parent[0],parent_sha256=parent[1],decision_ns=decision_ns,queue_ns=queue_ns)
+            rows.append(dict(kind='owned_hal_probe',request_sha256=request,response_sha256=digest,response=response))
+            return number,digest,response
+        tracker=add(1,'tracker');queue=add(2,'queue',event='e'*64,parent=tracker[:2],decision_ns=10);dispatch=add(3,'dispatch',event='e'*64,parent=queue[:2],decision_ns=10,queue_ns=20)
+        rows.extend([
+            dict(kind='owned_hal_tracker_authorization',decision_id='d'*64,proof_id=1,proof_sha256=tracker[1]),
+            dict(kind='owned_beacon_queue',decision_id='d'*64,placement_id='p',event='start',event_digest='e'*64,decision_ns=10,proof_id=2,proof_sha256=queue[1]),
+            dict(kind='owned_beacon_authorization',authorization_stage='dispatch',decision_id='d'*64,placement_id='p',event='start',event_digest='e'*64,decision_ns=10,queue_ns=20,proof_id=3,proof_sha256=dispatch[1]),
+        ])
+        return rows
+
+    def test_hal_authorization_chain_requires_each_native_stage_and_parent(self):
+        for mutation,expected in (('missing','hal_stage_native_proof'),('replay','hal_native_proof_schema'),('parent','hal_stage_parent_chain'),('reply','hal_native_request_reply_binding'),('authorized','hal_stage_authorization_binding')):
+            rows=self.hal_chain()
+            if mutation=='missing':rows=[r for r in rows if not (r.get('kind')=='owned_hal_probe' and r['response']['request_id']==2)]
+            if mutation=='replay':rows.append(dict(rows[0]))
+            if mutation=='parent':next(r for r in rows if r.get('kind')=='owned_hal_probe' and r['response']['request_id']==3)['response']['parent_sha256']='0'*64
+            if mutation=='reply':rows[0]['response']['request_sha256']='0'*64
+            if mutation=='authorized':next(r for r in rows if r.get('kind')=='owned_hal_tracker_authorization')['authorized']=False
+            errors=[];e.audit_hal_authorization_chain(rows,errors)
+            with self.subTest(mutation=mutation):self.assertIn(expected,errors)
+
     def evidence(self):
         nonce='a'*32;sid=hashlib.sha256(nonce.encode()).hexdigest()[:16]
         native=dict(kind='clock_sample',mach_absolute_ns=1000000000,steady_ns=1000000000,

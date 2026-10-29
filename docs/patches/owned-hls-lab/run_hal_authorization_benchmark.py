@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 
@@ -68,7 +69,7 @@ def query(now, sequence=1):
                 applied_issue_ns=now - 8000000, applied_expiry_ns=now + 500000000)
 
 
-def request(row, number, start, stage='tracker'):
+def request(row, number, start, stage='tracker', *, event_digest='', parent=None, decision_ns=0, queue_ns=0):
     fields = ('query_host_ns', 'query_start_ns', 'query_end_ns', 'sequence', 'segment_sha256',
               'native_gate', 'effective_intent', 'playback_epoch', 'gain_epoch',
               'device_generation', 'stream_generation', 'source_zero_sequence',
@@ -82,7 +83,8 @@ def request(row, number, start, stage='tracker'):
                  output_backend='hal_callback_v1', hal_phase='clock', hal_clock_version=1,
                  request_id=number, expected_generation=1, stage=stage, request_start_ns=start,
                  deadline_ns=start + 20000000, initial=0, decision_id='1' * 64,
-                 event_digest='', parent_id=0, parent_sha256='', decision_ns=0, queue_ns=0)
+                 event_digest=event_digest, parent_id=parent['request_id'] if parent else 0,
+                 parent_sha256=parent['response_sha256'] if parent else '', decision_ns=decision_ns, queue_ns=queue_ns)
     return value
 
 
@@ -154,38 +156,65 @@ def main():
         final = query(final_now, sequence=2)
         write_private(session / 'final-query.json', final)
         authorization = session / 'authorization'
-        for number in range(32764, 32769):
-            write_private(authorization / ('request-%06d.json' % number), request(final, number, mach_host_ns()))
-            response_path = authorization / ('response-%06d.json' % number)
-            response_deadline = time.monotonic() + 15
-            while not response_path.exists() and time.monotonic() < response_deadline:
-                if process.poll() is not None:
-                    out, err = process.communicate()
-                    raise RuntimeError('native_response_exit_%s:%s:%s' % (process.returncode, out, err))
-                time.sleep(.001)
-            if not response_path.exists():
-                raise TimeoutError(str(response_path))
+        # The real transport has one pinned exact-next exchange slot. Two
+        # worker threads contend for that slot, while every event must still
+        # make its tracker -> queue -> dispatch chain in native request order.
+        sequence=iter(range(32754,32769));slot=threading.Lock();responses=[];failures=[]
+        def exchange(stage,event_digest,parent=None,decision_ns=0,queue_ns=0):
+            with slot:
+                number=next(sequence);started=mach_host_ns()
+                value=request(final,number,started,stage,event_digest=event_digest,parent=parent,
+                              decision_ns=decision_ns,queue_ns=queue_ns)
+                write_private(authorization / ('request-%06d.json' % number),value)
+                response_path=authorization / ('response-%06d.json' % number)
+                response_deadline=time.monotonic()+15
+                while not response_path.exists() and time.monotonic()<response_deadline:
+                    if process.poll() is not None:
+                        out,err=process.communicate();raise RuntimeError('native_response_exit_%s:%s:%s'%(process.returncode,out,err))
+                    time.sleep(.0005)
+                if not response_path.exists():raise TimeoutError(str(response_path))
+                received=mach_host_ns();raw=response_path.read_bytes();response=json.loads(raw)
+                # The native response does not echo its file digest.  Record
+                # the received immutable bytes here so downstream queue and
+                # dispatch requests carry the same parent proof as production.
+                response['response_sha256']=hashlib.sha256(raw).hexdigest()
+                response['action_receipt_ns']=received;responses.append(response)
+                return response
+        def chain(index):
+            try:
+                digest=hashlib.sha256(('benchmark-event-%d'%index).encode()).hexdigest()
+                tracker=exchange('tracker',digest)
+                queue=exchange('queue',digest,tracker,tracker['action_receipt_ns'])
+                exchange('dispatch',digest,queue,tracker['action_receipt_ns'],queue['action_receipt_ns'])
+            except BaseException as exc:failures.append(repr(exc))
+        workers=[threading.Thread(target=chain,args=(index,)) for index in range(5)]
+        for worker in workers:worker.start()
+        for worker in workers:worker.join()
+        if failures:raise RuntimeError('benchmark_worker:'+','.join(failures))
+        if len(responses)!=15:raise RuntimeError('benchmark_stage_count')
         out, err = process.communicate(timeout=20)
         if process.returncode:
             raise RuntimeError('native_harness_%s:%s' % (process.returncode, err))
-        responses = [json.loads((authorization / ('response-%06d.json' % n)).read_text()) for n in range(32764, 32769)]
         cadence = [json.loads(line) for line in (session / 'native-cadence.jsonl').read_text().splitlines()]
         latency = dict(
             request_to_action_max_ns=max(row['check_end_ns'] - row['request_start_ns'] for row in responses),
             native_bracket_max_ns=max(row['check_end_ns'] - row['check_start_ns'] for row in responses),
-            reply_action_age_max_ns=0,
+            reply_action_age_max_ns=max(row['action_receipt_ns']-row['check_end_ns'] for row in responses),
             control_max_ns=max(row['control_end_ns'] - row['start_ns'] for row in cadence),
             gain_max_ns=max(row['gain_end_ns'] - row['control_end_ns'] for row in cadence),
             gain_renewal_observed=any(row.get('gain_pending') == 1 for row in cadence))
         result = dict(schema='owned-hal-authorization-benchmark-v1', harness=str(args.harness),
-                      authorization_requests_prepopulated=32763, authorization_requests_final=5,
+                      authorization_requests_prepopulated=32753, authorization_requests_final=15,
+                      final_stage_counts={stage:sum(row['stage']==stage for row in responses) for stage in ('tracker','queue','dispatch')},
+                      concurrent_workers=5,
                       gain_records=6000, responses=responses, cadence=cadence,
                       all_final_authorized=all(row['authorized'] for row in responses), latency=latency,
-                      limits=dict(request_to_action_max_ns=20000000, native_bracket_max_ns=5000000),
+                      limits=dict(request_to_action_max_ns=20000000, native_bracket_max_ns=5000000, reply_action_age_max_ns=5000000),
                       native_stdout=out, native_stderr=err)
         write_private(args.output / 'result.json', result)
         if (not result['all_final_authorized'] or latency['request_to_action_max_ns'] > 20000000
-                or latency['native_bracket_max_ns'] > 5000000 or not latency['gain_renewal_observed']):
+                or latency['native_bracket_max_ns'] > 5000000 or latency['reply_action_age_max_ns']>5000000
+                or not latency['gain_renewal_observed'] or result['final_stage_counts']!={'tracker':5,'queue':5,'dispatch':5}):
             raise RuntimeError('benchmark_limits_or_authorization_failed')
         print(json.dumps(result, sort_keys=True))
     finally:
