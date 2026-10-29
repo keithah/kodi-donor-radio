@@ -1379,3 +1379,25 @@
 @@ -13 +13 @@
 -    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths"
 +    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths|owned_output_backend|owned_hal_contract_version"
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -2984 +2984,4 @@
+-            if(!m_ownedClock->Apply(commands.front(),now))break;
++            // Commands can become visible during the guard/read work above.
++            // Validate against receipt time, never the earlier scheduling sample.
++            const uint64_t appliedNow=MachAbsoluteNowNs();
++            if(!m_ownedClock->Apply(commands.front(),appliedNow))break;
+@@ -2993 +2996 @@
+-                if(!m_ownedVideoHost.AcknowledgeStart(now)){RevokeOwnedClock("video_startup_timeout");break;}
++                if(!m_ownedVideoHost.AcknowledgeStart(appliedNow)){RevokeOwnedClock("video_startup_timeout");break;}
+@@ -2997 +3000 @@
+-            m_ownedClock->Acknowledge(now);
++            m_ownedClock->Acknowledge(appliedNow);
+@@ -3004,0 +3008,2 @@
++          // PollGain may observe a publication newer than loop-entry now.
++          const uint64_t receivedNow=MachAbsoluteNowNs();
+@@ -3010,2 +3015,2 @@
+-               next.device!=1||next.revision!=gain.revision+1||next.epoch!=epoch||next.issue>now||next.start<m_ownedClockOpenNs||
+-               (gain.revision&&next.start<=gain.start)||std::abs(next.multiplier-owned_hal::KodiGain(next.volume,next.muted))>1e-12||now>=next.expiry)
++               next.device!=1||next.revision!=gain.revision+1||next.epoch!=epoch||next.issue>receivedNow||next.start<m_ownedClockOpenNs||
++               (gain.revision&&next.start<=gain.start)||std::abs(next.multiplier-owned_hal::KodiGain(next.volume,next.muted))>1e-12||receivedNow>=next.expiry)

@@ -27,6 +27,8 @@ extern "C" int pthread_override_qos_class_end_np(pthread_override_t){++override_
 namespace {
 uint64_t launch_ns=0;
 std::string output,session,nonce="e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",incarnation;
+std::atomic<unsigned> guard_entries{0},guard_release{0},guard_entered{0};
+std::atomic<uint64_t> guard_entered_ns{0};
 AudioDeviceIOProc callback=nullptr;void* context=nullptr;std::atomic<unsigned> starts{0},destroys{0},made_ae{0};
 std::atomic<bool> route_bad{false},early_abort_fired{false};std::atomic<uint64_t> stop_ns{0},destroy_ns{0};
 InputStreamFFmpegDirect* current_stream=nullptr;std::string current_scenario;
@@ -35,7 +37,17 @@ uint64_t ticks()noexcept{return mach_absolute_time();}
 void wait_tick()noexcept{std::this_thread::sleep_for(std::chrono::milliseconds(1));}
 owned_hal::Status pin()noexcept{return owned_hal::Status::ok;}
 OSStatus resolve(owned_hal::DeviceContract& c)noexcept{mach_timebase_info_data_t t{};mach_timebase_info(&t);c.device=1;c.stream=2;c.timebase_numer=t.numer;c.timebase_denom=t.denom;return 0;}
-OSStatus read_guard(const owned_hal::DeviceContract&)noexcept{return route_bad.load()?-1:0;}
+bool read_race(){return current_scenario=="gain_read_race"||current_scenario=="playback_read_race"||current_scenario=="gain_future"||current_scenario=="gain_expired"||current_scenario=="gain_stale"||current_scenario=="playback_future"||current_scenario=="playback_stale";}
+bool playback_race(){return current_scenario.compare(0,9,"playback_")==0;}
+void await_stage(std::atomic<unsigned>& value,unsigned stage){const auto deadline=now()+3000000000ULL;while(value.load()<stage&&now()<deadline)wait_tick();CHECK(value.load()>=stage);}
+OSStatus read_guard(const owned_hal::DeviceContract&)noexcept{
+ if(read_race()&&starts.load()){
+  const unsigned stage=++guard_entries;
+  const unsigned target=playback_race()?4:2;
+  if(stage==1||stage==target){guard_entered_ns=now();guard_entered=stage;await_stage(guard_release,stage);}
+ }
+ return route_bad.load()?-1:0;
+}
 OSStatus listener(const owned_hal::DeviceContract&,uint32_t,AudioObjectPropertyListenerProc,void*)noexcept{return 0;}
 OSStatus create(AudioDeviceID,AudioDeviceIOProc p,void* ctx,AudioDeviceIOProcID* id)noexcept{callback=p;context=ctx;if(current_scenario=="cancel_open"){std::thread cancel([]{current_stream->DemuxAbort();});cancel.join();}*id=reinterpret_cast<AudioDeviceIOProcID>(uintptr_t(1));return 0;}
 OSStatus start(AudioDeviceID,AudioDeviceIOProcID)noexcept{++starts;return 0;}
@@ -79,6 +91,50 @@ int main(int argc,char** argv){CHECK(argc==4);output=argv[1];session=argv[2];std
  if(scenario=="ae"){CHECK(!callback&&starts==0&&made_ae==1);}else CHECK(callback&&starts==1&&made_ae==0);
  auto hello=contents("hello.json");auto pos=hello.find("\"incarnation\":\"");CHECK(pos!=std::string::npos);incarnation=hello.substr(pos+15,32);
  if(scenario!="ae")CHECK(hello.find("hal_callback_v1")!=std::string::npos);
+ // Freshness regression deliberately precedes DemuxRead/source transfer. The
+ // fake read barrier sits after the real owner's loop timestamp; all PCM stays zero.
+ if(read_race()){
+   auto bootstrapGain=[&]{const uint64_t issued=now()+(scenario=="gain_future"?1000000000ULL:0);
+     const std::string wire="{\"nonce\":\""+nonce+"\",\"incarnation\":\""+incarnation+"\",\"timeline_sha256\":\""+std::string(64,'c')+
+       "\",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1,\"device_generation\":1,\"revision\":1,\"effective_epoch\":1,\"request_start_ns\":"+std::to_string(issued)+
+       ",\"request_end_ns\":"+std::to_string(issued)+",\"issue_ns\":"+std::to_string(issued)+",\"expiry_ns\":"+std::to_string(issued+500000000)+",\"volume\":100,\"muted\":false,\"multiplier\":1}\n";
+     write("gain-000001.json",wire);return issued;
+   };
+   await_stage(guard_entered,1);command(1,"waiting");
+   if(playback_race())bootstrapGain();
+   guard_release=1;const unsigned target=playback_race()?4:2;await_stage(guard_entered,target);
+   const uint64_t entered=guard_entered_ns.load();uint64_t issued=0;
+   if(!playback_race())issued=bootstrapGain();
+   else {
+     issued=scenario=="playback_stale"?launch_ns:now()+(scenario=="playback_future"?1000000000ULL:0);
+     write("command-000002.txt","v1 "+nonce+" "+incarnation+" 2 stop "+std::to_string(issued)+"\n");
+   }
+   if(scenario!="playback_stale")CHECK(issued>entered);
+   if(scenario=="gain_expired")while(now()<=issued+500000000ULL)wait_tick();
+   guard_release=target;
+   std::fprintf(stderr,"barrier: %s guard entered %llu; command issued %llu; complete atomic publication before guard returns\n",scenario.c_str(),(unsigned long long)entered,(unsigned long long)issued);
+   float samples[1024]{};AudioBufferList buffers{};buffers.mNumberBuffers=1;buffers.mBuffers[0]={2,4096,samples};
+   AudioTimeStamp stamp{};stamp.mFlags=3;mach_timebase_info_data_t tb{};mach_timebase_info(&tb);const uint64_t base=ticks();
+   for(unsigned n=0;n<8&&!destroys.load();++n){
+     stamp.mSampleTime=n*512;stamp.mHostTime=base+uint64_t((__uint128_t)(40000000ULL+uint64_t(n)*512*1000000000/48000)*tb.denom/tb.numer);
+     AudioTimeStamp current=stamp;current.mHostTime=ticks();CHECK(callback(1,&current,&buffers,&current,&buffers,&stamp,context)==0);
+     for(float v:samples)CHECK(v==0);std::this_thread::sleep_for(std::chrono::milliseconds(10));
+   }
+   const auto evidence=contents("native.jsonl");
+   if(scenario=="gain_read_race"||scenario=="gain_stale"){
+     CHECK(destroys==0);CHECK(evidence.find("hal_gain_ack")!=std::string::npos);CHECK(evidence.find("hal_terminal")==std::string::npos);
+     if(scenario=="gain_stale"){
+       auto stale=contents("gain-000001.json");const auto at=stale.find("\"revision\":1");CHECK(at!=std::string::npos);stale.replace(at,12,"\"revision\":2");write("gain-000002.json",stale);
+       for(unsigned n=0;n<100&&!destroys.load();++n)wait_tick();CHECK(destroys==1);
+       CHECK(contents("native.jsonl").find("\"native_control_reason\":\"gain_command\"")!=std::string::npos);
+     }
+   }else {
+     CHECK(destroys==1);const std::string reason=scenario=="playback_read_race"?"control_stop":playback_race()?"command_invalid":"gain_command";
+     CHECK(evidence.find("\"native_control_reason\":\""+reason+"\"")!=std::string::npos);
+   }
+   from.demux_abort(&data);from.close(&data);CHECK(destroys==1&&owned_hal::Quarantined());
+   std::puts("PASS actual Open owner/transport post-read freshness, zero source consumption and retained cleanup");return 0;
+ }
  CHECK(pthread_setname_np("VideoPlayer")==0);DEMUX_PACKET* packet=nullptr;for(unsigned tries=0;tries<1000;++tries){packet=from.demux_read(&data);if(packet&&packet->iSize)break;if(packet)release(nullptr,packet);packet=nullptr;std::this_thread::sleep_for(std::chrono::milliseconds(1));}CHECK(packet&&packet->iSize==384);release(nullptr,packet);
  INPUTSTREAM_IDS ids{};CHECK(from.get_stream_ids(&data,&ids)&&ids.m_streamCount==1);INPUTSTREAM_INFO host{};KODI_HANDLE transferred=nullptr;CHECK(from.get_stream(&data,ids.m_streamIds[0],&host,&transferred,[](KODI_HANDLE,int,INPUTSTREAM_INFO* info)->KODI_HANDLE{CHECK(info->m_streamType==INPUTSTREAM_TYPE_VIDEO&&info->m_ExtraSize==1&&info->m_ExtraData[0]==0&&info->m_Width==16&&info->m_Height==16);return reinterpret_cast<void*>(uintptr_t(1));}));CHECK(transferred);
  if(scenario=="ae"){from.demux_abort(&data);from.close(&data);CHECK(priority_stub_calls==1&&override_stub_calls==0);CHECK(!owned_hal::Quarantined()&&made_ae==1&&starts==0);std::puts("PASS actual AE Open/DemuxRead uses fake AE only; priority stub called once, no OS scheduling call");return 0;}
