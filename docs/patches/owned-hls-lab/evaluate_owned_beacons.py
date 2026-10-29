@@ -10,6 +10,7 @@ from collections import Counter, OrderedDict
 import hashlib
 import json
 import math
+from fractions import Fraction
 from pathlib import Path
 from fixture_beacons import FIRST_PACKET,PCM_SHA,PLACEMENTS,EVENTS,URL,TOTAL,load_contract
 
@@ -136,6 +137,7 @@ def join_evidence(native_lines,rows,receipts):
     launches=[r for r in rows if r.get('kind')=='owned_launch']
     if len(launches)!=1:raise ValueError('one_owned_launch_required')
     launch=launches[0]
+    if launch.get('output_backend')=='hal_callback_v1':return join_hal_evidence(native_lines,rows,receipts)
     if (launch.get('selected_url')!=URL or launch.get('first_packet_sha256')!=FIRST_PACKET
             or launch.get('estimator_sha256')!=ESTIMATOR_SHA or launch.get('production_eligible') is not False):
         raise ValueError('owned_launch_identity')
@@ -185,6 +187,97 @@ def join_evidence(native_lines,rows,receipts):
             errors.append('snapshot_freshness')
     accounting_errors,accounting=account_native(native,rows)
     errors.extend(accounting_errors)
+    return finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,receipts)
+
+
+HAL_PROOF_KEYS=('backend','query_start_ns','query_end_ns','segment_sha256','applied_sequence','applied_sha256',
+    'effective_intent','playback_epoch','gain_epoch','device_generation','stream_generation','source_zero_sequence',
+    'source_zero_sha256','source_zero_ticks','timebase_numer','timebase_denom','initial_deadline_ns')
+
+
+def join_hal_evidence(native_lines,rows,receipts):
+    """Join actual HAL raw rows. They are never rewritten as AE observations."""
+    launches=[r for r in rows if r.get('kind')=='owned_launch']
+    if len(launches)!=1:raise ValueError('one_owned_launch_required')
+    launch=launches[0]
+    if (launch.get('output_backend')!='hal_callback_v1' or launch.get('hal_phase')!='clock'
+            or type(launch.get('hal_clock_version')) is not int or launch['hal_clock_version']!=1
+            or launch.get('selected_url')!=URL or launch.get('first_packet_sha256')!=FIRST_PACKET
+            or launch.get('production_eligible') is not False):raise ValueError('hal_launch_identity')
+    native={};segments={};errors=[];nonce=incarnation=None;zero=None
+    for line in native_lines:
+        raw=line.rstrip(b'\r\n');row=json.loads(raw);kind=row.get('kind')
+        if not isinstance(kind,str) or not kind.startswith('hal_'):continue
+        if nonce is None:nonce=row.get('nonce');incarnation=row.get('incarnation')
+        if (row.get('nonce')!=nonce or row.get('incarnation')!=incarnation
+                or row.get('timeline_sha256')!=launch.get('timeline_sha256')):errors.append('native_owner_identity')
+        digest=hashlib.sha256(raw).hexdigest()
+        if kind=='hal_segment':
+            seq=row.get('sequence')
+            if type(seq) is not int or seq!=len(segments)+1:errors.append('hal_segment_order');continue
+            segments[seq]=(digest,row)
+            if row.get('copied_frames') and zero is None:zero=(digest,row)
+        elif kind=='hal_query':
+            seq=row.get('sequence')
+            if type(seq) is not int or seq!=len(native)+1:errors.append('native_sequence');continue
+            native[seq]=(digest,row)
+            if any(row.get(k)!=launch.get(k) for k in ('output_backend','hal_phase','hal_clock_version')):errors.append('hal_query_binding')
+            # A reference must already have been committed in the raw ledger.
+            for field in ('segment','applied','source_zero'):
+                sequence=row.get(field+'_sequence')
+                if sequence and (sequence not in segments or segments[sequence][0]!=row.get(field+'_sha256')):
+                    errors.append('hal_query_segment_identity')
+    if not nonce or opaque(nonce)!=launch.get('session_id'):errors.append('launch_native_identity')
+    inputs=[r for r in rows if r.get('kind')=='owned_clock_input']
+    all_snapshots=[r for r in rows if r.get('kind')=='owned_clock_snapshot']
+    consumed=[r.get('row_sequence') for r in inputs]
+    if consumed!=list(range(1,len(inputs)+1)):errors.append('native_input_order')
+    if consumed!=list(native):errors.append('native_input_missing')
+    if len(inputs)!=len(all_snapshots):errors.append('input_snapshot_accounting')
+    snapshots={};qualified=[]
+    for record,snapshot in zip(inputs,all_snapshots):
+        sequence=record.get('row_sequence');entry=native.get(sequence)
+        if (entry is None or entry[0]!=record.get('row_sha256') or record.get('snapshot')!={k:v for k,v in snapshot.items() if k not in ('kind','observed')}):
+            errors.append('input_native_identity');continue
+        digest,query=entry
+        if snapshot.get('valid') is not True:continue
+        snapshots[sequence]=snapshot;qualified.append(snapshot)
+        try:
+            start,end,q=(query[k] for k in ('query_start_ns','query_end_ns','query_host_ns'))
+            if (any(type(t) is not int for t in (start,end,q)) or not 0<=end-start<=5_000_000
+                    or q!=start+(end-start)//2 or query['qualified'] is not True
+                    or snapshot['row_sha256']!=digest or snapshot['query_host_ns']!=q
+                    or snapshot['native_generation']!=query['native_gate']
+                    or any(snapshot[k]!=query[k] for k in HAL_PROOF_KEYS if k!='backend')
+                    or snapshot['backend']!='hal_callback_v1'):raise ValueError('hal_snapshot_identity')
+            t=lambda s:Fraction(s['output_ticks']*s['timebase_numer'],s['timebase_denom'])
+            covering=[v for _,v in segments.values() if v['copied_frames'] and t(v)<=q<t(v)+Fraction(v['copied_frames']*10**9,RATE)]
+            if len(covering)!=1 or covering[0]['sequence']!=query['segment_sequence']:raise ValueError('hal_query_coverage')
+            segment=covering[0];source=segment['source_start']+int((q-t(segment))*RATE/10**9)
+            if (snapshot['seconds']!=source/RATE or source!=query['source_frame'] or segment['muted']
+                    or not segment['playing'] or segment['applied_gain']<=0 or not segment['sample_zero_proven']):raise ValueError('hal_mapping_proof')
+            applied=segments[query['applied_sequence']][1]
+            for key in ('device_generation','stream_generation','playback_epoch','gain_epoch','native_gate'):
+                if segment[key]!=query[key] or applied[key]!=query[key]:raise ValueError('hal_epoch_proof')
+            if segment['applied_intent']!=query['effective_intent'] or applied['applied_intent']!=query['effective_intent']:raise ValueError('hal_intent_proof')
+            for key in ('request_start_ns','request_end_ns','issue_ns','expiry_ns'):
+                if query['applied_'+key]!=applied[key]:raise ValueError('hal_applied_lease_identity')
+            received=record['received_mach_ns'];checked=snapshot['authorization_ns']
+            if not q<=received<=checked<=q+100_000_000:raise ValueError('snapshot_freshness')
+            if zero is None or zero[1]['source_start']!=0 or query['source_zero_sha256']!=zero[0]:raise ValueError('hal_source_zero')
+            if len(qualified)==1:
+                if (source<=1024 or q<=t(zero[1])+Fraction(1024*10**9,RATE)
+                        or checked>query['initial_deadline_ns'] or query['initial_deadline_ns']!=int(t(zero[1]))+120_000_000):
+                    raise ValueError('hal_initial_opportunity')
+        except (KeyError,ValueError,TypeError,ZeroDivisionError,OverflowError) as exc:
+            errors.append(str(exc) if isinstance(exc,ValueError) else 'hal_proof_schema')
+    accounting=dict(native_clock_rows=len(native),consumed_sequences=consumed,excluded_terminal_tail=[],
+                    unaccounted_rows=[n for n in native if n not in consumed],hal_segment_rows=len(segments))
+    return finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,receipts,hal=True)
+
+
+def finish_evidence(launch,nonce,errors,qualified,snapshots,accounting,rows,receipts,hal=False):
+    events=[]
     decisions=[r for r in rows if r.get('kind')=='ad_tracking']
     authorizations=[r for r in rows if r.get('kind')=='owned_beacon_authorization']
     key=lambda r:(r.get('placement_id'),r.get('event'))
@@ -205,6 +298,7 @@ def join_evidence(native_lines,rows,receipts):
             or type(snapshot.get('authorization_ns')) is not int
             or decision['decision_ns']<snapshot['authorization_ns']):
             errors.append('decision_snapshot_identity')
+        if hal and snapshot and any(decision.get(k)!=snapshot.get(k) for k in HAL_PROOF_KEYS):errors.append('hal_decision_provenance')
         matched=[(i,r) for i,r in enumerate(authorizations) if key(r)==event_key]
         if len(matched)!=1:errors.append('missing_or_duplicate_authorization');continue
         index,auth=matched[0];used_authorizations.add(index)
@@ -212,6 +306,11 @@ def join_evidence(native_lines,rows,receipts):
         if (any(auth.get(k)!=decision.get(k) for k in ('row_sequence','row_sha256','query_host_ns','generation',
                 'native_generation','mapped_seconds','decision_ns','session_id')) or auth.get('threshold_seconds')!=threshold):
             errors.append('authorization_decision_identity')
+        if hal:
+            if any(auth.get(k)!=decision.get(k) for k in HAL_PROOF_KEYS):errors.append('hal_authorization_provenance')
+            if name=='preroll' and event in ('impression','start'):
+                deadline=decision.get('initial_deadline_ns')
+                if type(deadline) is not int or any(type(r.get(k)) is not int or r[k]>deadline for r,k in ((decision,'decision_ns'),(auth,'queue_ns'))):errors.append('hal_initial_deadline')
         times=[decision.get('query_host_ns'),decision.get('decision_ns'),auth.get('authorization_ns')]
         chronology=all(type(t) is int for t in times) and 0<=times[0]<=times[1]<=times[2]
         if not chronology:errors.append('authorization_chronology')
@@ -251,7 +350,8 @@ def join_evidence(native_lines,rows,receipts):
 
 class CaptureMatcher:
     """Audio-only fractional matching in uninterrupted actual-buffer regions."""
-    def __init__(self,capture,reference,analysis):
+    def __init__(self,capture,reference,analysis,allow_fractional_endpoints=False):
+        self.allow_fractional_endpoints=allow_fractional_endpoints
         import numpy as np
         from analyze_hls_capture import local_match
         self.np=np;self.local_match=local_match;self.analysis=analysis;self.cache={}
@@ -313,6 +413,9 @@ class CaptureMatcher:
                      self.timing[i-1]['frame_count']*1e9/RATE)>2]
         self.quiet_intervals=merged;self.recorder_cuts=cuts
         ends=self.analysis.get('prefix_tail',[])
+        if getattr(self,'allow_fractional_endpoints',False):
+            self.endpoint_proof=self.prove_endpoints()
+            ends=[dict(prefix=self.endpoint_proof['prefix'][ch],tail=self.endpoint_proof['tail'][ch]) for ch in (0,1)]
         prefix=[v.get('prefix') for v in ends]
         prefix_ok=(len(prefix)==2 and all(v and finite(v.get('correlation')) and v['correlation']>=.99
                    and v.get('reference_start_sample')==0 and finite(v.get('capture_start_sample')) for v in prefix))
@@ -349,6 +452,51 @@ class CaptureMatcher:
                 self.regions.append(dict(id=len(self.regions),segment=segment,lower=lower,upper=upper,
                                          prefix=onset is not None and lower==onset,
                                          prefix_quiet_end=prefix_quiet_end))
+
+    def prove_endpoints(self):
+        """Fixed source endpoints, with phase learned only on disjoint audio.
+
+        Integer-only endpoint correlation is not a precondition. Neither endpoint
+        can fit its own phase, gain, alignment or threshold. No native query or
+        external endpoint proof is consumed here.
+        """
+        proof={}
+        for name,number,source in (('prefix',0,0),('tail',len(self.analysis['segments'])-1,len(self.reference)-1920)):
+            segment=self.analysis['segments'][number]
+            region=dict(id=-1 if name=='prefix' else -2,segment=segment,
+                        lower=max(0,math.ceil(segment['span']['start']*RATE)),
+                        upper=min(len(self.audio),math.floor(segment['span']['end']*RATE)))
+            channels=[]
+            for ch in (0,1):
+                anchors=segment['channels'][ch]['anchors']
+                if not anchors:raise ValueError('endpoint_anchor_unavailable')
+                anchor=min(anchors,key=lambda a:abs(a['capture_start_sample']-a['offset_samples']-source))
+                estimate=round(source+anchor['offset_samples']);value=None
+                for training_start in self._training_candidates(region,estimate):
+                    training=self._phase_training(region,training_start,ch)
+                    if training['correlation']<.99:continue
+                    offset=training['real_offset_samples'];start=round(source+offset)
+                    shift=source+offset-start
+                    if (start<0 or start+1920>len(self.audio)
+                            or not (training_start+2400<=start-2400 or training_start>=start+1920+2400)):
+                        raise ValueError('endpoint_training_overlap')
+                    # The complete held-out endpoint and interpolation stencil
+                    # must not cross a recorder gap. Actual source edge silence
+                    # is allowed only through the independent held-out check.
+                    if any(start-47<cut<start+1920+48 for cut in self.recorder_cuts):
+                        raise ValueError('endpoint_recorder_gap')
+                    metric=self._metric(self.reference[source:source+1920,ch],self._sinc_capture(start,1920,ch,shift))
+                    if metric['correlation']<.99:continue
+                    value=dict(metric,reference_start_sample=source,capture_start_sample=start,
+                               real_capture_start_sample=source+offset,heldout_source_frames=[source,source+1920],
+                               heldout_capture_frames=[start,start+1920],training=training)
+                    break
+                if value is None:raise ValueError('endpoint_waveform_correlation')
+                channels.append(value)
+            if abs(channels[0]['real_capture_start_sample']-channels[1]['real_capture_start_sample'])>1:
+                raise ValueError('endpoint_stereo_disagreement')
+            proof[name]=channels
+        return proof
 
     def _integer_match(self,region,start,width,ch):
         anchors=region['segment']['channels'][ch]['anchors']
@@ -585,7 +733,9 @@ def main():
     receipts=[r for r in all_receipts if r.get('accepted') is not True or not r.get('known_launch') or r.get('session_id')==launches[0]['session_id']]
     joined=join_evidence(native,rows,receipts)
     analysis=json.loads(args.analysis.read_text())
-    report=evaluate(joined,CaptureMatcher(args.capture,args.reference_pcm,analysis))
+    matcher=CaptureMatcher(args.capture,args.reference_pcm,analysis,allow_fractional_endpoints=launches[0].get('output_backend')=='hal_callback_v1')
+    report=evaluate(joined,matcher)
+    if hasattr(matcher,'endpoint_proof'):report['independent_endpoint_proof']=matcher.endpoint_proof
     report['receipt_log_total_attempts']=len(all_receipts)
     report['receipt_log_other_launch_attempts']=len(all_receipts)-len(receipts)
     report['input_sha256']={name:hashlib.sha256(getattr(args,name).read_bytes()).hexdigest() for name in ('native','events','receipts','analysis')}

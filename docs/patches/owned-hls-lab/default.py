@@ -16,7 +16,7 @@ def validate_lab_manifest(path, owned=False, video=False, video_control=False, h
     if owned: required.update(('owned_clock_nonce','owned_clock_timeline','owned_clock_first_packet'))
     if video: required.update(('owned_player_mode','owned_player_core'))
     if video_control: required.add('owned_player_queue_tenths')
-    if hal: required.update(('owned_output_backend','owned_hal_contract_version'))
+    if hal: required.update(('owned_output_backend','owned_hal_contract_version','owned_hal_phase','owned_hal_clock_version'))
     if len(extensions) != 1 or not required.issubset(set(extensions[0].get('listitemprops', '').split('|'))):
         raise RuntimeError('Owned HLS lab requires terminal_eof and is_realtime_stream in kodi.inputstream listitemprops')
     dependencies = root.findall("requires/import[@addon='kodi.binary.global.audioengine']")
@@ -54,6 +54,9 @@ def owned_item_properties(binding):
     if backend=='hal_callback_v1':
         from owned_hal_gain import HAL_FORMAT
         if (not video or binding.get('hal_contract_version')!=1 or type(binding.get('hal_contract_version')) is not int
+                or binding.get('hal_phase') not in ('controls','clock')
+                or (binding.get('hal_phase')=='clock' and (type(binding.get('hal_clock_version')) is not int or binding['hal_clock_version']!=1))
+                or (binding.get('hal_phase')=='controls' and binding.get('hal_clock_version') is not None)
                 or binding.get('device_uid')!='BuiltInSpeakerDevice' or binding.get('device_format')!=HAL_FORMAT
                 or binding.get('lifecycle_capability')!='retained_exposed_context_until_process_exit'):
             raise ValueError('resolved_hal_contract')
@@ -67,6 +70,8 @@ def owned_item_properties(binding):
     if backend=='hal_callback_v1':
         properties['inputstream.ffmpegdirect.owned_output_backend']=backend
         properties['inputstream.ffmpegdirect.owned_hal_contract_version']='1'
+        properties['inputstream.ffmpegdirect.owned_hal_phase']=binding['hal_phase']
+        if binding['hal_phase']=='clock':properties['inputstream.ffmpegdirect.owned_hal_clock_version']='1'
     if video:properties['inputstream.ffmpegdirect.owned_player_queue_tenths']='40'
     return properties
 
@@ -100,8 +105,8 @@ def resolve_owned(nonce,mode):
         expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
         if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
         if binding.video_extradata_hex is not None:expected['video_extradata_hex']=binding.video_extradata_hex
-        for key in ('output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability'):
-            if binding.output_backend=='hal_callback_v1':expected[key]=asdict(binding)[key]
+        for key in ('output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version'):
+            if binding.output_backend=='hal_callback_v1' and asdict(binding)[key] is not None:expected[key]=asdict(binding)[key]
         expected['kind']='owned_monitor_ready'
         if (binding.player_mode=='videoplayer_video_v1'
                 and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or json.dumps(ready,sort_keys=True,allow_nan=False)!=json.dumps(expected,sort_keys=True,allow_nan=False):
@@ -117,7 +122,7 @@ def resolve_owned(nonce,mode):
 def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase=None):
     mode,core=player_contract(mode)
     if (output_backend not in ('ae','hal_callback_v1')
-            or (output_backend=='hal_callback_v1' and (mode!='videoplayer_video_v1' or hal_phase!='controls'))
+            or (output_backend=='hal_callback_v1' and (mode!='videoplayer_video_v1' or hal_phase not in ('controls','clock')))
             or (output_backend=='ae' and hal_phase is not None)):
         raise ValueError('explicit_hal_controls_phase_required')
     import json
@@ -134,7 +139,8 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
     from owned_ad_playback import canonical_timeline
     import runtime_clock
     validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1',hal=output_backend=='hal_callback_v1')
-    runtime_clock.frozen_module()  # Refuse altered estimator before native Open.
+    runtime_clock.frozen_module()  # Preserve AE fixture identity for both paths.
+    hal_freeze=fixture_api.load_hal_clock(library) if hal_phase=='clock' else None
     settings={}
     for setting in ('audiodevice','lowlatency','channels','config','processquality','stereoupmix','passthrough'):
         name='audiooutput.'+setting
@@ -153,7 +159,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
     hal_fields={}
     if output_backend=='hal_callback_v1':
         from owned_hal_gain import HAL_FORMAT
-        hal_fields=dict(output_backend=output_backend,hal_contract_version=1,device_uid='BuiltInSpeakerDevice',
+        hal_fields=dict(output_backend=output_backend,hal_contract_version=1,hal_phase=hal_phase,hal_clock_version=1 if hal_phase=='clock' else None,device_uid='BuiltInSpeakerDevice',
                         device_format=HAL_FORMAT,lifecycle_capability='retained_exposed_context_until_process_exit')
     binding=OwnedClockBinding(nonce,None,fixture_api.sha(timeline),fixture_api.FIRST_PACKET,
                               fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core,video_queue_tenths=40 if mode=="videoplayer_video_v1" else None,
@@ -168,7 +174,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
         finally:os.close(descriptor)
     private_write('timeline.json',timeline)
     private_write('launch.json',fixture_api.canonical({'binding':asdict(binding),'fixture':str(Path(fixture).resolve()),
-                  'proof':proof,'settings':settings,'estimator_sha256':runtime_clock.SHA256,'hal_phase':hal_phase}))
+                  'proof':proof,'settings':settings,'estimator_sha256':runtime_clock.SHA256,'hal_phase':hal_phase,'hal_clock_freeze':hal_freeze}))
     try:
         xbmc.executebuiltin('RunScript(%s,--owned-beacons,%s,%s)'%(lab/'monitor.py',directory,library))
         deadline=time.monotonic()+10

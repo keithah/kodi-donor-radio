@@ -39,7 +39,7 @@ def _valid_gain_ack(row):
             or any(not _uint(row.get(k)) or not row[k] for k in positive)
             or any(not _uint(row.get(k)) for k in unsigned)
             or type(row.get('muted')) is not bool or type(row.get('resume_granted')) is not bool
-            or type(row.get('applied_gain')) not in (int,float) or not math.isfinite(row['applied_gain'])
+            or type(row.get('applied_gain')) not in (int,float) or not 0<=row['applied_gain']<=1 or not math.isfinite(row['applied_gain'])
             or not _controls_only(row) or row['volume']>100):
         return False
     paused=1<<62
@@ -109,8 +109,9 @@ class GainCommand:
 
 class HalGainController:
     """One control owner brackets readbacks; Monitor callbacks only set a hint."""
-    def __init__(self, rpc, transport, now_ns):
+    def __init__(self, rpc, transport, now_ns, before_publish=None):
         self.rpc, self.transport, self.now_ns = rpc, transport, now_ns
+        self.before_publish=before_publish
         self._owner = threading.Lock()
         self._hints = threading.Lock()
         self._hint = 1
@@ -165,6 +166,7 @@ class HalGainController:
                     start+500_000_000,value['volume'],value['muted'],multiplier)
                 if not _hex(b.incarnation,32):
                     raise ValueError('gain_not_bound')
+                if self.before_publish:self.before_publish(command)
                 self.transport.write_gain(command)
                 self._commands.append(command)
                 self._last_start, self._last_value, self._epoch, self._seen = start, observed, epoch, hint
@@ -241,7 +243,8 @@ class HalControlSession:
                 video_queue_tenths=b.video_queue_tenths,video_extradata_hex=b.video_extradata_hex,
                 output_backend=b.output_backend,hal_contract_version=b.hal_contract_version,
                 device_uid=b.device_uid,device_format=b.device_format,lifecycle_capability=b.lifecycle_capability,
-                stream_generation=1,device_generation=1,qualification_scope='controlled_fixture')
+                stream_generation=1,device_generation=1,qualification_scope='controlled_fixture',hal_phase=b.hal_phase)
+            if b.hal_phase=='clock':expected['hal_clock_version']=b.hal_clock_version
             if (not isinstance(hello,dict) or any(type(hello.get(k)) is not type(v) or hello[k]!=v for k,v in expected.items())
                     or any(type(hello['device_format'].get(k)) is not type(v) for k,v in b.device_format.items())
                     or not _hex(hello.get('incarnation'),32)
@@ -310,8 +313,9 @@ class HalControlSession:
                        'requested_playing','resume_granted','started','sample_zero_proven')
                 if (any(not _uint(row.get(k)) for k in integers)
                         or any(type(row.get(k)) is not bool for k in flags)
-                        or any(type(row.get(k)) not in (int,float) or not math.isfinite(row[k])
-                               for k in ('applied_gain','output_sample_time'))
+                        or type(row.get('applied_gain')) not in (int,float) or not 0<=row['applied_gain']<=1
+                        or type(row.get('output_sample_time')) not in (int,float) or not 0<=row['output_sample_time']<=2**53-1
+                        or any(not math.isfinite(row[k]) for k in ('applied_gain','output_sample_time'))
                         or row['schema_version']!=1 or row['hal_contract_version']!=1
                         or row['requested_frames']!=512 or row['source_count']!=row['consumed_frames']
                         or row['copied_frames']!=row['consumed_frames']

@@ -63,7 +63,7 @@ def load_contract(path=DEFAULT_CONTRACT):
 
 
 def validate_ready(ready,binding):
-    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
+    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
     expected['kind']='owned_monitor_ready'
     if (binding.get('player_mode')=='videoplayer_video_v1'
             and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or canonical(ready)!=canonical(expected):
@@ -73,7 +73,7 @@ def validate_ready(ready,binding):
 
 def publish_ready(directory_fd,binding):
     from owned_clock import _rename_exclusive
-    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
+    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
     ready['kind']='owned_monitor_ready'
     name='.monitor-ready.tmp'
     fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory_fd)
@@ -336,3 +336,19 @@ if __name__=='__main__':
     parser.add_argument('--contract',type=Path,default=DEFAULT_CONTRACT)
     args=parser.parse_args();sys.path.insert(0,str(args.repo/'plugin.audio.kodi_donor_radio/resources/lib'))
     print(json.dumps(generate(args.root,args.contract),indent=2))
+
+
+def load_hal_clock(library):
+    """Verify the distinct HAL candidate bytes before any native activation."""
+    directory=Path(__file__).resolve().parent/'hal-clock-v1'
+    contract=json.loads((directory/'contract.json').read_bytes())
+    freeze=json.loads((directory/'freeze.json').read_bytes())
+    if contract.get('schema')!='owned-hal-clock-v1' or freeze.get('schema')!='owned-hal-clock-v1':
+        raise ValueError('hal_contract_schema')
+    if sha((directory/'contract.json').read_bytes())!=freeze['contract_sha256']:
+        raise ValueError('hal_contract_hash')
+    if sha((Path(library)/'owned_hal_clock.py').read_bytes())!=freeze['provider_sha256']:
+        raise ValueError('hal_provider_hash')
+    if sha((Path(library)/'owned_hal_authorization.py').read_bytes())!=freeze['authorization_provider_sha256']:
+        raise ValueError('hal_authorization_provider_hash')
+    return freeze

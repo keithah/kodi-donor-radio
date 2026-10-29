@@ -125,9 +125,11 @@ def run_owned(directory,library):
             or fixture.sha(timeline)!=binding.timeline_sha256 or launch['estimator_sha256']!=runtime_clock.SHA256):
         raise ValueError('monitor_fresh_launch_binding')
     fixture.validate_profile(launch['settings'])
+    hal_clock=binding.output_backend=='hal_callback_v1' and binding.hal_phase=='clock'
     if binding.output_backend=='hal_callback_v1':
-        if launch.get('hal_phase')!='controls':raise ValueError('hal_controls_phase_required')
-        return run_hal_controls(transport,binding,fixture)
+        if launch.get('hal_phase')!=binding.hal_phase:raise ValueError('hal_phase_binding')
+        if not hal_clock:return run_hal_controls(transport,binding,fixture)
+        if launch.get('hal_clock_freeze')!=fixture.load_hal_clock(library):raise ValueError('hal_clock_freeze_binding')
     presentation=fixture.presentation_from_manifest(json.loads(timeline))
     module=runtime_clock.frozen_module()
     pending=queue.Queue(maxsize=80000);cancel=threading.Event()
@@ -143,7 +145,30 @@ def run_owned(directory,library):
                          row_sequence=original.get('ownership',{}).get('observation_sequence'),
                          received_mach_ns=received,snapshot=asdict(snapshot)))
             return snapshot
-    provider=RecordingProvider(binding,module.Estimator,now_ns=mach_host_ns)
+    gain=None;authorization=None
+    if hal_clock:
+        from owned_hal_clock import OwnedHalClockProvider
+        from owned_hal_gain import HalGainController
+        from owned_hal_authorization import HalAuthorizationTransport
+        class RecordingHalProvider(OwnedHalClockProvider):
+            def ingest(self,raw):
+                received=mach_host_ns();original=json.loads(raw);snapshot=super().ingest(raw)
+                if original['kind']=='hal_query':
+                    enqueue(dict(kind='owned_clock_input',row_sha256=fixture.sha(raw),row_sequence=original['sequence'],
+                                 received_mach_ns=received,snapshot=asdict(snapshot)))
+                else:
+                    if original['kind']=='hal_gain_ack' and gain:gain.acknowledge(original)
+                    enqueue(dict(kind='owned_hal_native_input',record=original,row_sha256=fixture.sha(raw)))
+                return snapshot if original['kind']=='hal_query' else None
+        provider=RecordingHalProvider(binding,mach_host_ns)
+        authorization=HalAuthorizationTransport(directory,mach_host_ns,emit=enqueue)
+        provider.authorization=authorization
+        def rpc(method,params):
+            response=json.loads(xbmc.executeJSONRPC(json.dumps(dict(jsonrpc='2.0',id=1,method=method,params=params))))
+            if 'error' in response or 'result' not in response:raise RuntimeError('gain_rpc_error')
+            return response['result']
+        gain=HalGainController(rpc,transport,mach_host_ns,before_publish=provider.gain_pending)
+    else:provider=RecordingProvider(binding,module.Estimator,now_ns=mach_host_ns)
     adapter=OwnedAdPlayback(binding,provider,presentation,fixture.http_client(),cancel,enqueue)
     callback_lock=threading.Lock();stopped=threading.Event();active=threading.Event()
     def control(value,callback):
@@ -168,7 +193,20 @@ def run_owned(directory,library):
         def onPlayBackSpeedChanged(self,speed):
             enqueue(dict(kind='owned_speed_callback',speed=speed,issued_mach_ns=mach_host_ns()))
             if speed not in (0,1):adapter.retire('non_unit_speed')
-    player=OwnedPlayer();monitor=xbmc.Monitor();rows=0;bound=False
+    class GainMonitor(xbmc.Monitor):
+        def onNotification(self,sender,method,data):
+            if gain:gain.notify(sender,method,data)
+    player=OwnedPlayer();monitor=GainMonitor() if hal_clock else xbmc.Monitor();rows=0;bound=False
+    def priority_controls():
+        if provider.binding.incarnation is None:return
+        transport.flush_commands(provider)
+        if gain:
+            transport.binding=provider.binding;transport.device_generation=provider.device_generation
+            if not provider.retired and not provider.source_ended:
+                command=gain.reconcile()
+                if command:enqueue(dict(kind='owned_hal_gain_command',**asdict(command)))
+            if gain.retired:provider.retire(gain.reason)
+    if hal_clock:adapter.before_hal_probe=priority_controls
     descriptor=os.open('owned-events.jsonl',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=transport.fd)
     output=os.fdopen(descriptor,'w')
     def flush():
@@ -182,7 +220,8 @@ def run_owned(directory,library):
                  native_pid=binding.native_pid,player_mode=binding.player_mode,requested_core=binding.requested_core,video_queue_tenths=binding.video_queue_tenths,video_extradata_hex=binding.video_extradata_hex,timeline_sha256=binding.timeline_sha256,
                  first_packet_sha256=binding.first_packet_sha256,selected_url=binding.selected_url,
                  estimator_sha256=runtime_clock.SHA256,proof_sha256=fixture.sha(fixture.canonical(launch['proof'])),
-                 production_eligible=False,settings=launch['settings']))
+                 production_eligible=False,settings=launch['settings'],output_backend=binding.output_backend,
+                 hal_phase=binding.hal_phase,hal_clock_version=binding.hal_clock_version,hal_clock_freeze=launch.get('hal_clock_freeze')))
     fixture.publish_ready(transport.fd,asdict(binding))
     flush();stop_seen=None
     try:
@@ -193,12 +232,13 @@ def run_owned(directory,library):
                 except Exception:adapter.retire('route_unreadable')
             try:
                 snapshots=transport.poll(provider)
-                transport.flush_commands(provider)
+                priority_controls()
                 if provider.binding.incarnation is not None and not bound:
                     enqueue(dict(kind='owned_native_ready',session_id=adapter.session_id,
                                  incarnation_sha256=fixture.sha(provider.binding.incarnation.encode()),
                                  checked_mach_ns=mach_host_ns()));bound=True
                 for snapshot in snapshots:
+                    if snapshot is None:continue
                     accepted=adapter.observe(snapshot)
                     enqueue(dict(kind='owned_clock_snapshot',observed=accepted,**asdict(snapshot)))
             except OwnedTransportError:
@@ -212,6 +252,8 @@ def run_owned(directory,library):
                 adapter.retire('startup_timeout');break
     finally:
         adapter.close('monitor_exit')
+        if gain:gain.close()
+        if authorization:authorization.close()
         enqueue(dict(kind='owned_monitor_exit',retired=provider.retired,reason=provider.reason,
                      checked_mach_ns=mach_host_ns()))
         try:flush()

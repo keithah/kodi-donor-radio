@@ -86,6 +86,8 @@ class OwnedClockBinding:
     device_uid: object = None
     device_format: object = None
     lifecycle_capability: object = None
+    hal_phase: object = None
+    hal_clock_version: object = None
 
     def __post_init__(self):
         hal = self.output_backend == 'hal_callback_v1'
@@ -93,12 +95,15 @@ class OwnedClockBinding:
         if (self.output_backend not in ('ae', 'hal_callback_v1')
                 or (hal and (self.player_mode != 'videoplayer_video_v1'
                     or type(self.hal_contract_version) is not int or self.hal_contract_version != 1
+                    or self.hal_phase not in ('controls','clock')
+                    or (self.hal_phase=='clock' and (type(self.hal_clock_version) is not int or self.hal_clock_version!=1))
+                    or (self.hal_phase=='controls' and self.hal_clock_version is not None)
                     or self.device_uid != 'BuiltInSpeakerDevice'
                     or self.device_format != expected_format
                     or any(type(self.device_format[k]) is not type(v) for k,v in expected_format.items())
                     or self.lifecycle_capability != 'retained_exposed_context_until_process_exit'))
                 or (not hal and any(v is not None for v in (self.hal_contract_version,
-                    self.device_uid,self.device_format,self.lifecycle_capability)))):
+                    self.device_uid,self.device_format,self.lifecycle_capability,self.hal_phase,self.hal_clock_version)))):
             raise ValueError('invalid_output_backend_binding')
         if ((self.player_mode,self.requested_core) not in (("paplayer_pcm_v1","PAPlayer"),("videoplayer_pcm_v1","VideoPlayer"),("videoplayer_video_v1","VideoPlayer"))
                 or (self.player_mode=="videoplayer_video_v1" and (type(self.video_queue_tenths) is not int or self.video_queue_tenths!=40))
@@ -139,6 +144,25 @@ class OwnedClockSnapshot:
     native_generation: object = None
     generation: int = 0
     authorization_ns: object = None
+    proof_id: object = None
+    proof_sha256: object = None
+    backend: str = 'ae'
+    query_start_ns: object = None
+    query_end_ns: object = None
+    segment_sha256: object = None
+    applied_sequence: object = None
+    applied_sha256: object = None
+    effective_intent: object = None
+    playback_epoch: object = None
+    gain_epoch: object = None
+    device_generation: object = None
+    stream_generation: object = None
+    source_zero_sequence: object = None
+    source_zero_sha256: object = None
+    source_zero_ticks: object = None
+    timebase_numer: object = None
+    timebase_denom: object = None
+    initial_deadline_ns: object = None
 
 
 class OwnedClockProvider:

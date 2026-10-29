@@ -1,0 +1,13 @@
+{
+  "schema": "owned-hal-clock-v1",
+  "version": 1,
+  "contract_sha256": "ca5545c65b71ebdd85c2bd62fa17a309fcd7aca6c3f4f66e6995135771dcc503",
+  "provider_sha256": "e0cc9378d51d43da233d79914dfd2245f430701d8cc7e1008d1efdbb6d519cc2",
+  "authorization_provider_sha256": "a07be0cb9a0fa6d5bf8403ca490df807f08461d0d6ca48198c7994dfa0c559f9",
+  "native_clock_sha256": "5e9079b19b62c0ea0e6c1209bffebcef7e450336f2de6220c6d794800eee04cb",
+  "native_authorization_sha256": "461d1416138d06efd3bc231bd59b67df82926e89396ed428db760dce067c28e9",
+  "native_transport_sha256": "7d0a653c2b8eabc180d08d8070c1abd2c860fc3e7b49f2335329347170fbcd2b",
+  "clock_authority": false,
+  "beacons_enabled": false,
+  "production_eligible": false
+}

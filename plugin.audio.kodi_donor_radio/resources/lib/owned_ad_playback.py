@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Real VAST tracking for one complete, immutable owned controlled fixture."""
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 import math
@@ -89,6 +89,19 @@ def _opaque(value):
     return hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]
 
 
+@dataclass(frozen=True)
+class HalEventIntent:
+    placement_id: str
+    event: str
+    url: str
+    event_digest: str
+    decision_id: str
+    decision_ns: int
+    evidence: object
+    tracker_proof: object
+    initial: bool
+
+
 class OwnedAdPlayback:
     """Callback-safe tracker bridge; only the worker performs network IO.
 
@@ -105,6 +118,9 @@ class OwnedAdPlayback:
                 or provider.binding.requested_core!=binding.requested_core
                 or provider.binding.video_queue_tenths!=binding.video_queue_tenths
                 or provider.binding.video_extradata_hex!=binding.video_extradata_hex
+                or provider.binding.output_backend!=binding.output_backend
+                or provider.binding.hal_phase!=binding.hal_phase
+                or provider.binding.hal_clock_version!=binding.hal_clock_version
                 or provider.binding.native_pid!=binding.native_pid
                 or provider.binding.selected_url!=binding.selected_url
                 or (binding.incarnation is not None and provider.binding.incarnation!=binding.incarnation)
@@ -115,6 +131,9 @@ class OwnedAdPlayback:
         self.session_id = _opaque(binding.nonce)
         self.worker = BeaconWorker(client,cancel,URL)
         self.tracker = AdTracker(self.session_id,self._tracker_event,self._enqueue,allow_preroll_start=True)
+        self._hal=binding.output_backend=='hal_callback_v1'
+        self._attempted=0;self._event_intents=[]
+        self.before_hal_probe=lambda:None
         self._closed = False
         self._consumed = 0
         self._evidence = None
@@ -126,12 +145,24 @@ class OwnedAdPlayback:
         return dict(session_id=self.session_id,row_sequence=evidence.row_sequence,
                     row_sha256=evidence.row_sha256,generation=evidence.generation,
                     native_generation=evidence.native_generation,query_host_ns=evidence.query_host_ns,
-                    mapped_seconds=evidence.seconds)
+                    mapped_seconds=evidence.seconds,**{k:getattr(evidence,k) for k in (
+                        'backend','query_start_ns','query_end_ns','segment_sha256','applied_sequence','applied_sha256',
+                        'effective_intent','playback_epoch','gain_epoch','device_generation','stream_generation',
+                        'source_zero_sequence','source_zero_sha256','source_zero_ticks','timebase_numer','timebase_denom','initial_deadline_ns')})
 
     def _tracker_event(self, event):
+        if self._hal and event.get('reason')=='queued':event=dict(event,reason='pending_native_queue_authorization')
         self._emissions.append(dict(event,decision_ns=self._decision_ns,**{k:v for k,v in self._details(self._evidence).items() if k!='session_id'}))
 
     def _enqueue(self, placement_id, event, url):
+        if self._hal:
+            if len(self._event_intents)>=32:return False
+            digest=hashlib.sha256(json.dumps([self.session_id,placement_id,event,hashlib.sha256(url.encode()).hexdigest(),
+                self._evidence.row_sha256,self._decision_id],separators=(',',':')).encode()).hexdigest()
+            placement=next(p for p in self.presentation.placements if p.id==placement_id)
+            self._event_intents.append(HalEventIntent(placement_id,event,url,digest,self._decision_id,self._decision_ns,
+                self._evidence,self._decision_proof,placement.start_sample==0 and event in ('impression','start')))
+            return True # staged only; _tracker_event explicitly labels it pending
         evidence = self._evidence
         decision_ns = self._decision_ns
         placement = next(p for p in self.presentation.placements if p.id==placement_id)
@@ -154,6 +185,7 @@ class OwnedAdPlayback:
             placement_id,event,url,authorize=authorize_delivery))
 
     def observe(self, evidence=None):
+        if self._hal:return self._observe_hal(evidence)
         evidence = self.provider.snapshot() if evidence is None else evidence
         emissions = []
         with self.provider.lock:
@@ -186,6 +218,90 @@ class OwnedAdPlayback:
         for event in emissions:
             self.emit(event)
         return accepted
+
+    def _hal_drop(self):
+        # A denied observation or event is terminal for continuity and dedup.
+        with self.provider.lock:
+            self.tracker.interrupt();self._interrupted=True
+
+    def _observe_hal(self,evidence=None):
+        evidence=self.provider.snapshot() if evidence is None else evidence
+        with self.provider.lock:
+            if self._closed or self.cancel.is_set() or self.provider.retired:return False
+            if not evidence.valid:
+                if self._had_valid:self.tracker.interrupt();self._interrupted=True
+                return False
+            if evidence.row_sequence<=self._attempted:return False
+            self._attempted=evidence.row_sequence
+        self.before_hal_probe()
+        decision_id=hashlib.sha256(('%s:%s:%d'%(self.session_id,evidence.row_sha256,evidence.generation)).encode()).hexdigest()
+        proof=self.provider.probe(evidence,'tracker',initial=not self._had_valid,decision_id=decision_id)
+        staged=[];emissions=[]
+        def decide(current):
+            if self._closed or self.cancel.is_set():return False
+            self._consumed=evidence.row_sequence;self._evidence=evidence;self._decision_ns=current.authorization_ns
+            self._decision_id=decision_id;self._decision_proof=proof;self._event_intents=[]
+            self._had_valid=True;self._interrupted=False
+            sample=PlaybackSample(self.session_id,evidence.seconds,evidence.query_host_ns/1e9,True,False,False,True)
+            self.tracker.observe(self.presentation,sample)
+            staged.extend(self._event_intents);self._event_intents=[]
+            emissions.extend(self._emissions);self._emissions.clear();return True
+        accepted=bool(self.provider.consume_proof(evidence,proof,'tracker',decide))
+        self.emit(dict(kind='owned_hal_tracker_authorization',authorized=accepted,decision_id=decision_id,
+            proof_id=proof.request['request_id'] if proof else None,proof_sha256=proof.response_sha256 if proof else None,
+            checked_mach_ns=self.provider.now_ns(),**self._details(evidence)))
+        if not accepted:self._hal_drop();return False
+        outcomes={}
+        for intent in staged:
+            self.before_hal_probe() # due gain/control work outranks another exchange
+            queued=self._queue_hal(intent)
+            key=(_opaque(intent.placement_id),intent.event)
+            outcomes[key]=outcomes.get(key,False) or queued
+        for event in emissions:
+            if event['reason']=='pending_native_queue_authorization':
+                event['reason']='queued' if outcomes.get((event['placement_id'],event['event'])) else 'native_queue_rejected'
+            event.update(decision_id=decision_id,tracker_proof_id=proof.request['request_id'],tracker_proof_sha256=proof.response_sha256)
+            self.emit(event)
+        return True
+
+    def _queue_hal(self,intent):
+        evidence=intent.evidence
+        proof=self.provider.probe(evidence,'queue',initial=intent.initial,decision_id=intent.decision_id,
+            event_digest=intent.event_digest,parent=intent.tracker_proof,decision_ns=intent.decision_ns)
+        context={}
+        def dispatch():
+            dispatch_proof=self.provider.probe(evidence,'dispatch',initial=intent.initial,decision_id=intent.decision_id,
+                event_digest=intent.event_digest,parent=proof,decision_ns=intent.decision_ns,queue_ns=context['queue_ns'])
+            checked=[]
+            def approve(current):
+                checked.append(current.authorization_ns);return not self._closed and not self.cancel.is_set()
+            authorized=bool(self.provider.consume_proof(evidence,dispatch_proof,'dispatch',approve))
+            self._hal_event_authorization(intent,authorized,checked[0] if checked else self.provider.now_ns(),dispatch_proof,context['queue_ns'],'dispatch')
+            if not authorized:self._hal_drop()
+            return authorized
+        def queue(current):
+            if self._closed or self.cancel.is_set():return False
+            context['queue_ns']=current.authorization_ns
+            return self.worker.enqueue(intent.placement_id,intent.event,intent.url,authorize=dispatch)
+        queued=bool(self.provider.consume_proof(evidence,proof,'queue',queue))
+        self.emit(dict(kind='owned_beacon_queue',event=intent.event,placement_id=_opaque(intent.placement_id),queued=queued,
+            decision_id=intent.decision_id,event_digest=intent.event_digest,decision_ns=intent.decision_ns,
+            queue_ns=context.get('queue_ns'),proof_id=proof.request['request_id'] if proof else None,
+            proof_sha256=proof.response_sha256 if proof else None,**self._details(evidence)))
+        if not queued:
+            self._hal_event_authorization(intent,False,self.provider.now_ns(),proof,context.get('queue_ns'),'queue')
+            self._hal_drop()
+        return queued
+
+    def _hal_event_authorization(self,intent,authorized,checked,proof,queue_ns,stage):
+        placement=next(p for p in self.presentation.placements if p.id==intent.placement_id)
+        fraction={'impression':0,'start':0,'firstQuartile':.25,'midpoint':.5,'thirdQuartile':.75,'complete':1}[intent.event]
+        threshold=(placement.start_sample+(placement.end_sample-placement.start_sample)*fraction)/48000
+        self.emit(dict(kind='owned_beacon_authorization',event=intent.event,placement_id=_opaque(intent.placement_id),
+            authorized=authorized,threshold_seconds=threshold,decision_ns=intent.decision_ns,authorization_ns=checked,
+            decision_id=intent.decision_id,event_digest=intent.event_digest,queue_ns=queue_ns,authorization_stage=stage,
+            proof_id=proof.request['request_id'] if proof else None,proof_sha256=proof.response_sha256 if proof else None,
+            **self._details(intent.evidence)))
 
     def control(self, state, issued_ns=None):
         with self.provider.lock:

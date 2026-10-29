@@ -155,7 +155,7 @@ if __name__=='__main__': unittest.main()
 def test_hal_readiness_discloses_backend_format_and_retention():
     import owned_hal_gain as h
     binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123,
-        output_backend='hal_callback_v1',hal_contract_version=1,device_uid='BuiltInSpeakerDevice',
+        output_backend='hal_callback_v1',hal_contract_version=1,hal_phase='controls',device_uid='BuiltInSpeakerDevice',
         device_format=h.HAL_FORMAT,lifecycle_capability='retained_exposed_context_until_process_exit')
     ready=dict(binding,kind='owned_monitor_ready')
     assert f.validate_ready(ready,binding)
@@ -167,7 +167,7 @@ def test_hal_readiness_discloses_backend_format_and_retention():
 def test_ready_nested_format_integer_types_are_strict():
     import owned_hal_gain as h
     binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123,output_backend='hal_callback_v1',
-        hal_contract_version=1,device_uid='BuiltInSpeakerDevice',device_format=h.HAL_FORMAT,
+        hal_contract_version=1,hal_phase='controls',device_uid='BuiltInSpeakerDevice',device_format=h.HAL_FORMAT,
         lifecycle_capability='retained_exposed_context_until_process_exit')
     ready=dict(binding,kind='owned_monitor_ready',device_format=dict(h.HAL_FORMAT,buffers=True))
     with __import__('pytest').raises(ValueError):f.validate_ready(ready,binding)

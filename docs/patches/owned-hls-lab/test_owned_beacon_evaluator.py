@@ -246,6 +246,13 @@ class FinalQualificationTests(unittest.TestCase):
         self.assertFalse(result['events'][-1]['capture_at_decision']['qualified'])
 
 
+class HalJoinTests(unittest.TestCase):
+    def test_original_query_hash_bracket_and_s0_are_required(self):
+        self.assertTrue(hasattr(e,'join_hal_evidence'),'distinct HAL evidence join missing')
+        # An AE launch cannot select the HAL schema by presenting a HAL row.
+        with self.assertRaises(ValueError):
+            e.join_hal_evidence([], [dict(kind='owned_launch',output_backend='ae')], [])
+
 class CapturePointTests(unittest.TestCase):
     def matcher(self):
         try:import numpy as np
@@ -307,6 +314,26 @@ class FractionalCaptureTests(unittest.TestCase):
                                 tail=dict(capture_start_sample=length-860,reference_start_sample=length-960,correlation=1.)) for ch in (0,1)]}
         return m
     def point(self,m,frame):return m.match(m.frame_host(frame))
+    def test_hal_fractional_prefix_reproved_from_disjoint_audio_not_integer_threshold(self):
+        m=self.matcher((.49,.49));m.allow_fractional_endpoints=True
+        for item in m.analysis['prefix_tail']:
+            item['prefix']['correlation']=.8;item['tail']['correlation']=.8
+        result=self.point(m,100.25)
+        self.assertTrue(result['qualified'],result)
+        self.assertTrue(hasattr(m,'endpoint_proof'),'independent endpoint proof missing')
+        self.assertEqual(m.endpoint_proof['prefix'][0]['heldout_source_frames'],[0,1920])
+        self.assertGreaterEqual(m.endpoint_proof['prefix'][0]['correlation'],.99)
+        self.assertEqual(m.endpoint_proof['tail'][0]['heldout_source_frames'],[48000-1920,48000])
+        self.assertGreaterEqual(m.endpoint_proof['tail'][0]['correlation'],.99)
+        self.assertTrue(m.endpoint_proof['prefix'][0]['training']['source_frames'][0]>=4320)
+
+    def test_hal_contaminated_prefix_cannot_be_proven_by_later_training(self):
+        m=self.matcher();m.allow_fractional_endpoints=True
+        m.audio[100:2020]*=-1
+        for item in m.analysis['prefix_tail']:item['prefix']['correlation']=.8
+        result=self.point(m,100.25)
+        self.assertFalse(result['qualified'],result)
+
     def test_fractional_audio_and_exact_query_position(self):
         for shift in (-.49,-.24,-.02,.02,.24,.49):
             with self.subTest(shift=shift):

@@ -207,7 +207,7 @@ def main():
     p.add_argument('--owned-fixture',type=Path)
     p.add_argument('--player-mode',choices=['paplayer_pcm_v1','videoplayer_pcm_v1','videoplayer_video_v1'],default='paplayer_pcm_v1')
     p.add_argument('--output-backend',choices=['ae','hal_callback_v1'],default='ae')
-    p.add_argument('--hal-phase',choices=['controls'])
+    p.add_argument('--hal-phase',choices=['controls','clock'])
     p.add_argument('--gain-controls-trial',action='store_true')
     p.add_argument('--port', type=int, default=19093)
     p.add_argument('--pause-at', type=float, default=3)
@@ -218,7 +218,7 @@ def main():
     p.add_argument('--action', choices=['none','pause','seek'], default='none')
     p.add_argument('--ready-timeout', type=float, default=180)
     args = p.parse_args()
-    if (args.output_backend=='hal_callback_v1' and (args.hal_phase!='controls' or args.player_mode!='videoplayer_video_v1' or not args.owned_fixture)) or (args.output_backend=='ae' and args.hal_phase):p.error('HAL requires explicit video fixture controls phase')
+    if (args.output_backend=='hal_callback_v1' and (args.hal_phase not in ('controls','clock') or args.player_mode!='videoplayer_video_v1' or not args.owned_fixture)) or (args.output_backend=='ae' and args.hal_phase):p.error('HAL requires explicit video fixture controls phase')
     if args.gain_controls_trial and (args.output_backend!='hal_callback_v1' or args.hal_phase!='controls' or args.action!='none' or args.port!=19092 or args.seconds!=50):p.error('gain trial requires isolated HAL controls, action none and 50 seconds')
     if args.player_mode!='paplayer_pcm_v1' and not args.owned_fixture:p.error('VideoPlayer mode requires --owned-fixture')
     deadline = time.monotonic() + args.ready_timeout

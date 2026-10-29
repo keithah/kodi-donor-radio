@@ -66,4 +66,6 @@ def test_hal_capabilities_required_before_native_open(tmp_path):
     path.write_text(prefix+'"/></addon>')
     with __import__('pytest').raises(RuntimeError):launcher.validate_lab_manifest(path,hal=True)
     path.write_text(prefix+'|owned_output_backend|owned_hal_contract_version"/></addon>')
+    with __import__('pytest').raises(RuntimeError):launcher.validate_lab_manifest(path,hal=True)
+    path.write_text(prefix+'|owned_output_backend|owned_hal_contract_version|owned_hal_phase|owned_hal_clock_version"/></addon>')
     launcher.validate_lab_manifest(path,hal=True)

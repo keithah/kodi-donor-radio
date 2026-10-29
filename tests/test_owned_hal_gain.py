@@ -27,7 +27,7 @@ def binding():
     return clock.OwnedClockBinding('a'*32, 'b'*32, 'c'*64, 'd'*64, clock.URL,
         BASE-100, os.getpid(), player_mode='videoplayer_video_v1', requested_core='VideoPlayer',
         video_queue_tenths=40, video_extradata_hex='00', output_backend='hal_callback_v1',
-        hal_contract_version=1, device_uid='BuiltInSpeakerDevice',
+        hal_contract_version=1, hal_phase='controls', device_uid='BuiltInSpeakerDevice',
         device_format={'rate':48000,'frames':512,'channels':2,'buffers':1,'format':'float32_interleaved'},
         lifecycle_capability='retained_exposed_context_until_process_exit')
 
@@ -195,7 +195,7 @@ def test_monitor_controls_phase_cannot_construct_beacon_sender(tmp_path,monkeypa
 
 def hal_hello(b):
     values=dataclasses.asdict(b)
-    return {k:values[k] for k in ('nonce','incarnation','timeline_sha256','first_packet_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability')} | dict(protocol=1,stream_generation=1,device_generation=1,native_open_mach_ns=BASE-50,qualification_scope='controlled_fixture')
+    return {k:values[k] for k in ('nonce','incarnation','timeline_sha256','first_packet_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','hal_phase','device_uid','device_format','lifecycle_capability')} | dict(protocol=1,stream_generation=1,device_generation=1,native_open_mach_ns=BASE-50,qualification_scope='controlled_fixture')
 
 
 def gain_ack(command, **changes):
@@ -446,3 +446,8 @@ def test_new_ack_provenance_requires_exact_unsigned_integer_fields(field,value):
     assert not c.acknowledge(row) and c.retired and c._ack==0
     session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
     assert session.ingest(json.dumps(row).encode()) is None and session.retired
+
+
+def test_giant_gain_ack_retires_without_float_overflow():
+    c,t,now,state,calls=controller();command=c.reconcile();row=gain_ack(command);row['applied_gain']=10**400
+    assert not c.acknowledge(row) and c.retired

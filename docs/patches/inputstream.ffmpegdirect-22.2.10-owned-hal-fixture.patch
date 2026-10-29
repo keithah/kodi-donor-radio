@@ -1401,3 +1401,480 @@
 -               (gain.revision&&next.start<=gain.start)||std::abs(next.multiplier-owned_hal::KodiGain(next.volume,next.muted))>1e-12||now>=next.expiry)
 +               next.device!=1||next.revision!=gain.revision+1||next.epoch!=epoch||next.issue>receivedNow||next.start<m_ownedClockOpenNs||
 +               (gain.revision&&next.start<=gain.start)||std::abs(next.multiplier-owned_hal::KodiGain(next.volume,next.muted))>1e-12||receivedNow>=next.expiry)
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -1,3 +1,7 @@
++#if defined(__APPLE__)
++#include "OwnedHalClock.h"
++#include "OwnedHalAuthorization.h"
++#endif
+ /*
+  *  Copyright (C) 2005-2021 Team Kodi (https://kodi.tv)
+  *
+@@ -172,8 +176,8 @@
+   m_ownedClockRequested = false;
+   m_ownedNativeSpeed = 1000;
+   m_ownedLastNativePauseNs=0;
+-  std::string playerMode, requestedCore, playerQueue,outputBackend="ae",halVersion;
+-  m_ownedHal=false;
++  std::string playerMode, requestedCore, playerQueue,outputBackend="ae",halVersion,halPhase,halClockVersion;
++  m_ownedHal=false;m_ownedHalClock=false;
+   m_ownedClockNonce.clear(); m_ownedClockTimeline.clear(); m_ownedClockFirstPacket.clear();
+   m_ownedClockIncarnation.clear();
+ #if defined(__APPLE__)
+@@ -198,6 +202,8 @@
+     else if (prop.first == "inputstream.ffmpegdirect.owned_player_queue_tenths") playerQueue=prop.second;
+     else if (prop.first == "inputstream.ffmpegdirect.owned_output_backend") outputBackend=prop.second;
+     else if (prop.first == "inputstream.ffmpegdirect.owned_hal_contract_version") halVersion=prop.second;
++    else if (prop.first == "inputstream.ffmpegdirect.owned_hal_phase") halPhase=prop.second;
++    else if (prop.first == "inputstream.ffmpegdirect.owned_hal_clock_version") halClockVersion=prop.second;
+     else if (PROGRAM_NUMBER == prop.first)
+     {
+       m_properties.m_programProperty = prop.second;
+@@ -289,6 +295,9 @@
+   if (!m_ownedPlayerMode.Configure(playerMode,requestedCore,playerQueue)) return false;
+   if(outputBackend!="ae"&&outputBackend!="hal_callback_v1")return false;
+   m_ownedHal=outputBackend=="hal_callback_v1";
++  m_ownedHalClock=m_ownedHal&&halPhase=="clock";
++  if((m_ownedHal&&(halPhase!="controls"&&halPhase!="clock"))||
++     (m_ownedHalClock?halClockVersion!="1":!halClockVersion.empty())||(!m_ownedHal&&!halPhase.empty()))return false;
+ #if !defined(__APPLE__)
+   if(m_ownedHal)return false;
+ #endif
+@@ -649,6 +658,8 @@
+           << ",\"native_open_mach_ns\":" << m_ownedClockOpenNs
+           << ",\"stream_generation\":1,\"qualification_scope\":\"controlled_fixture\"";
+     if(m_ownedHal)hello << ",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1,\"device_generation\":1,\"device_uid\":\"BuiltInSpeakerDevice\",\"device_format\":{\"rate\":48000,\"frames\":512,\"channels\":2,\"buffers\":1,\"format\":\"float32_interleaved\"},\"lifecycle_capability\":\"retained_exposed_context_until_process_exit\"";
++    if(m_ownedHal)hello<<",\"hal_phase\":\""<<(m_ownedHalClock?"clock":"controls")<<"\"";
++    if(m_ownedHalClock)hello<<",\"hal_clock_version\":1";
+     hello << "}\n";
+     m_ownedTelemetryPath = root + "clock-sessions/" + m_ownedClockNonce + "/native.jsonl";
+     m_ownedTelemetryRows = 0;
+@@ -676,6 +687,7 @@
+     }
+ #if defined(__APPLE__)
+     if(m_ownedHal) {
++      if(m_ownedHalClock)m_ownedHalState->Core().RequireStartupReadiness();
+       if(m_ownedHalDevice.Prepare(*m_ownedHalState)!=owned_hal::Status::ok||m_ownedHalDevice.Start()!=owned_hal::Status::ok)return false;
+       m_ownedThread=std::thread([this]{RunOwnedHal();});
+     } else
+@@ -2868,7 +2880,12 @@
+ }
+-
++
+ #if defined(__APPLE__)
+-bool InputStreamFFmpegDirect::WriteHalSegment(const owned_hal::HalSegment& s)
++static std::string HalDigest(const std::string& raw) {
++  AVSHA* sha=av_sha_alloc();if(!sha||av_sha_init(sha,256)!=0){av_free(sha);return "";}
++  unsigned char bytes[32];av_sha_update(sha,reinterpret_cast<const unsigned char*>(raw.data()),raw.size());av_sha_final(sha,bytes);av_free(sha);
++  std::string digest;const char* hex="0123456789abcdef";for(auto b:bytes){digest+=hex[b>>4];digest+=hex[b&15];}return digest;
++}
++bool InputStreamFFmpegDirect::WriteHalSegment(const owned_hal::HalSegment& s,std::string* digest)
+ {
+   std::ostringstream out;out<<std::setprecision(17)
+     <<"{\"kind\":\"hal_segment\",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1"
+@@ -2898,7 +2915,9 @@
+     <<",\"volume\":"<<s.applied.volume<<",\"started\":"<<(s.applied.started?"true":"false")
+     <<",\"sample_zero_proven\":"<<(s.applied.sample_zero_proven?"true":"false")
+     <<",\"clock_authority\":false,\"beacons_enabled\":false}";
+-  return WriteOwnedTelemetryLine(out.str());
++  const auto raw=out.str();
++  if(digest){*digest=HalDigest(raw);if(digest->size()!=64)return false;}
++  return WriteOwnedTelemetryLine(raw);
+ }
+-
++
+ void InputStreamFFmpegDirect::RunOwnedHal()
+@@ -2916,6 +2935,12 @@
+   owned_clock::Gain gain{};
+   owned_hal::ResumeGrant resumeGrant;
+   owned_hal::AppliedControlView appliedView;
++  owned_hal::HalClock clock;std::array<std::string,64> segmentHashes{};std::string sourceZeroHash;
++  uint64_t querySequence=0,nextClockQuery=0;
++  owned_hal::HalAuthorization authorization;
++  if(m_ownedHalClock&&!authorization.Open("/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/clock-sessions/"+m_ownedClockNonce+"/authorization",HalDigest)) {
++    RevokeOwnedClock("hal_authorization_open");
++  }
+   owned_hal::EffectiveControl held{},queued{};
+   bool holding=false,haveQueued=false,natural=false;
+   uint64_t appliedGain=0,nextGainPoll=0,playbackEpoch=0,intent=core.DesiredIntent(),queuedSequence=0;
+@@ -2933,7 +2958,13 @@
+   auto drainEvidence=[&]{
+     owned_hal::HalSegment segment;
+     while(core.evidence.Pop(segment)) {
+-      if(!WriteHalSegment(segment)){RevokeOwnedClock("hal_ledger");break;}
++      std::string hash;
++      if(!WriteHalSegment(segment,m_ownedHalClock?&hash:nullptr)){RevokeOwnedClock("hal_ledger");break;}
++      if(m_ownedHalClock) {
++        if(clock.Observe(segment)!=owned_hal::Status::ok){RevokeOwnedClock("hal_clock_segment");break;}
++        segmentHashes[(segment.sequence-1)%64]=hash;
++        if(segment.copied_frames&&segment.source_start==0)sourceZeroHash=hash;
++      }
+       if(!appliedView.Observe(segment)){RevokeOwnedClock("hal_applied_tuple");break;}
+       if(segment.control_acquired&&segment.gain_revision!=appliedGain) {
+         const auto& applied=appliedView.Last()->applied;
+@@ -3004,7 +3035,7 @@
+         }
+         if(now>=nextGainPoll) {
+           std::vector<owned_clock::Gain> pending;
+-          if(!m_ownedClockTransport->PollGain(gain.revision,pending)){RevokeOwnedClock("gain_transport");break;}
++          if(!m_ownedClockTransport->PollGainNext(gain.revision,pending)){RevokeOwnedClock("gain_transport");break;}
+           // PollGain may observe a publication newer than loop-entry now.
+           const uint64_t receivedNow=MachAbsoluteNowNs();
+           if(!pending.empty()) {
+@@ -3032,6 +3063,42 @@
+       } else if(offered!=owned_hal::Status::busy)break;
+     }
+     drainEvidence();
++    if(m_ownedHalClock&&MachAbsoluteNowNs()>=nextClockQuery) {
++      const uint64_t start=MachAbsoluteNowNs(),gate=core.NativeState(),desired=core.DesiredIntent();
++      drainEvidence(); // dependent query never precedes its lossless raw segment
++      const uint64_t end=MachAbsoluteNowNs();
++      auto q=clock.Query(start,end,appliedView,gate,desired);
++      if(gate!=core.NativeState()||desired!=core.DesiredIntent()||m_ownedClock->Retired()) {
++        q.qualified=q.readiness=false;q.reason="query_fence_changed";
++      }
++      if(core.FinalEndNs()&&end>=core.FinalEndNs()){q.qualified=false;q.reason="natural_eof";}
++      const auto* applied=appliedView.Last();
++      std::ostringstream out;out<<"{\"kind\":\"hal_query\",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1,\"hal_phase\":\"clock\",\"hal_clock_version\":1"
++        <<",\"nonce\":\""<<m_ownedClockNonce<<"\",\"incarnation\":\""<<m_ownedClockIncarnation<<"\",\"timeline_sha256\":\""<<m_ownedClockTimeline
++        <<"\",\"sequence\":"<<++querySequence<<",\"query_start_ns\":"<<q.query_start_ns<<",\"query_end_ns\":"<<q.query_end_ns<<",\"query_host_ns\":"<<q.query_host_ns
++        <<",\"qualified\":"<<(q.qualified?"true":"false")<<",\"readiness\":"<<(q.readiness?"true":"false")<<",\"initial_failed\":"<<(q.initial_failed?"true":"false")<<",\"reason\":\""<<q.reason
++        <<"\",\"source_frame\":"<<q.source_frame<<",\"segment_sequence\":"<<q.segment_sequence<<",\"segment_sha256\":\""<<(q.segment_sequence?segmentHashes[(q.segment_sequence-1)%64]:"")
++        <<"\",\"applied_sequence\":"<<q.applied_sequence<<",\"applied_sha256\":\""<<(q.applied_sequence?segmentHashes[(q.applied_sequence-1)%64]:"")
++        <<"\",\"source_zero_sequence\":"<<q.source_zero_sequence<<",\"source_zero_sha256\":\""<<sourceZeroHash<<"\",\"source_zero_ticks\":"<<q.source_zero_ticks
++        <<",\"timebase_numer\":"<<q.timebase_numer<<",\"timebase_denom\":"<<q.timebase_denom<<",\"initial_deadline_ns\":"<<q.deadline_ns
++        <<",\"native_gate\":"<<q.native_gate<<",\"effective_intent\":"<<q.effective_intent<<",\"device_generation\":"<<q.device_generation<<",\"stream_generation\":"<<q.stream_generation
++        <<",\"playback_epoch\":"<<q.playback_epoch<<",\"gain_epoch\":"<<q.gain_epoch<<",\"readiness_count\":"<<q.readiness_count<<",\"consistent_count\":"<<q.consistent_count
++        <<",\"applied_request_start_ns\":"<<(applied?applied->applied.request_start_ns:0)<<",\"applied_request_end_ns\":"<<(applied?applied->applied.request_end_ns:0)
++        <<",\"applied_issue_ns\":"<<(applied?applied->applied.issue_ns:0)<<",\"applied_expiry_ns\":"<<(applied?applied->applied.expiry_ns:0)<<"}";
++      if(!WriteOwnedTelemetryLine(out.str())||!authorization.Remember(out.str())){RevokeOwnedClock("hal_query_ledger");break;}
++      if(q.readiness&&clock.Release())core.ReleaseStartup();
++      nextClockQuery=start+20000000;
++    }
++    if(m_ownedHalClock) {
++      bool found=false;if(!authorization.Poll(found)){RevokeOwnedClock("hal_authorization_transport");break;}
++      if(found){
++        if(m_ownedHalDevice.CheckGuards()!=owned_hal::Status::ok)break;
++        drainEvidence();const auto* current=appliedView.Last();
++        if(!authorization.Respond(appliedView,clock.Latest(),core,MachAbsoluteNowNs,current?segmentHashes[(current->sequence-1)%64]:"")) {
++          RevokeOwnedClock("hal_authorization_response");break;
++        }
++      }
++    }
+     m_ownedAcceptedFrames=core.source.Consumed();
+     const uint64_t finalEnd=core.FinalEndNs();
+     if(finalEnd&&now>=finalEnd) {
+--- a/src/OwnedClockTransport.h
++++ b/src/OwnedClockTransport.h
+@@ -170,6 +170,25 @@
+     return valid;
+   }
+-
++
+  // The owner already holds the accepted revision. A normal 20 ms renewal
++  // The owner already holds the accepted revision. A normal 20 ms renewal
++  // probe therefore reads only its exact successor; it never turns a session
++  // with retained gain evidence into a directory-sized critical section.
++  bool PollGainNext(uint64_t revision,std::vector<Gain>& pending) {
++    pending.clear();struct stat current{};
++    if(directory<0||revision>6000||lstat(path.c_str(),&current)!=0||current.st_dev!=identity.st_dev||
++       current.st_ino!=identity.st_ino||!S_ISDIR(current.st_mode)||(current.st_mode&0777)!=0700||current.st_uid!=geteuid())return false;
++    const uint64_t next=revision+1;if(next>6000)return true;
++    char name[32];std::snprintf(name,sizeof(name),"gain-%06llu.json",static_cast<unsigned long long>(next));
++    struct stat st{};if(fstatat(directory,name,&st,AT_SYMLINK_NOFOLLOW)!=0)return errno==ENOENT;
++    if(!File(st)||st.st_size<=0||st.st_size>2048)return false;
++    int file=openat(directory,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);if(file<0)return false;
++    struct stat before{},after{};char bytes[2049];const bool pinned=fstat(file,&before)==0&&Same(st,before);
++    const ssize_t n=pinned?read(file,bytes,sizeof(bytes)):-1;
++    const bool stable=fstat(file,&after)==0&&Same(before,after);close(file);
++    Gain gain;if(!pinned||!stable||n!=st.st_size||!ParseGain(std::string(bytes,static_cast<size_t>(n)),gain)||gain.revision!=next)return false;
++    gainRecords[next]=st;pending.push_back(gain);return true;
++  }
++
+ private:
+   static bool Write(int fd,const std::string& bytes) {
+     size_t offset=0;
+--- a/inputstream.ffmpegdirect/addon.xml.in
++++ b/inputstream.ffmpegdirect/addon.xml.in
+@@ -10,7 +10,7 @@
+     name="ffmpegdirect"
+     extension=""
+     tags="true"
+-    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths|owned_output_backend|owned_hal_contract_version"
++    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths|owned_output_backend|owned_hal_contract_version|owned_hal_phase|owned_hal_clock_version"
+     library_@PLATFORM@="@LIBRARY_FILENAME@" />
+   <extension point="xbmc.service" library="resources/lib/runner.py"/>
+   <extension point="xbmc.addon.metadata">
+--- a/src/OwnedHalClock.h
++++ b/src/OwnedHalClock.h
+@@ -0,0 +1,126 @@
++#pragma once
++#define OWNED_HAL_CLOCK_V1 1
++#include "OwnedHalCore.h"
++
++namespace owned_hal {
++// Non-RT owner only. All provenance comes from acquired, ordered evidence.
++struct HalQuery {
++ bool qualified=false,readiness=false,initial_failed=false;
++ const char* reason="waiting";
++ uint64_t query_start_ns=0,query_end_ns=0,query_host_ns=0,source_frame=0,segment_sequence=0;
++ uint64_t applied_sequence=0,source_zero_sequence=0,source_zero_ticks=0,deadline_ns=0;
++ uint32_t timebase_numer=0,timebase_denom=0;
++ uint64_t native_gate=0,effective_intent=0,playback_epoch=0,gain_epoch=0,device_generation=0,stream_generation=0;
++ uint64_t readiness_count=0,consistent_count=0;
++};
++class HalClock {
++public:
++ Status Observe(const HalSegment& s)noexcept {
++  if(retired_)return Status::retired;
++  uint64_t host=0,entry=0,exit=0,now=0,end=0;
++  if(s.sequence!=sequence_+1||s.sequence>80000||s.schema_version!=1||s.requested_frames!=512||
++     s.source_count!=s.consumed_frames||s.consumed_frames!=s.copied_frames||s.copied_frames>512||s.zero_frames!=512-s.copied_frames||
++     s.source_start>UINT64_MAX-s.source_count||s.reason!=Reason::none||
++     (s.output_flags&3)!=3||(s.now_flags&3)!=3||!std::isfinite(s.output_sample_time)||s.output_sample_time<0||
++     s.output_sample_time>9007199254740991.||std::floor(s.output_sample_time)!=s.output_sample_time||
++     !TicksToNs(s.output_ticks,s.timebase_numer,s.timebase_denom,host)||host!=s.output_host_ns||
++     !TicksToNs(s.entry_ticks,s.timebase_numer,s.timebase_denom,entry)||
++     !TicksToNs(s.exit_ticks,s.timebase_numer,s.timebase_denom,exit)||exit<entry||
++     !TicksToNs(s.now_ticks,s.timebase_numer,s.timebase_denom,now)||s.output_ticks<s.entry_ticks||
++     static_cast<__uint128_t>(s.output_ticks-s.entry_ticks)*s.timebase_numer>static_cast<__uint128_t>(100000000)*s.timebase_denom||
++     !ScheduledEndNs(s.output_ticks,s.timebase_numer,s.timebase_denom,s.copied_frames,end))return Fail();
++  if(sequence_) {
++   const auto& p=rows_[(sequence_-1)%rows_.size()];
++   if(s.timebase_numer!=p.timebase_numer||s.timebase_denom!=p.timebase_denom||
++      s.output_sample_time!=p.output_sample_time+p.requested_frames||s.output_ticks<p.output_ticks||s.source_start!=p.source_start+p.consumed_frames)return Fail();
++   const __uint128_t actual=static_cast<__uint128_t>(s.output_ticks-p.output_ticks)*s.timebase_numer*kRate;
++   const __uint128_t expected=static_cast<__uint128_t>(p.requested_frames)*1000000000*s.timebase_denom;
++   if((actual>expected?actual-expected:expected-actual)>static_cast<__uint128_t>(1000000000)*s.timebase_denom)return Fail();
++  }
++  if(s.control_acquired) {
++   if(!(s.binding==s.applied.binding)||s.playback_revision!=s.applied.playback_revision||s.playback_epoch!=s.applied.playback_epoch||
++      s.gain_revision!=s.applied.gain_revision||s.gain_epoch!=s.applied.gain_epoch||s.applied_intent!=s.applied.effective_intent||
++      s.device_generation!=s.applied.device_generation||s.stream_generation!=s.applied.stream_generation||
++      !std::isfinite(s.applied_gain)||s.applied_gain<0||s.applied_gain>1||s.applied_gain!=s.applied.supplied_gain||
++      s.muted!=(s.applied.muted!=0)||s.native_gate!=s.in_flight_generation)return Fail();
++  }
++  if(s.copied_frames&&!source_zero_) {
++   if(!released_||s.source_start!=0||!Usable(s)){initial_failed_=true;}
++   else {source_zero_=s.sequence;zero_=s;if(!AddNs(host,120000000,deadline_))return Fail();}
++  }
++  rows_[sequence_%rows_.size()]=s;++sequence_;
++  return Status::ok;
++ }
++ const HalSegment* Latest()const noexcept{return sequence_?&rows_[(sequence_-1)%rows_.size()]:nullptr;}
++ bool Ready()const noexcept{return readiness_>=9&&ready_last_>=ready_first_+120000000&&!initial_failed_&&!retired_;}
++ bool Release()noexcept {if(!Ready()||released_)return false;released_=true;return true;}
++ bool InitialFailed()const noexcept{return initial_failed_;}
++ HalQuery Query(uint64_t start,uint64_t end,const AppliedControlView& view,uint64_t gate,uint64_t intent)noexcept {
++  HalQuery q{};q.query_start_ns=start;q.query_end_ns=end;q.native_gate=gate;q.effective_intent=intent;
++  q.source_zero_sequence=source_zero_;q.source_zero_ticks=zero_.output_ticks;q.deadline_ns=deadline_;
++  q.timebase_numer=zero_.timebase_numer;q.timebase_denom=zero_.timebase_denom;
++  auto reject=[&](const char* reason){q.reason=reason;q.initial_failed=initial_failed_;return q;};
++  if(retired_)return reject("retired");
++  if(end<start||end-start>5000000)return reject("query_width");
++  q.query_host_ns=start+(end-start)/2;
++  const auto* current=view.Last();
++  if(!sequence_||!current)return reject("waiting_applied");
++  q.applied_sequence=current->sequence;q.playback_epoch=current->playback_epoch;q.gain_epoch=current->gain_epoch;
++  q.device_generation=current->device_generation;q.stream_generation=current->stream_generation;
++  const auto& latest=rows_[(sequence_-1)%rows_.size()];uint64_t entry=0;
++  TicksToNs(latest.entry_ticks,latest.timebase_numer,latest.timebase_denom,entry);
++  const bool coherent=Usable(*current)&&gate==current->native_gate&&intent==current->applied_intent;
++  const bool same=have_key_&&Same(*current,key_)&&gate==key_.native_gate&&intent==key_.applied_intent;
++  if(!same||!coherent){readiness_=consistent_=0;ready_first_=ready_last_=consistent_first_=0;
++   if(source_zero_&&!initial_qualified_)initial_failed_=true;}
++  key_=*current;have_key_=true;
++  if(source_zero_&&!initial_qualified_&&end>deadline_)initial_failed_=true;
++  if(initial_failed_)return reject("initial_opportunity_closed");
++  if(!coherent)return reject("pending_or_nonplaying");
++  if(entry>end||end-entry>40000000)return reject("callback_stale");
++  if(current->applied.issue_ns>end||current->applied.expiry_ns<end)return reject("applied_lease");
++  if(!released_) {
++   if(latest.consumed_frames||latest.source_start)return reject("readiness_consumed");
++   if(!readiness_)ready_first_=q.query_host_ns;
++   if(!readiness_||q.query_host_ns>ready_last_){++readiness_;ready_last_=q.query_host_ns;}
++   q.readiness=Ready();q.readiness_count=readiness_;return reject("startup_readiness");
++  }
++  const HalSegment* covering=nullptr;unsigned count=0;
++  const uint64_t begin=sequence_>rows_.size()?sequence_-rows_.size():0;
++  for(uint64_t index=begin;index<sequence_;++index){const auto& s=rows_[index%rows_.size()];if(!s.copied_frames)continue;
++   const __uint128_t t=static_cast<__uint128_t>(q.query_host_ns)*s.timebase_denom;
++   const __uint128_t base=static_cast<__uint128_t>(s.output_ticks)*s.timebase_numer;
++   if(t>=base&&(t-base)*kRate<static_cast<__uint128_t>(s.copied_frames)*1000000000*s.timebase_denom){covering=&s;++count;}}
++  if(count!=1)return reject(count?"ambiguous_coverage":"no_coverage");
++  const auto& s=*covering;q.segment_sequence=s.sequence;
++  if(!Usable(s)||!Same(s,*current)||s.native_gate!=gate||s.applied_intent!=intent)return reject("segment_epoch");
++  uint64_t scheduled_end=0;ScheduledEndNs(s.output_ticks,s.timebase_numer,s.timebase_denom,s.copied_frames,scheduled_end);
++  if(s.applied.expiry_ns<scheduled_end)return reject("segment_lease");
++  const __uint128_t delta=static_cast<__uint128_t>(q.query_host_ns)*s.timebase_denom-static_cast<__uint128_t>(s.output_ticks)*s.timebase_numer;
++  q.source_frame=s.source_start+static_cast<uint64_t>(delta*kRate/(static_cast<__uint128_t>(1000000000)*s.timebase_denom));
++  if(!initial_qualified_) {
++   if(!source_zero_)return reject("missing_source_zero");
++   const __uint128_t t=static_cast<__uint128_t>(q.query_host_ns)*zero_.timebase_denom;
++   const __uint128_t z=static_cast<__uint128_t>(zero_.output_ticks)*zero_.timebase_numer;
++   if(q.source_frame<=1024||t<=z||(t-z)*kRate<=static_cast<__uint128_t>(1024)*1000000000*zero_.timebase_denom)
++    return reject("initial_capture_guard");
++   if(!Ready()||q.source_frame>12000)return reject("initial_readiness");
++   initial_qualified_=true;consistent_=9;
++  } else if(!same||consistent_<9) {
++   if(!consistent_)consistent_first_=q.query_host_ns;
++   if(q.query_host_ns>last_query_)++consistent_;
++   if(consistent_<9||q.query_host_ns-consistent_first_<120000000){last_query_=q.query_host_ns;return reject("reacquiring");}
++  }
++  last_query_=q.query_host_ns;q.consistent_count=consistent_;q.readiness_count=readiness_;q.qualified=true;q.reason="qualified";return q;
++ }
++private:
++ static bool Usable(const HalSegment& s)noexcept{return s.control_acquired&&s.playing&&s.resume_granted&&!s.muted&&s.applied_gain>0&&!s.terminal&&
++  s.applied.started&&s.applied.sample_zero_proven&&!(s.native_gate&(NativeGate::kRetired|NativeGate::kPaused));}
++ static bool Same(const HalSegment& a,const HalSegment& b)noexcept{return a.binding==b.binding&&a.device_generation==b.device_generation&&a.stream_generation==b.stream_generation&&
++  a.playback_epoch==b.playback_epoch&&a.gain_epoch==b.gain_epoch&&a.applied_intent==b.applied_intent&&a.native_gate==b.native_gate;}
++ Status Fail()noexcept{retired_=true;return Status::invalid;}
++ std::array<HalSegment,64> rows_{};HalSegment zero_{},key_{};
++ uint64_t sequence_=0,readiness_=0,ready_first_=0,ready_last_=0,consistent_=0,consistent_first_=0,last_query_=0,source_zero_=0,deadline_=0;
++ bool retired_=false,released_=false,have_key_=false,initial_failed_=false,initial_qualified_=false;
++};
++}
+--- a/src/OwnedHalAuthorization.h
++++ b/src/OwnedHalAuthorization.h
+@@ -0,0 +1,140 @@
++#pragma once
++#define OWNED_HAL_AUTHORIZATION_V1 1
++#include "OwnedHalCore.h"
++#include "OwnedClockTransport.h"
++#include <deque>
++#include <sstream>
++
++namespace owned_hal {
++struct AuthorizationState {
++ uint64_t query=0,request=0,deadline=0,start=0,end=0,callback_entry=0,expiry=0,source_end=0;
++ uint64_t query_gate=0,before_gate=0,final_gate=0,query_intent=0,intent=0,applied_intent=0;
++ bool playing=false;
++};
++inline bool AuthorizationAllowed(const AuthorizationState& s)noexcept {
++ return s.playing&&s.query<=s.request&&s.request<=s.start&&s.start<=s.end&&s.end<=s.deadline&&
++  s.end-s.request<=20000000&&s.end-s.query<=100000000&&s.end-s.start<=5000000&&
++  s.callback_entry<=s.end&&s.end-s.callback_entry<=40000000&&s.end<s.expiry&&(!s.source_end||s.end<s.source_end)&&
++  !(s.final_gate&(NativeGate::kRetired|NativeGate::kPaused))&&s.final_gate==s.before_gate&&s.final_gate==s.query_gate&&
++  s.query_intent==s.intent&&s.intent==s.applied_intent;
++}
++class HalAuthorization {
++ using Map=std::map<std::string,std::string>;
++ struct Cached {Map values;std::string hash;bool dispatched=false;};
++public:
++ using Hash=std::string(*)(const std::string&);
++ ~HalAuthorization(){if(fd_>=0)close(fd_);}
++ bool Open(const std::string& path,Hash hash){if(fd_>=0)return false;path_=path;hash_=hash;fd_=owned_clock::Transport::Pin(path);return fd_>=0&&fstat(fd_,&identity_)==0;}
++ bool Remember(const std::string& raw) {
++  Map q;if(!owned_clock::GainJson(raw+"\n",q,4096))return false;
++  q["row_sequence"]=q["sequence"];q["row_sha256"]=Quote(hash_(raw));q["native_generation"]=q["native_gate"];
++  queries_.push_back({q,hash_(raw)});if(queries_.size()>64)queries_.pop_front();return true;
++ }
++ // Zero or one expected filename. No directory listing or history scan.
++ bool Poll(bool& found) {
++  found=false;if(failed_||!Identity())return false;if(next_>32768)return true;
++  char name[40];std::snprintf(name,sizeof(name),"request-%06llu.json",static_cast<unsigned long long>(next_));
++  int file=openat(fd_,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);
++  if(file<0)return errno==ENOENT;
++  struct stat before{},after{},current{};char bytes[4097];
++  bool ok=fstat(file,&before)==0&&owned_clock::Transport::File(before)&&before.st_size>0&&before.st_size<=4096;
++  const ssize_t n=ok?read(file,bytes,sizeof(bytes)):-1;
++  ok=ok&&fstat(file,&after)==0&&owned_clock::Transport::Same(before,after);close(file);
++  ok=ok&&fstatat(fd_,name,&current,AT_SYMLINK_NOFOLLOW)==0&&owned_clock::Transport::Same(before,current)&&Identity();
++  if(!ok||n!=before.st_size)return failed_=true,false;
++  pending_raw_.assign(bytes,static_cast<size_t>(n));pending_.clear();
++  if(!owned_clock::GainJson(pending_raw_,pending_,4096)||!Schema(pending_)||Number(pending_,"request_id")!=next_)return failed_=true,false;
++  found=true;return true;
++ }
++ bool Respond(const AppliedControlView& view,const HalSegment* latest,const HalCore& core,
++              uint64_t(*now)(),const std::string& applied_hash) {
++  const auto& r=pending_;auto a=view.Last();AuthorizationState state{};
++  state.start=now();state.before_gate=core.NativeState();state.intent=core.DesiredIntent();
++  state.query=Number(r,"query_host_ns");state.request=Number(r,"request_start_ns");state.deadline=Number(r,"deadline_ns");
++  state.query_gate=Number(r,"native_generation");state.query_intent=Number(r,"effective_intent");state.source_end=core.FinalEndNs();
++  bool allowed=a&&latest;const Cached* query=nullptr;
++  for(const auto& q:queries_)if(q.values.at("row_sequence")==r.at("row_sequence")){query=&q;break;}
++  if(!query||query->values.at("qualified")!="true")allowed=false;
++  if(query)for(const auto& key:QueryFields())if(query->values.at(key)!=r.at(key))allowed=false;
++  if(a&&latest){
++   state.applied_intent=a->applied_intent;state.expiry=a->applied.expiry_ns;
++   if(!TicksToNs(latest->entry_ticks,latest->timebase_numer,latest->timebase_denom,state.callback_entry))allowed=false;
++   state.playing=a->control_acquired&&a->playing&&a->resume_granted&&a->applied.started&&a->applied.sample_zero_proven&&!a->muted&&a->applied_gain>0&&!a->terminal;
++   if(a->device_generation!=Number(r,"device_generation")||a->stream_generation!=Number(r,"stream_generation")||
++      a->playback_epoch!=Number(r,"playback_epoch")||a->gain_epoch!=Number(r,"gain_epoch")||a->native_gate!=state.query_gate)allowed=false;
++  }
++  const auto stage=r.at("stage");const bool initial=Number(r,"initial")!=0;
++  if(initial&&stage!="\"dispatch\""&&state.deadline>Number(r,"initial_deadline_ns"))allowed=false;
++  Cached* parent=nullptr;
++  if(stage!="\"tracker\"") {
++   for(auto& proof:proofs_)if(proof.values.at("request_id")==r.at("parent_id")){parent=&proof;break;}
++   if(!parent||Quote(parent->hash)!=r.at("parent_sha256")||parent->values.at("authorized")!="true"||
++      parent->values.at("row_sha256")!=r.at("row_sha256")||parent->values.at("expected_generation")!=r.at("expected_generation")||
++      parent->values.at("decision_id")!=r.at("decision_id"))allowed=false;
++   if(parent) {
++    const auto& p=parent->values;
++    if(stage=="\"queue\"") {
++     if(p.at("stage")!="\"tracker\""||!ActionTime(p,Number(r,"decision_ns")))allowed=false;
++     if(initial&&Number(r,"decision_ns")>Number(r,"initial_deadline_ns"))allowed=false;
++     for(const auto& old:proofs_)if(old.values.at("stage")=="\"queue\""&&old.values.at("event_digest")==r.at("event_digest"))allowed=false;
++    } else {
++     if(p.at("stage")!="\"queue\""||parent->dispatched||p.at("event_digest")!=r.at("event_digest")||p.at("decision_ns")!=r.at("decision_ns")||!ActionTime(p,Number(r,"queue_ns")))allowed=false;
++     if(initial&&(Number(r,"decision_ns")>Number(r,"initial_deadline_ns")||Number(r,"queue_ns")>Number(r,"initial_deadline_ns")))allowed=false;
++     parent->dispatched=true; // a rejected dispatch cannot be retried
++    }
++   }
++  }
++  // L: final atomic native gate load. Later fences may race this authorized action.
++  state.final_gate=core.NativeState();state.end=now();
++  allowed=allowed&&AuthorizationAllowed(state)&&state.intent==core.DesiredIntent();
++  Map response=r;response["request_sha256"]=Quote(hash_(pending_raw_));response["authorized"]=allowed?"true":"false";
++  response["reason"]=Quote(allowed?"authorized":"native_authority_rejected");
++  Put(response,"check_start_ns",state.start);Put(response,"check_end_ns",state.end);Put(response,"actual_gate",state.final_gate);
++  Put(response,"actual_intent",state.intent);Put(response,"applied_sequence",a?a->sequence:0);response["applied_sha256"]=Quote(applied_hash);
++  Put(response,"callback_entry_ns",state.callback_entry);Put(response,"lease_expiry_ns",state.expiry);Put(response,"source_end_ns",state.source_end);
++  const auto wire=Serialize(response);if(wire.size()>4096||!Publish(wire))return failed_=true,false;
++  proofs_.push_back({response,hash_(wire)});if(proofs_.size()>64)proofs_.pop_front();++next_;pending_.clear();pending_raw_.clear();return true;
++ }
++ static const std::vector<std::string>& QueryFields(){static const std::vector<std::string> fields={
++  "nonce","incarnation","timeline_sha256","output_backend","hal_phase","hal_clock_version",
++  "query_host_ns","query_start_ns","query_end_ns","row_sequence","row_sha256","segment_sha256","native_generation",
++  "effective_intent","playback_epoch","gain_epoch","device_generation","stream_generation","source_zero_sequence","source_zero_sha256",
++  "source_zero_ticks","timebase_numer","timebase_denom","initial_deadline_ns"};return fields;}
++private:
++ static std::string Quote(const std::string& s){return "\""+s+"\"";}
++ static uint64_t Number(const Map& m,const char* k){uint64_t n=0;auto it=m.find(k);if(it!=m.end())owned_clock::GainNumber(it->second,n);return n;}
++ static void Put(Map& m,const char* k,uint64_t v){m[k]=std::to_string(v);}
++ static bool ActionTime(const Map& p,uint64_t action){const uint64_t end=Number(p,"check_end_ns"),start=Number(p,"request_start_ns"),q=Number(p,"query_host_ns");
++  return end<=action&&action-end<=5000000&&start<=action&&action-start<=20000000&&q<=action&&action-q<=100000000&&
++   action<=Number(p,"deadline_ns")&&action<Number(p,"lease_expiry_ns")&&(!Number(p,"source_end_ns")||action<Number(p,"source_end_ns"));}
++ static bool Schema(const Map& m) {
++  const std::vector<std::string> extra={"request_id","expected_generation","stage","request_start_ns","deadline_ns","initial","decision_id","event_digest","parent_id","parent_sha256","decision_ns","queue_ns"};
++  if(m.size()!=QueryFields().size()+extra.size())return false;
++  for(const auto& key:QueryFields())if(!m.count(key))return false;for(const auto& key:extra)if(!m.count(key))return false;
++  for(const auto& entry:m) {
++   const auto& k=entry.first;const auto& v=entry.second;
++   if(k=="output_backend"){if(v!="\"hal_callback_v1\"")return false;continue;}
++   if(k=="hal_phase"){if(v!="\"clock\"")return false;continue;}
++   if(k=="stage"){if(v!="\"tracker\""&&v!="\"queue\""&&v!="\"dispatch\"")return false;continue;}
++   if(k=="nonce"||k=="incarnation"||k=="timeline_sha256"||k=="row_sha256"||k=="segment_sha256"||k=="source_zero_sha256"||k=="decision_id"||k=="event_digest"||k=="parent_sha256") {
++    if((k=="event_digest"||k=="parent_sha256")&&m.at("stage")=="\"tracker\""&&v=="\"\"")continue;
++    const size_t n=(k=="nonce"||k=="incarnation")?32:64;
++    if(v.size()!=n+2||v.front()!='"'||v.back()!='"'||!owned_clock::Hex(v.substr(1,n),n))return false;continue;
++   }
++   uint64_t n=0;if(!owned_clock::GainNumber(v,n)||n>INT64_MAX)return false;
++  }
++  return Number(m,"hal_clock_version")==1&&Number(m,"request_id")>0&&Number(m,"request_id")<=32768&&Number(m,"initial")<=1&&
++    (m.at("stage")!="\"tracker\""||(Number(m,"parent_id")==0&&Number(m,"decision_ns")==0&&Number(m,"queue_ns")==0));
++ }
++ static std::string Serialize(const Map& m){std::string s="{";for(const auto& kv:m){if(s.size()>1)s+=',';s+=Quote(kv.first)+":"+kv.second;}return s+"}\n";}
++ bool Identity()const {struct stat current{};return fd_>=0&&lstat(path_.c_str(),&current)==0&&S_ISDIR(current.st_mode)&&current.st_uid==geteuid()&&(current.st_mode&0777)==0700&&current.st_dev==identity_.st_dev&&current.st_ino==identity_.st_ino;}
++ bool Publish(const std::string& wire) {
++  if(!Identity())return false;char temp[48],name[48];std::snprintf(temp,sizeof(temp),".response-%06llu.tmp",static_cast<unsigned long long>(next_));std::snprintf(name,sizeof(name),"response-%06llu.json",static_cast<unsigned long long>(next_));
++  int file=openat(fd_,temp,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(file<0)return false;
++  bool ok=fchmod(file,0600)==0&&write(file,wire.data(),wire.size())==static_cast<ssize_t>(wire.size());close(file);
++  return ok&&renameatx_np(fd_,temp,fd_,name,RENAME_EXCL)==0&&Identity();
++ }
++ int fd_=-1;std::string path_,pending_raw_;struct stat identity_{};Hash hash_=nullptr;Map pending_;
++ std::deque<Cached> queries_,proofs_;uint64_t next_=1;bool failed_=false;
++};
++}

@@ -1,0 +1,37 @@
+import importlib.util
+from pathlib import Path
+
+
+spec = importlib.util.spec_from_file_location(
+    'benchmark', Path(__file__).with_name('run_hal_authorization_benchmark.py'))
+benchmark = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(benchmark)
+
+
+def test_seed_request_stays_in_native_unsigned_schema_at_early_monotonic_time():
+    row = benchmark.query(1)
+    request = benchmark.request(row, 1, 1)
+    assert row['source_zero_ticks'] == 0
+    assert request['source_zero_ticks'] == 0
+    assert len(request) == 36
+    assert request['request_id'] == 1
+
+
+def test_maximum_control_history_is_contiguous_and_parseable():
+    records = [benchmark.command(index).decode('ascii').split() for index in range(1, 65)]
+    assert [int(record[3]) for record in records] == list(range(1, 65))
+    assert records[0][4] == 'waiting'
+    assert records[1][4] == 'play'
+    assert all(record[4] in ('pause', 'resume') for record in records[2:])
+
+
+def test_final_probe_uses_a_distinct_native_query_identity():
+    preload = benchmark.query(1_000_000_000, sequence=1)
+    final = benchmark.query(1_010_000_000, sequence=2)
+    assert benchmark.request(preload, 1, 1_000_000_000)['row_sequence'] == 1
+    assert benchmark.request(final, 32764, 1_010_000_000)['row_sequence'] == 2
+
+
+def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
+    assert benchmark.gain(6000)['revision'] == 6000
+    assert benchmark.gain(6000)['effective_epoch'] == 1
