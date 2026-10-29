@@ -1,6 +1,7 @@
 // Portable lifecycle checks; no scheduling APIs and CHECK is active under NDEBUG.
 #include "OwnedHostOverride.h"
 #include "OwnedStallDiagnostics.h"
+#include "OwnedClockProtocol.h"
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -18,14 +19,68 @@ struct Fake {
 };
 void Active(State& s,Fake& os) {
  CHECK(s.Reset(true));CHECK(s.OwnerBegin(7));
- s.Control(7,1,false,[&](void* p){return os.End(p);},10);
- s.Control(7,2,true,[&](void* p){return os.End(p);},20);
+ s.Control(7,1,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},10);
+ s.Control(7,2,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},20);
 }
 bool Call(State& s,Fake& os,uint64_t id=42,const char* name="PAPlayer",bool ready=true) {
  return s.Acquire(s.Get().generation,id,name,ready,[&]{return os.Start();},30);
 }
 int main(int argc,char** argv) {
  Snapshot capturedActive,capturedClosed;
+ // The actual authority and override publisher are separate operations. Enumerate
+ // pause before Apply, after Apply, and a queued command first read after pause.
+ for(bool existingToken:{false,true}) for(int interleaving:{0,1,2}) {
+   State s;Fake os;Active(s,os);
+   const std::string nonce(32,'a'),incarnation(32,'b');
+   owned_clock::Authority authority(nonce,incarnation);
+   auto apply=[&](unsigned revision,const char* state,uint64_t issued,uint64_t now) {
+     CHECK(authority.Apply("v1 "+nonce+" "+incarnation+" "+std::to_string(revision)+" "+state+" "+std::to_string(issued)+"\n",now));
+   };
+   auto publish=[&](uint64_t epoch,uint64_t now) {
+     const auto& command=authority.Control();
+     s.Control(7,command.revision,command.state=="play" || command.state=="resume",
+         epoch,command.issued,[&](void* p){return os.End(p);},now);
+   };
+   auto pause=[&] { authority.Speed(0);s.Suspend(50); };
+   apply(1,"waiting",10,11);apply(2,"play",20,21);
+   if(existingToken)CHECK(Call(s,os));
+   else { apply(3,"pause",30,31);publish(s.Get().suspensionEpoch,32); }
+   const unsigned revision=existingToken ? 3 : 4;
+   if(interleaving==2)pause(); // queued resume predates pause but read afterward
+   const auto epoch=s.Get().suspensionEpoch; // before Authority::Apply
+   if(interleaving==0)pause();
+   apply(revision,"resume",40,interleaving==1 ? 45 : 55);
+   if(interleaving==1)pause();
+   publish(epoch,60);
+   CHECK(!s.Get().allowed && s.Get().outstanding==0);
+   CHECK(os.endCalls==(existingToken ? 1 : 0));
+   CHECK(!Call(s,os));
+   authority.Speed(1000);s.ResumeNative();
+   publish(s.Get().suspensionEpoch,61); // polling the same applied revision
+   CHECK(!Call(s,os));CHECK(s.Get().blockedThrough==revision);
+   CHECK(authority.Apply("v1 "+nonce+" "+incarnation+" "+std::to_string(revision)+" resume 40\n",62));
+   publish(s.Get().suspensionEpoch,63);CHECK(!Call(s,os)); // identical replay
+   apply(revision+1,"resume",70,71);publish(s.Get().suspensionEpoch,72);
+   CHECK(Call(s,os)); // only a genuinely post-pause validated command restores it
+   s.Finish(7,[&](void* p){return os.End(p);},90);
+   CHECK(os.startCalls==os.endCalls && s.Get().outstanding==0);
+ }
+ // Each repeated native pause invalidates a transaction, even while already paused.
+ { State s;Fake os;Active(s,os);s.Suspend(50);auto epoch=s.Get().suspensionEpoch;
+   s.Suspend(60);CHECK(s.Get().suspensionEpoch>epoch);
+   s.Control(7,3,true,epoch,70,[&](void* p){return os.End(p);},80);
+   s.ResumeNative();s.Control(7,3,true,s.Get().suspensionEpoch,70,[&](void* p){return os.End(p);},81);
+   CHECK(!Call(s,os));CHECK(s.Get().blockedThrough==3);
+   s.Finish(7,[&](void* p){return os.End(p);},90);
+ }
+ // A fresh post-pause control may arrive before native resume, but cannot boost
+ // a paused target. Native resume alone cannot undo a stale revision barrier.
+ { State s;Fake os;Active(s,os);CHECK(Call(s,os));s.Suspend(50);
+   s.Control(7,3,true,s.Get().suspensionEpoch,60,[&](void* p){return os.End(p);},70);
+   CHECK(s.Get().allowed && !s.Get().active && s.Get().outstanding==0);
+   CHECK(!Call(s,os));s.ResumeNative();CHECK(Call(s,os));
+   s.Finish(7,[&](void* p){return os.End(p);},90);CHECK(os.startCalls==os.endCalls);
+ }
  { State s;Fake os;Active(s,os);
    CHECK(!Call(s,os,9,"JobWorker",false));CHECK(!Call(s,os,9,"JobWorker"));
    CHECK(os.startCalls==0 && !s.Get().failed);
@@ -34,27 +89,27 @@ int main(int argc,char** argv) {
    capturedActive=s.Get();
    CHECK(s.Get().targetId==42 && s.Get().maxOutstanding==1 && s.Get().active);
    CHECK(!s.Reset(true)); // outstanding token cannot be forgotten
-   s.Control(7,3,false,[&](void* p){return os.End(p);},40);
+   s.Control(7,3,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);
    CHECK(os.endCalls==1 && s.Get().outstanding==0 && !s.Get().active);
-   s.Control(7,3,false,[&](void* p){return os.End(p);},41);CHECK(os.endCalls==1);
+   s.Control(7,3,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},41);CHECK(os.endCalls==1);
    CHECK(!Call(s,os));
-   s.Control(7,4,true,[&](void* p){return os.End(p);},50);CHECK(Call(s,os));
+   s.Control(7,4,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},50);CHECK(Call(s,os));
    s.Finish(7,[&](void* p){return os.End(p);},60);
    CHECK(s.Get().starts==2 && s.Get().ends==2 && s.Get().outstanding==0);
    capturedClosed=s.Get();
    CHECK(!Call(s,os));CHECK(s.Reset(true));CHECK(s.Get().targetId==0 && s.Get().starts==0);
  }
  { State s;Fake os;Active(s,os);auto stale=s.Get().generation;
-   s.Suspend();s.Control(7,2,true,[&](void* p){return os.End(p);},40);
+   s.Suspend(50);s.Control(7,2,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);
    CHECK(!s.Acquire(stale,42,"PAPlayer",true,[&]{return os.Start();},50));
    CHECK(!Call(s,os));CHECK(os.startCalls==0);
-   s.Control(7,3,false,[&](void* p){return os.End(p);},60);
-   s.Control(7,4,true,[&](void* p){return os.End(p);},70);CHECK(Call(s,os));
+   s.Control(7,3,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},60);
+   s.ResumeNative();s.Control(7,4,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},70);CHECK(Call(s,os));
    s.Finish(7,[&](void* p){return os.End(p);},80);
  }
  { State s;Fake os;Active(s,os);CHECK(Call(s,os));
    CHECK(!Call(s,os,43));CHECK(s.Get().failed && !s.Get().active && os.endCalls==0);
-   s.Control(7,2,true,[&](void* p){return os.End(p);},40);
+   s.Control(7,2,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);
    CHECK(os.endCalls==1 && s.Get().outstanding==0);CHECK(!Call(s,os));
    s.Finish(7,[&](void* p){return os.End(p);},50);
  }
@@ -69,14 +124,14 @@ int main(int argc,char** argv) {
    CHECK(!Call(s,os));CHECK(os.startCalls==1);
    s.Finish(7,[&](void* p){return os.End(p);},40);CHECK(os.endCalls==0); }
  { State s;Fake os;Active(s,os);CHECK(Call(s,os));os.endStatus=22;
-   s.Control(7,3,false,[&](void* p){return os.End(p);},40);
+   s.Control(7,3,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);
    CHECK(s.Get().failed && s.Get().lastEndStatus==22 && s.Get().outstanding==0);
    s.Finish(7,[&](void* p){return os.End(p);},50);CHECK(os.endCalls==1);
    CHECK(s.Get().endAttempts==1 && s.Get().ends==0); }
  // Every external terminal reason uses the same Stop barrier and owner cleanup.
  { State s;Fake os;Active(s,os);CHECK(Call(s,os));
    s.Stop();CHECK(!Call(s,os));
-   s.Control(7,4,true,[&](void* p){return os.End(p);},40);
+   s.Control(7,4,true,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);
    s.Finish(7,[&](void* p){return os.End(p);},50);
    CHECK(os.endCalls==1 && s.Get().outstanding==0 && s.Get().terminal); }
  // Deterministic acquire-vs-pause race: OS start is held until pause is ready.
@@ -87,7 +142,7 @@ int main(int argc,char** argv) {
      return os.Start();},30);});
    {std::unique_lock<std::mutex> lock(m);cv.wait(lock,[&]{return entered;});}
    std::thread owner([&]{ {std::lock_guard<std::mutex> lock(m);pauseReady=true;cv.notify_all();}
-     s.Control(7,3,false,[&](void* p){return os.End(p);},40);});
+     s.Control(7,3,false,s.Get().suspensionEpoch,100,[&](void* p){return os.End(p);},40);});
    {std::unique_lock<std::mutex> lock(m);cv.wait(lock,[&]{return pauseReady;});release=true;cv.notify_all();}
    host.join();owner.join();CHECK(os.startCalls==1 && os.endCalls==1 && s.Get().outstanding==0);
    CHECK(!Call(s,os));s.Finish(7,[&](void* p){return os.End(p);},50);

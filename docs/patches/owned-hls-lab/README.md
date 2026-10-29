@@ -568,6 +568,14 @@ cleanup/join. The target never ends its own token. Every end attempt consumes
 and clears the token, including API errors; a consumed token is never retried.
 Failures retire clock qualification while leaving audio feeding unchanged.
 
+Native pause also fences the complete authority-Apply/override-publication
+transaction: its suspension epoch is captured before Apply, and the command
+issue time must be later than the last native pause (same Mach time domain).
+A rejected publication blocks that applied revision permanently, including
+periodic replay. Every native pause advances the epoch, even repeated pauses.
+A fresh command received while native speed is paused cannot acquire a token
+until normal native resume; native resume alone never clears the revision barrier.
+
 Each clock row adds bounded `host_override.version=1` evidence: target/owner IDs,
 verified target name, requested override class25/relative0, control and state
 generations, active/terminal/failure flags, start/end attempt/success counters,

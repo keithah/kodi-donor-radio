@@ -352,7 +352,7 @@
    if (!m_ownedStream || m_ownedPcmQueue.empty())
      return;
 
-@@ -1290,11 +1426,37 @@
+@@ -1290,11 +1426,40 @@
    {
      owned_stall::Span loopSpan(m_ownedStalls, owned_stall::RendererLoop, MachAbsoluteNowNs, m_ownedHlsFixture);
      const uint64_t controlStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
@@ -373,16 +373,19 @@
 +        {
 +          // Apply each feeder gate, then publish its ack before the next transition.
 +          // No AddData occurs between these transitions. Ack is not audible silence.
++          const auto overrideEpoch=m_ownedHostOverride.Get().suspensionEpoch;
 +          if (!m_ownedClock->Apply(wire, MachAbsoluteNowNs())) break;
 +          const auto& appliedState = m_ownedClock->Control().state;
 +          m_ownedClockPaused.store(appliedState == "pause");
 +          if (appliedState == "play" || appliedState == "resume") m_ownedPlaybackStarted = true;
-+          UpdateOwnedHostOverride(overrideOwner,m_ownedClock->Control().revision,appliedState);
++          UpdateOwnedHostOverride(overrideOwner,m_ownedClock->Control().revision,appliedState,
++              overrideEpoch,m_ownedClock->Control().issued);
 +          m_ownedClock->Acknowledge(MachAbsoluteNowNs());
 +          WriteOwnedClockTelemetry(appliedState);
 +        }
 +        state = m_ownedClock->Control().state;
-+        UpdateOwnedHostOverride(overrideOwner,m_ownedClock->Control().revision,state);
++        UpdateOwnedHostOverride(overrideOwner,m_ownedClock->Control().revision,state,
++            m_ownedHostOverride.Get().suspensionEpoch,m_ownedClock->Control().issued);
 +      }
 +    }
 +    else
@@ -394,7 +397,7 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::ControlRead, controlStart, MachAbsoluteNowNs());
 
-@@ -1343,10 +1505,16 @@
+@@ -1343,10 +1508,16 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::GetSpace, spaceStart, MachAbsoluteNowNs());
      if (shouldFeed && availableFrames != 0)
@@ -411,16 +414,17 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: Kodi audio stream did not become ready; aborting lab playback");
        return;
-@@ -1386,6 +1554,8 @@
+@@ -1386,6 +1557,9 @@
        sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
        if (sourceEnded && !m_ownedDrainStarted.load())
        {
 +        RevokeOwnedClock("drain");
-+        UpdateOwnedHostOverride(overrideOwner,m_ownedClock ? m_ownedClock->Control().revision : 0,"drain");
++        UpdateOwnedHostOverride(overrideOwner,m_ownedClock ? m_ownedClock->Control().revision : 0,"drain",
++            m_ownedHostOverride.Get().suspensionEpoch,0);
          m_ownedStream->Drain(false);
          m_ownedDrainStarted.store(true);
          Log(LOGLEVEL_INFO,
-@@ -1424,6 +1594,7 @@
+@@ -1424,6 +1598,7 @@
 
  void InputStreamFFmpegDirect::StopOwnedRenderer()
  {
@@ -428,7 +432,7 @@
    // The source worker owns m_stream->DemuxRead after the first anchored packet.
    // Join it before closing or mutating that source and before decoder teardown.
    m_ownedSourceStop = true;
-@@ -1435,6 +1606,7 @@
+@@ -1435,6 +1610,7 @@
    if (m_ownedThread.joinable())
      m_ownedThread.join();
    m_ownedRendererActive = false;
@@ -436,7 +440,7 @@
    m_ownedStream.reset();
    {
      std::lock_guard<std::mutex> lock(m_ownedMutex);
-@@ -1462,6 +1634,7 @@
+@@ -1462,6 +1638,7 @@
 
  bool InputStreamFFmpegDirect::OwnedPlaybackStarted()
  {
@@ -444,7 +448,7 @@
    if (m_ownedPlaybackStarted.load())
      return true;
    std::ifstream control(
-@@ -1571,6 +1744,7 @@
+@@ -1571,6 +1748,7 @@
          m_ownedSyntheticFrames == std::numeric_limits<size_t>::max() ||
          m_ownedAudioStreamId < 0 || selectedSilenceFrame.empty())
      {
@@ -452,7 +456,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR,
            "OWNED_RENDERER: cannot maintain a bounded silent AAC timeline; aborting lab playback");
-@@ -1585,6 +1759,7 @@
+@@ -1585,6 +1763,7 @@
      {
        if (m_ownedHostOutputFrames == std::numeric_limits<uint64_t>::max())
        {
@@ -460,7 +464,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS host frame ledger overflowed");
          return nullptr;
-@@ -1605,6 +1780,7 @@
+@@ -1605,6 +1784,7 @@
        static_cast<int>(silenceFrame.size()));
    if (!packet)
    {
@@ -468,7 +472,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not allocate silent AAC tail packet");
      return nullptr;
-@@ -1688,8 +1864,10 @@
+@@ -1688,8 +1868,10 @@
 
  void InputStreamFFmpegDirect::DemuxReset()
  {
@@ -479,7 +483,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after deferred HLS start is unsupported; failing closed");
-@@ -1700,6 +1878,7 @@
+@@ -1700,6 +1882,7 @@
 
  void InputStreamFFmpegDirect::DemuxAbort()
  {
@@ -487,7 +491,7 @@
    if (m_ownedRendererActive.load() && m_ownedHlsFixture)
    {
      m_ownedSourceStop = true;
-@@ -1717,8 +1896,10 @@
+@@ -1717,8 +1900,10 @@
 
  void InputStreamFFmpegDirect::DemuxFlush()
  {
@@ -498,7 +502,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after deferred HLS start is unsupported; failing closed");
-@@ -1729,6 +1910,32 @@
+@@ -1729,6 +1914,32 @@
 
  DEMUX_PACKET* InputStreamFFmpegDirect::DemuxRead()
  {
@@ -531,7 +535,7 @@
    if (m_ownedRendererActive.load() && m_ownedHlsFixture && m_ownedSourceStop.load())
      return nullptr;
    if (m_ownedRendererActive.load() && m_ownedHlsFixture &&
-@@ -1737,6 +1944,7 @@
+@@ -1737,6 +1948,7 @@
      OwnedPlaybackStarted();
      if (m_ownedFailed.load() || m_ownedSourceStop.load() || m_ownedDrained.load())
        return nullptr;
@@ -539,7 +543,7 @@
      return MakeOwnedSilentPacket();
    }
 
-@@ -1765,6 +1973,7 @@
+@@ -1765,6 +1977,7 @@
        return nullptr;
      if (!FlushOwnedDecoder())
      {
@@ -547,7 +551,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite EOF");
        return nullptr;
-@@ -1802,6 +2011,7 @@
+@@ -1802,6 +2015,7 @@
    {
      if (m_ownedPlaybackStarted.load())
      {
@@ -555,7 +559,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: playback started before a successful seek-to-zero; aborting");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1827,6 +2037,7 @@
+@@ -1827,6 +2041,7 @@
        info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
        info.GetSampleRate() != 48000 || info.GetChannels() != 2)
    {
@@ -563,7 +567,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: stream format changed outside the controlled AAC fixture");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1840,6 +2051,7 @@
+@@ -1840,6 +2055,7 @@
    if (!DecodeOwnedPacket(packet, packetIsAdts, sourceFrameCount,
                           decodedStartFrame, decodedEndFrame))
    {
@@ -571,7 +575,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR,
          "OWNED_RENDERER: AAC packet decode, framing, or bounded PCM queue failed; aborting lab playback");
-@@ -1866,6 +2078,7 @@
+@@ -1866,6 +2082,7 @@
            m_silenceRawAacFrame.empty() ||
            m_silenceRawAacFrame.size() > static_cast<size_t>(packet->iSize))
        {
@@ -579,7 +583,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR,
              "OWNED_RENDERER: raw AAC packet cannot be replaced by one validated silence access unit");
-@@ -1882,6 +2095,7 @@
+@@ -1882,6 +2099,7 @@
      }
      if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
      {
@@ -587,7 +591,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1908,6 +2122,7 @@
+@@ -1908,6 +2126,7 @@
        packetAdtsFrameCount != sourceFrameCount ||
        replacementBytes > static_cast<size_t>(packet->iSize))
    {
@@ -595,7 +599,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source packet is not replaceable AAC-LC ADTS; aborting lab playback");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1933,6 +2148,7 @@
+@@ -1933,6 +2152,7 @@
    }
    if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
    {
@@ -603,7 +607,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1943,14 +2159,28 @@
+@@ -1943,14 +2163,28 @@
 
  bool InputStreamFFmpegDirect::DemuxSeekTime(double time, bool backwards, double& startpts)
  {
@@ -632,7 +636,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after source handoff is unsupported; failing closed");
-@@ -1958,12 +2188,14 @@
+@@ -1958,12 +2192,14 @@
    }
    if (m_ownedRendererActive.load() && OwnedPlaybackStarted())
    {
@@ -647,17 +651,18 @@
    if (m_ownedRendererActive.load() && succeeded && std::abs(time) < 0.001)
    {
      ResetOwnedTimeline();
-@@ -1975,6 +2207,9 @@
+@@ -1975,6 +2211,10 @@
 
  void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
  {
-+  if(speed==0)m_ownedHostOverride.Suspend();
-+  else if(speed!=1000)m_ownedHostOverride.Stop();
 +  if (m_ownedClock) m_ownedClock->Speed(speed);
++  if(speed==0)m_ownedHostOverride.Suspend(MachAbsoluteNowNs());
++  else if(speed==1000)m_ownedHostOverride.ResumeNative();
++  else m_ownedHostOverride.Stop();
    m_stream->DemuxSetSpeed(speed);
  }
 
-@@ -2009,8 +2244,10 @@
+@@ -2009,8 +2249,10 @@
 
  bool InputStreamFFmpegDirect::PosTime(int ms)
  {
@@ -668,7 +673,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after deferred HLS start is unsupported; failing closed");
-@@ -2049,8 +2286,10 @@
+@@ -2049,8 +2291,10 @@
 
  bool InputStreamFFmpegDirect::SeekChapter(int ch)
  {
@@ -679,7 +684,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after deferred HLS start is unsupported; failing closed");
-@@ -2068,6 +2307,16 @@
+@@ -2068,6 +2312,16 @@
 
  int64_t InputStreamFFmpegDirect::SeekStream(int64_t position, int whence /* SEEK_SET */)
  {
@@ -696,7 +701,7 @@
    if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
      return -1;
    return m_stream->SeekStream(position, whence);
-@@ -2131,3 +2380,103 @@
+@@ -2131,3 +2385,104 @@
  };
 
  ADDONCREATOR(CMyAddon)
@@ -757,12 +762,13 @@
 +}
 +
 +
-+void InputStreamFFmpegDirect::UpdateOwnedHostOverride(uint64_t owner, unsigned revision, const std::string& state)
++void InputStreamFFmpegDirect::UpdateOwnedHostOverride(uint64_t owner, unsigned revision, const std::string& state,
++                                                     uint64_t suspensionEpoch, uint64_t issued)
 +{
 +  if(m_ownedClock && m_ownedClock->Retired())m_ownedHostOverride.Stop();
 +  m_ownedHostOverride.Control(owner,revision,(state=="play" || state=="resume") &&
 +      !m_ownedFailed.load() && !m_ownedSourceStop.load() && !m_ownedDrained.load(),
-+      EndHostOverride,MachAbsoluteNowNs());
++      suspensionEpoch,issued,EndHostOverride,MachAbsoluteNowNs());
 +  if(m_ownedHostOverride.Get().failed)RevokeOwnedClock("host_override_failed");
 +}
 +
@@ -813,7 +819,7 @@
 
  #include <memory>
  #include <atomic>
-@@ -95,6 +99,22 @@
+@@ -95,6 +99,23 @@
 
  private:
    void StopOwnedRenderer();
@@ -821,7 +827,8 @@
 +  owned_clock::StartupSeekState OwnedStartupSeekState() const;
 +  owned_clock::StartupSeekProbe m_ownedStartupSeekProbe;
 +  void WriteOwnedOwnership(std::ostream& line, uint64_t before, uint64_t guardBefore, uint64_t overrideBefore);
-+  void UpdateOwnedHostOverride(uint64_t owner, unsigned revision, const std::string& state);
++  void UpdateOwnedHostOverride(uint64_t owner, unsigned revision, const std::string& state,
++                               uint64_t suspensionEpoch, uint64_t issued);
 +  void FinishOwnedHostOverride(uint64_t owner);
 +  void ObserveOwnedHostOverride();
 +  owned_override::State m_ownedHostOverride;
@@ -836,7 +843,7 @@
    void RunOwnedRenderer();
    void RunOwnedSourceReader();
    bool StartOwnedRenderer();
-@@ -133,6 +153,7 @@
+@@ -133,6 +154,7 @@
    std::mutex m_ownedMutex;
    owned_stall::Aggregate m_ownedStalls;
    std::atomic<uint64_t> m_ownedLastHostPacketNs{0};
@@ -1392,7 +1399,7 @@
  } // namespace owned_stall
 --- /dev/null
 +++ b/src/OwnedHostOverride.h
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,142 @@
 +#pragma once
 +// One bounded dependency token. OS operations are injected; no worker is owned here.
 +#include <cstdint>
@@ -1404,6 +1411,7 @@
 +struct StartResult { void* token; int status; };
 +struct Snapshot {
 +  bool enabled=false,active=false,allowed=false,failed=false,terminal=false,ownerRunning=false;
++  uint64_t suspensionEpoch=0;
 +  uint64_t generation=1,revision=0,ownerId=0,targetId=0,starts=0,startAttempts=0,endAttempts=0,ends=0;
 +  uint64_t ignoredPreparation=0,blockedThrough=0,outstanding=0,maxOutstanding=0,lastStartNs=0,lastEndNs=0,lastEndOwner=0;
 +  int lastStartStatus=-1,lastEndStatus=-1;
@@ -1414,7 +1422,7 @@
 +  bool Reset(bool enabled) {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(token || state.ownerRunning) return false;
-+    state=Snapshot{};state.enabled=enabled;return true;
++    state=Snapshot{};state.enabled=enabled;nativePaused=false;lastSuspendedNs=0;return true;
 +  }
 +  bool OwnerBegin(uint64_t id) {
 +    std::lock_guard<std::mutex> lock(mutex);
@@ -1425,25 +1433,33 @@
 +  Snapshot Get() const {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    auto out=state;out.outstanding=token ? 1 : 0;
-+    out.active=token && state.allowed && state.ownerRunning && !state.failed && !state.terminal;
++    out.active=token && !nativePaused && state.allowed && state.ownerRunning && !state.failed && !state.terminal;
 +    return out;
 +  }
-+  void Suspend() {
++  void Suspend(uint64_t now) {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(!state.enabled)return;
-+    if(state.blockedThrough<state.revision || state.allowed) ++state.generation;
++    ++state.suspensionEpoch;++state.generation;
++    lastSuspendedNs=now;nativePaused=true;
 +    state.blockedThrough=state.revision;state.allowed=false;
++  }
++  void ResumeNative() {
++    std::lock_guard<std::mutex> lock(mutex);
++    if(state.enabled && nativePaused) { nativePaused=false;++state.generation; }
 +  }
 +  void Stop() {
 +    std::lock_guard<std::mutex> lock(mutex);StopLocked();
 +  }
-+  template<class End> void Control(uint64_t owner,uint64_t revision,bool active,End end,uint64_t now) {
++  template<class End> void Control(uint64_t owner,uint64_t revision,bool active,uint64_t suspensionEpoch,uint64_t issued,End end,uint64_t now) {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(!state.enabled)return;
 +    if(!state.ownerRunning || owner!=state.ownerId) { Fail("owner_invalid");return; }
 +    if(revision<state.revision) Fail("control_reversed");
 +    if(revision>state.revision) { state.revision=revision;++state.generation; }
-+    if(!active) {
++    // Fence the entire Apply-to-publication transaction, not just acquisition.
++    // A queued pre-pause command is stale even if first read after suspension.
++    if(!active || suspensionEpoch!=state.suspensionEpoch ||
++       (state.suspensionEpoch && issued<=lastSuspendedNs)) {
 +      state.blockedThrough=state.revision;
 +      if(state.allowed)++state.generation;
 +      state.allowed=false;
@@ -1451,13 +1467,13 @@
 +      if(!state.allowed)++state.generation;
 +      state.allowed=true;
 +    }
-+    if(!state.allowed || state.failed || state.terminal) Release(owner,end,now);
++    if(nativePaused || !state.allowed || state.failed || state.terminal) Release(owner,end,now);
 +  }
 +  template<class Start> bool Acquire(uint64_t generation,uint64_t id,const char* name,bool ready,Start start,uint64_t now) {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(!state.enabled || state.failed || state.terminal || !state.ownerRunning) return false;
 +    if(!ready) { ++state.ignoredPreparation;return false; }
-+    if(generation!=state.generation || !state.allowed)return false;
++    if(generation!=state.generation || nativePaused || !state.allowed)return false;
 +    if(state.targetId && state.targetId!=id) { Fail("caller_changed");return false; }
 +    if(!state.targetId && name && std::strcmp(name,"JobWorker")==0) { ++state.ignoredPreparation;return false; }
 +    if(!id || id==state.ownerId || !name || std::strcmp(name,"PAPlayer")!=0) { Fail("unsupported_target");return false; }
@@ -1498,6 +1514,8 @@
 +  mutable std::mutex mutex;
 +  Snapshot state;
 +  void* token=nullptr;
++  bool nativePaused=false;
++  uint64_t lastSuspendedNs=0;
 +};
 +template<class Function> class OnExit {
 + public:

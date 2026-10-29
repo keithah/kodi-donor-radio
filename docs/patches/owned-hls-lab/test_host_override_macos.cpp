@@ -13,7 +13,7 @@ uint64_t Identity() { uint64_t id=0;CHECK(pthread_threadid_np(nullptr,&id)==0);r
 int main() {
   owned_override::State state;const auto owner=Identity();CHECK(state.Reset(true));CHECK(state.OwnerBegin(owner));
   auto end=[](void* p){return pthread_override_qos_class_end_np(static_cast<pthread_override_t>(p));};
-  state.Control(owner,2,true,end,1);
+  state.Control(owner,2,true,state.Get().suspensionEpoch,1,end,1);
   std::mutex mutex;std::condition_variable cv;bool acquired=false,done=false;
   qos_class_t before=QOS_CLASS_UNSPECIFIED,during=QOS_CLASS_UNSPECIFIED,after=QOS_CLASS_UNSPECIFIED;
   int beforeRelative=0,duringRelative=0,afterRelative=0;
@@ -30,7 +30,7 @@ int main() {
   });
   {std::unique_lock<std::mutex> lock(mutex);cv.wait(lock,[&]{return acquired;});}
   CHECK(state.Get().active && state.Get().targetId!=owner);
-  state.Control(owner,3,false,end,3);CHECK(state.Get().outstanding==0 && state.Get().lastEndStatus==0);
+  state.Control(owner,3,false,state.Get().suspensionEpoch,3,end,3);CHECK(state.Get().outstanding==0 && state.Get().lastEndStatus==0);
   {std::lock_guard<std::mutex> lock(mutex);done=true;cv.notify_all();}
   worker.join();state.Finish(owner,end,4);
   CHECK(before==during && during==after && beforeRelative==duringRelative && duringRelative==afterRelative);
