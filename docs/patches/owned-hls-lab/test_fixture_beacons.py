@@ -26,7 +26,7 @@ class FixtureBeaconTests(unittest.TestCase):
 
     @unittest.skipUnless(f.DEFAULT_CONTRACT.exists(),'preserved frozen acceptance contract required')
     def test_fixed_intervals_and_contract_reject_edit(self):
-        path = Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/acceptance-contract.json')
+        path = Path(f.DEFAULT_CONTRACT)
         contract = f.load_contract(path)
         self.assertEqual(contract['placements_aac_units']['b_paused'], [1536,2304])
         with tempfile.TemporaryDirectory() as directory:

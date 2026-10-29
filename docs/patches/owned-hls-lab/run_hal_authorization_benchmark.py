@@ -289,7 +289,11 @@ def main():
     finally:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=3)
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
 
 if __name__ == '__main__':

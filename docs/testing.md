@@ -6,7 +6,7 @@ The [owned-clock and beacon checkpoint](superpowers/reports/kodi-owned-clock-bea
 records the current Kodi-master experiment separately from the historical results
 below. Candidate `c33f6d0`, built in Release mode, completed run19 with all
 8,641,536 source frames, four normal pause/resume cycles, and 34 actual loopback
-HTTP204 beacon receipts. Captured audio nevertheless contains an unexpected
+HTTP 204 beacon receipts. Captured audio nevertheless contains an unexpected
 19.354 ms silence gap. The runtime acceptance gate is **FAILED**.
 
 An independent crosscheck of the recovered diagnostic trace confirms roughly

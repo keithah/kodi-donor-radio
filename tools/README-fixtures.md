@@ -116,7 +116,10 @@ invalidates continuous qualification for the rest of that session.
 `/source/late-break/index.m3u8` places the break at source070–071, after the
 retained-window boundary. `/source/recovery/index.m3u8` holds the live source
 for 12 seconds and resumes consecutive media before a later complete break.
-Both need the extended generated assets. `/stats` includes a bounded 256-record
+Both need the extended generated assets. Generate them with
+`python3 tools/generate_ad_audio.py --extended --assets tests/generated-audio/ad`
+and start the origin with the same `--assets tests/generated-audio/ad` path.
+`/stats` includes a bounded 256-record
 tracking history with timestamps. On macOS these explicitly use unshifted
 `mach_absolute_time`, matching Core Audio's host clock; older Python monotonic
 clocks can have a process-relative epoch and must not be compared directly.

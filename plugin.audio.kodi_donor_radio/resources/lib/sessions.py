@@ -326,6 +326,33 @@ class PlaybackSession:
             return (self._fixture_clock_qualified and not self.cancel.is_set()
                     and ad is not None and not ad.terminal)
 
+    @property
+    def fixture_launch_nonce(self):
+        with self._lock:
+            return self._fixture_launch_nonce
+
+    def matches_fixture_launch(self, nonce):
+        with self._lock:
+            return self._fixture_launch_nonce == nonce
+
+    def bind_fixture_launch(self, nonce):
+        with self._lock:
+            if self._fixture_launch_nonce is not None:
+                return False
+            self._fixture_launch_nonce = nonce
+            return True
+
+    def mark_fixture_clock_qualified(self, nonce):
+        """Atomically qualify only this live session's explicit fixture launch."""
+        with self._lock:
+            ad = self.ad
+            if (self._fixture_launch_nonce != nonce or self.cancel.is_set()
+                    or not self.ad_enabled or self.continuous_playback_url is None
+                    or ad is None or ad.terminal):
+                return False
+            self._fixture_clock_qualified = True
+            return True
+
     def record_continuous_delivery(self, segment):
         """Advance the exclusive ceiling only after a complete socket write."""
         with self._lock:
@@ -416,14 +443,13 @@ class SessionManager:
             session = self._session
             ad = session.ad if session is not None else None
             if (launch is None or session is None or launch.session_id != session_id
-                    or session.id != session_id or session._fixture_launch_nonce != nonce
+                    or session.id != session_id
                     or launch.cancel is not session.cancel or session.cancel.is_set()
                     or session.station.uuid != launch.fixture_id or not session.ad_enabled
                     or session.continuous_playback_url is None or ad is None
-                    or ad.terminal or origin(session.source.final_url) != launch.origin):
+                    or ad.terminal or origin(session.source.final_url) != launch.origin
+                    or not session.mark_fixture_clock_qualified(nonce)):
                 return False
-            with session._lock:
-                session._fixture_clock_qualified = True
             del self._fixture_launches[nonce]
             return True
 
@@ -433,7 +459,7 @@ class SessionManager:
             if launch is not None and launch.cancel is not None:
                 launch.cancel.set()
             session = self._session
-            if session is None or session._fixture_launch_nonce != nonce:
+            if session is None or not session.matches_fixture_launch(nonce):
                 return
             self._session = None
         session.close('fixture_launch_cancelled')
@@ -481,7 +507,10 @@ class SessionManager:
                                           lambda marker: self.icy_marker_store.lookup(station.uuid, marker)
                                           if self.icy_marker_store is not None else None)
                 session.is_preview = False
-                session._fixture_launch_nonce = fixture_launch_nonce
+                if fixture_launch_nonce is not None and not session.bind_fixture_launch(fixture_launch_nonce):
+                    session.close('fixture_launch_binding_failed')
+                    source = None
+                    raise RuntimeError('Fixture launch binding failed')
                 with self._lock:
                     self._expire_fixture_launches()
                     if self._closed or self._pending is not cancel or cancel.is_set():
@@ -618,8 +647,9 @@ class SessionManager:
             if session is None or session.id != session_id:
                 return
             self._session = None
-            if session._fixture_launch_nonce is not None:
-                self._fixture_launches.pop(session._fixture_launch_nonce, None)
+            launch_nonce = session.fixture_launch_nonce
+            if launch_nonce is not None:
+                self._fixture_launches.pop(launch_nonce, None)
         session.close()
 
     def expire(self):
