@@ -280,6 +280,20 @@ class HalJoinTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             e.join_hal_evidence([], [dict(kind='owned_launch',output_backend='ae')], [])
 
+    def test_hal_source_frame_uses_defined_exact_segment_clock(self):
+        segment=dict(output_ticks=0,timebase_numer=1,timebase_denom=1,source_start=1000,copied_frames=512)
+        self.assertEqual(e.hal_source_frame(segment,10_000_000),1480)
+
+    def test_partial_segment_overlap_is_detected_from_two_predecessors(self):
+        # At 15ms the second record started at 10ms but the 20ms partial
+        # predecessor is still live.  A one-neighbor lookup would silently
+        # accept the second record and manufacture a unique coverage proof.
+        first=dict(sequence=1,output_ticks=0,timebase_numer=1,timebase_denom=1,copied_frames=960)
+        second=dict(sequence=2,output_ticks=10_000_000,timebase_numer=1,timebase_denom=1,copied_frames=960)
+        index=[(e.hal_segment_start(first),1,first),(e.hal_segment_start(second),2,second)]
+        covered=e.hal_covering_segments(index,[x[0] for x in index],15_000_000)
+        self.assertEqual([row['sequence'] for row in covered],[1,2])
+
 class CapturePointTests(unittest.TestCase):
     def matcher(self):
         try:import numpy as np

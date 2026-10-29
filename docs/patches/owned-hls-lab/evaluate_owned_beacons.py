@@ -196,6 +196,31 @@ HAL_PROOF_KEYS=('backend','query_start_ns','query_end_ns','segment_sha256','appl
     'source_zero_sha256','source_zero_ticks','timebase_numer','timebase_denom','initial_deadline_ns')
 
 
+def hal_segment_start(segment):
+    """Exact callback host time for a segment, without a float conversion."""
+    return Fraction(segment['output_ticks']*segment['timebase_numer'],segment['timebase_denom'])
+
+
+def hal_covering_segments(segment_index,segment_starts,query_host_ns):
+    """Return every overlapping predecessor at a query point in bounded time.
+
+    Segments are chronological 512-frame callback records, but partial records
+    can overlap their immediate predecessor.  `bisect_right` puts all starts
+    at or before the query before `position`; checking the two immediately
+    preceding records preserves overlap detection while avoiding O(N*M).
+    """
+    point=Fraction(query_host_ns);position=bisect.bisect_right(segment_starts,point)
+    covering=[]
+    for start,_,value in segment_index[max(0,position-2):position]:
+        end=start+Fraction(value['copied_frames']*10**9,RATE)
+        if start<=point<end:covering.append(value)
+    return covering
+
+
+def hal_source_frame(segment,query_host_ns):
+    return segment['source_start']+int((Fraction(query_host_ns)-hal_segment_start(segment))*RATE/10**9)
+
+
 def join_hal_evidence(native_lines,rows,receipts):
     """Join actual HAL raw rows. They are never rewritten as AE observations."""
     launches=[r for r in rows if r.get('kind')=='owned_launch']
@@ -239,7 +264,7 @@ def join_hal_evidence(native_lines,rows,receipts):
     # covered by the immediate predecessor (or, at a shared edge, its next
     # neighbor); scanning every segment for every query both hid overlap bugs
     # and turned the final audit into O(N*M).
-    segment_index=sorted((Fraction(row['output_ticks']*row['timebase_numer'],row['timebase_denom']),seq,row)
+    segment_index=sorted((hal_segment_start(row),seq,row)
                          for seq,(_,row) in segments.items() if row.get('copied_frames'))
     segment_starts=[entry[0] for entry in segment_index]
     snapshots={};qualified=[]
@@ -258,13 +283,9 @@ def join_hal_evidence(native_lines,rows,receipts):
                     or snapshot['native_generation']!=query['native_gate']
                     or any(snapshot[k]!=query[k] for k in HAL_PROOF_KEYS if k!='backend')
                     or snapshot['backend']!='hal_callback_v1'):raise ValueError('hal_snapshot_identity')
-            point=Fraction(q);position=bisect.bisect_right(segment_starts,point)
-            covering=[]
-            for candidate in segment_index[max(0,position-1):position+1]:
-                start,_,value=candidate;end=start+Fraction(value['copied_frames']*10**9,RATE)
-                if start<=point<end:covering.append(value)
+            covering=hal_covering_segments(segment_index,segment_starts,q)
             if len(covering)!=1 or covering[0]['sequence']!=query['segment_sequence']:raise ValueError('hal_query_coverage')
-            segment=covering[0];source=segment['source_start']+int((q-t(segment))*RATE/10**9)
+            segment=covering[0];source=hal_source_frame(segment,q)
             if (snapshot['seconds']!=source/RATE or source!=query['source_frame'] or segment['muted']
                     or not segment['playing'] or segment['applied_gain']<=0 or not segment['sample_zero_proven']):raise ValueError('hal_mapping_proof')
             applied=segments[query['applied_sequence']][1]
@@ -277,9 +298,9 @@ def join_hal_evidence(native_lines,rows,receipts):
             if not q<=received<=checked<=q+100_000_000:raise ValueError('snapshot_freshness')
             if zero is None or zero[1]['source_start']!=0 or query['source_zero_sha256']!=zero[0]:raise ValueError('hal_source_zero')
             if len(qualified)==1:
-                zero_start=Fraction(zero[1]['output_ticks']*zero[1]['timebase_numer'],zero[1]['timebase_denom'])
+                zero_start=hal_segment_start(zero[1])
                 if (source<=1024 or q<=zero_start+Fraction(1024*10**9,RATE)
-                        or checked>query['initial_deadline_ns'] or query['initial_deadline_ns']!=int(t(zero[1]))+120_000_000):
+                        or checked>query['initial_deadline_ns'] or query['initial_deadline_ns']!=int(hal_segment_start(zero[1]))+120_000_000):
                     raise ValueError('hal_initial_opportunity')
         except (KeyError,ValueError,TypeError,ZeroDivisionError,OverflowError) as exc:
             errors.append(str(exc) if isinstance(exc,ValueError) else 'hal_proof_schema')

@@ -88,6 +88,21 @@ def request(row, number, start, stage='tracker', *, event_digest='', parent=None
     return value
 
 
+def validate_response(raw, expected):
+    """Validate a reply before the benchmark declares its action complete."""
+    response=json.loads(raw)
+    if (not isinstance(response,dict) or any(response.get(key)!=value or type(response.get(key)) is not type(value)
+                                            for key,value in expected.items())
+            or response.get('request_sha256')!=hashlib.sha256(canonical(expected)).hexdigest()
+            or type(response.get('authorized')) is not bool):
+        raise ValueError('benchmark_response_schema')
+    for key in ('check_start_ns','check_end_ns','callback_entry_ns','lease_expiry_ns','source_end_ns'):
+        if type(response.get(key)) is not int or response[key]<0:raise ValueError('benchmark_response_clock')
+    if not expected['request_start_ns']<=response['check_start_ns']<=response['check_end_ns']:
+        raise ValueError('benchmark_response_order')
+    return response
+
+
 def gain(revision):
     return dict(nonce=NONCE, incarnation=INCARNATION, timeline_sha256=TIMELINE,
                 output_backend='hal_callback_v1', hal_contract_version=1, device_generation=1,
@@ -160,9 +175,10 @@ def main():
         # worker threads contend for that slot, while every event must still
         # make its tracker -> queue -> dispatch chain in native request order.
         sequence=iter(range(32754,32769));slot=threading.Lock();responses=[];failures=[]
-        def exchange(stage,event_digest,parent=None,decision_ns=0,queue_ns=0):
+        def exchange(stage,event_digest,role,parent=None,decision_ns=0,queue_ns=0):
+            slot_attempt=mach_host_ns()
             with slot:
-                number=next(sequence);started=mach_host_ns()
+                slot_acquired=mach_host_ns();number=next(sequence);started=mach_host_ns()
                 value=request(final,number,started,stage,event_digest=event_digest,parent=parent,
                               decision_ns=decision_ns,queue_ns=queue_ns)
                 write_private(authorization / ('request-%06d.json' % number),value)
@@ -173,21 +189,24 @@ def main():
                         out,err=process.communicate();raise RuntimeError('native_response_exit_%s:%s:%s'%(process.returncode,out,err))
                     time.sleep(.0005)
                 if not response_path.exists():raise TimeoutError(str(response_path))
-                received=mach_host_ns();raw=response_path.read_bytes();response=json.loads(raw)
+                raw=response_path.read_bytes();receipt=mach_host_ns();response=validate_response(raw,value);action=mach_host_ns()
                 # The native response does not echo its file digest.  Record
                 # the received immutable bytes here so downstream queue and
                 # dispatch requests carry the same parent proof as production.
                 response['response_sha256']=hashlib.sha256(raw).hexdigest()
-                response['action_receipt_ns']=received;responses.append(response)
+                response.update(receipt_mach_ns=receipt,action_mach_ns=action,slot_wait_ns=slot_acquired-slot_attempt,
+                                worker_role=role)
+                responses.append(response)
                 return response
-        def chain(index):
+        def chain(index,role):
             try:
                 digest=hashlib.sha256(('benchmark-event-%d'%index).encode()).hexdigest()
-                tracker=exchange('tracker',digest)
-                queue=exchange('queue',digest,tracker,tracker['action_receipt_ns'])
-                exchange('dispatch',digest,queue,tracker['action_receipt_ns'],queue['action_receipt_ns'])
+                tracker=exchange('tracker',digest,role)
+                queue=exchange('queue',digest,role,tracker,tracker['action_mach_ns'])
+                exchange('dispatch',digest,role,queue,tracker['action_mach_ns'],queue['action_mach_ns'])
             except BaseException as exc:failures.append(repr(exc))
-        workers=[threading.Thread(target=chain,args=(index,)) for index in range(5)]
+        roles=('monitor','monitor','worker','worker','worker')
+        workers=[threading.Thread(target=chain,args=(index,role),name='benchmark-'+role) for index,role in enumerate(roles)]
         for worker in workers:worker.start()
         for worker in workers:worker.join()
         if failures:raise RuntimeError('benchmark_worker:'+','.join(failures))
@@ -196,24 +215,40 @@ def main():
         if process.returncode:
             raise RuntimeError('native_harness_%s:%s' % (process.returncode, err))
         cadence = [json.loads(line) for line in (session / 'native-cadence.jsonl').read_text().splitlines()]
+        def stage_latency(stage):
+            rows=[row for row in responses if row['stage']==stage]
+            return dict(count=len(rows),request_to_action_max_ns=max(row['action_mach_ns']-row['request_start_ns'] for row in rows),
+                        native_bracket_max_ns=max(row['check_end_ns']-row['check_start_ns'] for row in rows),
+                        native_reply_to_receipt_max_ns=max(row['receipt_mach_ns']-row['check_end_ns'] for row in rows),
+                        receipt_to_action_max_ns=max(row['action_mach_ns']-row['receipt_mach_ns'] for row in rows),
+                        reply_to_action_max_ns=max(row['action_mach_ns']-row['check_end_ns'] for row in rows),
+                        query_to_action_max_ns=max(row['action_mach_ns']-row['query_host_ns'] for row in rows),
+                        slot_wait_max_ns=max(row['slot_wait_ns'] for row in rows))
         latency = dict(
-            request_to_action_max_ns=max(row['check_end_ns'] - row['request_start_ns'] for row in responses),
+            request_to_action_max_ns=max(row['action_mach_ns'] - row['request_start_ns'] for row in responses),
             native_bracket_max_ns=max(row['check_end_ns'] - row['check_start_ns'] for row in responses),
-            reply_action_age_max_ns=max(row['action_receipt_ns']-row['check_end_ns'] for row in responses),
+            reply_to_action_max_ns=max(row['action_mach_ns']-row['check_end_ns'] for row in responses),
+            native_reply_to_receipt_max_ns=max(row['receipt_mach_ns']-row['check_end_ns'] for row in responses),
+            receipt_to_action_max_ns=max(row['action_mach_ns']-row['receipt_mach_ns'] for row in responses),
+            query_to_action_max_ns=max(row['action_mach_ns']-row['query_host_ns'] for row in responses),
+            slot_wait_max_ns=max(row['slot_wait_ns'] for row in responses),
             control_max_ns=max(row['control_end_ns'] - row['start_ns'] for row in cadence),
             gain_max_ns=max(row['gain_end_ns'] - row['control_end_ns'] for row in cadence),
             gain_renewal_observed=any(row.get('gain_pending') == 1 for row in cadence))
         result = dict(schema='owned-hal-authorization-benchmark-v1', harness=str(args.harness),
                       authorization_requests_prepopulated=32753, authorization_requests_final=15,
                       final_stage_counts={stage:sum(row['stage']==stage for row in responses) for stage in ('tracker','queue','dispatch')},
-                      concurrent_workers=5,
+                      stage_latency={stage:stage_latency(stage) for stage in ('tracker','queue','dispatch')},
+                      concurrent_workers=5, concurrent_roles={role:roles.count(role) for role in set(roles)},
                       gain_records=6000, responses=responses, cadence=cadence,
                       all_final_authorized=all(row['authorized'] for row in responses), latency=latency,
-                      limits=dict(request_to_action_max_ns=20000000, native_bracket_max_ns=5000000, reply_action_age_max_ns=5000000),
+                      limits=dict(request_to_action_max_ns=20000000, native_bracket_max_ns=5000000,
+                                  reply_to_action_max_ns=5000000, query_to_action_max_ns=100000000),
                       native_stdout=out, native_stderr=err)
         write_private(args.output / 'result.json', result)
         if (not result['all_final_authorized'] or latency['request_to_action_max_ns'] > 20000000
-                or latency['native_bracket_max_ns'] > 5000000 or latency['reply_action_age_max_ns']>5000000
+                or latency['native_bracket_max_ns'] > 5000000 or latency['reply_to_action_max_ns']>5000000
+                or latency['query_to_action_max_ns']>100000000
                 or not latency['gain_renewal_observed'] or result['final_stage_counts']!={'tracker':5,'queue':5,'dispatch':5}):
             raise RuntimeError('benchmark_limits_or_authorization_failed')
         print(json.dumps(result, sort_keys=True))

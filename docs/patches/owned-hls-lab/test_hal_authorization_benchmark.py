@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -41,6 +43,19 @@ def test_staged_request_carries_exact_parent_response_hash():
     queue['response_sha256']='b'*64
     dispatch=benchmark.request(row,32756,1_000_000_002,'dispatch',event_digest='e'*64,parent=queue,decision_ns=9,queue_ns=10)
     assert dispatch['parent_id']==32755 and dispatch['parent_sha256']=='b'*64 and dispatch['queue_ns']==10
+
+
+def test_response_is_validated_before_an_action_timestamp_can_be_taken():
+    expected=benchmark.request(benchmark.query(1_000_000_000,sequence=2),32754,1_000_000_001)
+    response=dict(expected,request_sha256=hashlib.sha256(benchmark.canonical(expected)).hexdigest(),authorized=True,
+                  check_start_ns=1_000_000_002,check_end_ns=1_000_000_003,callback_entry_ns=1_000_000_002,
+                  lease_expiry_ns=2_000_000_000,source_end_ns=0,actual_gate=1,actual_intent=2,
+                  applied_sequence=21,applied_sha256='a'*64,reason='authorized')
+    assert benchmark.validate_response(benchmark.canonical(response),expected)['authorized'] is True
+    response['request_id']=999
+    try:benchmark.validate_response(benchmark.canonical(response),expected)
+    except ValueError as exc:assert str(exc)=='benchmark_response_schema'
+    else:raise AssertionError('mismatched reply accepted')
 
 
 def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
