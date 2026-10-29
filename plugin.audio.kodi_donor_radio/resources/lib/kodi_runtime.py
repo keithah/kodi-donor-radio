@@ -548,7 +548,8 @@ def _search_page(key, fetch, monitor, cancel):
     _check_ui_cancel(monitor, cancel)
     match = next((page for page in pages if page['key'] == identity), None)
     now = time.time()
-    if match is not None and 0 <= now - match['stored_at'] < 86400:
+    if (match is not None and match['stored_at'] <= now and
+            now - match['stored_at'] < 86400):
         return [StationSummary.from_dict(row) for row in match['rows']], match['more']
     try:
         rows, more = _operation(fetch, monitor, cancel)

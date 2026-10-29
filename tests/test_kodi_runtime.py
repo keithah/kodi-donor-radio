@@ -2334,6 +2334,23 @@ def test_directory_cache_search_expires_and_uses_stale_page_on_fetch_failure(kod
     assert refreshed['more'] is False
 
 
+def test_directory_cache_search_unrepresentably_future_timestamp_falls_back(kodi, monkeypatch):
+    runtime, state, _profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([STATION], True)
+    route(runtime, mode='search', name='jazz')
+    property_name = 'kodi_donor_radio.search_pages'
+    document = json.loads(state.window_properties[property_name])
+    document['pages'][0]['stored_at'] = 10 ** 400
+    state.window_properties[property_name] = json.dumps(document)
+
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='jazz')
+
+    assert state.items[0][1].label == 'Station One'
+
+
 def test_directory_cache_storage_errors_do_not_hide_live_results(kodi, monkeypatch):
     runtime, state, profile = kodi
     directory(monkeypatch, runtime)

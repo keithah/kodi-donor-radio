@@ -513,6 +513,15 @@ def test_directory_cache_future_timestamps_are_stale_and_repairable(tmp_path):
     assert store.get('tags', 'new', 60).rows == ('rock',)
 
 
+def test_directory_cache_unrepresentably_future_timestamp_is_stale(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000.0)
+    store.put('tags', 'all', ['jazz'], continuation=False, stored_at=10 ** 400)
+
+    stale = store.get('tags', 'all', 60, allow_stale=True)
+
+    assert stale.rows == ('jazz',) and not stale.fresh
+
+
 def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_path):
     from models import Station
     m = ui()

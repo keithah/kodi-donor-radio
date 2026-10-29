@@ -334,8 +334,8 @@ class DirectoryCacheStore(_Store):
         entry = next((item for item in self.list() if item.identity == identity), None)
         if entry is None:
             return None
-        age = self.clock() - entry.stored_at
-        fresh = 0 <= age < ttl_seconds
+        now = self.clock()
+        fresh = entry.stored_at <= now and now - entry.stored_at < ttl_seconds
         if not fresh and not allow_stale:
             return None
         return DirectoryCachePage(entry.kind, entry.rows, entry.continuation, entry.stored_at, fresh)
