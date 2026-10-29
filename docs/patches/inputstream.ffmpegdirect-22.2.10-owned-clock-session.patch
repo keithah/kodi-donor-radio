@@ -1782,30 +1782,48 @@
    ~Span() { if (enabled) aggregate.Record(op,start,clock()); }
   private:
    Aggregate& aggregate;
-@@ -74,7 +99,7 @@
+@@ -73,24 +98,31 @@
+   bool enabled;
    uint64_t start;
  };
++// Version 3 tuple order and numeric operation IDs are a frozen wire contract.
++// All collected fields are emitted; only repeated JSON labels are removed.
  inline void WriteJson(std::ostream& out, const Snapshot& snapshot) {
 -  out << "{\"version\":1,\"threshold_ns\":40000000,\"available\":"
-+  out << "{\"version\":2,\"threshold_ns\":40000000,\"available\":"
-       << (snapshot.available ? "true" : "false") << ",\"revision\":" << snapshot.revision
-       << ",\"dropped_contention\":" << snapshot.droppedContention
-       << ",\"dropped_events\":" << snapshot.droppedEvents << ",\"operations\":{";
-@@ -92,6 +117,14 @@
-     out << "{\"operation\":\"" << Names[e.operation] << "\",\"start_mach_ns\":"
-         << e.startNs << ",\"end_mach_ns\":" << e.endNs << '}';
+-      << (snapshot.available ? "true" : "false") << ",\"revision\":" << snapshot.revision
+-      << ",\"dropped_contention\":" << snapshot.droppedContention
+-      << ",\"dropped_events\":" << snapshot.droppedEvents << ",\"operations\":{";
++  out << "{\"version\":3,\"header\":[40000000,"
++      << (snapshot.available ? "true" : "false") << ',' << snapshot.revision
++      << ',' << snapshot.droppedContention << ',' << snapshot.droppedEvents
++      << ',' << snapshot.droppedHostThreads << "],\"operations\":[";
+   for (size_t i=0;i<Count;++i) {
+     const auto& m=snapshot.metrics[i];
+     if (i) out << ',';
+-    out << '\"' << Names[i] << "\":{\"count\":" << m.count << ",\"max_ns\":" << m.maxNs
+-        << ",\"max_start_mach_ns\":" << m.maxStartNs
+-        << ",\"max_end_mach_ns\":" << m.maxEndNs << '}';
++    out << '[' << i << ',' << m.count << ',' << m.maxNs
++        << ',' << m.maxStartNs << ',' << m.maxEndNs << ']';
    }
-+  out << "],\"dropped_host_threads\":" << snapshot.droppedHostThreads << ",\"host_threads\":[";
+-  out << "},\"long_events\":[";
++  out << "],\"events\":[";
+   for (size_t i=0;i<snapshot.eventCount;++i) {
+     const auto& e=snapshot.events[i];
+     if (i) out << ',';
+-    out << "{\"operation\":\"" << Names[e.operation] << "\",\"start_mach_ns\":"
+-        << e.startNs << ",\"end_mach_ns\":" << e.endNs << '}';
++    out << '[' << e.operation << ',' << e.startNs << ',' << e.endNs << ']';
++  }
++  out << "],\"threads\":[";
 +  for (size_t i=0;i<snapshot.hostThreadCount;++i) {
 +    const auto& t=snapshot.hostThreads[i];
 +    if(i) out << ',';
-+    out << "{\"thread_id\":" << t.threadId << ",\"observed_mach_ns\":" << t.observedNs
-+        << ",\"identity_status\":" << t.identityStatus << ",\"qos_status\":" << t.qosStatus
-+        << ",\"qos_class\":" << t.qosClass << ",\"relative_priority\":" << t.relativePriority << '}';
-+  }
++    out << '[' << t.threadId << ',' << t.observedNs << ',' << t.identityStatus
++        << ',' << t.qosStatus << ',' << t.qosClass << ',' << t.relativePriority << ']';
+   }
    out << "]}";
  }
- } // namespace owned_stall
 --- /dev/null
 +++ b/src/OwnedHostOverride.h
 @@ -0,0 +1,145 @@

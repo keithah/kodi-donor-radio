@@ -27,7 +27,68 @@ def exact_object(value, keys, label):
     if type(value) is not dict or set(value) != set(keys):
         raise ValueError('invalid diagnostic '+label+' structure')
 
+# Version 3 IDs and tuple layouts are immutable. Expansion is an offline view;
+# callers retain their original wire bytes for evidence identity.
+METRIC_FIELDS = ('count','max_ns','max_start_mach_ns','max_end_mach_ns')
+THREAD_FIELDS = ('thread_id','observed_mach_ns','identity_status','qos_status','qos_class','relative_priority')
+
+def tuple_width(value, width, label):
+    if type(value) is not list or len(value) != width:
+        raise ValueError('invalid diagnostic '+label+' width')
+
+def expand_diagnostic(diagnostic):
+    if type(diagnostic) is not dict or type(diagnostic.get('version')) is not int:
+        raise ValueError('unsupported stall diagnostic version')
+    if diagnostic['version'] in (1,2):
+        validate_diagnostic(diagnostic)
+        return diagnostic
+    if diagnostic['version'] != 3:
+        raise ValueError('unsupported stall diagnostic version')
+    exact_object(diagnostic,('version','header','operations','events','threads'),'compact snapshot')
+    h=diagnostic['header'];tuple_width(h,6,'header')
+    operations=diagnostic['operations'];tuple_width(operations,len(OPERATIONS_V2),'operations')
+    expanded=dict(version=2,threshold_ns=h[0],available=h[1],revision=h[2],
+                  dropped_contention=h[3],dropped_events=h[4],operations={})
+    for index,metric in enumerate(operations):
+        tuple_width(metric,5,'metric')
+        if type(metric[0]) is not int or metric[0]!=index:
+            raise ValueError('invalid or out-of-order operation ID')
+        expanded['operations'][OPERATIONS_V2[index]]=dict(zip(METRIC_FIELDS,metric[1:]))
+    events=diagnostic['events']
+    if type(events) is not list or len(events)>12:
+        raise ValueError('invalid bounded diagnostic event list')
+    expanded['long_events']=[]
+    for event in events:
+        tuple_width(event,3,'event')
+        if type(event[0]) is not int or not 0<=event[0]<len(OPERATIONS_V2):
+            raise ValueError('unknown long-event operation ID')
+        expanded['long_events'].append(dict(operation=OPERATIONS_V2[event[0]],start_mach_ns=event[1],end_mach_ns=event[2]))
+    expanded['dropped_host_threads']=h[5]
+    threads=diagnostic['threads']
+    if type(threads) is not list or len(threads)>4:
+        raise ValueError('invalid bounded host thread observations')
+    expanded['host_threads']=[]
+    for thread in threads:
+        tuple_width(thread,6,'host thread')
+        expanded['host_threads'].append(dict(zip(THREAD_FIELDS,thread)))
+    validate_diagnostic(expanded)
+    return expanded
+
+def compact_diagnostic(diagnostic):
+    """Offline v2 verification encoder; never replaces an archived ledger row."""
+    validate_diagnostic(diagnostic)
+    if diagnostic['version']!=2:
+        raise ValueError('only version 2 has the complete compact field set')
+    return dict(version=3,
+        header=[diagnostic[k] for k in ('threshold_ns','available','revision','dropped_contention','dropped_events','dropped_host_threads')],
+        operations=[[index]+[diagnostic['operations'][name][key] for key in METRIC_FIELDS] for index,name in enumerate(OPERATIONS_V2)],
+        events=[[OPERATIONS_V2.index(e['operation']),e['start_mach_ns'],e['end_mach_ns']] for e in diagnostic['long_events']],
+        threads=[[t[key] for key in THREAD_FIELDS] for t in diagnostic['host_threads']])
+
 def validate_diagnostic(diagnostic):
+    if type(diagnostic) is dict and type(diagnostic.get('version')) is int and diagnostic['version']==3:
+        expand_diagnostic(diagnostic)
+        return
     if type(diagnostic) is not dict or type(diagnostic.get('version')) is not int or diagnostic['version'] not in (1,2):
         raise ValueError('unsupported stall diagnostic version')
     version=diagnostic['version']
@@ -150,14 +211,15 @@ def summarize(rows, capture_first_host_ns, gaps=()):
         if 'stall_diagnostics' not in row:
             report['clock_rows_without_diagnostics']+=1
             continue
-        validate_diagnostic(diagnostic)
+        diagnostic_view=expand_diagnostic(diagnostic)
         version=diagnostic['version']
+        diagnostic=diagnostic_view
         if version not in report['diagnostic_versions']:
             report['diagnostic_versions'].append(version);report['diagnostic_versions'].sort()
         report['diagnostic_version']=max(report['diagnostic_versions'])
         for name in diagnostic['operations']:
             report['operations'].setdefault(name,dict(count=0,maximum=None,long_events=[]))
-        if version==2:
+        if version>=2:
             report['dropped_host_threads']+=diagnostic['dropped_host_threads']
             for thread in diagnostic['host_threads']:
                 if thread not in report['host_thread_observations']:report['host_thread_observations'].append(dict(thread))

@@ -165,4 +165,67 @@ class StrictSchemaTests(unittest.TestCase):
     def test_unavailable_cannot_claim_data(self):
         row=fixture(); row['stall_diagnostics']['available']=False; self.bad(row)
 
+
+
+
+class VersionThreeTests(unittest.TestCase):
+    def codec(self):
+        import summarize_stalls as module
+        return module.compact_diagnostic,module.expand_diagnostic
+    def test_actual_v2_roundtrip_and_no_mutation(self):
+        from pathlib import Path
+        compact,expand=self.codec()
+        records=json.loads(Path(__file__).with_name('stall-v2-run12-fixture.json').read_text())
+        for record in records:
+            d=record['diagnostic'];before=json.dumps(d,separators=(',',':'))
+            encoded=compact(d)
+            self.assertEqual(encoded['version'],3)
+            self.assertEqual(list(encoded),['version','header','operations','events','threads'])
+            self.assertEqual([m[0] for m in encoded['operations']],list(range(22)))
+            self.assertEqual(json.dumps(expand(encoded),separators=(',',':')),before)
+            self.assertEqual(json.dumps(d,separators=(',',':')),before)
+            self.assertLess(len(json.dumps(encoded)),len(before))
+        rows=[dict(kind='clock_sample',stall_diagnostics=x['diagnostic']) for x in records]
+        old=summarize(rows,BASE)
+        new=summarize([dict(r,stall_diagnostics=compact(r['stall_diagnostics'])) for r in rows],BASE)
+        self.assertEqual(new.pop('diagnostic_version'),3);self.assertEqual(new.pop('diagnostic_versions'),[3])
+        old.pop('diagnostic_version');old.pop('diagnostic_versions');self.assertEqual(new,old)
+    def test_maximum_values_full_events_threads_and_unavailable(self):
+        compact,expand=self.codec();d=fixture_v2()['stall_diagnostics'];maximum=2**64-1
+        for key in ('revision','dropped_contention','dropped_events','dropped_host_threads'):d[key]=maximum
+        for metric in d['operations'].values():metric.update(count=maximum,max_ns=maximum,max_start_mach_ns=0,max_end_mach_ns=maximum)
+        d['long_events']=[dict(operation='native_append',start_mach_ns=i,end_mach_ns=maximum) for i in range(12)]
+        d['host_threads']=[dict(thread_id=maximum-i,observed_mach_ns=maximum,identity_status=-2**31,qos_status=2**31-1,qos_class=-1,relative_priority=0) for i in range(4)]
+        self.assertEqual(expand(compact(d)),d)
+        d=fixture_v2()['stall_diagnostics'];d['available']=False;d['long_events']=[]
+        for key in ('revision','dropped_contention','dropped_events','dropped_host_threads'):d[key]=0
+        for metric in d['operations'].values():
+            for key in metric:metric[key]=0
+        self.assertEqual(expand(compact(d)),d)
+    def test_malformed_v3_rejected(self):
+        compact,expand=self.codec()
+        edits=[lambda d:d.update(version=True),lambda d:d.update(version=4),lambda d:d.update(extra=0),
+            lambda d:d.pop('header'),lambda d:d.update(header={}),lambda d:d['header'].append(0),
+            lambda d:d['header'].__setitem__(0,40000001),lambda d:d['header'].__setitem__(1,1),
+            lambda d:d['header'].__setitem__(2,True),lambda d:d['header'].__setitem__(3,-1),
+            lambda d:d['header'].__setitem__(4,2**64),lambda d:d['header'].__setitem__(5,1.0),
+            lambda d:d['operations'].pop(),lambda d:d['operations'].append([22,0,0,0,0]),
+            lambda d:d['operations'][0].pop(),lambda d:d['operations'][0].append(0),
+            lambda d:d['operations'][0].__setitem__(0,True),lambda d:d['operations'][0].__setitem__(0,1),
+            lambda d:d['operations'][21].__setitem__(0,22),lambda d:d['operations'][0].__setitem__(1,-1),
+            lambda d:d['operations'][0].__setitem__(4,1),lambda d:d.update(events={}),
+            lambda d:d['events'][0].__setitem__(0,22),lambda d:d['events'][0].__setitem__(0,False),
+            lambda d:d['events'][0].append(0),lambda d:d.update(events=d['events']*13),
+            lambda d:d.update(threads=[[1,2,0,0,21,0]]*2),lambda d:d.update(threads=[[1,2,0,0,21,0]]*5),
+            lambda d:d.update(threads=[[1,2,0,0,21]]),lambda d:d.update(threads=[[True,2,0,0,21,0]]),
+            lambda d:d.update(threads=[[1,2,2**31,0,21,0]])]
+        for edit in edits:
+            d=compact(fixture_v2()['stall_diagnostics']);edit(d)
+            with self.subTest(edit=edits.index(edit)),self.assertRaises(ValueError):expand(d)
+    def test_legacy_versions_not_reencoded_or_guessed(self):
+        compact,expand=self.codec()
+        for row in (fixture(),fixture_v2()):
+            d=row['stall_diagnostics'];self.assertIs(expand(d),d)
+        with self.assertRaises(ValueError):compact(fixture()['stall_diagnostics'])
+
 if __name__=='__main__': unittest.main()

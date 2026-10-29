@@ -1,0 +1,476 @@
+[
+  {
+    "source_sequence": 6898,
+    "source_row_sha256": "423c8d3da98f956b9f7509f1cb95a7dcbb693ea531d93d52b1514b6b9af301e4",
+    "diagnostic": {
+      "version": 2,
+      "threshold_ns": 40000000,
+      "available": true,
+      "revision": 6898,
+      "dropped_contention": 0,
+      "dropped_events": 0,
+      "operations": {
+        "control_read": {
+          "count": 2,
+          "max_ns": 249416,
+          "max_start_mach_ns": 3914462310769625,
+          "max_end_mach_ns": 3914462311019041
+        },
+        "telemetry_mutex_wait": {
+          "count": 2,
+          "max_ns": 374,
+          "max_start_mach_ns": 3914462303974292,
+          "max_end_mach_ns": 3914462303974666
+        },
+        "telemetry_write": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "telemetry_flush": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "renderer_owned_mutex_wait": {
+          "count": 4,
+          "max_ns": 42,
+          "max_start_mach_ns": 3914462311039750,
+          "max_end_mach_ns": 3914462311039792
+        },
+        "clock_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 42,
+          "max_start_mach_ns": 3914462319060083,
+          "max_end_mach_ns": 3914462319060125
+        },
+        "host_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 41,
+          "max_start_mach_ns": 3914462313510792,
+          "max_end_mach_ns": 3914462313510833
+        },
+        "adddata": {
+          "count": 2,
+          "max_ns": 14125,
+          "max_start_mach_ns": 3914462304031833,
+          "max_end_mach_ns": 3914462304045958
+        },
+        "renderer_sleep_overshoot": {
+          "count": 2,
+          "max_ns": 2518292,
+          "max_start_mach_ns": 3914462316039833,
+          "max_end_mach_ns": 3914462318558125
+        },
+        "host_packet_interarrival": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "host_packet_call": {
+          "count": 1,
+          "max_ns": 2542,
+          "max_start_mach_ns": 3914462313510750,
+          "max_end_mach_ns": 3914462313513292
+        },
+        "renderer_loop": {
+          "count": 2,
+          "max_ns": 7935791,
+          "max_start_mach_ns": 3914462302833625,
+          "max_end_mach_ns": 3914462310769416
+        },
+        "getspace": {
+          "count": 2,
+          "max_ns": 4084,
+          "max_start_mach_ns": 3914462311020166,
+          "max_end_mach_ns": 3914462311024250
+        },
+        "decode_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 41,
+          "max_start_mach_ns": 3914462306937792,
+          "max_end_mach_ns": 3914462306937833
+        },
+        "decode_owned_mutex_held": {
+          "count": 1,
+          "max_ns": 44750,
+          "max_start_mach_ns": 3914462306937958,
+          "max_end_mach_ns": 3914462306982708
+        },
+        "packet_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 41,
+          "max_start_mach_ns": 3914462306982792,
+          "max_end_mach_ns": 3914462306982833
+        },
+        "output_guard_before": {
+          "count": 1,
+          "max_ns": 271584,
+          "max_start_mach_ns": 3914462318786208,
+          "max_end_mach_ns": 3914462319057792
+        },
+        "output_guard_after": {
+          "count": 1,
+          "max_ns": 154500,
+          "max_start_mach_ns": 3914462303799292,
+          "max_end_mach_ns": 3914462303953792
+        },
+        "clock_observation": {
+          "count": 1,
+          "max_ns": 831750,
+          "max_start_mach_ns": 3914462303194458,
+          "max_end_mach_ns": 3914462304026208
+        },
+        "native_append": {
+          "count": 2,
+          "max_ns": 50750,
+          "max_start_mach_ns": 3914462303974958,
+          "max_end_mach_ns": 3914462304025708
+        },
+        "host_demux_call": {
+          "count": 1,
+          "max_ns": 6000,
+          "max_start_mach_ns": 3914462313507333,
+          "max_end_mach_ns": 3914462313513333
+        },
+        "host_demux_interarrival": {
+          "count": 1,
+          "max_ns": 12070792,
+          "max_start_mach_ns": 3914462301436541,
+          "max_end_mach_ns": 3914462313507333
+        }
+      },
+      "long_events": [],
+      "dropped_host_threads": 0,
+      "host_threads": [
+        {
+          "thread_id": 219446922,
+          "observed_mach_ns": 3914324547573083,
+          "identity_status": 0,
+          "qos_status": 0,
+          "qos_class": 21,
+          "relative_priority": 0
+        }
+      ]
+    }
+  },
+  {
+    "source_sequence": 6900,
+    "source_row_sha256": "0a8faf6a6cd6cace50446363a6ad31de1379b38ad1e750eed41d801799d13388",
+    "diagnostic": {
+      "version": 2,
+      "threshold_ns": 40000000,
+      "available": true,
+      "revision": 6900,
+      "dropped_contention": 0,
+      "dropped_events": 0,
+      "operations": {
+        "control_read": {
+          "count": 2,
+          "max_ns": 635624,
+          "max_start_mach_ns": 3914462359775250,
+          "max_end_mach_ns": 3914462360410874
+        },
+        "telemetry_mutex_wait": {
+          "count": 1,
+          "max_ns": 250,
+          "max_start_mach_ns": 3914462342110208,
+          "max_end_mach_ns": 3914462342110458
+        },
+        "telemetry_write": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "telemetry_flush": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "renderer_owned_mutex_wait": {
+          "count": 2,
+          "max_ns": 83,
+          "max_start_mach_ns": 3914462348116333,
+          "max_end_mach_ns": 3914462348116416
+        },
+        "clock_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 83,
+          "max_start_mach_ns": 3914462360935500,
+          "max_end_mach_ns": 3914462360935583
+        },
+        "host_owned_mutex_wait": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "adddata": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "renderer_sleep_overshoot": {
+          "count": 2,
+          "max_ns": 6653834,
+          "max_start_mach_ns": 3914462353116874,
+          "max_end_mach_ns": 3914462359770708
+        },
+        "host_packet_interarrival": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "host_packet_call": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "renderer_loop": {
+          "count": 2,
+          "max_ns": 12266167,
+          "max_start_mach_ns": 3914462347507874,
+          "max_end_mach_ns": 3914462359774041
+        },
+        "getspace": {
+          "count": 2,
+          "max_ns": 4751,
+          "max_start_mach_ns": 3914462348111041,
+          "max_end_mach_ns": 3914462348115792
+        },
+        "decode_owned_mutex_wait": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "decode_owned_mutex_held": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "packet_owned_mutex_wait": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "output_guard_before": {
+          "count": 1,
+          "max_ns": 507917,
+          "max_start_mach_ns": 3914462360418333,
+          "max_end_mach_ns": 3914462360926250
+        },
+        "output_guard_after": {
+          "count": 1,
+          "max_ns": 240792,
+          "max_start_mach_ns": 3914462341845416,
+          "max_end_mach_ns": 3914462342086208
+        },
+        "clock_observation": {
+          "count": 1,
+          "max_ns": 1906084,
+          "max_start_mach_ns": 3914462340447374,
+          "max_end_mach_ns": 3914462342353458
+        },
+        "native_append": {
+          "count": 1,
+          "max_ns": 237875,
+          "max_start_mach_ns": 3914462342110750,
+          "max_end_mach_ns": 3914462342348625
+        },
+        "host_demux_call": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "host_demux_interarrival": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        }
+      },
+      "long_events": [],
+      "dropped_host_threads": 0,
+      "host_threads": [
+        {
+          "thread_id": 219446922,
+          "observed_mach_ns": 3914324547573083,
+          "identity_status": 0,
+          "qos_status": 0,
+          "qos_class": 21,
+          "relative_priority": 0
+        }
+      ]
+    }
+  },
+  {
+    "source_sequence": 6902,
+    "source_row_sha256": "898e8ce7e9a2fcc7ee35120f0a7c5f3d24f9b1b3f63a1c9706fc72993fe8de01",
+    "diagnostic": {
+      "version": 2,
+      "threshold_ns": 40000000,
+      "available": true,
+      "revision": 6902,
+      "dropped_contention": 0,
+      "dropped_events": 0,
+      "operations": {
+        "control_read": {
+          "count": 3,
+          "max_ns": 120417,
+          "max_start_mach_ns": 3914462385615416,
+          "max_end_mach_ns": 3914462385735833
+        },
+        "telemetry_mutex_wait": {
+          "count": 4,
+          "max_ns": 291,
+          "max_start_mach_ns": 3914462378070583,
+          "max_end_mach_ns": 3914462378070874
+        },
+        "telemetry_write": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "telemetry_flush": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "renderer_owned_mutex_wait": {
+          "count": 6,
+          "max_ns": 42,
+          "max_start_mach_ns": 3914462393359250,
+          "max_end_mach_ns": 3914462393359292
+        },
+        "clock_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 41,
+          "max_start_mach_ns": 3914462401328833,
+          "max_end_mach_ns": 3914462401328874
+        },
+        "host_owned_mutex_wait": {
+          "count": 1,
+          "max_ns": 41,
+          "max_start_mach_ns": 3914462389947500,
+          "max_end_mach_ns": 3914462389947541
+        },
+        "adddata": {
+          "count": 3,
+          "max_ns": 10624,
+          "max_start_mach_ns": 3914462385737250,
+          "max_end_mach_ns": 3914462385747874
+        },
+        "renderer_sleep_overshoot": {
+          "count": 3,
+          "max_ns": 2511625,
+          "max_start_mach_ns": 3914462398365625,
+          "max_end_mach_ns": 3914462400877250
+        },
+        "host_packet_interarrival": {
+          "count": 0,
+          "max_ns": 0,
+          "max_start_mach_ns": 0,
+          "max_end_mach_ns": 0
+        },
+        "host_packet_call": {
+          "count": 1,
+          "max_ns": 2875,
+          "max_start_mach_ns": 3914462389947458,
+          "max_end_mach_ns": 3914462389950333
+        },
+        "renderer_loop": {
+          "count": 3,
+          "max_ns": 8131042,
+          "max_start_mach_ns": 3914462377484250,
+          "max_end_mach_ns": 3914462385615292
+        },
+        "getspace": {
+          "count": 3,
+          "max_ns": 542,
+          "max_start_mach_ns": 3914462393358416,
+          "max_end_mach_ns": 3914462393358958
+        },
+        "decode_owned_mutex_wait": {
+          "count": 3,
+          "max_ns": 42,
+          "max_start_mach_ns": 3914462390201916,
+          "max_end_mach_ns": 3914462390201958
+        },
+        "decode_owned_mutex_held": {
+          "count": 3,
+          "max_ns": 41958,
+          "max_start_mach_ns": 3914462390202083,
+          "max_end_mach_ns": 3914462390244041
+        },
+        "packet_owned_mutex_wait": {
+          "count": 3,
+          "max_ns": 42,
+          "max_start_mach_ns": 3914462397854250,
+          "max_end_mach_ns": 3914462397854292
+        },
+        "output_guard_before": {
+          "count": 1,
+          "max_ns": 357917,
+          "max_start_mach_ns": 3914462400967083,
+          "max_end_mach_ns": 3914462401325000
+        },
+        "output_guard_after": {
+          "count": 1,
+          "max_ns": 123250,
+          "max_start_mach_ns": 3914462377932083,
+          "max_end_mach_ns": 3914462378055333
+        },
+        "clock_observation": {
+          "count": 1,
+          "max_ns": 497542,
+          "max_start_mach_ns": 3914462377598208,
+          "max_end_mach_ns": 3914462378095750
+        },
+        "native_append": {
+          "count": 4,
+          "max_ns": 35208,
+          "max_start_mach_ns": 3914462390264125,
+          "max_end_mach_ns": 3914462390299333
+        },
+        "host_demux_call": {
+          "count": 1,
+          "max_ns": 7208,
+          "max_start_mach_ns": 3914462389943208,
+          "max_end_mach_ns": 3914462389950416
+        },
+        "host_demux_interarrival": {
+          "count": 1,
+          "max_ns": 12645125,
+          "max_start_mach_ns": 3914462377298083,
+          "max_end_mach_ns": 3914462389943208
+        }
+      },
+      "long_events": [],
+      "dropped_host_threads": 0,
+      "host_threads": [
+        {
+          "thread_id": 219446922,
+          "observed_mach_ns": 3914324547573083,
+          "identity_status": 0,
+          "qos_status": 0,
+          "qos_class": 21,
+          "relative_priority": 0
+        }
+      ]
+    }
+  }
+]

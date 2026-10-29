@@ -503,9 +503,10 @@ continuity, no-replay and natural-EOF evidence from two final-candidate captures
 
 ### Component stall diagnostics v2
 
-The additive owned-clock patch now emits `stall_diagnostics.version=2`; the
-ownership protocol stays v1. The archived summarizer accepts strict v1 and v2
-snapshots, including mixed archives, and reports the versions observed.
+Version 2 archives retain the following logical diagnostic fields. The
+ownership protocol stays v1. Current wire encoding is version 3 (below); the
+archived summarizer accepts strict v1/v2/v3 snapshots, including mixed archives,
+and reports the original wire versions observed.
 Six new completed-operation metrics retain maximum Mach brackets and use the
 existing strict >40 ms event threshold and 12-event bound:
 
@@ -537,9 +538,64 @@ before workers launch. The existing renderer QoS policy is unchanged.
 
 Compile `test_stall_diagnostics.cpp` with C++14, `-pthread`, and optionally
 `-DNDEBUG`; all checks remain active in both configurations. An optional output
-filename writes native v2 JSONL for `summarize_stalls.py` integration validation.
+filename writes native v3 JSONL for `summarize_stalls.py` integration validation.
 The new timing does not qualify physical output or fix the retained run2/run3
 underruns, and it does not change the frozen estimator or clock eligibility.
+
+### Lossless compact diagnostic wire version 3
+
+Only `stall_diagnostics` changes representation. Collection, all 22 operation
+counts and maximum brackets, retained event order, drop counters, host identity
+and first QoS observations are unchanged. Every snapshot still emits every
+operation, including zero counts. No clock, ownership, source, output, control,
+host representation or eligibility field changes; sampling remains 20 ms.
+
+Version 3 has exactly five keys in emitted order: `version`, `header`,
+`operations`, `events`, `threads`. Their immutable layouts are:
+
+- `version`: integer 3.
+- `header`: `[threshold_ns, available, revision, dropped_contention,
+  dropped_events, dropped_host_threads]`; threshold remains 40000000,
+  availability is a strict JSON boolean, remaining values are uint64.
+- `operations`: exactly 22 tuples in ascending ID order,
+  `[operation_id, count, max_ns, max_start_mach_ns, max_end_mach_ns]`.
+- `events`: zero through 12 tuples `[operation_id, start_mach_ns, end_mach_ns]`
+  in original occurrence order. Repeated operations are legitimate events.
+- `threads`: zero through four tuples `[thread_id, observed_mach_ns,
+  identity_status, qos_status, qos_class, relative_priority]` in original order.
+  ID/time are uint64; the four status/class/priority values are signed int32.
+
+Operation IDs are frozen in this order (never infer or reorder them):
+
+| ID | Operation | ID | Operation |
+| --- | --- | --- | --- |
+| 0 | control_read | 11 | renderer_loop |
+| 1 | telemetry_mutex_wait | 12 | getspace |
+| 2 | telemetry_write | 13 | decode_owned_mutex_wait |
+| 3 | telemetry_flush | 14 | decode_owned_mutex_held |
+| 4 | renderer_owned_mutex_wait | 15 | packet_owned_mutex_wait |
+| 5 | clock_owned_mutex_wait | 16 | output_guard_before |
+| 6 | host_owned_mutex_wait | 17 | output_guard_after |
+| 7 | adddata | 18 | clock_observation |
+| 8 | renderer_sleep_overshoot | 19 | native_append |
+| 9 | host_packet_interarrival | 20 | host_demux_call |
+| 10 | host_packet_call | 21 | host_demux_interarrival |
+
+`summarize_stalls.expand_diagnostic` validates tuple widths, strict types,
+integer bounds, canonical unique operation IDs, unique thread identities, event
+limits and all existing v2 semantic constraints, then returns the equivalent v2
+logical object. Unknown versions/IDs/fields are rejected. It does not mutate the
+original object. Valid v1/v2 archives retain their existing interpretation.
+`compact_diagnostic` is an offline v2 round-trip verification encoder.
+
+The runtime owned-clock provider and beacon evaluator do not consume this
+object; their byte-hash paths remain unchanged. Expansion is an offline view,
+never a replacement ledger: all evidence references and SHA256 identities must
+continue to use the original emitted row bytes. The saved run12 v2 fixture has
+three actual diagnostic snapshots and source-row hashes, not reconstructed
+runtime evidence. Compaction is a one-variable experiment, with no claim that
+fewer formatted bytes resolve output underruns; fresh captured acceptance is
+still required.
 
 ### Scoped PAPlayer dependency override experiment
 

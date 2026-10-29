@@ -31,7 +31,9 @@ int main(int argc, char** argv) {
   CHECK(sample.metrics[TelemetryFlush].count==20);
   std::ostringstream json; WriteJson(json,sample);
   CHECK(json.str().size()<12000); // leaves room for unchanged original clock fields
-  CHECK(json.str().find("start_mach_ns")!=std::string::npos);
+  CHECK(json.str().find("\"version\":3,\"header\":[40000000,true,4,0,8,0]")!=std::string::npos);
+  CHECK(json.str().find("[3,20,50000000,19,50000019]")!=std::string::npos);
+  CHECK(json.str().find("\"events\":[[3,0,50000000],[3,1,50000001]")!=std::string::npos);
   // New component timings must survive serialization with exact completed brackets.
   const char* added[] = {"output_guard_before", "output_guard_after", "clock_observation",
                         "native_append", "host_demux_call", "host_demux_interarrival"};
@@ -44,8 +46,14 @@ int main(int argc, char** argv) {
   auto components=aggregate.Take();
   CHECK(components.eventCount==6);
   std::ostringstream componentJson; WriteJson(componentJson,components);
-  CHECK(componentJson.str().find("\"version\":2")!=std::string::npos);
-  for (const auto* name:added) CHECK(componentJson.str().find(name)!=std::string::npos);
+  CHECK(componentJson.str().find("\"version\":3")!=std::string::npos);
+  std::string expected="{\"version\":3,\"header\":[40000000,true,5,0,0,0],\"operations\":[";
+  for(size_t i=0;i<22;++i) {
+    if(i)expected+=',';
+    expected+='['+std::to_string(i)+(i<16 ? ",0,0,0,0]" : ",1,50000001,100,50000101]");
+  }
+  expected+="],\"events\":[[16,100,50000101],[17,100,50000101],[18,100,50000101],[19,100,50000101],[20,100,50000101],[21,100,50000101]],\"threads\":[]}";
+  CHECK(componentJson.str()==expected);
   // RAII includes early exits; interarrival is separate from service time.
   auto service=[&]() {
     Span span(aggregate,HostDemuxCall,clockNow,true);
@@ -76,7 +84,7 @@ int main(int argc, char** argv) {
   CHECK(reads==4 && threads.hostThreadCount==4 && threads.droppedHostThreads==1);
   CHECK(aggregate.Take().hostThreadCount==4);
   std::ostringstream threadJson; WriteJson(threadJson,threads);
-  CHECK(threadJson.str().find("\"thread_id\":42")!=std::string::npos);
+  CHECK(threadJson.str().find("\"threads\":[[42,123,0,0,9,-2],[43,123,0,0,9,-2],[44,123,0,0,9,-2],[45,123,0,0,9,-2]]}")!=std::string::npos);
   if(argc==2) {
     std::ofstream output(argv[1]);
     output << "{\"kind\":\"clock_sample\",\"stall_diagnostics\":";
@@ -96,13 +104,19 @@ int main(int argc, char** argv) {
   worst.available=true;
   const auto maximum=std::numeric_limits<uint64_t>::max();
   worst.revision=maximum; worst.droppedContention=maximum; worst.droppedEvents=maximum;
-  for (auto& metric:worst.metrics) metric=Metric{maximum,maximum,maximum,maximum};
+  for (auto& metric:worst.metrics) metric=Metric{maximum,maximum,0,maximum};
   worst.hostThreadCount=worst.hostThreads.size();
   worst.droppedHostThreads=maximum;
-  for (auto& t:worst.hostThreads) t=HostThread{maximum,maximum,2147483647,2147483647,2147483647,-2147483647};
+  for (size_t i=0;i<worst.hostThreads.size();++i) worst.hostThreads[i]=HostThread{maximum-i,maximum,2147483647,2147483647,2147483647,-2147483647};
   worst.eventCount=worst.events.size();
-  for (auto& event:worst.events) event=Event{RendererOwnedWait,maximum,maximum};
+  for (auto& event:worst.events) event=Event{RendererOwnedWait,0,maximum};
   std::ostringstream large; WriteJson(large,worst);
+  CHECK(large.str().find("[0,18446744073709551615,18446744073709551615,0,18446744073709551615]")!=std::string::npos);
   CHECK(large.str().size()<10000); // original clock record has >6KiB headroom
+  if(argc==2) {
+    std::ofstream output(argv[1],std::ios::app);
+    output << "{\"kind\":\"clock_sample\",\"stall_diagnostics\":" << large.str() << "}\n";
+    CHECK(output.good());
+  }
 
 }
