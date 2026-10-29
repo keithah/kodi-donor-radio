@@ -1,0 +1,564 @@
+--- /dev/null
++++ b/src/OwnedHalCore.h
+@@ -0,0 +1,284 @@
++#pragma once
++// Experimental 48k stereo HAL path. No SDK, OS, allocation or locking dependency.
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <limits>
++#include <type_traits>
++
++namespace owned_hal {
++constexpr uint32_t kFrames=512, kRate=48000, kChannels=2, kBytes=4096;
++constexpr uint32_t kSourceCapacity=192000, kEvidenceCapacity=4096;
++enum class Status { ok,invalid,retired,quarantined };
++enum class CleanupResult { clean,failed,timeout_quarantined };
++enum class Reason : uint64_t { none,invalid_control,layout,timestamp,shortfall,evidence_overflow,lease,route,cancelled,cleanup,non_lock_free };
++struct Binding {
++  // Numeric limbs of validated lower-case hex identity, most significant first.
++  std::array<uint64_t,2> nonce{},incarnation{};
++  std::array<uint64_t,4> timeline{};
++  bool operator==(const Binding& b)const noexcept {return nonce==b.nonce&&incarnation==b.incarnation&&timeline==b.timeline;}
++};
++struct EffectiveControl {
++  Binding binding{};
++  uint64_t device_generation=0,stream_generation=0,playback_revision=0,playback_epoch=0,gain_revision=0,gain_epoch=0;
++  uint64_t request_start_ns=0,request_end_ns=0,issue_ns=0,expiry_ns=0,volume=0,muted=0,started=0,sample_zero_proven=0,playing=0;
++  double supplied_gain=0;
++};
++struct CallbackInput {
++  float* output=nullptr;
++  uint32_t output_bytes=0,channels=0,buffers=0;
++  double output_sample_time=0;
++  uint64_t output_ticks=0,now_ticks=0,entry_ticks=0,exit_ticks=0;
++  uint32_t output_flags=0,now_flags=0,timebase_numer=0,timebase_denom=0;
++  uint64_t (*read_exit_ticks)() noexcept=nullptr; // public monotonic clock, no allocation/wait
++};
++struct CallbackResult {
++  uint32_t consumed_frames=0,copied_frames=0,zero_frames=kFrames;
++  uint64_t sequence=0;
++  Reason reason=Reason::none;
++};
++struct HalSegment {
++  uint64_t schema_version=1; // backend is always hal_callback_v1
++  Binding binding{};
++  uint64_t sequence=0,device_generation=0,stream_generation=0,in_flight_generation=0;
++  uint64_t playback_revision=0,playback_epoch=0,gain_revision=0,gain_epoch=0;
++  uint64_t source_start=0,source_count=0;
++  uint32_t requested_frames=kFrames,consumed_frames=0,copied_frames=0,zero_frames=kFrames;
++  double applied_gain=0,output_sample_time=0;
++  bool muted=false,playing=false,terminal=false,control_acquired=false;
++  uint32_t output_flags=0,now_flags=0,timebase_numer=0,timebase_denom=0;
++  uint64_t output_ticks=0,now_ticks=0,entry_ticks=0,exit_ticks=0,output_host_ns=0,source_end_ns=0;
++  Reason reason=Reason::none;
++};
++inline bool AddNs(uint64_t a,uint64_t b,uint64_t& out)noexcept {
++  if(a>UINT64_MAX-b)return false;out=a+b;return true;
++}
++inline bool TicksToNs(uint64_t t,uint32_t n,uint32_t d,uint64_t& out)noexcept {
++  if(!n||!d)return false;
++  const __uint128_t v=static_cast<__uint128_t>(t)*n/d;
++  if(v>UINT64_MAX)return false;out=static_cast<uint64_t>(v);return true;
++}
++inline bool ScheduledEndNs(uint64_t ticks,uint32_t numer,uint32_t denom,uint32_t frames,uint64_t& out)noexcept {
++  if(!numer||!denom||frames>kFrames)return false;
++  const __uint128_t scale=static_cast<__uint128_t>(denom)*kRate;
++  const __uint128_t value=(static_cast<__uint128_t>(ticks)*numer*kRate+
++    static_cast<__uint128_t>(frames)*1000000000*denom+scale-1)/scale;
++  if(value>UINT64_MAX)return false;out=static_cast<uint64_t>(value);return true;
++}
++inline double KodiGain(uint64_t volume,bool muted)noexcept {
++  if(muted||volume==0||volume>100)return 0;
++  const double db=60.0*(static_cast<double>(volume)/100.0-1.0);
++  const double gain=std::pow(10.0,db/20.0);return gain>=0.99?1.0:gain;
++}
++
++// Exactly one decoder producer and one callback consumer; Finish is producer-only.
++// Monotone counters never wrap: reject the practically unreachable exhaustion.
++template<class Atomic=std::atomic<uint64_t>> class BasicSourceQueue {
++public:
++  bool Ready()const noexcept {return read_.is_lock_free()&&write_.is_lock_free()&&end_.is_lock_free();}
++  bool Push(const float* data,uint32_t frames)noexcept {
++    if(!Ready()||!data||!frames||frames>kSourceCapacity||end_.load(std::memory_order_acquire)!=UINT64_MAX)return false;
++    const uint64_t w=write_.load(std::memory_order_relaxed),r=read_.load(std::memory_order_acquire);
++    if(w<r||w-r>kSourceCapacity||frames>kSourceCapacity-(w-r)||w>UINT64_MAX-frames-1)return false;
++    for(uint32_t i=0;i<frames;++i) {const size_t p=((w+i)%kSourceCapacity)*2;pcm_[p]=data[2*i];pcm_[p+1]=data[2*i+1];}
++    write_.store(w+frames,std::memory_order_release);return true;
++  }
++  bool Finish()noexcept {
++    if(!Ready()||end_.load(std::memory_order_relaxed)!=UINT64_MAX)return false;
++    end_.store(write_.load(std::memory_order_relaxed),std::memory_order_release);return true;
++  }
++  uint32_t Available()const noexcept {
++    const uint64_t w=write_.load(std::memory_order_acquire),r=read_.load(std::memory_order_relaxed);
++    return w>=r&&w-r<=kSourceCapacity?static_cast<uint32_t>(w-r):0;
++  }
++  uint64_t End()const noexcept {return end_.load(std::memory_order_acquire);}
++  uint64_t Consumed()const noexcept {return read_.load(std::memory_order_acquire);}
++  uint32_t Copy(float* out,uint32_t frames,double gain)noexcept {
++    if(!out||frames>Available())return 0;
++    const uint64_t r=read_.load(std::memory_order_relaxed);
++    for(uint32_t i=0;i<frames;++i) {const size_t p=((r+i)%kSourceCapacity)*2;out[2*i]=static_cast<float>(pcm_[p]*gain);out[2*i+1]=static_cast<float>(pcm_[p+1]*gain);}
++    read_.store(r+frames,std::memory_order_release);return frames;
++  }
++private:
++  std::array<float,kSourceCapacity*2> pcm_{}; // allocated and touched before registration
++  Atomic read_{},write_{};
++  Atomic end_{UINT64_MAX};
++};
++using SourceQueue=BasicSourceQueue<>;
++class EvidenceQueue {
++public:
++  bool Ready()const noexcept {return read_.is_lock_free()&&write_.is_lock_free();}
++  bool Space()const noexcept {const uint64_t w=write_.load(std::memory_order_relaxed),r=read_.load(std::memory_order_acquire);return w>=r&&w-r<kEvidenceCapacity&&w!=UINT64_MAX;}
++  bool Push(const HalSegment& s)noexcept {
++    if(!Space())return false;const uint64_t w=write_.load(std::memory_order_relaxed);
++    rows_[w%kEvidenceCapacity]=s;write_.store(w+1,std::memory_order_release);return true;
++  }
++  bool Pop(HalSegment& s)noexcept {
++    const uint64_t r=read_.load(std::memory_order_relaxed);if(r==write_.load(std::memory_order_acquire))return false;
++    s=rows_[r%kEvidenceCapacity];read_.store(r+1,std::memory_order_release);return true;
++  }
++private:
++  std::array<HalSegment,kEvidenceCapacity> rows_{};
++  std::atomic<uint64_t> read_{0},write_{0};
++};
++
++// Atomic words avoid the undefined non-atomic data races of a conventional seqlock.
++// All SC operations share a total order. One owner publishes; any thread retires.
++// Acquire's final generation read IS the block linearization point. A later
++// publication/revocation may not undo that block's source advancement.
++class ControlMailbox {
++public:
++  static constexpr uint64_t kRetired=uint64_t(1)<<63;
++  static constexpr size_t kWords=sizeof(EffectiveControl)/sizeof(uint64_t);
++  static_assert(sizeof(EffectiveControl)%sizeof(uint64_t)==0,"whole atomic words");
++  static_assert(std::is_trivially_copyable<EffectiveControl>::value,"wire snapshot");
++  ControlMailbox()noexcept {for(auto& w:words_)w.store(0);}
++  bool Ready()const noexcept {if(!generation_.is_lock_free())return false;for(const auto& w:words_)if(!w.is_lock_free())return false;return true;}
++  bool Publish(const EffectiveControl& c)noexcept {
++    uint64_t old=generation_.load();
++    if((old&kRetired)||(old&1)||old>=kRetired-2)return false;
++    if(!generation_.compare_exchange_strong(old,old+1))return false;
++    std::array<uint64_t,kWords> words{};std::memcpy(words.data(),&c,sizeof(c));
++    for(size_t i=0;i<kWords;++i)words_[i].store(words[i]);
++    old+=1;return generation_.compare_exchange_strong(old,old+1); // retirement wins
++  }
++  bool Read(EffectiveControl& c,uint64_t& generation)const noexcept {
++    generation=generation_.load();if(!generation||(generation&1)||(generation&kRetired))return false;
++    std::array<uint64_t,kWords> words{};
++    for(size_t i=0;i<kWords;++i)words[i]=words_[i].load();
++    std::memcpy(&c,words.data(),sizeof(c));return true;
++  }
++  bool Acquire(uint64_t generation)const noexcept {return generation_.load()==generation&&generation&&!(generation&(kRetired|1));}
++  void Retire()noexcept {generation_.fetch_or(kRetired);}
++  uint64_t Generation()const noexcept {return generation_.load();}
++private:
++  std::array<std::atomic<uint64_t>,kWords> words_{};
++  std::atomic<uint64_t> generation_{0};
++};
++
++class HalCore {
++public:
++  SourceQueue source;
++  EvidenceQueue evidence;
++  HalCore()noexcept {if(!Ready())Retire(Reason::non_lock_free);}
++  bool Ready()const noexcept {return source.Ready()&&evidence.Ready()&&controls_.Ready()&&reason_.is_lock_free()&&final_end_.is_lock_free();}
++  Status Publish(const EffectiveControl& c)noexcept {
++    if(Retired())return Status::retired;
++    const bool valid=c.volume<=100&&c.muted<=1&&c.started<=1&&c.sample_zero_proven<=1&&c.playing<=1&&
++      c.device_generation&&c.stream_generation&&c.playback_revision&&c.playback_epoch&&c.gain_revision&&c.gain_epoch&&
++      c.request_start_ns<=c.request_end_ns&&c.request_end_ns-c.request_start_ns<=50000000&&
++      c.request_end_ns<=c.issue_ns&&c.issue_ns<=c.expiry_ns&&c.request_start_ns<=UINT64_MAX-500000000&&
++      c.expiry_ns==c.request_start_ns+500000000&&std::isfinite(c.supplied_gain)&&
++      std::abs(c.supplied_gain-KodiGain(c.volume,c.muted!=0))<=1e-12;
++    if(!valid){Retire(Reason::invalid_control);return Status::invalid;}
++    if(have_control_&&(!(c.binding==last_control_.binding)||c.device_generation!=last_control_.device_generation||
++       c.stream_generation!=last_control_.stream_generation||c.playback_revision<last_control_.playback_revision||
++       c.playback_epoch<last_control_.playback_epoch||c.gain_revision<last_control_.gain_revision||c.gain_epoch<last_control_.gain_epoch)) {
++      Retire(Reason::invalid_control);return Status::invalid;
++    }
++    EffectiveControl authoritative=c;authoritative.supplied_gain=KodiGain(c.volume,c.muted!=0);
++    if(!controls_.Publish(authoritative))return Status::retired;
++    last_control_=c;have_control_=true;return Status::ok;
++  }
++  void Retire(Reason reason)noexcept {
++    // Gate closes first. A concurrent already-acquired block still commits.
++    controls_.Retire();uint64_t expected=0;reason_.compare_exchange_strong(expected,static_cast<uint64_t>(reason));
++  }
++  bool Retired()const noexcept {return (controls_.Generation()&ControlMailbox::kRetired)!=0;}
++  Reason Failure()const noexcept {return static_cast<Reason>(reason_.load());}
++  uint64_t Generation()const noexcept {return controls_.Generation();}
++  uint64_t FinalEndNs()const noexcept {return final_end_.load(std::memory_order_acquire);}
++  uint64_t HoldUntilNs()const noexcept {const auto end=FinalEndNs();return Retired()||!end||end>UINT64_MAX-1000000000?0:end+1000000000;}
++  CallbackResult Render(const CallbackInput& i)noexcept {
++    CallbackResult r{};
++    // HAL guarantees zero-on-entry. Invalid layouts are never traversed or
++    // written. Pure callers must likewise zero their accessible output storage.
++    if(!i.output||i.output_bytes!=kBytes||i.channels!=2||i.buffers!=1)return Fail(Reason::layout);
++    std::memset(i.output,0,kBytes);
++    if(Retired()){r.reason=Failure();return r;}
++    uint64_t host=0,entry=0,now=0,exit=0;
++    if((i.output_flags&3)!=3||(i.now_flags&3)!=3||!std::isfinite(i.output_sample_time)||
++       i.output_sample_time<0||i.output_sample_time>9007199254740991.0||std::floor(i.output_sample_time)!=i.output_sample_time||
++       !TicksToNs(i.output_ticks,i.timebase_numer,i.timebase_denom,host)||
++       !TicksToNs(i.entry_ticks,i.timebase_numer,i.timebase_denom,entry)||
++       !TicksToNs(i.now_ticks,i.timebase_numer,i.timebase_denom,now)||
++       !TicksToNs(i.exit_ticks,i.timebase_numer,i.timebase_denom,exit)||exit<entry||i.output_ticks<i.entry_ticks||
++       static_cast<__uint128_t>(i.output_ticks-i.entry_ticks)*i.timebase_numer>static_cast<__uint128_t>(100000000)*i.timebase_denom)
++      return Fail(Reason::timestamp);
++    if(have_timestamp_) {
++      if(i.timebase_numer!=numer_||i.timebase_denom!=denom_||
++         i.output_sample_time!=prior_sample_+kFrames||i.output_ticks<prior_ticks_)
++        return Fail(Reason::timestamp);
++      const __uint128_t actual=static_cast<__uint128_t>(i.output_ticks-prior_ticks_)*i.timebase_numer*kRate;
++      const __uint128_t expected=static_cast<__uint128_t>(kFrames)*1000000000*i.timebase_denom;
++      const __uint128_t diff=actual>expected?actual-expected:expected-actual;
++      if(diff>static_cast<__uint128_t>(1000000000)*i.timebase_denom)return Fail(Reason::timestamp);
++    }
++    prior_ticks_=i.output_ticks;prior_sample_=i.output_sample_time;numer_=i.timebase_numer;denom_=i.timebase_denom;have_timestamp_=true;
++    if(!evidence.Space())return Fail(Reason::evidence_overflow);
++    HalSegment s{};s.source_start=source.Consumed();
++    s.output_sample_time=i.output_sample_time;s.output_flags=i.output_flags;s.now_flags=i.now_flags;
++    s.output_ticks=i.output_ticks;s.now_ticks=i.now_ticks;s.entry_ticks=i.entry_ticks;s.exit_ticks=i.exit_ticks;
++    s.timebase_numer=i.timebase_numer;s.timebase_denom=i.timebase_denom;s.output_host_ns=host;
++    EffectiveControl c{};uint64_t generation=0;
++    if(!controls_.Read(c,generation))return CommitZero(s,i);
++    const uint64_t end=source.End(); // acquire EOF before acquiring producer's write index
++    const uint32_t available=source.Available();
++    const uint64_t consumed=source.Consumed();
++    const uint64_t final=FinalEndNs();
++    const bool terminal=final&&entry>=final;
++    uint32_t count=0;
++    if(c.started&&c.sample_zero_proven&&c.playing&&!final) {
++      if(available<kFrames&&end==UINT64_MAX)return FailCurrent(Reason::shortfall,generation,s,i);
++      count=std::min(available,kFrames);
++    }
++    uint64_t block_end=0,source_end=0;
++    if(!ScheduledEndNs(i.output_ticks,i.timebase_numer,i.timebase_denom,kFrames,block_end)||
++       !ScheduledEndNs(i.output_ticks,i.timebase_numer,i.timebase_denom,count,source_end))return FailCurrent(Reason::timestamp,generation,s,i);
++    // Partial EOF leases cover source END; every other nonterminal block needs
++    // full scheduled block coverage, even muted/paused blocks.
++    const bool last=count&&end!=UINT64_MAX&&consumed+count==end;
++    const uint64_t required=last?source_end:(final?final:block_end);
++    if(!terminal&&(c.request_end_ns>entry||c.issue_ns>entry||c.expiry_ns<required))return FailCurrent(Reason::lease,generation,s,i);
++    if(count&&!ever_consumed_&&(entry<c.request_start_ns||
++       static_cast<__uint128_t>(i.entry_ticks)*i.timebase_numer>
++         (static_cast<__uint128_t>(c.request_start_ns)+100000000)*i.timebase_denom))return FailCurrent(Reason::lease,generation,s,i);
++    if(!controls_.Acquire(generation))return CommitZero(s,i);
++    // Nothing below may revoke this block or roll back consumed source.
++    s.binding=c.binding;s.sequence=++sequence_;s.in_flight_generation=generation;s.control_acquired=true;
++    s.device_generation=c.device_generation;s.stream_generation=c.stream_generation;
++    s.playback_revision=c.playback_revision;s.playback_epoch=c.playback_epoch;s.gain_revision=c.gain_revision;s.gain_epoch=c.gain_epoch;
++    s.source_start=consumed;s.source_count=count;s.consumed_frames=count;s.copied_frames=count;s.zero_frames=kFrames-count;
++    s.applied_gain=c.supplied_gain;s.muted=c.muted!=0;s.playing=c.playing!=0;s.terminal=terminal;
++    s.output_sample_time=i.output_sample_time;s.output_flags=i.output_flags;s.now_flags=i.now_flags;
++    s.output_ticks=i.output_ticks;s.now_ticks=i.now_ticks;s.entry_ticks=i.entry_ticks;s.exit_ticks=i.exit_ticks;
++    s.timebase_numer=i.timebase_numer;s.timebase_denom=i.timebase_denom;s.output_host_ns=host;s.source_end_ns=source_end;
++    if(count){source.Copy(i.output,count,c.supplied_gain);ever_consumed_=true;}
++    if(last){final_end_.store(source_end,std::memory_order_release);}
++    // Zero-length EOF is terminal at this scheduled boundary, with no source clock.
++    if(!final&&!count&&end==consumed&&c.started&&c.sample_zero_proven&&c.playing)final_end_.store(host,std::memory_order_release);
++    if(i.read_exit_ticks)s.exit_ticks=i.read_exit_ticks();
++    evidence.Push(s); // sole producer, reserved Space cannot be taken by anyone else
++    r.sequence=s.sequence;r.consumed_frames=count;r.copied_frames=count;r.zero_frames=kFrames-count;return r;
++  }
++private:
++  CallbackResult FailCurrent(Reason reason,uint64_t generation,HalSegment& s,const CallbackInput& i)noexcept {
++    return controls_.Acquire(generation)?Fail(reason):CommitZero(s,i);
++  }
++  CallbackResult CommitZero(HalSegment& s,const CallbackInput& i)noexcept {
++    s.sequence=++sequence_;if(i.read_exit_ticks)s.exit_ticks=i.read_exit_ticks();
++    evidence.Push(s);CallbackResult r{};r.sequence=s.sequence;return r;
++  }
++  CallbackResult Fail(Reason reason)noexcept {Retire(reason);CallbackResult r{};r.reason=reason;return r;}
++  ControlMailbox controls_;
++  std::atomic<uint64_t> reason_{0},final_end_{0};
++  // Owner-only publication bookkeeping. Render never reads these fields.
++  EffectiveControl last_control_{};bool have_control_=false;
++  // Callback-only state: one HAL IOProc, no parallel Render calls permitted.
++  uint64_t sequence_=0,prior_ticks_=0;double prior_sample_=0;
++  uint32_t numer_=0,denom_=0;bool have_timestamp_=false,ever_consumed_=false;
++};
++}
+--- /dev/null
++++ b/src/OwnedHalDevice.h
+@@ -0,0 +1,24 @@
++#pragma once
++#include "OwnedHalLifetime.h"
++#include <CoreAudio/CoreAudio.h>
++#include <memory>
++namespace owned_hal {
++constexpr uint32_t kGuardCount=9;
++struct DeviceContract {AudioDeviceID device=0;AudioStreamID stream=0;uint32_t timebase_numer=0,timebase_denom=0;};
++struct DeviceApi {
++ Status (*pin)() noexcept=nullptr;uint64_t (*now_ns)() noexcept=nullptr;uint64_t (*ticks)() noexcept=nullptr;void (*wait_tick)() noexcept=nullptr;
++ OSStatus (*resolve)(DeviceContract&) noexcept=nullptr;OSStatus (*read)(const DeviceContract&) noexcept=nullptr;
++ OSStatus (*add)(const DeviceContract&,uint32_t,AudioObjectPropertyListenerProc,void*) noexcept=nullptr;
++ OSStatus (*remove)(const DeviceContract&,uint32_t,AudioObjectPropertyListenerProc,void*) noexcept=nullptr;
++ OSStatus (*create)(AudioDeviceID,AudioDeviceIOProc,void*,AudioDeviceIOProcID*) noexcept=nullptr;
++ OSStatus (*start)(AudioDeviceID,AudioDeviceIOProcID) noexcept=nullptr;
++ OSStatus (*stop)(AudioDeviceID,AudioDeviceIOProcID) noexcept=nullptr;
++ OSStatus (*destroy)(AudioDeviceID,AudioDeviceIOProcID) noexcept=nullptr;
++};
++DeviceApi PublicDeviceApi()noexcept;
++struct HalRuntime;
++class HalSessionState {public:HalSessionState();HalCore& Core()noexcept;private:friend class HalDevice;std::shared_ptr<HalRuntime> state_;};
++class HalDevice {public:explicit HalDevice(DeviceApi api=PublicDeviceApi());
++  HalDevice(const HalDevice&)=delete;HalDevice& operator=(const HalDevice&)=delete;~HalDevice();Status Prepare(HalSessionState&)noexcept;Status Start()noexcept;Status CheckGuards()noexcept;void RequestStop()noexcept;CleanupResult Cleanup(uint64_t)noexcept;private:DeviceApi api_;std::shared_ptr<HalRuntime> state_;};
++
++}
+--- /dev/null
++++ b/src/OwnedHalDevice.cpp
+@@ -0,0 +1,193 @@
++#include "OwnedHalDevice.h"
++#include <CoreFoundation/CoreFoundation.h>
++#include <mach/mach_time.h>
++#include <chrono>
++#include <thread>
++#include <new>
++
++extern "C" __attribute__((visibility("default"))) void OwnedHalModuleIdentityV1() {}
++namespace owned_hal {
++namespace {
++constexpr OSStatus kInvalid=-1;
++uint64_t NowTicks()noexcept {return mach_absolute_time();}
++uint64_t NowNs()noexcept {
++  mach_timebase_info_data_t b{};uint64_t result=0;
++  if(mach_timebase_info(&b)!=KERN_SUCCESS||!TicksToNs(mach_absolute_time(),b.numer,b.denom,result))return UINT64_MAX;
++  return result;
++}
++void WaitTick()noexcept {std::this_thread::sleep_for(std::chrono::milliseconds(1));}
++AudioObjectPropertyAddress Address(AudioObjectPropertySelector s,AudioObjectPropertyScope scope=kAudioObjectPropertyScopeGlobal)noexcept {
++  return {s,scope,kAudioObjectPropertyElementMain};
++}
++template<typename T> bool Get(AudioObjectID id,AudioObjectPropertyAddress address,T& value)noexcept {
++  UInt32 bytes=sizeof(T);return AudioObjectGetPropertyData(id,&address,0,nullptr,&bytes,&value)==noErr&&bytes==sizeof(T);
++}
++bool Format(const AudioStreamBasicDescription& f)noexcept {
++  const UInt32 flags=kAudioFormatFlagIsFloat|kAudioFormatFlagIsPacked;
++  return f.mSampleRate==48000&&f.mFormatID==kAudioFormatLinearPCM&&f.mFormatFlags==flags&&
++    f.mBytesPerPacket==8&&f.mFramesPerPacket==1&&f.mBytesPerFrame==8&&f.mChannelsPerFrame==2&&f.mBitsPerChannel==32;
++}
++OSStatus ReadContract(const DeviceContract& c)noexcept {
++  AudioDeviceID current=0;UInt32 alive=0,transport=0,frames=0,channel=0;Float64 rate=0;
++  if(!Get(kAudioObjectSystemObject,Address(kAudioHardwarePropertyDefaultOutputDevice),current)||current!=c.device||
++     !Get(c.device,Address(kAudioDevicePropertyDeviceIsAlive),alive)||alive!=1||
++     !Get(c.device,Address(kAudioDevicePropertyTransportType),transport)||transport!=kAudioDeviceTransportTypeBuiltIn||
++     !Get(c.device,Address(kAudioDevicePropertyNominalSampleRate),rate)||rate!=48000||
++     !Get(c.device,Address(kAudioDevicePropertyBufferFrameSize),frames)||frames!=512)return kInvalid;
++  CFStringRef uid=nullptr;
++  if(!Get(c.device,Address(kAudioDevicePropertyDeviceUID),uid)||!uid)return kInvalid;
++  const bool builtIn=CFEqual(uid,CFSTR("BuiltInSpeakerDevice"));CFRelease(uid);if(!builtIn)return kInvalid;
++  AudioStreamID stream=0;
++  if(!Get(c.device,Address(kAudioDevicePropertyStreams,kAudioDevicePropertyScopeOutput),stream)||stream!=c.stream)return kInvalid;
++  AudioBufferList config{};
++  if(!Get(c.device,Address(kAudioDevicePropertyStreamConfiguration,kAudioDevicePropertyScopeOutput),config)||
++     config.mNumberBuffers!=1||config.mBuffers[0].mNumberChannels!=2||config.mBuffers[0].mDataByteSize!=4096)return kInvalid;
++  AudioStreamBasicDescription physical{},virtualFormat{};
++  if(!Get(c.stream,Address(kAudioStreamPropertyVirtualFormat),virtualFormat)||!Format(virtualFormat)||
++     !Get(c.stream,Address(kAudioStreamPropertyPhysicalFormat),physical)||!Format(physical)||
++     !Get(c.stream,Address(kAudioStreamPropertyStartingChannel),channel)||channel!=1)return kInvalid;
++  return noErr;
++}
++OSStatus Resolve(DeviceContract& c)noexcept {
++  mach_timebase_info_data_t base{};
++  if(mach_timebase_info(&base)!=KERN_SUCCESS||!base.numer||!base.denom||
++     !Get(kAudioObjectSystemObject,Address(kAudioHardwarePropertyDefaultOutputDevice),c.device)||!c.device||
++     !Get(c.device,Address(kAudioDevicePropertyStreams,kAudioDevicePropertyScopeOutput),c.stream)||!c.stream)return kInvalid;
++  c.timebase_numer=base.numer;c.timebase_denom=base.denom;return ReadContract(c);
++}
++AudioObjectID Guard(const DeviceContract& c,uint32_t index,AudioObjectPropertyAddress& address)noexcept {
++  switch(index){
++    case 0:address=Address(kAudioHardwarePropertyDefaultOutputDevice);return kAudioObjectSystemObject;
++    case 1:address=Address(kAudioDevicePropertyDeviceIsAlive);return c.device;
++    case 2:address=Address(kAudioDevicePropertyNominalSampleRate);return c.device;
++    case 3:address=Address(kAudioDevicePropertyStreamConfiguration,kAudioDevicePropertyScopeOutput);return c.device;
++    case 4:address=Address(kAudioDevicePropertyBufferFrameSize);return c.device;
++    case 5:address=Address(kAudioDevicePropertyStreams,kAudioDevicePropertyScopeOutput);return c.device;
++    case 6:address=Address(kAudioStreamPropertyVirtualFormat);return c.stream;
++    case 7:address=Address(kAudioStreamPropertyPhysicalFormat);return c.stream;
++    default:address=Address(kAudioStreamPropertyStartingChannel);return c.stream;
++  }
++}
++OSStatus Add(const DeviceContract& c,uint32_t n,AudioObjectPropertyListenerProc listener,void* ctx)noexcept {
++  AudioObjectPropertyAddress a{};const auto id=Guard(c,n,a);return AudioObjectAddPropertyListener(id,&a,listener,ctx);
++}
++OSStatus Remove(const DeviceContract& c,uint32_t n,AudioObjectPropertyListenerProc listener,void* ctx)noexcept {
++  AudioObjectPropertyAddress a{};const auto id=Guard(c,n,a);return AudioObjectRemovePropertyListener(id,&a,listener,ctx);
++}
++OSStatus Create(AudioDeviceID d,AudioDeviceIOProc cb,void* ctx,AudioDeviceIOProcID* id)noexcept{return AudioDeviceCreateIOProcID(d,cb,ctx,id);}
++OSStatus Start(AudioDeviceID d,AudioDeviceIOProcID id)noexcept{return AudioDeviceStart(d,id);}
++OSStatus Stop(AudioDeviceID d,AudioDeviceIOProcID id)noexcept{return AudioDeviceStop(d,id);}
++OSStatus Destroy(AudioDeviceID d,AudioDeviceIOProcID id)noexcept{return AudioDeviceDestroyIOProcID(d,id);}
++}
++DeviceApi PublicDeviceApi()noexcept {
++  DeviceApi api{};api.pin=PinOwnModule;api.now_ns=NowNs;api.ticks=NowTicks;api.wait_tick=WaitTick;
++  api.resolve=Resolve;api.read=ReadContract;api.add=Add;api.remove=Remove;api.create=Create;api.start=Start;api.stop=Stop;api.destroy=Destroy;return api;
++}
++struct HalRuntime {
++  HalCore core;
++  DeviceApi api{};
++  DeviceContract contract{};
++  AudioDeviceIOProcID proc=nullptr;
++  std::atomic<uint64_t> callbacks{0},listener_generation{0},cleanup_state{0};
++  std::atomic<bool> cleanup_started{false};
++  uint32_t listeners=0;
++  bool claimed=false,prepared=false,start_attempted=false,started=false;
++  // Self-reference is set before any registration. Clean teardown breaks it;
++  // quarantine keeps exactly this independent state alive until process exit.
++  std::shared_ptr<HalRuntime> keep_alive;
++};
++namespace {
++class CallbackScope {
++public:
++  explicit CallbackScope(HalRuntime& s)noexcept:state(s){state.callbacks.fetch_add(1,std::memory_order_acq_rel);}
++  ~CallbackScope(){state.callbacks.fetch_sub(1,std::memory_order_release);}
++private:HalRuntime& state;
++};
++OSStatus Listener(AudioObjectID,UInt32,const AudioObjectPropertyAddress*,void* context)noexcept {
++  auto& s=*static_cast<HalRuntime*>(context);CallbackScope scope(s);
++  s.listener_generation.fetch_add(1);s.core.Retire(Reason::route);return noErr;
++}
++OSStatus IOProc(AudioDeviceID device,const AudioTimeStamp* now,const AudioBufferList*,const AudioTimeStamp*,AudioBufferList* output,const AudioTimeStamp* when,void* context)noexcept {
++  auto& s=*static_cast<HalRuntime*>(context);CallbackScope scope(s);
++  const uint64_t entry=s.api.ticks();
++  // AudioHardware.h's public IOProc contract guarantees zero-on-entry. Never
++  // touch or traverse malformed spans; leave the OS-provided silence intact.
++  if(!output||output->mNumberBuffers!=1||!now||!when||device!=s.contract.device||
++     !output->mBuffers[0].mData||output->mBuffers[0].mDataByteSize!=kBytes||
++     output->mBuffers[0].mNumberChannels!=2){s.core.Retire(Reason::layout);return noErr;}
++  CallbackInput in{};in.output=static_cast<float*>(output->mBuffers[0].mData);in.output_bytes=output->mBuffers[0].mDataByteSize;
++  in.channels=output->mBuffers[0].mNumberChannels;in.buffers=output->mNumberBuffers;in.output_sample_time=when->mSampleTime;
++  in.output_ticks=when->mHostTime;in.now_ticks=now->mHostTime;in.entry_ticks=entry;in.exit_ticks=entry;
++  in.output_flags=when->mFlags;in.now_flags=now->mFlags;in.timebase_numer=s.contract.timebase_numer;in.timebase_denom=s.contract.timebase_denom;
++  in.read_exit_ticks=s.api.ticks;s.core.Render(in);return noErr;
++}
++void CleanupWorker(std::shared_ptr<HalRuntime> s)noexcept {
++  bool clean=true;
++  if(s->proc&&s->start_attempted&&s->api.stop(s->contract.device,s->proc)!=noErr)clean=false;
++  if(s->proc&&s->api.destroy(s->contract.device,s->proc)!=noErr)clean=false;
++  for(uint32_t n=0;n<s->listeners;++n)if(s->api.remove(s->contract,n,Listener,s.get())!=noErr)clean=false;
++  // Successful unregisters close entry; existing callbacks must also leave.
++  while(clean&&s->callbacks.load(std::memory_order_acquire)!=0)s->api.wait_tick();
++  if(clean&&!Quarantined()) {
++    s->keep_alive.reset();ModuleGate().Release();s->cleanup_state.store(1,std::memory_order_release);
++  }else {
++    ModuleGate().Quarantine();s->cleanup_state.store(2,std::memory_order_release);
++  }
++}
++}
++HalSessionState::HalSessionState():state_(std::make_shared<HalRuntime>()){}
++HalCore& HalSessionState::Core()noexcept{return state_->core;}
++HalDevice::HalDevice(DeviceApi api):api_(api){}
++HalDevice::~HalDevice(){if(state_&&state_->claimed&&!Quarantined())Cleanup(UINT64_MAX);}
++Status HalDevice::Prepare(HalSessionState& session)noexcept {
++  if(Quarantined())return Status::quarantined;
++  if(state_||session.state_->claimed||session.state_->core.Retired()||!api_.pin||!api_.now_ns||!api_.ticks||!api_.wait_tick||!api_.resolve||!api_.read||!api_.add||!api_.remove||!api_.create||!api_.start||!api_.stop||!api_.destroy)return Status::invalid;
++  if(!ModuleGate().Claim())return Quarantined()?Status::quarantined:Status::invalid;
++  state_=session.state_;auto& s=*state_;s.api=api_;s.claimed=true;
++  if(!s.core.Ready()||!s.callbacks.is_lock_free()||!s.listener_generation.is_lock_free()||api_.pin()!=Status::ok) {
++    // Nothing has registered. In particular, a failed pin must never dispatch
++    // an asynchronous cleanup function whose containing image can unload.
++    s.core.Retire(Reason::route);s.claimed=false;ModuleGate().Release();return Status::invalid;
++  }
++  if(api_.resolve(s.contract)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}
++  s.keep_alive=state_;
++  const uint64_t guard=s.listener_generation.load();
++  for(uint32_t n=0;n<kGuardCount;++n){if(api_.add(s.contract,n,Listener,&s)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}++s.listeners;}
++  if(api_.read(s.contract)!=noErr||api_.read(s.contract)!=noErr||s.listener_generation.load()!=guard||s.core.Retired()) {s.core.Retire(Reason::route);return Status::invalid;}
++  if(api_.create(s.contract.device,IOProc,&s,&s.proc)!=noErr){s.proc=nullptr;s.core.Retire(Reason::route);return Status::invalid;}
++  s.prepared=true;return Status::ok;
++}
++Status HalDevice::CheckGuards()noexcept {
++  if(!state_||!state_->prepared)return Status::invalid;
++  auto& s=*state_;if(s.core.Retired())return Status::retired;
++  const uint64_t generation=s.listener_generation.load();
++  if(api_.read(s.contract)!=noErr||s.listener_generation.load()!=generation){s.core.Retire(Reason::route);return Status::retired;}
++  return s.core.Retired()?Status::retired:Status::ok;
++}
++Status HalDevice::Start()noexcept {
++  if(CheckGuards()!=Status::ok||state_->started)return Status::invalid;
++  auto& s=*state_;s.start_attempted=true;
++  if(api_.start(s.contract.device,s.proc)!=noErr){s.core.Retire(Reason::route);return Status::invalid;}
++  s.started=true;return s.core.Retired()?Status::retired:Status::ok;
++}
++void HalDevice::RequestStop()noexcept {if(state_)state_->core.Retire(Reason::cancelled);}
++CleanupResult HalDevice::Cleanup(uint64_t deadline)noexcept {
++  if(!state_||!state_->claimed)return CleanupResult::clean;
++  auto s=state_;s->core.Retire(Reason::cleanup);
++  if(Quarantined()&&s->cleanup_started.load()&&s->cleanup_state.load()==0)return CleanupResult::timeout_quarantined;
++  uint64_t now=api_.now_ns(),maximum=0;
++  if(!AddNs(now,2000000000,maximum))maximum=UINT64_MAX;
++  deadline=std::min(deadline,maximum);
++  bool expected=false;
++  if(s->cleanup_started.compare_exchange_strong(expected,true)) {
++    // Even failure to create a cleanup worker must retain live callback state.
++    s->keep_alive=s;
++    try{std::thread(CleanupWorker,s).detach();}catch(...){ModuleGate().Quarantine();return CleanupResult::failed;}
++  }
++  while(s->cleanup_state.load(std::memory_order_acquire)==0&&now<deadline) {api_.wait_tick();now=api_.now_ns();}
++  const auto result=s->cleanup_state.load(std::memory_order_acquire);
++  if(result==1){s->claimed=false;return CleanupResult::clean;}
++  if(result==2)return CleanupResult::failed;
++  ModuleGate().Quarantine();return CleanupResult::timeout_quarantined;
++}
++}
+--- /dev/null
++++ b/src/OwnedHalLifetime.h
+@@ -0,0 +1,51 @@
++#pragma once
++#include "OwnedHalCore.h"
++#include <dlfcn.h>
++#include <mutex>
++#include <cstring>
++
++// This symbol must be defined in the addon image (OwnedHalDevice.cpp). The test
++// dylib defines its own marker. Never substitute a Kodi/private loader handle.
++extern "C" __attribute__((visibility("default"))) void OwnedHalModuleIdentityV1();
++namespace owned_hal {
++class LifetimeGate {
++public:
++  bool Claim()noexcept {uint64_t expected=0;return state_.is_lock_free()&&state_.compare_exchange_strong(expected,1);}
++  void Release()noexcept {state_.fetch_and(~uint64_t(1));}
++  void Quarantine()noexcept {state_.fetch_or(2);}
++  bool IsQuarantined()const noexcept {return (state_.load()&2)!=0;}
++private:
++  std::atomic<uint64_t> state_{0};
++};
++// Hidden inline functions give one registry per loaded addon, not a symbol that
++// another plugin can interpose. A successful self-reference is NEVER dlclosed.
++__attribute__((visibility("hidden"))) inline LifetimeGate& ModuleGate()noexcept {static LifetimeGate gate;return gate;}
++struct ModulePinState {
++  std::once_flag once;
++  Status status=Status::invalid;
++  void* retained_handle=nullptr;
++  std::atomic<unsigned> count{0};
++};
++__attribute__((visibility("hidden"))) inline ModulePinState& PinState()noexcept {static ModulePinState state;return state;}
++__attribute__((visibility("hidden"),noinline)) inline void OwnCodeAnchor()noexcept {}
++__attribute__((visibility("hidden"))) inline Status PinOwnModule()noexcept {
++  auto& state=PinState();
++  try {
++    std::call_once(state.once,[&state] {
++      Dl_info own{};void* marker=reinterpret_cast<void*>(&OwnedHalModuleIdentityV1);
++      if(!dladdr(reinterpret_cast<void*>(&OwnCodeAnchor),&own)||!own.dli_fname||!own.dli_fbase)return;
++      void* handle=dlopen(own.dli_fname,RTLD_NOW|RTLD_LOCAL|RTLD_NOLOAD);
++      if(!handle)return;
++      void* symbol=dlsym(handle,"OwnedHalModuleIdentityV1");Dl_info resolved{};
++      if(symbol!=marker||!dladdr(symbol,&resolved)||resolved.dli_fbase!=own.dli_fbase||
++          !resolved.dli_fname||std::strcmp(resolved.dli_fname,own.dli_fname)!=0) {
++        dlclose(handle);return;
++      }
++      state.retained_handle=handle;state.count.store(1);state.status=Status::ok;
++    });
++  }catch(...){return Status::invalid;}
++  return state.status;
++}
++__attribute__((visibility("hidden"))) inline unsigned OwnModulePinCount()noexcept {return PinState().count.load();}
++__attribute__((visibility("hidden"))) inline bool Quarantined()noexcept {return ModuleGate().IsQuarantined();}
++}

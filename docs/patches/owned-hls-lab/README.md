@@ -736,3 +736,66 @@ helper-level checks; the full addon build and manual integration inspection do
 not replace live initial-probe/rewind, normal pause, complete-source, EOF and
 no-gap capture validation. Kodi's unchanged executable contains the PCM_F32LE
 decoder symbol; actual live format discovery remains a capture gate.
+
+### Owned HAL component harness (no playback)
+
+The new additive `../inputstream.ffmpegdirect-22.2.10-owned-hal-fixture.patch`
+applies after the complete existing chain through `owned-clock-session.patch`.
+At this checkpoint it adds only four independent native component files. It
+neither selects a backend nor changes the build, StreamManager, installed addon,
+Kodi, recorder, output settings, or frozen V2 estimator. Actual audio/clock and
+normal-control acceptance remain separate gates.
+
+Run the focused native harness on macOS after applying the patch. The fake device
+API prevents real CoreAudio registration/start. The real `OwnedHalDevice.cpp`
+still compiles and links, and the fake dylib includes that actual implementation.
+The separate RT interposer is harness-only; its child-process self-tests prove
+that malloc, mutex acquisition and write calls would be caught during Render.
+
+```sh
+HAL_SRC=/private/tmp/kodi-audio-validation-20261027/inputstream.ffmpegdirect-22.2.10/src
+HAL_OUT=$(mktemp -d /private/tmp/owned-hal-tests.XXXXXX)
+HAL_LAB=docs/patches/owned-hls-lab
+clang++ -std=c++14 -Wall -Wextra -Werror -dynamiclib \
+  "$HAL_LAB/hal_test_rt.cpp" -o "$HAL_OUT/hal-test-rt.dylib"
+for HAL_FLAGS in '' '-DNDEBUG' '-DNDEBUG -O2'; do
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -I"$HAL_SRC" \
+    "$HAL_LAB/test_hal_core.cpp" "$HAL_OUT/hal-test-rt.dylib" -o "$HAL_OUT/core"
+  "$HAL_OUT/core"
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -I"$HAL_SRC" \
+    "$HAL_LAB/test_hal_lifetime.cpp" -o "$HAL_OUT/lifetime"
+  "$HAL_OUT/lifetime"
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -I"$HAL_SRC" \
+    "$HAL_LAB/test_hal_device.cpp" "$HAL_SRC/OwnedHalDevice.cpp" \
+    -framework CoreAudio -framework CoreFoundation -o "$HAL_OUT/device"
+  for HAL_CASE in ok layout buffers pin resolve read add create start route \
+      stop remove destroy hang hang_remove hang_destroy callback_hang; do
+    "$HAL_OUT/device" "$HAL_CASE"
+  done
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -dynamiclib -I"$HAL_SRC" \
+    "$HAL_LAB/hal_test_module.cpp" -framework CoreAudio -framework CoreFoundation \
+    -o "$HAL_OUT/module.dylib"
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS \
+    "$HAL_LAB/test_hal_lifetime_macos.cpp" -o "$HAL_OUT/dyld"
+  "$HAL_OUT/dyld" "$HAL_OUT/module.dylib" unpin
+  "$HAL_OUT/dyld" "$HAL_OUT/module.dylib"
+  clang++ -std=c++14 -Wall -Wextra -Werror -pthread $HAL_FLAGS -dynamiclib -I"$HAL_SRC" \
+    -DOwnedHalModuleIdentityV1=DeliberatelyWrongIdentity "$HAL_LAB/hal_test_module.cpp" \
+    -framework CoreAudio -framework CoreFoundation -o "$HAL_OUT/mismatch.dylib"
+  "$HAL_OUT/dyld" "$HAL_OUT/mismatch.dylib" mismatch
+done
+```
+
+Use a POSIX shell for this example (`sh`/`bash`), so the flag variable splits as
+shown. Each device fault runs in its own process because quarantine intentionally
+cannot be reset. The unpinned control proves actual unloading; the pinned test
+drops the ordinary loader reference, destroys the owner during a hung cleanup,
+and still invokes the real retained callback/context. Neither is proof of live
+speaker continuity or timing.
+
+The IOProc relies on CoreAudio's documented zero-on-entry buffers. Malformed
+buffer counts/lengths retire without traversing or writing their storage. Pure
+HalCore callers must supply the same zero-on-entry condition for invalid spans.
+A valid callback always processes exactly one 4096-byte stereo block. Source
+advance and copied frames include muted source; `zero_frames` counts synthetic
+padding, not naturally zero samples or mute-scaled output.
