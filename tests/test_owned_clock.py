@@ -300,3 +300,46 @@ def test_confirmed_nonzero_or_non_numeric_source_origin_retires(value):
     p,t=session();r=row(0,first_source_pts=value)
     assert not feed(p,t,r).valid and p.retired
     assert p.estimator.origin_ns is None
+
+
+@pytest.mark.parametrize('discontinuity', ['epoch','counter','native_generation','output_generation'])
+@pytest.mark.parametrize('damage', ['delay','query','started'])
+def test_irreversible_discontinuity_survives_unrelated_invalid_schema(discontinuity,damage):
+    p,t=session();assert acquire(p,t).valid
+    r=row(9)
+    if discontinuity=='epoch':r['source_epoch']=1
+    if discontinuity=='counter':r['accepted_adddata_frames']=0
+    if discontinuity=='native_generation':r['ownership']['state_generation_after']=2
+    if discontinuity=='output_generation':r['ownership']['output_guard_generation']=1
+    if damage=='delay':r['audioengine_delay_s']=None
+    if damage=='query':r['steady_ns']=None
+    if damage=='started':r['playback_started']='invalid'
+    result=feed(p,t,r)
+    assert p.retired and not result.valid and result.seconds is None
+    assert p.reason=='epoch_counter_or_generation_rewind'
+    estimator_last=p.estimator.last_t
+    assert not acquire(p,t,10).valid
+    assert p.retired and p.estimator.last_t==estimator_last
+
+
+@pytest.mark.parametrize('offset',[-1,100_000_001])
+def test_stale_or_future_rows_cannot_establish_discontinuity_baselines(offset):
+    p,t=session()
+    r=row(0,source_epoch=7,accepted_adddata_frames=clock.TOTAL_SAMPLES)
+    t[0]=r['mach_absolute_ns']+offset
+    result=p.ingest(json.dumps(r).encode())
+    assert not result.valid and not p.retired
+    assert p._epoch is None and p._counter is None
+    assert p.estimator.origin_ns is None
+    assert acquire(p,t,1).valid
+
+
+@pytest.mark.parametrize('offset',[-1,100_000_001])
+def test_stale_or_future_rows_cannot_advance_discontinuity_baselines(offset):
+    p,t=session();assert acquire(p,t).valid
+    previous=(p._epoch,p._counter)
+    r=row(9,accepted_adddata_frames=clock.TOTAL_SAMPLES)
+    t[0]=r['mach_absolute_ns']+offset
+    assert not p.ingest(json.dumps(r).encode()).valid
+    assert (p._epoch,p._counter)==previous
+    assert acquire(p,t,10).valid and not p.retired

@@ -263,6 +263,18 @@ class OwnedClockProvider:
                 self.retire('control_ack_mismatch')
                 return self.snapshot()
             self._ack, self._ack_applied = revision, own['control_applied_mach_ns']
+            before, after = own['state_generation_before'], own['state_generation_after']
+            guard = own['output_guard_generation']
+            epoch, counter = row.get('source_epoch'), row.get('accepted_adddata_frames')
+            # Independent irreversible evidence cannot be hidden by a broken delay,
+            # query timestamp or playback flag in the same owned observation.
+            if ((_uint(epoch) and self._epoch is not None and epoch!=self._epoch)
+                    or (_uint(counter) and self._counter is not None and counter<self._counter)
+                    or (self._native_generation is not None and after<self._native_generation)
+                    or (self._guard_generation is not None and guard<self._guard_generation)
+                    or (_uint(counter) and counter>TOTAL_SAMPLES)):
+                self.retire('epoch_counter_or_generation_rewind')
+                return self.snapshot()
             ints = ('steady_ns','mach_absolute_ns','delay_query_start_steady_ns',
                     'delay_query_end_steady_ns','accepted_adddata_frames','source_epoch')
             delay = row.get('audioengine_delay_s')
@@ -271,16 +283,6 @@ class OwnedClockProvider:
                     or type(delay) not in (float,int) or not 0 <= delay <= 2**63-1 or not math.isfinite(delay)):
                 self._invalidate('invalid_schema')
                 return self.snapshot()
-            before, after = own['state_generation_before'], own['state_generation_after']
-            guard = own['output_guard_generation']
-            if ((self._epoch is not None and row['source_epoch']!=self._epoch)
-                    or (self._counter is not None and row['accepted_adddata_frames']<self._counter)
-                    or (self._native_generation is not None and after<self._native_generation)
-                    or (self._guard_generation is not None and guard<self._guard_generation)
-                    or row['accepted_adddata_frames']>TOTAL_SAMPLES):
-                self.retire('epoch_counter_or_generation_rewind')
-                return self.snapshot()
-            self._epoch,self._counter = row['source_epoch'],row['accepted_adddata_frames']
             if self._native_generation != after or self._guard_generation != guard:
                 self.generation += 1
                 self.estimator.clear_anchor()
@@ -312,6 +314,10 @@ class OwnedClockProvider:
             if not 0 <= checked-query <= FRESH_NS:
                 reasons.append('evaluation_freshness')
                 self.estimator.clear_anchor()
+            elif result is not None:
+                # Only fully validated, fresh estimator inputs establish or advance
+                # source baselines; stale/future rows cannot poison later checks.
+                self._epoch,self._counter = epoch,counter
             self._last = OwnedClockSnapshot(not reasons,tuple(dict.fromkeys(reasons)),
                 result['seconds'] if result and not reasons else None,query,self._sequence,digest,
                 after,self.generation,checked)
