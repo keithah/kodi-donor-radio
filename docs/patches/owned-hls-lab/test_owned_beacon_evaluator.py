@@ -193,17 +193,17 @@ class CapturePointTests(unittest.TestCase):
         from analyze_hls_capture import local_match
         matcher=e.CaptureMatcher.__new__(e.CaptureMatcher)
         matcher.np=np;matcher.local_match=local_match;matcher.cache={}
-        matcher.reference=np.random.default_rng(17).normal(size=(12000,2)).astype('<f4')
-        matcher.audio=np.zeros((17000,2),dtype='<f4')
-        matcher.audio[100:6100]=matcher.reference[:6000]
-        matcher.audio[10000:16000]=matcher.reference[6000:]
-        matcher.timing=[dict(host_pts_ns=1000000000+round(i*1e9/e.RATE),frame_offset=i,frame_count=min(256,17000-i)) for i in range(0,17000,256)]
+        matcher.reference=np.random.default_rng(17).normal(size=(24000,2)).astype('<f4')
+        matcher.audio=np.zeros((33000,2),dtype='<f4')
+        matcher.audio[100:12100]=matcher.reference[:12000]
+        matcher.audio[20000:32000]=matcher.reference[12000:]
+        matcher.timing=[dict(host_pts_ns=1000000000+round(i*1e9/e.RATE),frame_offset=i,frame_count=min(256,33000-i)) for i in range(0,33000,256)]
         matcher.host=np.array([x['host_pts_ns'] for x in matcher.timing],dtype=np.int64)
         matcher.offset=np.array([x['frame_offset'] for x in matcher.timing],dtype=np.int64)
-        matcher.analysis={'segments':[{'index':0,'span':{'start':.004,'end':6100/e.RATE},
+        matcher.analysis={'segments':[{'index':0,'span':{'start':.004,'end':12100/e.RATE},
             'channels':[{'anchors':[{'capture_start_sample':2000,'offset_samples':100}]} for _ in range(2)]},
-            {'index':1,'span':{'start':10000/e.RATE,'end':16000/e.RATE},
-            'channels':[{'anchors':[{'capture_start_sample':12000,'offset_samples':4000}]} for _ in range(2)]}],
+            {'index':1,'span':{'start':20000/e.RATE,'end':32000/e.RATE},
+            'channels':[{'anchors':[{'capture_start_sample':22000,'offset_samples':8000}]} for _ in range(2)]}],
             'prefix_tail':[{'prefix':{'capture_start_sample':100,'reference_start_sample':0,'correlation':1.}} for _ in range(2)]}
         return matcher
     def test_forward_start_window_preserves_actual_subframe_position(self):
@@ -212,11 +212,186 @@ class CapturePointTests(unittest.TestCase):
         self.assertAlmostEqual(point['source_seconds'],4.25/e.RATE,places=8)
         self.assertNotEqual(point['source_seconds'],0)
     def test_threshold_cannot_cross_pause(self):
-        matcher=self.matcher();point=matcher.match(matcher.frame_host(10002))
+        matcher=self.matcher()
+        self.assertFalse(matcher.match(matcher.frame_host(20002))['qualified'])
+        point=matcher.match(matcher.frame_host(20102))
         self.assertTrue(point['qualified'])
         with self.assertRaises(ValueError):matcher.threshold_host(5900/e.RATE,point)
     def test_actual_buffer_gap_is_not_interpolated(self):
         matcher=self.matcher();matcher.host[1:]+=10000000
         with self.assertRaises(ValueError):matcher.host_frame(1000000000+8000000)
+
+class FractionalCaptureTests(unittest.TestCase):
+    """Analytical fixture: no production interpolator generates expected audio."""
+    def matcher(self, shifts=(.49,.49), length=48000):
+        import numpy as np
+        from analyze_hls_capture import local_match
+        m=e.CaptureMatcher.__new__(e.CaptureMatcher)
+        m.np=np;m.local_match=local_match;m.cache={}
+        rng=np.random.default_rng(211)
+        frequencies=rng.uniform(.015,.39,(2,48));phases=rng.uniform(-3,3,(2,48))
+        def signal(t,ch):
+            return np.sin(t[:,None]*frequencies[ch]*2*np.pi+phases[ch]).sum(axis=1)/40
+        t=np.arange(length,dtype=float)
+        m.reference=np.column_stack([signal(t,ch) for ch in (0,1)]).astype('<f4')
+        m.audio=np.zeros((length+300,2),dtype='<f4')
+        for ch in (0,1):m.audio[100:length+100,ch]=signal(t+shifts[ch],ch)
+        m.timing=[dict(host_pts_ns=1000000000+round(i*1e9/e.RATE),frame_offset=i,
+                       frame_count=min(256,len(m.audio)-i)) for i in range(0,len(m.audio),256)]
+        m.host=np.array([t['host_pts_ns'] for t in m.timing],dtype=np.int64)
+        m.offset=np.array([t['frame_offset'] for t in m.timing],dtype=np.int64)
+        m.analysis={'segments':[dict(index=0,span=dict(start=96/e.RATE,end=(length+100)/e.RATE),
+            channels=[dict(anchors=[dict(capture_start_sample=12000,offset_samples=100-round(
+                float(shifts[ch][11900]) if np.ndim(shifts[ch]) else shifts[ch]))]) for ch in (0,1)])],
+            'prefix_tail':[dict(prefix=dict(capture_start_sample=100,reference_start_sample=0,correlation=1.),
+                                tail=dict(capture_start_sample=length-860,reference_start_sample=length-960,correlation=1.)) for ch in (0,1)]}
+        return m
+    def point(self,m,frame):return m.match(m.frame_host(frame))
+    def test_fractional_audio_and_exact_query_position(self):
+        for shift in (-.49,-.24,-.02,.02,.24,.49):
+            with self.subTest(shift=shift):
+                m=self.matcher((shift,shift));v=self.point(m,14000.25)
+                self.assertTrue(v['qualified'],v)
+                self.assertAlmostEqual(v['source_seconds']*e.RATE,13900.25+shift,delta=.012)
+                self.assertTrue(all(c['correlation']>=.99 for c in v['channels']))
+    def test_source_zero_bounds_inside_rms_span_and_tail(self):
+        m=self.matcher()
+        for frame in (104.25,48090.25):
+            v=self.point(m,frame);self.assertTrue(v['qualified'],v)
+            self.assertAlmostEqual(v['source_seconds']*e.RATE,frame-99.51,delta=.012)
+        self.assertFalse(self.point(m,98)['qualified'])
+    def test_stereo_phase_disagreement(self):
+        m=self.matcher((.49,-.74));v=self.point(m,14000)
+        self.assertFalse(v['qualified'],v)
+        self.assertEqual(v['reason'],'stereo_disagreement')
+    def test_disjoint_training_cache_and_call_order(self):
+        m=self.matcher();a=self.point(m,14000);b=self.point(m,14200)
+        self.assertTrue(a['qualified'],a);self.assertTrue(b['qualified'],b)
+        for point in (a,b):
+            for c in point['channels']:
+                lo,hi=c['heldout_capture_frames'];tl,th=c['training']['capture_frames']
+                self.assertTrue(th<=lo-2400 or tl>=hi+2400)
+        self.assertEqual(a['channels'][0]['training']['id'],b['channels'][0]['training']['id'])
+        other=self.matcher();self.point(other,14200)
+        self.assertEqual(a,self.point(other,14000))
+        m.cache.clear();m.phase_cache.clear()
+        self.assertEqual(a,self.point(m,14000))
+    def test_quiet_dropout_and_filter_edge_are_never_interpolated(self):
+        for channels in ((0,1),(0,)):
+            m=self.matcher();m.audio[16000:16417,list(channels)]=0
+            for frame in (16020,16200,16420):
+                self.assertFalse(self.point(m,frame)['qualified'])
+            before=self.point(m,12000);after=self.point(m,21000)
+            self.assertTrue(before['qualified'],before);self.assertTrue(after['qualified'],after)
+            with self.assertRaises(ValueError):m.threshold_host(before['source_seconds'],after)
+    def test_integer_jump_and_omit_replay_are_not_fractional_alignment(self):
+        for replay in (False,True):
+            m=self.matcher((0,0))
+            m.audio[16000:24000]=m.reference[15920:23920]
+            if not replay:m.audio[24000:47000]=m.reference[23920:46920]
+            v=self.point(m,16005)
+            self.assertFalse(v['qualified'],v)
+    def test_threshold_zero_requires_independent_prefix_rematch(self):
+        m=self.matcher();v=self.point(m,500)
+        self.assertTrue(v['qualified'],v)
+        host=m.threshold_host(0,v);z=m.match(host)
+        self.assertTrue(z['qualified'],z);self.assertAlmostEqual(z['source_seconds'],0,delta=1/e.RATE)
+        m=self.matcher();m.audio[100:517]=0
+        v=self.point(m,5000)
+        self.assertTrue(v['qualified'],v)
+        with self.assertRaises(ValueError):m.threshold_host(0,v)
+    def test_recorder_gap_splits_threshold_region(self):
+        m=self.matcher();m.host[m.offset>=16384]+=10000000
+        v=self.point(m,21000);self.assertTrue(v['qualified'],v)
+        with self.assertRaises(ValueError):m.threshold_host(12000/e.RATE,v)
+    def test_clock_metadata_cannot_select_alignment(self):
+        m=self.matcher();v=self.point(m,14000)
+        other=self.matcher();other.analysis['clock']={'seconds':-900,'accepted_frames':99999999,'threshold':999}
+        self.assertEqual(v,self.point(other,14000))
+    def test_short_span_cannot_reuse_heldout_as_training(self):
+        m=self.matcher((0,0));m.analysis['segments'][0]['span']['end']=6100/e.RATE
+        v=self.point(m,104.25)
+        self.assertFalse(v['qualified'],v)
+        self.assertEqual(v['reason'],'disjoint_training_unavailable')
+    def test_zero_energy_and_missing_tail_reject(self):
+        m=self.matcher();m.audio[47000:]=0
+        self.assertFalse(self.point(m,48090)['qualified'])
+        m=self.matcher();m.audio[:]=0
+        self.assertFalse(self.point(m,14000)['qualified'])
+    def test_source_prefix_can_contain_its_own_initial_quiet(self):
+        m=self.matcher((0,0));m.reference[:48]=0;m.audio[100:148]=0
+        v=self.point(m,500)
+        self.assertTrue(v['qualified'],v)
+        self.assertTrue(self.point(m,100)['qualified'])
+        z=m.match(m.threshold_host(0,v))
+        self.assertTrue(z['qualified'],z)
+        self.assertAlmostEqual(z['source_seconds'],0,delta=1/e.RATE)
+    def test_local_fallback_revalidates_heldout_and_retains_both_attempts(self):
+        m=self.matcher();different=self.matcher((-.24,-.24))
+        m.audio[23900:26500]=different.audio[23900:26500]
+        v=self.point(m,14000)
+        self.assertTrue(v['qualified'],v)
+        self.assertEqual(len(v['training_attempts']),2)
+        self.assertEqual(v['training_attempts'][0]['reason'],'waveform_correlation')
+        self.assertAlmostEqual(v['source_seconds']*e.RATE,13900.49,delta=.012)
+    def test_failed_fallback_is_bounded_and_never_reuses_heldout(self):
+        m=self.matcher();different=self.matcher((-.24,-.24))
+        for lo,hi in ((23900,26500),(17260,19860)):m.audio[lo:hi]=different.audio[lo:hi]
+        v=self.point(m,14000)
+        self.assertFalse(v['qualified'],v);self.assertEqual(len(v['training_attempts']),2)
+    def test_integer_step_between_training_and_heldout_is_not_retrained_away(self):
+        m=self.matcher((0,0));m.audio[16000:47000]=m.reference[15920:46920]
+        v=self.point(m,14000)
+        self.assertFalse(v['qualified'],v)
+        self.assertEqual(v['reason'],'source_mapping_discontinuity')
+        self.assertEqual(len(v['training_attempts']),1)
+    def test_short_omission_replay_inside_heldout_fails(self):
+        m=self.matcher((0,0));m.audio[14000:14120]=m.reference[13940:14060]
+        v=self.point(m,14000)
+        self.assertFalse(v['qualified'],v)
+    def test_phase_cache_eviction_repeats_identical_audio_calculation(self):
+        m=self.matcher();first=self.point(m,14000)
+        self.assertTrue(first['qualified'],first)
+        region=m.regions[0]
+        for start in range(10000,10514):m._phase_training(region,start,0)
+        self.assertLessEqual(len(m.phase_cache),512)
+        m.cache.clear()
+        self.assertEqual(first,self.point(m,14000))
+    def test_backward_source_progress_is_detected_in_query_order(self):
+        outputs=[]
+        for order in ((40000,68000),(68000,40000)):
+            m=self.matcher((0,0),length=144000)
+            m.audio[60100:144100]=m.reference[24000:108000]
+            for channel in m.analysis['segments'][0]['channels']:
+                channel['anchors']=[dict(capture_start_sample=p,offset_samples=o)
+                                    for p,o in ((12000,100),(84000,36100),(132000,36100))]
+            points={frame:self.point(m,frame) for frame in order}
+            self.assertTrue(all(not p['qualified'] for p in points.values()),points)
+            self.assertTrue(all(p['reason']=='source_mapping_nonmonotonic' for p in points.values()))
+            outputs.append(points)
+        self.assertEqual(outputs[0],outputs[1])
+    def test_gradual_fractional_drift_has_no_global_one_sample_limit(self):
+        import numpy as np
+        phase=np.linspace(0,2,144000)
+        m=self.matcher((phase,phase),length=144000)
+        for channel in m.analysis['segments'][0]['channels']:
+            channel['anchors']=[dict(capture_start_sample=p,offset_samples=100-round(float(phase[p-100])))
+                                for p in (12000,84000,132000)]
+        for frame in (12000,132000):
+            v=self.point(m,frame)
+            self.assertTrue(v['qualified'],v)
+            self.assertAlmostEqual(v['source_seconds']*e.RATE,frame-100+float(phase[frame-100]),delta=.12)
+    def test_nonfinite_region_metadata_is_structured_uncertainty(self):
+        for field,value in (('start',float('inf')),('end',float('nan')),('start',-1)):
+            m=self.matcher();m.analysis['segments'][0]['span'][field]=value
+            try:point=self.point(m,14000)
+            except (ValueError,OverflowError) as exc:self.fail('region metadata escaped match: '+str(exc))
+            self.assertFalse(point['qualified'],point)
+            self.assertEqual(point['reason'],'invalid_audio_region')
+    def test_bad_anchor_is_structured_uncertainty(self):
+        m=self.matcher()
+        for c in m.analysis['segments'][0]['channels']:c['anchors'][0]['offset_samples']=10**12
+        v=self.point(m,14000)
+        self.assertFalse(v['qualified']);self.assertEqual(v['reason'],'source_window_unavailable')
 
 if __name__=='__main__':unittest.main()

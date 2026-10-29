@@ -592,3 +592,42 @@ creates and cleans one token on its own test thread only; it does not attach to
 Kodi. The archived summarizer validates the new evidence and retains transitions.
 An independent review and captured activation/cleanup/no-gap validation remain
 mandatory before this experiment can support any acceptance claim.
+
+### Fractional captured-waveform audit
+
+`evaluate_owned_beacons.py` identifies its matching method and hashes the input
+PCM, capture metadata, per-buffer timing, analysis, native/event/receipt logs,
+reference and evaluator sources. Choose a new output filename for every
+re-evaluation: the evaluator refuses to overwrite an existing report. Older
+integer-only and supplementary reports remain evidence of their original runs.
+
+The fractional method uses actual buffer Mach times and independent waveform
+anchors. Each query retains its own 40 ms stereo held-out comparison. Fractional
+phase comes from a separate 50 ms audio window at least 50 ms away, using a
+normalized 96-tap Blackman sinc, a fixed ±1-sample search, 0.05-sample coarse
+steps and 0.005-sample refinement. The half-second audio grid and one local
+fallback are deterministic; a 512-entry training cache never replaces a query's
+held-out comparison. Both training and held-out correlations must reach .99;
+stereo positions must agree within one source sample. Gains are reported without
+fitting them. Recorded clock estimates never select a source window or phase.
+
+Per-channel 0.5 ms quiet bins, exact zeros and recorder timestamp gaps delimit
+regions. Interior quiet edges carry a 96-frame filter guard. Source bounds
+prevent short/negative slices; unavailable windows produce structured
+uncertainty. Threshold times are independently rematched in the same region.
+The method does not interpolate across silence, stitch a source jump, change
+clock tolerances, or resample the tested clock.
+
+This proves only the matched windows. Existing dense-analysis aggregate offset
+ranges do not provide an adjacent-window continuity trace and cannot distinguish
+all gradual drift from omitted/repeated material. Whole-source continuity,
+uncommanded gaps, complete prefix/tail and natural EOF retain their separate
+whole-audio acceptance gate. An improved clock match cannot accept failed audio.
+
+Only the independently identified initial source prefix may contain its own
+initial quiet samples; queries there require the complete held-out prefix to
+match. This does not make an interior silent interval matchable. Cached matches
+also check source progress in capture-time order, allowing one sample of
+uncertainty. Contradictory later audio evidence invalidates both endpoints while
+retaining their numerical waveforms, regardless of which query was requested
+first. No global one-sample limit is imposed on gradual drift over a long span.
