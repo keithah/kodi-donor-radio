@@ -57,9 +57,6 @@ class ManifestTests(unittest.TestCase):
             path=Path(directory)/'addon.xml'; path.write_text('<addon')
             with self.assertRaises(RuntimeError): launcher.validate_lab_manifest(path)
 
-if __name__=='__main__': unittest.main()
-
-
 def test_hal_capabilities_required_before_native_open(tmp_path):
     path=tmp_path/'addon.xml'
     prefix='<addon id="inputstream.ffmpegdirect"><requires><import addon="kodi.binary.global.audioengine"/></requires><extension point="kodi.inputstream" listitemprops="terminal_eof|is_realtime_stream'
@@ -69,3 +66,8 @@ def test_hal_capabilities_required_before_native_open(tmp_path):
     with __import__('pytest').raises(RuntimeError):launcher.validate_lab_manifest(path,hal=True)
     path.write_text(prefix+'|owned_output_backend|owned_hal_contract_version|owned_hal_phase|owned_hal_clock_version"/></addon>')
     launcher.validate_lab_manifest(path,hal=True)
+
+
+if __name__ == '__main__':
+    import pytest
+    raise SystemExit(pytest.main([__file__]))

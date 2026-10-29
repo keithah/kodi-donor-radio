@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import threading
 import uuid
+from collections import deque
 
 from owned_clock import _uint, _hex, _json, _identity, _private, _open_directory, _rename_exclusive
 
@@ -44,13 +45,54 @@ class Proof:
     def response(self):return dict(self.response_items)
 
 
+class FairAuthorizationSlot:
+    """FIFO admission for the single exact-next native exchange.
+
+    The caller supplies the deadline sampled before it joins this queue.  The
+    slot never extends that deadline; it only prevents a late waiter from
+    barging ahead of an earlier one.  It is deliberately independent from
+    provider, tracker, gain and beacon-worker locks.
+    """
+    def __init__(self):
+        self._condition=threading.Condition();self._waiters=deque();self._held=False
+
+    @property
+    def pending(self):
+        with self._condition:return len(self._waiters)
+
+    def wake(self):
+        with self._condition:self._condition.notify_all()
+
+    def acquire(self,deadline_ns,now_ns,cancel):
+        token=object()
+        with self._condition:
+            self._waiters.append(token)
+            while True:
+                now=now_ns()
+                if cancel.is_set() or now>deadline_ns:
+                    self._waiters.remove(token);self._condition.notify_all();return False
+                if not self._held and self._waiters[0] is token:
+                    self._waiters.popleft();self._held=True;return True
+                self._condition.wait(min(.001,max(0,(deadline_ns-now)/1e9)))
+
+    def release(self):
+        with self._condition:
+            if not self._held:raise RuntimeError('authorization_slot_release')
+            self._held=False;self._condition.notify_all()
+
+    def try_acquire(self,allow_cancelled_waiters=False):
+        with self._condition:
+            if self._held or (self._waiters and not allow_cancelled_waiters):return False
+            self._held=True;return True
+
+
 class HalAuthorizationTransport:
     def __init__(self,session,now_ns,create=True,emit=None):
         self.path=Path(session)/'authorization';self.now_ns=now_ns
         if create:self.path.mkdir(mode=0o700)
         self.fd=_open_directory(self.path);self.identity=os.fstat(self.fd)
         if not _private(self.identity,True):raise ValueError('authorization_permissions')
-        self.io_lock=threading.Lock();self.cancel=threading.Event();self.closing=False
+        self.slot=FairAuthorizationSlot();self.cancel=threading.Event();self.closing=False
         self.count=0;self.failed=False;self.emit=emit
 
     def _check(self):
@@ -85,10 +127,8 @@ class HalAuthorizationTransport:
         acquired=False;request=None
         try:
             if stage not in ('tracker','queue','dispatch') or self.cancel.is_set() or self.failed: return None
-            while not acquired:
-                if self.cancel.is_set():return None
-                if self.now_ns()>deadline:raise ValueError('authorization_slot_timeout')
-                acquired=self.io_lock.acquire(timeout=.001)
+            acquired=self.slot.acquire(deadline,self.now_ns,self.cancel)
+            if not acquired:raise ValueError('authorization_slot_timeout')
             if self.cancel.is_set() or self.failed:return None
             if self.now_ns()>deadline:raise ValueError('authorization_slot_timeout')
             if self.count>=LIMIT:raise ValueError('authorization_exhausted')
@@ -122,12 +162,16 @@ class HalAuthorizationTransport:
         finally:
             if acquired:
                 if self.closing and self.fd is not None:os.close(self.fd);self.fd=None
-                self.io_lock.release()
+                self.slot.release()
 
-    def cancel_now(self):self.cancel.set()
+    def cancel_now(self):self.cancel.set();self.slot.wake()
     def close(self):
-        self.closing=True;self.cancel.set()
-        if self.io_lock.acquire(blocking=False):
+        self.closing=True;self.cancel.set();self.slot.wake()
+        # Cancellation is set before this claim, so queued waiters can only
+        # remove their own tokens and cannot start an exchange.  Claiming even
+        # while they drain closes the descriptor without relying on a holder's
+        # deferred cleanup path.
+        if self.slot.try_acquire(allow_cancelled_waiters=True):
             try:
                 if self.fd is not None:os.close(self.fd);self.fd=None
-            finally:self.io_lock.release()
+            finally:self.slot.release()

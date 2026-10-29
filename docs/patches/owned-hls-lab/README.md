@@ -441,7 +441,7 @@ Parent-controlled installation layout:
   place `monitor.py`, `fixture_beacons.py`, `runtime_clock.py` and the unchanged
   `clock-candidate-v2/estimator.py` in that relative subdirectory.
 - The real `clock-sessions` parent must exist below that directory. Each launch
-  creates a new nonce directory mode0700 before native Open. Do not reuse one.
+  creates a new nonce directory mode 0700 before native Open. Do not reuse one.
 - Install the reviewed native binary/manifest containing all three ownership
   properties. Require default output (`Default` or the observed
   `DARWINOSX:default|Default`), lowlatency=false, channels=1, config=2,
@@ -461,7 +461,7 @@ startup. `owned_native_ready` is logged after the transport validates the actual
 native hello; qualified samples require the subsequent native acknowledgments
 and frozen estimator acquisition. A stopped monitor cannot rejoin its directory.
 Callbacks only revoke/queue controls in memory using explicit Mach time. The
-monitor polls every20ms, flushes commands, and observes every returned snapshot,
+monitor polls every 20 ms, flushes commands, and observes every returned snapshot,
 including invalid startup rows. `owned-events.jsonl` retains each ingested row
 SHA/sequence, contemporaneous snapshot, callback, tracker decision and delivery
 authorization. Native `native.jsonl` retains the original bytes. On stop, callbacks
@@ -491,9 +491,9 @@ receipt. It directly source-matches every qualified query and event decision at
 actual per-buffer Mach timestamps. Capture-only anchors stay within one audible
 span; startup uses a forward window with exact query-relative source position.
 Threshold timing is independently rematched and cannot cross pause uncertainty.
-Clock tolerance stays21.333ms; threshold-to-decision bound stays141.333ms. Early
+Clock tolerance stays 21.333 ms; threshold-to-decision bound stays 141.333 ms. Early
 events, uncertainty and decision-to-receipt network delay remain separate fields.
-Preroll is required only when the first real qualified point is within250ms;
+Preroll is required only when the first real qualified point is within 250 ms;
 late onset cannot manufacture zero. Paused B allows only pre-pause authorization,
 and its source overlap must be confirmed. A/C/D/E require all six events exactly
 once. All receipt attempts are retained in the report, including rejected ones.
@@ -633,11 +633,11 @@ A fresh command received while native speed is paused cannot acquire a token
 until normal native resume; native resume alone never clears the revision barrier.
 
 Each clock row adds bounded `host_override.version=1` evidence: target/owner IDs,
-verified target name, requested override class25/relative0, control and state
+verified target name, requested override class 25/relative 0, control and state
 generations, active/terminal/failure flags, start/end attempt/success counters,
 last attempt times/statuses, ignored preparation count and outstanding/maximum
 counts. At most one token may be outstanding. Requested host QoS can correctly
-remain21 while an override is active; neither token success nor requested QoS
+remain 21 while an override is active; neither token success nor requested QoS
 proves effective scheduling. The existing `qos_unconfirmed` pending reason blocks
 qualification until an active token exists, and an override generation change
 within a sample also blocks qualification. The frozen estimator is unchanged.
@@ -696,17 +696,17 @@ one-sample limit is imposed on gradual drift over a long span.
 ### Bounded PCM synthetic host experiment
 
 The exact controlled HLS owned renderer now advertises a separate host projection:
-`pcm_f32le`, interleaved stereo48kHz,32bits/sample,8byte block alignment,
-3072000bit/s, no AAC extra-data/profile/fourcc. Every initial format-probe and
-playback host packet contains3840 zero PCM frames (30720bytes,80ms). The original
+`pcm_f32le`, interleaved stereo 48 kHz, 32 bits/sample, 8-byte block alignment,
+3072000 bit/s, no AAC extra-data/profile/fourcc. Every initial format-probe and
+playback host packet contains 3840 zero PCM frames (30720 bytes, 80 ms). The original
 AAC source snapshot, first-packet hash/proof, decoder, source reader, FIFO and
 AddData accounting remain AAC/owned-source data. Source bytes never become PCM
 host samples. The existing one-time capability→1ms→0 probe/rewind arms the real
 source and resets the synthetic playback timeline to zero; probe counters remain
 separate. Unsupported routes retain their previous behavior.
 
-This tests refill granularity: PAPlayer can request1920 stereo frames per cycle,
-and retain the remainder of an80ms PCM packet. It does not prove that host cache
+This tests refill granularity: PAPlayer can request 1920 stereo frames per cycle,
+and retain the remainder of an 80 ms PCM packet. It does not prove that host cache
 starvation caused previous gaps, or establish a no-gap result. The existing
 scoped PAPlayer override is unchanged.
 
@@ -724,7 +724,7 @@ remain times, while longer PCM demux spacing alone is not evidence of starvation
 
 PCM generation ends on owned drain/stop/failure and cannot reopen after an error.
 It continues during source EOF until owned audio has drained. One packet bounds
-the decoder-frame remainder by3840frames, **not** total already-queued host tail;
+the decoder-frame remainder by 3840 frames, **not** total already-queued host tail;
 `downstream_queued_tail_frames:null` explicitly records that the addon cannot
 observe PAPlayer/AE queues. Capture must measure actual EOF delay. Integer frame
 arithmetic avoids cumulative PTS drift and rejects time-counter overflow.

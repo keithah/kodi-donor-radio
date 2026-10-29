@@ -104,10 +104,6 @@ class VideoControlIdentityTests(unittest.TestCase):
             self.assertEqual(observer.expected_player('fixture',19093,'video')['playerid'],7)
             with self.assertRaises(RuntimeError):observer.expected_player('fixture',19093,'audio')
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 def test_gain_trial_schedule_restore_and_exact_dispatch(tmp_path,monkeypatch):
     now=[0.0];calls=[]
     report=dict(actions=[],timeline=[])
@@ -159,3 +155,8 @@ def test_gain_trial_restrictions_before_any_action(monkeypatch,tmp_path):
     monkeypatch.setattr(observer,'rpc',lambda *a,**kw:__import__('pytest').fail('RPC before guard'))
     for change in (dict(output_backend='ae'),dict(hal_phase=None),dict(action='pause'),dict(port=19093),dict(seconds=49)):
         with __import__('pytest').raises(ValueError):observer.gain_controls_trial({},types.SimpleNamespace(**dict(base,**change)),'fixture',lambda:None,tmp_path)
+
+
+if __name__ == '__main__':
+    import pytest
+    raise SystemExit(pytest.main([__file__]))

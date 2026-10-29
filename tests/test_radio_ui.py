@@ -500,6 +500,19 @@ def test_directory_cache_round_trip_exact_expiry_and_immutable_stale_rows(tmp_pa
     assert ui().DirectoryCacheStore(tmp_path, clock=lambda: 1060).get('tags', 'all', 60).rows == ('jazz',)
 
 
+def test_directory_cache_future_timestamps_are_stale_and_repairable(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('tags', 'all', ['jazz'], continuation=False, stored_at=1100)
+
+    assert store.get('tags', 'all', 60) is None
+    stale = store.get('tags', 'all', 60, allow_stale=True)
+    assert stale.rows == ('jazz',) and not stale.fresh
+
+    store.put('tags', 'new', ['rock'], continuation=False)
+    assert store.get('tags', 'all', 60, allow_stale=True).rows == ('jazz',)
+    assert store.get('tags', 'new', 60).rows == ('rock',)
+
+
 def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_path):
     from models import Station
     m = ui()
@@ -543,7 +556,7 @@ def test_directory_cache_never_persists_favicon_urls(tmp_path):
     ('tags', [True], None, 1000), ('map', [], 0, 1000), ('place', [], True, 1000),
     ('tags', [], None, 1000), ('tags', [], 0, 1000), ('tags', [], 1, 1000),
     ('countries', [], False, 1000),
-    ('place', [], -1, 1000), ('place', [], 1.5, 1000), ('place', [], None, 1001),
+    ('place', [], -1, 1000), ('place', [], 1.5, 1000),
     ('place', [], None, float('nan')), ('place', [], None, True), ('place', [], None, -1),
 ])
 def test_directory_cache_invalid_values_never_write(tmp_path, kind, rows, continuation, stored_at):
@@ -554,7 +567,7 @@ def test_directory_cache_invalid_values_never_write(tmp_path, kind, rows, contin
 
 
 @pytest.mark.parametrize('corruption', ['duplicate-key', 'duplicate-entry', 'version', 'extra',
-                                       'unsafe-row', 'future', 'kind', 'hash', 'too-many', 'oversized', 'json'])
+                                       'unsafe-row', 'kind', 'hash', 'too-many', 'oversized', 'json'])
 def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corruption):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
     store.put('place', 'key', [ui().StationSummary('a', 'A')])
@@ -563,7 +576,6 @@ def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corrupti
     elif corruption == 'version': document['schema_version'] = True
     elif corruption == 'extra': document['unexpected'] = 1
     elif corruption == 'unsafe-row': document['items'][0]['rows'][0]['url'] = 'secret'
-    elif corruption == 'future': document['items'][0]['stored_at'] = 1001
     elif corruption == 'kind': document['items'][0]['kind'] = 'search'
     elif corruption == 'hash': document['items'][0]['key_hash'] = 'raw-key'
     elif corruption == 'too-many': document['items'] *= 101

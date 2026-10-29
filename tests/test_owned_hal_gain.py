@@ -172,7 +172,7 @@ def test_monitor_controls_phase_cannot_construct_beacon_sender(tmp_path,monkeypa
     import owned_ad_playback
     implementation()
     lab=pathlib.Path(__file__).resolve().parents[1]/'docs/patches/owned-hls-lab'
-    sys.path.insert(0,str(lab))
+    monkeypatch.syspath_prepend(str(lab))
     import fixture_beacons as fixture
     constructed=[]
     class Monitor:
@@ -267,7 +267,7 @@ def test_hal_session_rejects_coerced_record_numbers_and_flags():
 def test_monitor_real_callback_ack_and_gain_read_order(tmp_path,monkeypatch):
     import pathlib,sys,types
     lab=pathlib.Path(__file__).resolve().parents[1]/'docs/patches/owned-hls-lab'
-    sys.path.insert(0,str(lab))
+    monkeypatch.syspath_prepend(str(lab))
     import fixture_beacons as fixture
     events=[];players=[];t=clock.OwnedClockTransport.create(tmp_path,binding())
     class Monitor:

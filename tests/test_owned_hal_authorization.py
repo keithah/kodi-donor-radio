@@ -1,5 +1,7 @@
 import importlib.util
 import pytest
+import threading
+import time
 
 spec=importlib.util.find_spec('owned_hal_authorization')
 if spec:import owned_hal_authorization as auth
@@ -17,6 +19,45 @@ def test_native_probe_is_required_not_cached_snapshot():
     assert not auth.valid_times(dict(r,lease_expiry_ns=103),103)
     assert not auth.valid_times(dict(r,check_start_ns=99),103)
     assert not auth.valid_times(dict(r,source_end_ns=103),103)
+
+
+def test_fair_slot_serves_waiters_in_fifo_order():
+    slot=auth.FairAuthorizationSlot();cancel=threading.Event();now=time.monotonic_ns
+    assert slot.acquire(now()+1_000_000_000,now,cancel)
+    entered=[threading.Event(),threading.Event()];order=[]
+    def waiter(number):
+        entered[number].set()
+        if slot.acquire(now()+1_000_000_000,now,cancel):
+            order.append(number);slot.release()
+    first=threading.Thread(target=waiter,args=(0,));first.start();assert entered[0].wait(1)
+    while slot.pending!=1:time.sleep(.0001)
+    second=threading.Thread(target=waiter,args=(1,));second.start();assert entered[1].wait(1)
+    while slot.pending!=2:time.sleep(.0001)
+    slot.release();first.join(1);second.join(1)
+    assert order==[0,1] and slot.pending==0
+
+
+def test_fair_slot_removes_timeout_and_cancelled_waiters():
+    slot=auth.FairAuthorizationSlot();now=time.monotonic_ns;holder_cancel=threading.Event()
+    assert slot.acquire(now()+1_000_000_000,now,holder_cancel)
+    timeout=[];cancelled=[];stop=threading.Event()
+    timed=threading.Thread(target=lambda:timeout.append(slot.acquire(now()+2_000_000,now,threading.Event())))
+    blocked=threading.Thread(target=lambda:cancelled.append(slot.acquire(now()+1_000_000_000,now,stop)))
+    timed.start();blocked.start()
+    while slot.pending!=2:time.sleep(.0001)
+    stop.set();slot.wake();timed.join(1);blocked.join(1)
+    assert timeout==[False] and cancelled==[False] and slot.pending==0
+    slot.release()
+
+
+def test_close_claims_slot_after_cancelling_queued_waiters(tmp_path):
+    p,now,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
+    # A waiter cannot normally remain queued without a holder, but this is the
+    # close race between a waiter enqueue and its first condition recheck.
+    with transport.slot._condition:
+        transport.slot._waiters.append(object())
+    transport.close()
+    assert transport.fd is None
 
 
 def prepared():

@@ -125,14 +125,14 @@ not a finished radio GUI or an enabled production route.
 This mode requires observed `videoplayer.queuetimesize=40`, bound as integer
 `video_queue_tenths` through launch/monitor-ready/hello/ownership and native
 `owned_player_queue_tenths=40`. No settings are changed. Frames begin at PTS0 and
-advance100ms; issuance is capped at `floor(accepted_adddata_frames/4800)+60`.
+advance 100 ms; issuance is capped at `floor(accepted_adddata_frames/4800)+60`.
 At the cap, empty non-EOF retries keep cancellation responsive. The six-second
 allowance covers the four-second core queue, up to six render buffers and startup
-margin; it is neither required prefill nor audible headroom. A30s Mach deadline
+margin; it is neither required prefill nor audible headroom. A 30 s Mach deadline
 from native Open requires acknowledgement of the real onAVStarted play command.
 
 At first owned-drained, tracking remains retired and generation freezes. The
-owned CAEStream stays alive for an explicit1s Mach hold with empty retries, then
+owned CAEStream stays alive for an explicit 1 s Mach hold with empty retries, then
 normal EOF; cancel/error bypass it. This empirical safeguard covers the prior
 ~284ms drain-to-audible-tail observation but proves no sink latency. Video PTS is
 never an audio clock. `host_representation.stream_type=video` identifies video
@@ -151,10 +151,10 @@ remain active. No display policy changes or fresh qualification are implied.
 Run11 exposed a separate core demux readiness requirement: rawvideo packets with
 empty extradata are discarded before reaching the opened decoder. The corrected
 video projection supplies an SDK-owned one-byte zero compatibility marker;
-FFmpeg9.0.2 rawvideo ignores it. Original AAC metadata remains independent.
+FFmpeg 9.0.2 rawvideo ignores it. Original AAC metadata remains independent.
 `video_extradata_hex:"00"` now binds the new-mode launch/readiness/hello/ownership
 and host representation; missing or wrong evidence retires qualification. Legacy
 modes keep null/absent marker. This adds no budget, recovery-point workaround,
 callback or clock exception. `check-video-host-startup.py` compiles the exact
 external Kodi readiness methods and decodes the generated frame using the matching
-FFmpeg9.0.2-Kodi libraries; actual Kodi startup and captured audio remain gates.
+FFmpeg 9.0.2 Kodi libraries; actual Kodi startup and captured audio remain gates.

@@ -13,8 +13,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+
+LIBRARY=Path(__file__).resolve().parents[3]/'plugin.audio.kodi_donor_radio/resources/lib'
+if str(LIBRARY) not in sys.path:sys.path.insert(0,str(LIBRARY))
+from owned_hal_authorization import FairAuthorizationSlot
 import time
 
 
@@ -181,11 +186,13 @@ def main():
         # The real transport has one pinned exact-next exchange slot. Two
         # worker threads contend for that slot, while every event must still
         # make its tracker -> queue -> dispatch chain in native request order.
-        sequence=iter(range(32754,32769));slot=threading.Lock();responses=[];failures=[]
+        sequence=iter(range(32754,32769));slot=FairAuthorizationSlot();slot_cancel=threading.Event();responses=[];failures=[]
         def exchange(stage,event_digest,role,parent=None,decision_ns=0,queue_ns=0):
             slot_attempt=mach_host_ns()
-            with slot:
-                slot_acquired=mach_host_ns();number=next(sequence);started=mach_host_ns()
+            if not slot.acquire(slot_attempt+AUTHORIZATION_BUDGET_NS,mach_host_ns,slot_cancel):
+                raise TimeoutError('benchmark_authorization_slot_timeout')
+            try:
+                slot_acquired=mach_host_ns();number=next(sequence)
                 require_slot_budget(slot_attempt,slot_acquired)
                 # `probe()` starts its deadline before taking io_lock.  The
                 # benchmark must submit the same pre-slot request start rather
@@ -209,6 +216,8 @@ def main():
                                 worker_role=role)
                 responses.append(response)
                 return response
+            finally:
+                slot.release()
         def chain(index,role):
             try:
                 digest=hashlib.sha256(('benchmark-event-%d'%index).encode()).hexdigest()

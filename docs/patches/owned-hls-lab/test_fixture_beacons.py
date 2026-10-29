@@ -149,9 +149,6 @@ class PreservedFixtureIntegrationTests(unittest.TestCase):
             finally:
                 process.terminate();process.communicate(timeout=5)
 
-if __name__=='__main__': unittest.main()
-
-
 def test_hal_readiness_discloses_backend_format_and_retention():
     import owned_hal_gain as h
     binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123,
@@ -171,3 +168,8 @@ def test_ready_nested_format_integer_types_are_strict():
         lifecycle_capability='retained_exposed_context_until_process_exit')
     ready=dict(binding,kind='owned_monitor_ready',device_format=dict(h.HAL_FORMAT,buffers=True))
     with __import__('pytest').raises(ValueError):f.validate_ready(ready,binding)
+
+
+if __name__ == '__main__':
+    import pytest
+    raise SystemExit(pytest.main([__file__]))

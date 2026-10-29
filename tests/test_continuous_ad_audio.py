@@ -189,6 +189,7 @@ def test_single_consumer_get_does_not_make_head_or_conflict_consuming(fixture, m
 
 def test_live_reloads_are_serialized_and_retirement_does_not_skip_audio(fixture, monkeypatch):
     import relay
+    from ad_session import SourceUnavailable
     manifest = ad_fixture_server.source_manifest
     windows = []
     def advancing(scenario, window):
@@ -205,19 +206,48 @@ def test_live_reloads_are_serialized_and_retirement_does_not_skip_audio(fixture,
     root = session.lookup(session.playback_url)
     open_response = fixture.manager.client.open
     observations = []
+    failures = []
     def checked(url, *args, **kwargs):
         if url == root.url:
             observations.append(root.playlist_lock.locked())
+            if not failures:
+                failures.append(True)
+                raise SourceUnavailable('source_unavailable')
         return open_response(url, *args, **kwargs)
     monkeypatch.setattr(fixture.manager.client, 'open', checked)
     status, _, body = request(url)
     assert status == 200
     assert body == asset_audio(fixture, expected_names(24))
     assert observations and all(observations)
+    assert failures
     assert len(windows) >= 19
     assert session.continuous_audio_state().next_sample == 26 * 96256
     assert session.resource_count <= session.resource_limit
     assert session.presentation().segments[0].sequence > 0
+
+
+def test_persistent_reload_failures_end_after_bounded_attempts(fixture, monkeypatch):
+    import relay
+    from ad_session import SourceUnavailable
+    monkeypatch.setattr(relay, '_AD_RELOAD_INTERVAL', .01, raising=False)
+    session = fixture.create(scenario='normal')
+    root = session.lookup(session.playback_url)
+    open_response = fixture.manager.client.open
+    attempts = []
+    def unavailable(url, *args, **kwargs):
+        if url == root.url:
+            attempts.append(True)
+            raise SourceUnavailable('source_unavailable')
+        return open_response(url, *args, **kwargs)
+    monkeypatch.setattr(fixture.manager.client, 'open', unavailable)
+
+    status, _, body = request(continuous_url(session))
+
+    assert status == 502
+    assert body == b''
+    assert len(attempts) == 3
+    wait_until(lambda: fixture.manager.get(session.id) is None)
+    assert session.continuous_audio_state().terminal
 
 
 @pytest.mark.parametrize('fault', ['retired', 'sample_zero'])

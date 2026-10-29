@@ -323,7 +323,7 @@ class DirectoryCacheStore(_Store):
                 raise ValueError('Invalid directory station rows')
             rows = [StationSummary.from_dict(item) for item in rows]
         page = DirectoryCachePage(kind, rows, row['continuation'], row['stored_at'], False)
-        _number(page.stored_at, 0, self.clock())
+        _number(page.stored_at, 0, float('inf'))
         return _DirectoryCacheEntry(kind, key_hash, page.rows, page.continuation, page.stored_at)
 
     def get(self, kind, key, ttl_seconds, allow_stale=False):
@@ -334,7 +334,8 @@ class DirectoryCacheStore(_Store):
         entry = next((item for item in self.list() if item.identity == identity), None)
         if entry is None:
             return None
-        fresh = self.clock() - entry.stored_at < ttl_seconds
+        age = self.clock() - entry.stored_at
+        fresh = 0 <= age < ttl_seconds
         if not fresh and not allow_stale:
             return None
         return DirectoryCachePage(entry.kind, entry.rows, entry.continuation, entry.stored_at, fresh)
@@ -342,7 +343,7 @@ class DirectoryCacheStore(_Store):
     def put(self, kind, key, rows, continuation=None, stored_at=None):
         identity = self._identity(kind, key)
         timestamp = self.clock() if stored_at is None else stored_at
-        _number(timestamp, 0, self.clock())
+        _number(timestamp, 0, float('inf'))
         page = DirectoryCachePage(kind, rows, continuation, timestamp, True)
         entry = _DirectoryCacheEntry(kind, identity[1], page.rows, continuation, timestamp)
         with self._mutation():

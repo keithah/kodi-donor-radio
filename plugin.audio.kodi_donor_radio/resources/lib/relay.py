@@ -29,6 +29,7 @@ _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|m
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
 _FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
 _AD_RELOAD_INTERVAL = .5
+_MAX_COMPOSITION_RELOAD_FAILURES = 3
 
 
 class _Server(ThreadingMixIn, HTTPServer):
@@ -460,6 +461,7 @@ class _Handler(BaseHTTPRequestHandler):
         sequence = sample = 0
         known = {}
         reloaded_at = None
+        reload_failures = 0
         while not session.cancel.is_set():
             audio = None
             with resource.playlist_lock:
@@ -502,8 +504,18 @@ class _Handler(BaseHTTPRequestHandler):
                 elif not segments and sequence:
                     raise CompositionFailure('continuous_output_retired')
                 elif reloaded_at is None or time.monotonic() - reloaded_at >= _AD_RELOAD_INTERVAL:
-                    self._reload_composition(session, resource, ad)
-                    reloaded_at = time.monotonic()
+                    try:
+                        self._reload_composition(session, resource, ad)
+                    except (SourceUnavailable, OSError):
+                        if session.cancel.is_set():
+                            return
+                        reload_failures += 1
+                        reloaded_at = time.monotonic()
+                        if reload_failures >= _MAX_COMPOSITION_RELOAD_FAILURES:
+                            raise
+                    else:
+                        reload_failures = 0
+                        reloaded_at = time.monotonic()
                     continue
             if audio is not None:
                 if session.cancel.is_set():
