@@ -173,9 +173,9 @@
     47.696774417
   ],
   "limits": [
-    "Source union is checked in1ms windows stepped at one sample; this does not establish zero omitted or repeated individual source samples after filtering/resampling.",
+    "Source union is checked in 1 ms windows stepped at one sample; this does not establish zero omitted or repeated individual source samples after filtering/resampling.",
     "Complete source submission counters are complementary evidence, not proof of physical speaker output.",
-    "Approximately5ms uncertainty applies to RMS pause-edge timing.",
+    "Approximately 5 ms uncertainty applies to RMS pause-edge timing.",
     "Captured tail and naturalEOF are confirmed in this finite controlled run; absolute playback-clock mapping and production readiness remain unproven."
   ],
   "scope": "controlled loopback ADTS AAC 48k stereo; native inputstream lab only",

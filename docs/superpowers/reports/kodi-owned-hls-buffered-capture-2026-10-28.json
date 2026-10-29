@@ -149,12 +149,12 @@
     "resumed_source_center_s": 85.10116666666667
   },
   "limits": [
-    "One controlled180.032sHLS run with stated buffer configuration; no generalplatform or arbitrarycontent guarantee.",
-    "No measured source omission/replay; dense40ms and seam1ms windows with fractionalresampling/filter uncertainty do not prove bitexactsampleidentity.",
-    "Clock130points are steady qualifiedprocesscapture intervals; startup,pausedtails,resumeacquisition,drain uncertain.",
-    "Raw clock failed2points; passing candidate is frozen offlinev2 estimate, no fittedoffset.",
-    "No physicalspeaker/productionbeacon mapping claim.",
-    "Original portableprofile setting restoration belongs toparent and remains pendingatthis report."
+    "One controlled 180.032 s HLS run with stated buffer configuration; no general platform or arbitrary content guarantee.",
+    "No measured source omission/replay; dense 40 ms and seam 1 ms windows with fractional resampling/filter uncertainty do not prove bit-exact sample identity.",
+    "Clock 130 points are steady qualifiedprocesscapture intervals; startup,paused tails, resume acquisition, drain uncertain.",
+    "Raw clock failed 2 points; passing candidate is frozen offline v2 estimate, no fittedoffset.",
+    "No physical speaker/production beacon mapping claim.",
+    "Original portableprofile setting restoration belongs toparent and remains pending at this report."
   ],
   "native_verified_sha256": "1ad63f9f7db235eb7d711cf9b0800e3f50574ebd52da92aaf1e81540c42baf61",
   "kodi_core_verified_sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752",

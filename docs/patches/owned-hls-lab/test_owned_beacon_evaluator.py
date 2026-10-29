@@ -34,6 +34,33 @@ class OwnedEvaluatorTests(unittest.TestCase):
             errors=[];e.audit_hal_authorization_chain(rows,errors)
             with self.subTest(mutation=mutation):self.assertIn(expected,errors)
 
+    def test_hal_authorization_chain_rejects_unknown_authorization_stage(self):
+        rows=self.hal_chain()
+        authorization=next(r for r in rows if r.get('kind')=='owned_beacon_authorization')
+        authorization['authorization_stage']='unknown'
+
+        errors=[];e.audit_hal_authorization_chain(rows,errors)
+
+        self.assertIn('hal_authorization_stage',errors)
+
+    def test_hal_queue_rejection_uses_tracker_parent_and_cannot_deliver(self):
+        for authorized in (False,True):
+            rows=self.hal_chain()
+            queue=next(r for r in rows if r.get('kind')=='owned_hal_probe' and r['response']['request_id']==2)
+            queue['response']['authorized']=authorized
+            authorization=next(r for r in rows if r.get('kind')=='owned_beacon_authorization')
+            authorization.update(authorization_stage='queue',authorized=authorized,
+                                 proof_id=2,proof_sha256=queue['response_sha256'])
+
+            errors=[];e.audit_hal_authorization_chain(rows,errors)
+
+            with self.subTest(authorized=authorized):
+                self.assertNotIn('hal_stage_parent_chain',errors)
+                if authorized:
+                    self.assertIn('hal_delivery_without_dispatch_proof',errors)
+                else:
+                    self.assertNotIn('hal_delivery_without_dispatch_proof',errors)
+
     def evidence(self):
         nonce='a'*32;sid=hashlib.sha256(nonce.encode()).hexdigest()[:16]
         native=dict(kind='clock_sample',mach_absolute_ns=1000000000,steady_ns=1000000000,

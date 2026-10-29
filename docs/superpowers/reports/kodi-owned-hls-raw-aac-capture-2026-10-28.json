@@ -183,7 +183,7 @@
   "limits": [
     "One controlled AAC-LC48k stereo fMP4 HLS fixture, unchanged native build and buffered profile; not general stream/device support.",
     "The fixture has two-byte ASC, zero initial padding, no skip/discard packet side data and a decoded reference identical to served TS; other MP4 priming/edit-list semantics remain untested.",
-    "No measured source omission/replay; dense40ms and seam1ms matching with0.5ms silence scans do not establish bit-exact single-sample equivalence.",
+    "No measured source omission/replay; dense 40 ms and seam 1 ms matching with 0.5 ms silence scans do not establish bit-exact single-sample equivalence.",
     "Clock results are qualified steady process capture only; startup, pause tails, acquisition, drain and device changes remain uncertain.",
     "No fitted intercept or excluded qualified point; no physical speaker timing or production beacon claim."
   ]

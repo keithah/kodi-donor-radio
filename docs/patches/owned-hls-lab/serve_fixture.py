@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json, math, os, re, sys, threading, time, uuid
 from pathlib import Path
 
-DEFAULT_REPO=Path('/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio')
+DEFAULT_REPO=Path(__file__).resolve().parents[3]
 
 class RollingTimeline:
     def __init__(self, metadata):

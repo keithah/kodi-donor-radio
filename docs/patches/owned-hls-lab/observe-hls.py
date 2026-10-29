@@ -9,7 +9,7 @@ import sys
 import time
 from urllib.request import urlopen
 
-REPO = Path('/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio')
+REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 from tools.smoke_ad_kodi import rpc, _menu_file, _time, _item_matches_expected
 

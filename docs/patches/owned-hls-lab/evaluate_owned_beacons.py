@@ -360,10 +360,14 @@ def audit_hal_authorization_chain(rows,errors):
         queues[key]=item
     for record in (row for row in rows if row.get('kind')=='owned_beacon_authorization'):
         stage=record.get('authorization_stage')
+        if stage not in ('queue','dispatch'):
+            errors.append('hal_authorization_stage');continue
         key=(record.get('decision_id'),record.get('placement_id'),record.get('event'))
         queue=queues.get(key)
-        item=proof(record,stage,queue) if stage in ('queue','dispatch') and queue else None
+        parent=trackers.get(record.get('decision_id')) if stage=='queue' else queue
+        item=proof(record,stage,parent) if queue and parent else None
         if queue is None:errors.append('hal_dispatch_queue_missing')
+        if record.get('authorized') is True and stage!='dispatch':errors.append('hal_delivery_without_dispatch_proof')
         if item is None:continue
         if (item[2].get('event_digest')!=record.get('event_digest') or item[2].get('decision_ns')!=record.get('decision_ns')
                 or (stage=='dispatch' and item[2].get('queue_ns')!=record.get('queue_ns'))):errors.append('hal_dispatch_event_binding')

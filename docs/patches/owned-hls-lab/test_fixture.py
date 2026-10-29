@@ -1,10 +1,14 @@
 import unittest
+from pathlib import Path
 try:
-    from serve_fixture import RollingTimeline, render_playlist
+    from serve_fixture import DEFAULT_REPO, RollingTimeline, render_playlist
 except ImportError:
-    RollingTimeline = render_playlist = None
+    DEFAULT_REPO = RollingTimeline = render_playlist = None
 
 class RollingFixtureTests(unittest.TestCase):
+    def test_default_repository_is_derived_from_fixture_location(self):
+        self.assertEqual(DEFAULT_REPO, Path(__file__).resolve().parents[3])
+
     def make(self):
         self.assertIsNotNone(RollingTimeline, 'rolling fixture is not implemented')
         ends = [96256,191488,287744,384000,479232,575488,671744,766976]

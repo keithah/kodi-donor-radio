@@ -277,3 +277,14 @@ def test_qualification_read_uses_one_ad_snapshot_during_fallback():
     session = ChangingSession()
     assert PlaybackSession.fixture_clock_qualified.fget(session) is True
     assert session.reads == 1
+
+
+@pytest.mark.parametrize('response', [
+    None, [], {}, {'nonce': ''}, {'nonce': 'bad/path'}, {'nonce': 'a' * 129}, {'nonce': 123},
+])
+def test_fixture_launch_nonce_rejects_malformed_control_response(monkeypatch, response):
+    client = ControlClient(SimpleNamespace(port=1, control_token='test'))
+    monkeypatch.setattr(client, '_request', lambda *_args: response)
+
+    with pytest.raises(OSError):
+        client.reserve_fixture_launch('fixture')
