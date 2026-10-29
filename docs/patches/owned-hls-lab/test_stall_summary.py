@@ -1,3 +1,4 @@
+import json
 import unittest
 from summarize_stalls import summarize,OPERATIONS
 BASE=1_000_000_000
@@ -38,6 +39,26 @@ class SummaryTests(unittest.TestCase):
     def test_bad_bracket_rejected(self):
         row=fixture(); row['stall_diagnostics']['operations']['renderer_sleep_overshoot']['max_ns']=1
         with self.assertRaises(ValueError): summarize([row],BASE)
+
+    def test_qos_experiment_evidence_roundtrips_without_inference(self):
+        for values in (
+            dict(requested_class=25,set_status=0,initial_class=9,
+                 initial_relative_priority=0,initial_status=0,request_confirmed=True),
+            dict(requested_class=25,set_status=22,initial_class=9,
+                 initial_relative_priority=-2,initial_status=1,request_confirmed=False),
+        ):
+            with self.subTest(values=values):
+                row=fixture()
+                row.update({'renderer_qos_'+key:value for key,value in values.items()})
+                report=json.loads(json.dumps(summarize([row],BASE)))
+                qos=report['qos_observations'][0]
+                self.assertEqual({key:qos[key] for key in values},values)
+                self.assertEqual(qos['status'],0)
+    def test_baseline_qos_experiment_fields_remain_unavailable(self):
+        qos=summarize([fixture()],BASE)['qos_observations'][0]
+        fields=('requested_class','set_status','initial_class','initial_relative_priority',
+                'initial_status','request_confirmed')
+        self.assertEqual({key:qos[key] for key in fields},{key:None for key in fields})
 
 
 class StrictSchemaTests(unittest.TestCase):

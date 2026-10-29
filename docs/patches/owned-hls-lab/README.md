@@ -272,3 +272,9 @@ not arbitrary-load reliability or general-station/production mapping. Previous
 failed recordings remain preserved. Production beacons remain disabled for this
 path; authenticated native ownership and broader adapter qualification remain
 work for a later implementation.
+
+Post-capture review added a compile-time diagnostic name-table size assertion
+and retained the QoS setter/confirmation fields in the offline summary. The
+recorded binaries predate that compile-time guard; their runtime source is
+otherwise identical. The guard and both additive patch applications passed the
+standalone C++ check. No audio behavior or estimator changed after capture.

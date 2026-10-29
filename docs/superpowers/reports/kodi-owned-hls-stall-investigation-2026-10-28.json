@@ -56,7 +56,13 @@
         {
           "status": 0,
           "qos_class": 21,
-          "relative_priority": 0
+          "relative_priority": 0,
+          "requested_class": null,
+          "set_status": null,
+          "initial_class": null,
+          "initial_relative_priority": null,
+          "initial_status": null,
+          "request_confirmed": null
         }
       ],
       "sleep_overshoot_max_ms": 50.845582,
@@ -75,7 +81,7 @@
         "runtime-clock.jsonl": "0bd332ddf1a0ed20c63d3df05f7b7ebb3422f00c6dee88f4bb4ef2ee72a1bcc6",
         "runtime-clock-evaluation.json": "909e196a2c2185fc5190fa30d3b16f8e27507aa955b60698c040ba46a9126daf",
         "runtime-audio-audit.json": "f3302e86a745b7f6d7110024e928da401b065c5c126d640abdf1144baa26fcc8",
-        "stall-summary.json": "72277997e33f0604e9e77c9eb68759ff30cb3423ea1de002d5bb76e4f6e87928"
+        "stall-summary.json": "53dc322ffe462dd828f4f99d55c50cf1fa76b15bc677519c49c2b9d04c920737"
       },
       "restoration": {
         "default.py": {
@@ -135,7 +141,13 @@
         {
           "status": 0,
           "qos_class": 25,
-          "relative_priority": 0
+          "relative_priority": 0,
+          "requested_class": 25,
+          "set_status": 0,
+          "initial_class": 21,
+          "initial_relative_priority": 0,
+          "initial_status": 0,
+          "request_confirmed": true
         }
       ],
       "sleep_overshoot_max_ms": 19.475958,
@@ -152,7 +164,7 @@
         "runtime-clock.jsonl": "9c77cbbc49b9fdf9e01bd76d5ce3a48024187bcaa12aaf71907553010e804909",
         "runtime-clock-evaluation.json": "5043b9ed585ba8dd6a2ae0d3d75b06c80e8f099cb06d89137f6a06afc69f3106",
         "runtime-audio-audit.json": "42e9923f5849486af5869672401ebd57c6043c5765225dc788aeb21fa1486b86",
-        "stall-summary.json": "5f18a805a2cda950352128db828e69aa7cca3866c79d9b7403ad951b9765ec94"
+        "stall-summary.json": "e83ba05bf7d66e343cb154cfda9d9a6d4db121a40745efa6c2f5b8563f2194d5"
       },
       "restoration": {
         "default.py": {
@@ -212,7 +224,13 @@
         {
           "status": 0,
           "qos_class": 25,
-          "relative_priority": 0
+          "relative_priority": 0,
+          "requested_class": 25,
+          "set_status": 0,
+          "initial_class": 21,
+          "initial_relative_priority": 0,
+          "initial_status": 0,
+          "request_confirmed": true
         }
       ],
       "sleep_overshoot_max_ms": 21.71075,
@@ -229,7 +247,7 @@
         "runtime-clock.jsonl": "15242afc20fa3913f34536407837debb318788c9b61c273e9b6f7a826307d05f",
         "runtime-clock-evaluation.json": "34508bb9ddedd72b7b1fda300929f4429ada55cba73015dd88c16cc99d8228e3",
         "runtime-audio-audit.json": "473fd58c4c7e067a2457e4cf4f009d2ed230fe1e1c4646d1af255202df3ba3d5",
-        "stall-summary.json": "05f77080baf9a2263c34ab1c5843d9d81186c4e192c7ee99f925a2c60cd6cf49"
+        "stall-summary.json": "7de8683940916691f69888724cf5cca42639993836ef1f6e588e4172749ecd00"
       },
       "restoration": {
         "default.py": {
@@ -251,11 +269,11 @@
     }
   ],
   "tests": {
-    "focused_pytest_passed": 59,
-    "pytest_subtests_passed": 25,
+    "focused_pytest_passed": 61,
+    "pytest_subtests_passed": 27,
     "frozen_estimator_unittest_passed": 12,
     "standalone_cpp14_aggregation": "passed",
-    "patch_reproduction": "both additive patches recreate exact built native source",
+    "patch_reproduction": "applies to original baseline; C++ manager files identical to captured source, diagnostic header differs only by post-capture compile-time Names/Count guard",
     "native_builds": "diagnostic and QoS builds succeeded with XcodeBuildMCP"
   },
   "limits": [

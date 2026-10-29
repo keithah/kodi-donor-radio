@@ -97,6 +97,9 @@ def summarize(rows, capture_first_host_ns, gaps=()):
         validate_diagnostic(diagnostic)
         qos=dict(status=row.get('renderer_qos_status'),qos_class=row.get('renderer_qos_class'),
                  relative_priority=row.get('renderer_qos_relative_priority'))
+        for key in ('requested_class','set_status','initial_class','initial_relative_priority',
+                    'initial_status','request_confirmed'):
+            qos[key]=row.get('renderer_qos_'+key)
         if qos not in report['qos_observations']: report['qos_observations'].append(qos)
         if diagnostic.get('available') is not True:
             report['unavailable_snapshots']+=1

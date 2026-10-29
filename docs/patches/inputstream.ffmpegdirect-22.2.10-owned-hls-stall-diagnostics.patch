@@ -268,7 +268,7 @@
    size_t m_ownedTelemetryRows{0};
 --- a/src/OwnedStallDiagnostics.h
 +++ b/src/OwnedStallDiagnostics.h
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,97 @@
 +#pragma once
 +// Diagnostic only: fixed storage, no IO, no waiting for instrumentation locks.
 +#include <array>
@@ -288,6 +288,7 @@
 +  "renderer_owned_mutex_wait", "clock_owned_mutex_wait", "host_owned_mutex_wait",
 +  "adddata", "renderer_sleep_overshoot", "host_packet_interarrival", "host_packet_call", "renderer_loop", "getspace", "decode_owned_mutex_wait", "decode_owned_mutex_held", "packet_owned_mutex_wait"
 +};
++static_assert(sizeof(Names) / sizeof(Names[0]) == Count, "Operation names must match enum count");
 +struct Metric {
 +  uint64_t count{0}, maxNs{0}, maxStartNs{0}, maxEndNs{0};
 +};
