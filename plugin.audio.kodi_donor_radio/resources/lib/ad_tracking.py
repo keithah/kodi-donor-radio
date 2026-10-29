@@ -259,7 +259,7 @@ class BeaconWorker:
         self._thread = threading.Thread(target=self._run, name="ad-beacons", daemon=True)
         self._thread.start()
 
-    def enqueue(self, placement_id, event, url):
+    def enqueue(self, placement_id, event, url, authorize=None):
         try:
             parts = urlsplit(url)
             if (origin(url) != origin(self.fixture_origin) or len(url) > 8192 or
@@ -275,7 +275,7 @@ class BeaconWorker:
                 return False
             self._seen.add(key)
             try:
-                self._queue.put_nowait(key)
+                self._queue.put_nowait((key, authorize))
             except queue.Full:
                 self.overflow += 1
                 return False
@@ -284,11 +284,12 @@ class BeaconWorker:
     def _run(self):
         while not self._stop.is_set() and not self._cancel.is_set():
             try:
-                _, _, url = self._queue.get(timeout=.05)
+                (_, _, url), authorize = self._queue.get(timeout=.05)
             except queue.Empty:
                 continue
             try:
-                if not self._request_cancel.is_set():
+                if (not self._request_cancel.is_set() and
+                        (authorize is None or authorize())):
                     with self.client.open(url, {}, self._request_cancel,
                                           deadline=time.monotonic() + 2,
                                           allowed_origin=self.fixture_origin) as response:
@@ -301,11 +302,14 @@ class BeaconWorker:
             finally:
                 self._queue.task_done()
 
-    def close(self):
+    def close(self, wait=True):
+        if not wait:
+            self._stop.set()
+            return
         # Allow fast sends to drain, then cancel any slow request and discard
         # pending work. Every request has its own two-second transport deadline.
         deadline = time.monotonic() + .2
-        while (not self._cancel.is_set() and self._queue.unfinished_tasks and
+        while (not self._stop.is_set() and not self._cancel.is_set() and self._queue.unfinished_tasks and
                time.monotonic() < deadline):
             time.sleep(.005)
         self._stop.set()
