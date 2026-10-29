@@ -38,7 +38,7 @@ class FixtureBeaconTests(unittest.TestCase):
                      player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
         ready=dict(binding,kind='owned_monitor_ready')
         self.assertTrue(f.validate_ready(ready,binding))
-        for value in (None,39,41):
+        for value in (None,39,41,40.0,"40",True,False,[],{}):
             with self.assertRaises(ValueError):f.validate_ready(dict(ready,video_queue_tenths=value),binding)
         del ready['video_queue_tenths']
         with self.assertRaises(ValueError):f.validate_ready(ready,binding)

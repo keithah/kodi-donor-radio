@@ -29,8 +29,9 @@ def test_resolved_properties_bind_core_mode_and_source():
         with pytest.raises(ValueError):launcher.owned_item_properties(dict(b,**{key:value}))
 
 
-@pytest.mark.parametrize("mode",["videoplayer_pcm_v1","videoplayer_video_v1"])
-def test_real_session_resolution_passes_properties_once_and_rejects_mode_conflict(tmp_path,monkeypatch,mode):
+@pytest.mark.parametrize("mode,ready_queue",[("videoplayer_pcm_v1","valid"),("videoplayer_video_v1","valid")]+
+    [("videoplayer_video_v1",value) for value in (40.0,"40",True,False,None,[],{},"missing")])
+def test_real_session_resolution_passes_properties_once_and_rejects_mode_conflict(tmp_path,monkeypatch,mode,ready_queue):
     import sys,os,types
     from dataclasses import asdict
     sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'plugin.audio.kodi_donor_radio/resources/lib'))
@@ -58,6 +59,15 @@ def test_real_session_resolution_passes_properties_once_and_rejects_mode_conflic
     monkeypatch.setattr(sys,'argv',['plugin://plugin.audio.kodi_donor_radio','5'])
     with pytest.raises(ValueError):launcher.resolve_owned(binding.nonce,'paplayer_pcm_v1')
     assert not resolved
+    if ready_queue != "valid":
+        if ready_queue == "missing":ready.pop('video_queue_tenths')
+        else:ready['video_queue_tenths']=ready_queue
+        (d/'monitor-ready.json').write_text(json.dumps(ready))
+        with pytest.raises(ValueError,match='resolved_monitor_binding'):
+            launcher.resolve_owned(binding.nonce,mode)
+        assert not resolved and not (d/'resolved-claimed').exists()
+        transport.close()
+        return
     launcher.resolve_owned(binding.nonce,mode)
     handle,ok,item=resolved[0]
     assert handle==5 and ok and item.path==owned_clock.URL

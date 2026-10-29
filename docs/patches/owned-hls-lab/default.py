@@ -86,7 +86,9 @@ def resolve_owned(nonce,mode):
         expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
         if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
         expected['kind']='owned_monitor_ready'
-        if ready!=expected:raise ValueError('resolved_monitor_binding')
+        if (binding.player_mode=='videoplayer_video_v1'
+                and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or ready!=expected:
+            raise ValueError('resolved_monitor_binding')
         if (transport.directory/'hello.json').exists() or (transport.directory/'native.jsonl').exists():
             raise ValueError('resolved_launch_reuse')
         fd=os.open('resolved-claimed',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=transport.fd)

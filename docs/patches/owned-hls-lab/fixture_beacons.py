@@ -65,7 +65,8 @@ def load_contract(path=DEFAULT_CONTRACT):
 def validate_ready(ready,binding):
     expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths') if k in binding and (k!='video_queue_tenths' or binding[k] is not None)}
     expected['kind']='owned_monitor_ready'
-    if ready!=expected:
+    if (binding.get('player_mode')=='videoplayer_video_v1'
+            and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or ready!=expected:
         raise ValueError('monitor_ready_binding')
     return True
 
