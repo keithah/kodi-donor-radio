@@ -635,3 +635,48 @@ first. The final gate revalidates every required clock, pause, delivered decisio
 and threshold after all matching, including canceled decisions. An uncertain
 canceled decision alone does not fail the required evidence. No global
 one-sample limit is imposed on gradual drift over a long span.
+
+
+### Bounded PCM synthetic host experiment
+
+The exact controlled HLS owned renderer now advertises a separate host projection:
+`pcm_f32le`, interleaved stereo48kHz,32bits/sample,8byte block alignment,
+3072000bit/s, no AAC extra-data/profile/fourcc. Every initial format-probe and
+playback host packet contains3840 zero PCM frames (30720bytes,80ms). The original
+AAC source snapshot, first-packet hash/proof, decoder, source reader, FIFO and
+AddData accounting remain AAC/owned-source data. Source bytes never become PCM
+host samples. The existing one-time capability→1ms→0 probe/rewind arms the real
+source and resets the synthetic playback timeline to zero; probe counters remain
+separate. Unsupported routes retain their previous behavior.
+
+This tests refill granularity: PAPlayer can request1920 stereo frames per cycle,
+and retain the remainder of an80ms PCM packet. It does not prove that host cache
+starvation caused previous gaps, or establish a no-gap result. The existing
+scoped PAPlayer override is unchanged.
+
+Native source/clock rows add `host_representation.version=1` with codec, format,
+packet frames/bytes/duration, `playback_frames`, `playback_packets`, `probe_frames`,
+`probe_packets`, and `generation_closed`. Historical fields
+`host_output_aac_access_units` and `synthetic_host_aac_access_units` remain zero
+for PCM because no host AAC is emitted. Never interpret either zero as an empty
+PCM host queue. Historical ledgers without `host_representation` retain AAC-unit
+semantics. For host delivery comparisons, select the representation first and
+use its explicit PCM frame count. Current waveform/clock analysis uses owned
+`accepted_adddata_frames` and source sample accounting; it does not use these
+legacy host AAC counters and needs no conversion. Existing stall operation times
+remain times, while longer PCM demux spacing alone is not evidence of starvation.
+
+PCM generation ends on owned drain/stop/failure and cannot reopen after an error.
+It continues during source EOF until owned audio has drained. One packet bounds
+the decoder-frame remainder by3840frames, **not** total already-queued host tail;
+`downstream_queued_tail_frames:null` explicitly records that the addon cannot
+observe PAPlayer/AE queues. Capture must measure actual EOF delay. Integer frame
+arithmetic avoids cumulative PTS drift and rejects time-counter overflow.
+
+`test_pcm_host.cpp` uses the actual Kodi InputstreamInfo type plus the production
+helper to check metadata/source separation, zero payload/sentinels, timeline,
+probe/reset, bounds/errors and terminal behavior in C++14 debug/NDEBUG. These are
+helper-level checks; the full addon build and manual integration inspection do
+not replace live initial-probe/rewind, normal pause, complete-source, EOF and
+no-gap capture validation. Kodi's unchanged executable contains the PCM_F32LE
+decoder symbol; actual live format discovery remains a capture gate.
