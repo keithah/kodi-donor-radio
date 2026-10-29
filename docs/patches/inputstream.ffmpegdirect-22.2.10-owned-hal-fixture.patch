@@ -633,3 +633,749 @@
 +__attribute__((visibility("hidden"))) inline unsigned OwnModulePinCount()noexcept {return PinState().count.load();}
 +__attribute__((visibility("hidden"))) inline bool Quarantined()noexcept {return ModuleGate().IsQuarantined();}
 +}
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -147,0 +148,5 @@
++#if defined(__APPLE__)
++InputStreamFFmpegDirect::InputStreamFFmpegDirect(const kodi::addon::IInstanceInfo& instance,owned_hal::DeviceApi api)
++  : CInstanceInputStream(instance),m_ownedHalDevice(api) {}
++#endif
++
+@@ -154,0 +160 @@
++  m_ownedBackendSelection.store(0); // publish cancellation handoff before touching Open-owned pointers
+@@ -168 +174,3 @@
+-  std::string playerMode, requestedCore, playerQueue;
++  m_ownedLastNativePauseNs=0;
++  std::string playerMode, requestedCore, playerQueue,outputBackend="ae",halVersion;
++  m_ownedHal=false;
+@@ -190,0 +199,2 @@
++    else if (prop.first == "inputstream.ffmpegdirect.owned_output_backend") outputBackend=prop.second;
++    else if (prop.first == "inputstream.ffmpegdirect.owned_hal_contract_version") halVersion=prop.second;
+@@ -279,0 +290,12 @@
++  if(outputBackend!="ae"&&outputBackend!="hal_callback_v1")return false;
++  m_ownedHal=outputBackend=="hal_callback_v1";
++#if !defined(__APPLE__)
++  if(m_ownedHal)return false;
++#endif
++#if defined(__APPLE__)
++  if(m_ownedHal.load()) {
++    m_ownedBackendSelection.store(1);
++    if(m_ownedAbortBeforeSelection.exchange(false)){m_ownedHalDevice.RequestStop();return false;}
++  }
++#endif
++  if((m_ownedHal&&(!m_ownedPlayerMode.VideoControl()||halVersion!="1"))||(!m_ownedHal&&!halVersion.empty()))return false;
+@@ -287,0 +310 @@
++  if(m_ownedHal&&(!m_ownedClock||m_streamUrl!="http://127.0.0.1:18789/live/index.m3u8"||m_properties.m_streamMode!=StreamMode::TIMESHIFT||!m_properties.m_terminalEof))return false;
+@@ -347,0 +371 @@
++  if(m_ownedHal&&!ownedRendererOptIn)return false;
+@@ -359,0 +384,6 @@
++  if(!m_ownedHal.load()) {
++    m_ownedBackendSelection.store(2); // AE pointers exist, but startup still owns them
++    if(m_ownedAbortBeforeSelection.load()) {
++      m_stream->Close();m_stream.reset();m_opened=false;m_ownedBackendSelection.store(0);return false;
++    }
++  }
+@@ -361,0 +392,4 @@
++
++  if(!m_ownedHal.load()&&m_ownedAbortBeforeSelection.load()) {
++    m_stream->Close();m_stream.reset();m_opened=false;m_ownedBackendSelection.store(0);return false;
++  }
+@@ -373,0 +408,7 @@
++  }
++  if(!m_ownedHal.load()) {
++    if(!m_opened){m_ownedBackendSelection.store(0);return false;}
++    m_ownedBackendSelection.store(3); // only initialized AE may enter its inherited abort block
++    if(m_ownedAbortBeforeSelection.exchange(false)) {
++      DemuxAbort();StopOwnedRenderer();m_stream->Close();m_stream.reset();m_opened=false;m_ownedBackendSelection.store(0);return false;
++    }
+@@ -542 +583,9 @@
+-  m_ownedQueueCapacityFrames = 48000 * maxSeconds;
++  m_ownedQueueCapacityFrames = m_ownedHal ? 192000 : 48000 * maxSeconds;
++#if defined(__APPLE__)
++  if(m_ownedHal) {
++    if(m_ownedHalState)return false; // one facade/session; never reset a cancellation or exposed context
++    m_ownedHalState=std::make_unique<owned_hal::HalSessionState>();
++    m_ownedHalCore.store(&m_ownedHalState->Core());
++    m_ownedPcmQueue.clear();
++  } else
++#endif
+@@ -576,0 +626 @@
++  if(!m_ownedHal) {
+@@ -583,0 +634 @@
++  }
+@@ -587 +638 @@
+-    m_ownedClockOutput = std::make_unique<owned_clock::OutputGuard>();
++    if(!m_ownedHal)m_ownedClockOutput = std::make_unique<owned_clock::OutputGuard>();
+@@ -599 +650,3 @@
+-          << ",\"stream_generation\":1,\"qualification_scope\":\"controlled_fixture\"}\n";
++          << ",\"stream_generation\":1,\"qualification_scope\":\"controlled_fixture\"";
++    if(m_ownedHal)hello << ",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1,\"device_generation\":1,\"device_uid\":\"BuiltInSpeakerDevice\",\"device_format\":{\"rate\":48000,\"frames\":512,\"channels\":2,\"buffers\":1,\"format\":\"float32_interleaved\"},\"lifecycle_capability\":\"retained_exposed_context_until_process_exit\"";
++    hello << "}\n";
+@@ -623,0 +677,6 @@
++#if defined(__APPLE__)
++    if(m_ownedHal) {
++      if(m_ownedHalDevice.Prepare(*m_ownedHalState)!=owned_hal::Status::ok||m_ownedHalDevice.Start()!=owned_hal::Status::ok)return false;
++      m_ownedThread=std::thread([this]{RunOwnedHal();});
++    } else
++#endif
+@@ -638 +697 @@
+-bool InputStreamFFmpegDirect::DecodeOwnedAacPacket(const uint8_t* data, size_t size)
++bool InputStreamFFmpegDirect::DecodeOwnedAacPacket(const uint8_t* data, size_t size,std::unique_lock<std::mutex>* decoderLock)
+@@ -655 +714 @@
+-      if (!AppendOwnedFrame(m_ownedDecodeFrame))
++      if (!AppendOwnedFrame(m_ownedDecodeFrame,decoderLock))
+@@ -679 +738 @@
+-    if (!AppendOwnedFrame(m_ownedDecodeFrame))
++    if (!AppendOwnedFrame(m_ownedDecodeFrame,decoderLock))
+@@ -689 +748 @@
+-bool InputStreamFFmpegDirect::AppendOwnedFrame(const AVFrame* frame)
++bool InputStreamFFmpegDirect::AppendOwnedFrame(const AVFrame* frame,std::unique_lock<std::mutex>* decoderLock)
+@@ -698,0 +758,26 @@
++#if defined(__APPLE__)
++  if(m_ownedHal) {
++    if(frames>1024||!m_ownedHalState)return false;
++    float pcm[2048];
++    const float* left=reinterpret_cast<const float*>(frame->extended_data[0]);
++    const float* right=frame->format==AV_SAMPLE_FMT_FLTP?reinterpret_cast<const float*>(frame->extended_data[1]):nullptr;
++    for(size_t i=0;i<frames;++i){pcm[2*i]=right?left[i]:left[2*i];pcm[2*i+1]=right?right[i]:left[2*i+1];}
++    auto& queue=m_ownedHalState->Core().source;size_t offset=0;
++    while(offset<frames) {
++      if(m_ownedSourceStop.load()||m_ownedStop.load()||m_ownedHalState->Core().Retired())return false;
++      const uint32_t count=static_cast<uint32_t>(std::min(frames-offset,size_t(owned_hal::kSourceCapacity-queue.Available())));
++      if(count){if(!queue.Push(pcm+offset*2,count))return false;offset+=count;}
++      if(queue.Available()==owned_hal::kSourceCapacity)m_ownedInitialPrefillComplete=true;
++      if(offset<frames) {
++        if(!decoderLock||!decoderLock->owns_lock())return false;
++        // Only the producer retains this AVFrame. Let host/control readers run
++        // while its bounded tail waits for the callback to free source space.
++        decoderLock->unlock();
++        std::this_thread::sleep_for(std::chrono::milliseconds(1));
++        decoderLock->lock();
++      }
++    }
++    if(m_ownedTotalDecodedFrames>UINT64_MAX-frames)return false;
++    m_ownedTotalDecodedFrames+=frames;return true;
++  }
++#endif
+@@ -739 +824 @@
+-  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  std::unique_lock<std::mutex> lock(m_ownedMutex);
+@@ -760 +845 @@
+-          !DecodeOwnedAacPacket(packet->pData + offset, frameLength))
++          !DecodeOwnedAacPacket(packet->pData + offset, frameLength,&lock))
+@@ -777 +862 @@
+-        !DecodeOwnedAacPacket(packet->pData, static_cast<size_t>(packet->iSize)))
++        !DecodeOwnedAacPacket(packet->pData, static_cast<size_t>(packet->iSize),&lock))
+@@ -930 +1015 @@
+-    queuedFrames = m_ownedQueuedFrames;
++    queuedFrames = OwnedQueuedFrames();
+@@ -1042 +1127 @@
+-    queuedFrames = m_ownedQueuedFrames;
++    queuedFrames = OwnedQueuedFrames();
+@@ -1139 +1224 @@
+-  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  std::unique_lock<std::mutex> lock(m_ownedMutex);
+@@ -1150 +1235 @@
+-    if (!AppendOwnedFrame(m_ownedDecodeFrame))
++    if (!AppendOwnedFrame(m_ownedDecodeFrame,&lock))
+@@ -1160,0 +1246,3 @@
++#if defined(__APPLE__)
++  if(m_ownedHal&&(!m_ownedHalState||!m_ownedHalState->Core().source.Finish()))return false;
++#endif
+@@ -1240 +1328 @@
+-      queuedFrames = m_ownedQueuedFrames;
++      queuedFrames = OwnedQueuedFrames();
+@@ -1274,2 +1362,2 @@
+-            if (m_ownedQueuedFrames <= m_ownedQueueCapacityFrames)
+-              availableFrames = m_ownedQueueCapacityFrames - m_ownedQueuedFrames;
++            if (OwnedQueuedFrames() <= m_ownedQueueCapacityFrames)
++              availableFrames = m_ownedQueueCapacityFrames - OwnedQueuedFrames();
+@@ -1385,2 +1473,2 @@
+-        enoughSpace = m_ownedQueuedFrames <= m_ownedQueueCapacityFrames &&
+-                      m_ownedQueueCapacityFrames - m_ownedQueuedFrames >= requiredFrames;
++        enoughSpace = m_ownedHal || (m_ownedQueuedFrames <= m_ownedQueueCapacityFrames &&
++                      m_ownedQueueCapacityFrames - m_ownedQueuedFrames >= requiredFrames);
+@@ -1414 +1502 @@
+-      if (m_ownedQueuedFrames >= startupHeadroomFrames)
++      if (OwnedQueuedFrames() >= startupHeadroomFrames)
+@@ -1659,0 +1748,3 @@
++#if defined(__APPLE__)
++  if(m_ownedHal)m_ownedHalDevice.RequestStop();
++#endif
+@@ -1674,0 +1766,3 @@
++#if defined(__APPLE__)
++  if(m_ownedHal)m_ownedHalDevice.Cleanup(MachAbsoluteNowNs()+2000000000ULL);
++#endif
+@@ -2053,0 +2148,17 @@
++  uint64_t selection=m_ownedBackendSelection.load();
++  if(selection!=1&&selection!=3) {
++    // No SDK/source/authority pointer is stable here. Selection's publication
++    // and this irreversible latch form the same SC two-way handoff as Prepare.
++    m_ownedAbortBeforeSelection.store(true);
++    selection=m_ownedBackendSelection.load();
++    if(selection!=1) {
++      // Open and a late canceller arbitrate one initialized-AE delivery. If AE
++      // is still opening (or failed), its owner keeps the latch and closes it.
++      if(selection!=3||!m_ownedAbortBeforeSelection.exchange(false))return;
++    }
++  }
++#if defined(__APPLE__)
++  if(selection==1) {
++    m_ownedHalDevice.RequestStop();m_ownedSourceStop=true;return;
++  }
++#endif
+@@ -2448,0 +2560,4 @@
++#if defined(__APPLE__)
++  if(speed==0)m_ownedLastNativePauseNs.store(MachAbsoluteNowNs());
++  if(auto* core=m_ownedHalCore.load())core->NativeSpeed(speed);
++#endif
+@@ -2628,0 +2744,3 @@
++#if defined(__APPLE__)
++  if(m_ownedHal)m_ownedHalDevice.RequestStop();
++#endif
+@@ -2743,0 +2862,192 @@
++
++size_t InputStreamFFmpegDirect::OwnedQueuedFrames() const {
++#if defined(__APPLE__)
++  if(m_ownedHal){const auto* core=m_ownedHalCore.load();return core?core->source.Available():0;}
++#endif
++  return m_ownedQueuedFrames;
++}
++
++#if defined(__APPLE__)
++bool InputStreamFFmpegDirect::WriteHalSegment(const owned_hal::HalSegment& s)
++{
++  std::ostringstream out;out<<std::setprecision(17)
++    <<"{\"kind\":\"hal_segment\",\"output_backend\":\"hal_callback_v1\",\"hal_contract_version\":1"
++    <<",\"nonce\":\""<<m_ownedClockNonce<<"\",\"incarnation\":\""<<m_ownedClockIncarnation
++    <<"\",\"timeline_sha256\":\""<<m_ownedClockTimeline<<"\",\"sequence\":"<<s.sequence
++    <<",\"schema_version\":"<<s.schema_version<<",\"device_generation\":"<<s.device_generation
++    <<",\"stream_generation\":"<<s.stream_generation<<",\"in_flight_generation\":"<<s.in_flight_generation
++    <<",\"playback_revision\":"<<s.playback_revision<<",\"playback_epoch\":"<<s.playback_epoch
++    <<",\"gain_revision\":"<<s.gain_revision<<",\"gain_epoch\":"<<s.gain_epoch
++    <<",\"source_start\":"<<s.source_start<<",\"source_count\":"<<s.source_count
++    <<",\"requested_frames\":"<<s.requested_frames<<",\"consumed_frames\":"<<s.consumed_frames
++    <<",\"copied_frames\":"<<s.copied_frames<<",\"zero_frames\":"<<s.zero_frames
++    <<",\"applied_gain\":"<<s.applied_gain<<",\"muted\":"<<(s.muted?"true":"false")
++    <<",\"playing\":"<<(s.playing?"true":"false")<<",\"terminal\":"<<(s.terminal?"true":"false")
++    <<",\"control_acquired\":"<<(s.control_acquired?"true":"false")
++    <<",\"output_sample_time\":"<<s.output_sample_time<<",\"output_flags\":"<<s.output_flags
++    <<",\"now_flags\":"<<s.now_flags<<",\"output_ticks\":"<<s.output_ticks<<",\"now_ticks\":"<<s.now_ticks
++    <<",\"entry_ticks\":"<<s.entry_ticks<<",\"exit_ticks\":"<<s.exit_ticks
++    <<",\"timebase_numer\":"<<s.timebase_numer<<",\"timebase_denom\":"<<s.timebase_denom
++    <<",\"output_host_ns\":"<<s.output_host_ns<<",\"source_end_ns\":"<<s.source_end_ns
++    <<",\"reason\":"<<static_cast<uint64_t>(s.reason)
++    <<",\"publication_sequence\":"<<s.publication_sequence<<",\"applied_intent\":"<<s.applied_intent<<",\"desired_intent\":"<<s.desired_intent
++    <<",\"native_gate\":"<<s.native_gate<<",\"authorized_native_epoch\":"<<s.authorized_native_epoch
++    <<",\"resume_playback_revision\":"<<s.resume_playback_revision<<",\"requested_playing\":"<<(s.requested_playing?"true":"false")
++    <<",\"resume_granted\":"<<(s.resume_granted?"true":"false")<<",\"request_start_ns\":"<<s.applied.request_start_ns
++    <<",\"request_end_ns\":"<<s.applied.request_end_ns<<",\"issue_ns\":"<<s.applied.issue_ns<<",\"expiry_ns\":"<<s.applied.expiry_ns
++    <<",\"volume\":"<<s.applied.volume<<",\"started\":"<<(s.applied.started?"true":"false")
++    <<",\"sample_zero_proven\":"<<(s.applied.sample_zero_proven?"true":"false")
++    <<",\"clock_authority\":false,\"beacons_enabled\":false}";
++  return WriteOwnedTelemetryLine(out.str());
++}
++
++void InputStreamFFmpegDirect::RunOwnedHal()
++{
++  auto& core=m_ownedHalState->Core();
++  owned_hal::EffectiveControl effective{};
++  auto decode=[](const std::string& hex,uint64_t* limbs,size_t count){
++    for(size_t i=0;i<count;++i)limbs[i]=std::stoull(hex.substr(i*16,16),nullptr,16);
++  };
++  // Original wire identities were checked before Open; zero-valued limbs stay valid.
++  decode(m_ownedClockNonce,effective.binding.nonce.data(),2);
++  decode(m_ownedClockIncarnation,effective.binding.incarnation.data(),2);
++  decode(m_ownedClockTimeline,effective.binding.timeline.data(),4);
++  effective.device_generation=effective.stream_generation=1;
++  owned_clock::Gain gain{};
++  owned_hal::ResumeGrant resumeGrant;
++  owned_hal::AppliedControlView appliedView;
++  owned_hal::EffectiveControl held{},queued{};
++  bool holding=false,haveQueued=false,natural=false;
++  uint64_t appliedGain=0,nextGainPoll=0,playbackEpoch=0,intent=core.DesiredIntent(),queuedSequence=0;
++  auto beginIntent=[&]{if(intent==UINT64_MAX)return false;return core.BeginEffectiveIntent(++intent)==owned_hal::Status::ok;};
++  auto terminal=[&](const char* reason,uint64_t end,int cleanup=-1){
++    std::ostringstream out;out<<"{\"kind\":\"hal_terminal\",\"output_backend\":\"hal_callback_v1\",\"nonce\":\""
++      <<m_ownedClockNonce<<"\",\"incarnation\":\""<<m_ownedClockIncarnation<<"\",\"timeline_sha256\":\""
++      <<m_ownedClockTimeline<<"\",\"reason\":\""<<reason<<"\",\"source_end_ns\":"<<end
++      <<",\"hold_until_ns\":"<<(end?end+1000000000ULL:0)<<",\"observed_mach_ns\":"<<MachAbsoluteNowNs()
++      <<",\"native_control_reason\":\""<<(m_ownedClock?m_ownedClock->Reason():"missing")<<"\""
++      <<",\"core_failure\":"<<static_cast<uint64_t>(core.Failure())<<",\"failed\":"<<(m_ownedFailed.load()?"true":"false")<<",\"cleanup_result\":"<<cleanup
++      <<",\"exposed_context_retained_until_exit\":true,\"quarantined\":"<<(owned_hal::Quarantined()?"true":"false")
++      <<",\"clock_authority\":false,\"beacons_enabled\":false}";WriteOwnedTelemetryLine(out.str());
++  };
++  auto drainEvidence=[&]{
++    owned_hal::HalSegment segment;
++    while(core.evidence.Pop(segment)) {
++      if(!WriteHalSegment(segment)){RevokeOwnedClock("hal_ledger");break;}
++      if(!appliedView.Observe(segment)){RevokeOwnedClock("hal_applied_tuple");break;}
++      if(segment.control_acquired&&segment.gain_revision!=appliedGain) {
++        const auto& applied=appliedView.Last()->applied;
++        std::ostringstream ack;ack<<std::setprecision(17)<<"{\"kind\":\"hal_gain_ack\",\"output_backend\":\"hal_callback_v1\",\"nonce\":\""
++          <<m_ownedClockNonce<<"\",\"incarnation\":\""<<m_ownedClockIncarnation<<"\",\"timeline_sha256\":\""<<m_ownedClockTimeline
++          <<"\",\"hal_contract_version\":1,\"device_generation\":"<<segment.device_generation
++          <<",\"request_start_ns\":"<<applied.request_start_ns<<",\"request_end_ns\":"<<applied.request_end_ns<<",\"issue_ns\":"<<applied.issue_ns
++          <<",\"expiry_ns\":"<<applied.expiry_ns<<",\"in_flight_generation\":"<<segment.in_flight_generation
++          <<",\"playback_revision\":"<<segment.playback_revision<<",\"playback_epoch\":"<<segment.playback_epoch
++          <<",\"publication_sequence\":"<<segment.publication_sequence<<",\"applied_intent\":"<<segment.applied_intent
++          <<",\"native_gate\":"<<segment.native_gate<<",\"authorized_native_epoch\":"<<segment.authorized_native_epoch
++          <<",\"resume_playback_revision\":"<<segment.resume_playback_revision<<",\"resume_granted\":"<<(segment.resume_granted?"true":"false")
++          <<",\"gain_revision\":"<<segment.gain_revision
++          <<",\"gain_epoch\":"<<segment.gain_epoch<<",\"volume\":"<<applied.volume<<",\"muted\":"<<(segment.muted?"true":"false")
++          <<",\"applied_gain\":"<<segment.applied_gain<<",\"output_host_ns\":"<<segment.output_host_ns
++          <<",\"source_start\":"<<segment.source_start<<",\"segment_sequence\":"<<segment.sequence<<"}";
++        if(!WriteOwnedTelemetryLine(ack.str())){RevokeOwnedClock("hal_gain_ack_ledger");break;}
++        appliedGain=segment.gain_revision;
++      }
++    }
++  };
++  while(!m_ownedStop.load()&&!m_ownedSourceStop.load()) {
++    const uint64_t now=MachAbsoluteNowNs();
++    if(core.Retired()||m_ownedFailed.load()||!m_ownedClock||m_ownedClock->Retired())break;
++    if(m_ownedHalDevice.CheckGuards()!=owned_hal::Status::ok)break;
++    // One exact owner-held offer. Busy does not consume another playback/gain
++    // command, alter this tuple, advance queued bookkeeping or refresh a lease.
++    if(!holding) {
++      const auto& command=m_ownedClock->Control();
++      if(gain.revision&&command.revision) {
++        auto candidate=effective;
++        candidate.playback_revision=command.revision;candidate.playback_epoch=playbackEpoch;
++        candidate.gain_revision=gain.revision;candidate.gain_epoch=gain.epoch;
++        candidate.request_start_ns=gain.start;candidate.request_end_ns=gain.end;
++        candidate.issue_ns=gain.issue;candidate.expiry_ns=gain.expiry;
++        candidate.volume=gain.volume;candidate.muted=gain.muted;candidate.supplied_gain=owned_hal::KodiGain(gain.volume,gain.muted);
++        candidate.started=m_ownedPlaybackStarted.load();candidate.sample_zero_proven=m_ownedClock->SourceZero();
++        candidate.playing=candidate.started&&m_ownedInitialPrefillComplete.load()&&(command.state=="play"||command.state=="resume");
++        candidate.native_fence=resumeGrant.Epoch();candidate.resume_playback_revision=resumeGrant.Revision();candidate.effective_intent=intent;
++        if(!haveQueued||std::memcmp(&candidate,&queued,sizeof(candidate))!=0){held=candidate;holding=true;}
++      }
++      if(!holding) {
++        // Bootstrap waiting+first gain before accepting the play transition.
++        if(!command.revision||gain.revision) {
++          std::vector<std::string> commands;
++          if(!m_ownedClockTransport->Poll(command.revision,commands)){RevokeOwnedClock("command_transport");break;}
++          if(!commands.empty()) {
++            if(!m_ownedClock->Apply(commands.front(),now))break;
++            const auto& next=m_ownedClock->Control();++playbackEpoch;
++            if(next.state=="stop"){m_ownedHalDevice.RequestStop();break;}
++            m_ownedClockPaused=next.state=="pause";
++            if(next.state=="play"||next.state=="resume") {
++              const uint64_t before=core.NativeState(),pause=m_ownedLastNativePauseNs.load(),after=core.NativeState();
++              if(before!=after||!resumeGrant.Transition(next.revision,next.issued,after,pause)){RevokeOwnedClock("stale_native_resume");break;}
++              if(next.state=="play") {
++                m_ownedPlaybackStarted=true;std::lock_guard<std::mutex> lock(m_ownedMutex);
++                if(!m_ownedVideoHost.AcknowledgeStart(now)){RevokeOwnedClock("video_startup_timeout");break;}
++              }
++            }
++            if(next.state!="waiting"&&!beginIntent()){RevokeOwnedClock("hal_intent_exhausted");break;}
++            m_ownedClock->Acknowledge(now);
++            // Prepare this transition on the next bounded owner iteration.
++            continue;
++          }
++        }
++        if(now>=nextGainPoll) {
++          std::vector<owned_clock::Gain> pending;
++          if(!m_ownedClockTransport->PollGain(gain.revision,pending)){RevokeOwnedClock("gain_transport");break;}
++          if(!pending.empty()) {
++            const auto& next=pending.front();
++            const bool changed=!gain.revision||owned_hal::KodiGain(gain.volume,gain.muted)!=owned_hal::KodiGain(next.volume,next.muted)||gain.muted!=next.muted;
++            const uint64_t epoch=gain.epoch+changed;
++            if(next.nonce!=m_ownedClockNonce||next.incarnation!=m_ownedClockIncarnation||next.timeline!=m_ownedClockTimeline||
++               next.device!=1||next.revision!=gain.revision+1||next.epoch!=epoch||next.issue>now||next.start<m_ownedClockOpenNs||
++               (gain.revision&&next.start<=gain.start)||std::abs(next.multiplier-owned_hal::KodiGain(next.volume,next.muted))>1e-12||now>=next.expiry)
++              {RevokeOwnedClock("gain_command");break;}
++            if(changed&&!beginIntent()){RevokeOwnedClock("hal_intent_exhausted");break;}
++            gain=next;
++          }
++          nextGainPoll=now+20000000;
++        }
++      }
++    }
++    if(holding) {
++      const auto offered=core.Publish(held);
++      if(offered==owned_hal::Status::ok) {
++        queued=held;haveQueued=true;holding=false;++queuedSequence;
++        std::ostringstream event;event<<"{\"kind\":\"owned_hal_offer_queued\",\"publication_sequence\":"<<queuedSequence
++          <<",\"gain_revision\":"<<queued.gain_revision<<",\"playback_revision\":"<<queued.playback_revision
++          <<",\"effective_intent\":"<<queued.effective_intent<<",\"queued_not_applied\":true}";WriteOwnedTelemetryLine(event.str());
++      } else if(offered!=owned_hal::Status::busy)break;
++    }
++    drainEvidence();
++    m_ownedAcceptedFrames=core.source.Consumed();
++    const uint64_t finalEnd=core.FinalEndNs();
++    if(finalEnd&&now>=finalEnd) {
++      if(!natural) {
++        natural=true;m_ownedDrained=true;
++        {std::lock_guard<std::mutex> lock(m_ownedMutex);if(!m_ownedVideoHost.Drain(finalEnd)){RevokeOwnedClock("hal_eof_host");break;}}
++        terminal("natural_eof",finalEnd);
++      }
++      if(now>=core.HoldUntilNs())break;
++    }
++    {std::lock_guard<std::mutex> lock(m_ownedMutex);if(m_ownedVideoHost.Expired(now)){RevokeOwnedClock("video_startup_timeout");break;}}
++    std::this_thread::sleep_for(std::chrono::milliseconds(5));
++  }
++  if(!natural)terminal("retired",0);
++  // Capture natural EOF before Cleanup changes the core reason to cleanup.
++  const auto failureBeforeCleanup=core.Failure();
++  m_ownedHalDevice.RequestStop();
++  const auto cleanup=m_ownedHalDevice.Cleanup(MachAbsoluteNowNs()+2000000000ULL);
++  drainEvidence();
++  if(!natural||failureBeforeCleanup!=owned_hal::Reason::none||cleanup!=owned_hal::CleanupResult::clean)m_ownedFailed=true;
++  terminal(cleanup==owned_hal::CleanupResult::clean?"cleanup_clean":"cleanup_failed",natural?core.FinalEndNs():0,static_cast<int>(cleanup));
++  m_ownedSourceStop=true;
++}
++#endif
+--- a/src/StreamManager.h
++++ b/src/StreamManager.h
+@@ -20,0 +21,3 @@
++#if defined(__APPLE__)
++#include "OwnedHalDevice.h"
++#endif
+@@ -61,0 +65,3 @@
++#if defined(__APPLE__)
++  InputStreamFFmpegDirect(const kodi::addon::IInstanceInfo& instance,owned_hal::DeviceApi api);
++#endif
+@@ -104,0 +111,12 @@
++  std::atomic<bool> m_ownedHal{false};
++  // 0=unselected,1=HAL stable facade,2=AE opening,3=initialized AE.
++  std::atomic<uint64_t> m_ownedBackendSelection{0};
++  std::atomic<bool> m_ownedAbortBeforeSelection{false};
++  size_t OwnedQueuedFrames() const;
++#if defined(__APPLE__)
++  owned_hal::HalDevice m_ownedHalDevice;
++  std::unique_ptr<owned_hal::HalSessionState> m_ownedHalState;
++  std::atomic<owned_hal::HalCore*> m_ownedHalCore{nullptr};
++  void RunOwnedHal();
++  bool WriteHalSegment(const owned_hal::HalSegment& segment);
++#endif
+@@ -115,0 +134 @@
++  std::atomic<uint64_t> m_ownedLastNativePauseNs{0};
+@@ -133,2 +152,2 @@
+-  bool DecodeOwnedAacPacket(const uint8_t* data, size_t size);
+-  bool AppendOwnedFrame(const AVFrame* frame);
++  bool DecodeOwnedAacPacket(const uint8_t* data, size_t size,std::unique_lock<std::mutex>* decoderLock=nullptr);
++  bool AppendOwnedFrame(const AVFrame* frame,std::unique_lock<std::mutex>* decoderLock=nullptr);
+--- a/src/OwnedHalCore.h
++++ b/src/OwnedHalCore.h
+@@ -15 +15 @@
+-enum class Status { ok,invalid,retired,quarantined };
++enum class Status { ok,invalid,retired,quarantined,busy };
+@@ -28,0 +29,3 @@
++  uint64_t native_fence=1,resume_playback_revision=1,effective_intent=1;
++  // native_fence is an epoch authorized once by resume_playback_revision;
++  // ordinary gain refreshes carry that grant unchanged.
+@@ -54,0 +58,4 @@
++  EffectiveControl applied{}; // complete callback-selected tuple; owner learns it only by draining evidence
++  uint64_t publication_sequence=0,applied_intent=0,desired_intent=0,native_gate=0,authorized_native_epoch=0;
++  uint64_t resume_playback_revision=0;
++  bool requested_playing=false,resume_granted=false;
+@@ -128,4 +135,3 @@
+-// Atomic words avoid the undefined non-atomic data races of a conventional seqlock.
+-// All SC operations share a total order. One owner publishes; any thread retires.
+-// Acquire's final generation read IS the block linearization point. A later
+-// publication/revocation may not undo that block's source advancement.
++// Capacity-one SPSC offer. Publication queues; only the callback applies.
++// The producer never writes until it acquires the consumer's release handoff.
++// The consumer copies once after acquiring published, then releases the slot.
+@@ -134,23 +140,14 @@
+-  static constexpr uint64_t kRetired=uint64_t(1)<<63;
+-  static constexpr size_t kWords=sizeof(EffectiveControl)/sizeof(uint64_t);
+-  static_assert(sizeof(EffectiveControl)%sizeof(uint64_t)==0,"whole atomic words");
+-  static_assert(std::is_trivially_copyable<EffectiveControl>::value,"wire snapshot");
+-  ControlMailbox()noexcept {for(auto& w:words_)w.store(0);}
+-  bool Ready()const noexcept {if(!generation_.is_lock_free())return false;for(const auto& w:words_)if(!w.is_lock_free())return false;return true;}
+-  bool Publish(const EffectiveControl& c)noexcept {
+-    uint64_t old=generation_.load();
+-    if((old&kRetired)||(old&1)||old>=kRetired-2)return false;
+-    if(!generation_.compare_exchange_strong(old,old+1))return false;
+-    std::array<uint64_t,kWords> words{};std::memcpy(words.data(),&c,sizeof(c));
+-    for(size_t i=0;i<kWords;++i)words_[i].store(words[i]);
+-    old+=1;return generation_.compare_exchange_strong(old,old+1); // retirement wins
+-  }
+-  bool Read(EffectiveControl& c,uint64_t& generation)const noexcept {
+-    generation=generation_.load();if(!generation||(generation&1)||(generation&kRetired))return false;
+-    std::array<uint64_t,kWords> words{};
+-    for(size_t i=0;i<kWords;++i)words[i]=words_[i].load();
+-    std::memcpy(&c,words.data(),sizeof(c));return true;
+-  }
+-  bool Acquire(uint64_t generation)const noexcept {return generation_.load()==generation&&generation&&!(generation&(kRetired|1));}
+-  void Retire()noexcept {generation_.fetch_or(kRetired);}
+-  uint64_t Generation()const noexcept {return generation_.load();}
++  bool Ready()const noexcept {return published_.is_lock_free()&&consumed_.is_lock_free();}
++  Status TryOffer(const EffectiveControl& c)noexcept {
++    const uint64_t p=published_.load(std::memory_order_relaxed);
++    if(p!=consumed_.load(std::memory_order_acquire))return Status::busy;
++    if(p==UINT64_MAX)return Status::invalid;
++    std::memcpy(&pending_payload_,&c,sizeof(c));
++    published_.store(p+1,std::memory_order_release);return Status::ok;
++  }
++  bool TakePending(EffectiveControl& c,uint64_t& sequence)noexcept {
++    const uint64_t p=published_.load(std::memory_order_acquire);
++    if(p==consumed_.load(std::memory_order_relaxed))return false;
++    std::memcpy(&c,&pending_payload_,sizeof(c));
++    sequence=p;consumed_.store(p,std::memory_order_release);return true;
++  }
+@@ -158,2 +155,54 @@
+-  std::array<std::atomic<uint64_t>,kWords> words_{};
+-  std::atomic<uint64_t> generation_{0};
++  EffectiveControl pending_payload_{};
++  std::atomic<uint64_t> published_{0},consumed_{0};
++};
++class NativeGate {
++public:
++  static constexpr uint64_t kRetired=uint64_t(1)<<63,kPaused=uint64_t(1)<<62,kEpochMask=kPaused-1;
++  bool Ready()const noexcept {return word_.is_lock_free();}
++  uint64_t Load()const noexcept {return word_.load();}
++  void Retire()noexcept {word_.fetch_or(kRetired);}
++  void Speed(int speed)noexcept {
++    uint64_t old=word_.load();
++    while(!(old&kRetired)) {
++      if(speed==1000&&!(old&kPaused))return; // idempotent already-normal notification
++      if((speed!=0&&speed!=1000)||(old&kEpochMask)==kEpochMask){Retire();return;}
++      uint64_t next=(old+1)&~kPaused;if(speed==0)next|=kPaused;
++      if(word_.compare_exchange_strong(old,next))return;
++    }
++  }
++private:std::atomic<uint64_t> word_{1};
++};
++// Owner-only authorization by an authenticated playback transition. Deferred
++// callback-before-native-speed grants target one exact next epoch, never a
++// later unrelated unpause. Native pause time is recorded before its gate change.
++class ResumeGrant {
++public:
++  bool Transition(uint64_t revision,uint64_t issued,uint64_t gate,uint64_t pause_ns)noexcept {
++    if(!revision||revision<=revision_||issued<pause_ns||(gate&NativeGate::kRetired))return false;
++    const uint64_t epoch=gate&NativeGate::kEpochMask;
++    if((gate&NativeGate::kPaused)&&epoch==NativeGate::kEpochMask)return false;
++    revision_=revision;epoch_=epoch+((gate&NativeGate::kPaused)?1:0);pause_ns_=pause_ns;return true;
++  }
++  bool Ready(uint64_t gate,uint64_t pause_ns)const noexcept {
++    return revision_&&!(gate&(NativeGate::kRetired|NativeGate::kPaused))&&
++      (gate&NativeGate::kEpochMask)==epoch_&&pause_ns==pause_ns_;
++  }
++  uint64_t Epoch()const noexcept{return epoch_;}
++  uint64_t Revision()const noexcept{return revision_;}
++private:uint64_t revision_=0,epoch_=0,pause_ns_=0;
++};
++
++// Non-real-time owner's private applied view. A queued/selected-but-undrained
++// offer cannot change it. No plain callback-owned storage is read by the owner.
++class AppliedControlView {
++public:
++  bool Observe(const HalSegment& s)noexcept {
++    if(!s.control_acquired)return true;
++    if((have_&&(s.sequence<=last_.sequence||s.publication_sequence<last_.publication_sequence||
++        s.gain_revision<last_.gain_revision||s.playback_revision<last_.playback_revision))||
++       !(s.binding==s.applied.binding)||s.gain_revision!=s.applied.gain_revision||
++       s.playback_revision!=s.applied.playback_revision||s.applied_intent!=s.applied.effective_intent)return false;
++    last_=s;have_=true;return true;
++  }
++  const HalSegment* Last()const noexcept{return have_?&last_:nullptr;}
++private:HalSegment last_{};bool have_=false;
+@@ -167 +216,8 @@
+-  bool Ready()const noexcept {return source.Ready()&&evidence.Ready()&&controls_.Ready()&&reason_.is_lock_free()&&final_end_.is_lock_free();}
++  bool Ready()const noexcept {return source.Ready()&&evidence.Ready()&&controls_.Ready()&&gate_.Ready()&&desired_intent_.is_lock_free()&&reason_.is_lock_free()&&final_end_.is_lock_free();}
++  uint64_t DesiredIntent()const noexcept{return desired_intent_.load();}
++  Status BeginEffectiveIntent(uint64_t intent)noexcept {
++    if(Retired())return Status::retired;
++    const uint64_t old=desired_intent_.load();
++    if(!intent||intent<old||intent==UINT64_MAX){Retire(Reason::invalid_control);return Status::invalid;}
++    desired_intent_.store(intent);return Status::ok;
++  }
+@@ -171,0 +228,2 @@
++      c.effective_intent&&c.effective_intent<=DesiredIntent()&&c.resume_playback_revision<=c.playback_revision&&
++      c.native_fence<=NativeGate::kEpochMask&&
+@@ -179 +237,6 @@
+-       c.playback_epoch<last_control_.playback_epoch||c.gain_revision<last_control_.gain_revision||c.gain_epoch<last_control_.gain_epoch)) {
++       c.playback_epoch<last_control_.playback_epoch||c.gain_revision<last_control_.gain_revision||c.gain_epoch<last_control_.gain_epoch||
++       c.effective_intent<last_control_.effective_intent||
++       ((c.playback_epoch!=last_control_.playback_epoch||c.gain_epoch!=last_control_.gain_epoch)&&c.effective_intent<=last_control_.effective_intent)||
++       ((c.playback_epoch==last_control_.playback_epoch&&c.gain_epoch==last_control_.gain_epoch)&&c.effective_intent!=last_control_.effective_intent)||
++       ((c.native_fence!=last_control_.native_fence||c.resume_playback_revision!=last_control_.resume_playback_revision)&&
++        (!c.playing||c.resume_playback_revision!=c.playback_revision||c.resume_playback_revision<=last_control_.resume_playback_revision)))) {
+@@ -183 +246,3 @@
+-    if(!controls_.Publish(authoritative))return Status::retired;
++    const Status offered=controls_.TryOffer(authoritative);
++    if(offered!=Status::ok){if(offered==Status::invalid)Retire(Reason::invalid_control);return offered;}
++    if(Retired())return Status::retired;
+@@ -185,0 +251,6 @@
++  void NativeSpeed(int speed)noexcept {
++    if(speed!=0&&speed!=1000){Retire(Reason::invalid_control);return;}
++    gate_.Speed(speed);
++  }
++  uint64_t NativeFence()const noexcept {return gate_.Load()&NativeGate::kEpochMask;}
++  uint64_t NativeState()const noexcept {return gate_.Load();}
+@@ -188,3 +259,3 @@
+-    controls_.Retire();uint64_t expected=0;reason_.compare_exchange_strong(expected,static_cast<uint64_t>(reason));
+-  }
+-  bool Retired()const noexcept {return (controls_.Generation()&ControlMailbox::kRetired)!=0;}
++    gate_.Retire();uint64_t expected=0;reason_.compare_exchange_strong(expected,static_cast<uint64_t>(reason));
++  }
++  bool Retired()const noexcept {return (gate_.Load()&NativeGate::kRetired)!=0;}
+@@ -192 +263 @@
+-  uint64_t Generation()const noexcept {return controls_.Generation();}
++  uint64_t Generation()const noexcept {return gate_.Load();}
+@@ -226,2 +297,10 @@
+-    EffectiveControl c{};uint64_t generation=0;
+-    if(!controls_.Read(c,generation))return CommitZero(s,i);
++    EffectiveControl selected{};uint64_t publication=current_publication_;
++    const bool took=controls_.TakePending(selected,publication);
++    if(!took){if(!have_current_)return CommitZero(s,i);selected=current_;}
++    const EffectiveControl& c=selected;
++    if(!std::isfinite(c.supplied_gain)||c.supplied_gain<0||c.supplied_gain>1||c.volume>100||c.muted>1||
++       c.started>1||c.sample_zero_proven>1||c.playing>1||
++       (took&&have_current_&&(!(c.binding==current_.binding)||c.device_generation!=current_.device_generation||
++        c.stream_generation!=current_.stream_generation||c.gain_revision<current_.gain_revision||c.gain_epoch<current_.gain_epoch||
++        c.playback_revision<current_.playback_revision||c.playback_epoch<current_.playback_epoch||
++        c.effective_intent<current_.effective_intent||publication<=current_publication_)))return Fail(Reason::invalid_control);
+@@ -232,0 +312,7 @@
++    // One bounded SC native-gate load is the successful block's acquisition.
++    // Publication counters/desired intent cannot invalidate the selected audio.
++    const uint64_t generation=gate_.Load();
++    if(generation&NativeGate::kRetired)return CommitZero(s,i);
++    const uint64_t native_epoch=generation&NativeGate::kEpochMask;
++    const bool granted=!(generation&NativeGate::kPaused)&&c.resume_playback_revision&&c.native_fence==native_epoch;
++    const bool playing=c.playing&&granted;
+@@ -234,2 +320,2 @@
+-    if(c.started&&c.sample_zero_proven&&c.playing&&!final) {
+-      if(available<kFrames&&end==UINT64_MAX)return FailCurrent(Reason::shortfall,generation,s,i);
++    if(c.started&&c.sample_zero_proven&&playing&&!final) {
++      if(available<kFrames&&end==UINT64_MAX)return Fail(Reason::shortfall);
+@@ -240,3 +326 @@
+-       !ScheduledEndNs(i.output_ticks,i.timebase_numer,i.timebase_denom,count,source_end))return FailCurrent(Reason::timestamp,generation,s,i);
+-    // Partial EOF leases cover source END; every other nonterminal block needs
+-    // full scheduled block coverage, even muted/paused blocks.
++       !ScheduledEndNs(i.output_ticks,i.timebase_numer,i.timebase_denom,count,source_end))return Fail(Reason::timestamp);
+@@ -245 +329 @@
+-    if(!terminal&&(c.request_end_ns>entry||c.issue_ns>entry||c.expiry_ns<required))return FailCurrent(Reason::lease,generation,s,i);
++    if(!terminal&&(c.request_end_ns>entry||c.issue_ns>entry||c.expiry_ns<required))return Fail(Reason::lease);
+@@ -248,2 +332,2 @@
+-         (static_cast<__uint128_t>(c.request_start_ns)+100000000)*i.timebase_denom))return FailCurrent(Reason::lease,generation,s,i);
+-    if(!controls_.Acquire(generation))return CommitZero(s,i);
++         (static_cast<__uint128_t>(c.request_start_ns)+100000000)*i.timebase_denom))return Fail(Reason::lease);
++    current_=c;current_publication_=publication;have_current_=true;
+@@ -255 +339,4 @@
+-    s.applied_gain=c.supplied_gain;s.muted=c.muted!=0;s.playing=c.playing!=0;s.terminal=terminal;
++    s.applied_gain=c.supplied_gain;s.muted=c.muted!=0;s.playing=playing;s.terminal=terminal;
++    s.applied=c;s.publication_sequence=publication;s.applied_intent=c.effective_intent;s.desired_intent=DesiredIntent();
++    s.native_gate=generation;s.authorized_native_epoch=c.native_fence;s.resume_playback_revision=c.resume_playback_revision;
++    s.requested_playing=c.playing!=0;s.resume_granted=granted;
+@@ -262 +349 @@
+-    if(!final&&!count&&end==consumed&&c.started&&c.sample_zero_proven&&c.playing)final_end_.store(host,std::memory_order_release);
++    if(!final&&!count&&end==consumed&&c.started&&c.sample_zero_proven&&playing)final_end_.store(host,std::memory_order_release);
+@@ -268,3 +354,0 @@
+-  CallbackResult FailCurrent(Reason reason,uint64_t generation,HalSegment& s,const CallbackInput& i)noexcept {
+-    return controls_.Acquire(generation)?Fail(reason):CommitZero(s,i);
+-  }
+@@ -276 +360 @@
+-  ControlMailbox controls_;
++  ControlMailbox controls_;NativeGate gate_;std::atomic<uint64_t> desired_intent_{1};
+@@ -280,0 +365 @@
++  EffectiveControl current_{};bool have_current_=false;uint64_t current_publication_=0;
+--- a/src/OwnedClockProtocol.h
++++ b/src/OwnedClockProtocol.h
+@@ -158,0 +159,56 @@
++
++// Separate gain namespace for the opt-in HAL controls phase. Strict flat JSON:
++// no escaped identifiers, duplicate keys, nonfinite numbers, or implicit types.
++#include <map>
++#include <cstdlib>
++#include <cmath>
++namespace owned_clock {
++struct Gain {
++ std::string nonce,incarnation,timeline;
++ uint64_t revision=0,epoch=0,device=0,start=0,end=0,issue=0,expiry=0,volume=0;
++ bool muted=false;double multiplier=0;
++};
++inline bool GainNumber(const std::string& s,uint64_t& out) {
++ if(s=="0"){out=0;return true;}return Number(s,out);
++}
++inline bool GainJson(const std::string& line,std::map<std::string,std::string>& values) {
++ if(line.size()<3||line.size()>2048||line.back()!='\n')return false;
++ size_t p=0;auto space=[&]{while(p<line.size()&&(line[p]==' '||line[p]=='\n'||line[p]=='\r'||line[p]=='\t'))++p;};
++ auto quoted=[&](std::string& out)->bool {
++  if(p>=line.size()||line[p++]!='"')return false;
++  const size_t begin=p;
++  while(p<line.size()&&line[p]!='"'){if(static_cast<unsigned char>(line[p])<32||line[p]=='\\')return false;++p;}
++  if(p==line.size())return false;out=line.substr(begin,p-begin);++p;return true;
++ };
++ space();if(p==line.size()||line[p++]!='{')return false;
++ while(true) {
++  space();std::string key,value;if(!quoted(key))return false;space();if(p==line.size()||line[p++]!=':')return false;space();
++  if(p<line.size()&&line[p]=='"'){std::string text;if(!quoted(text))return false;value="\""+text+"\"";}
++  else {const size_t begin=p;while(p<line.size()&&line[p]!=','&&line[p]!='}'&&line[p]!=' '&&line[p]!='\n'&&line[p]!='\r'&&line[p]!='\t')++p;value=line.substr(begin,p-begin);}
++  if(value.empty()||!values.emplace(key,value).second)return false;
++  space();if(p==line.size())return false;if(line[p]=='}'){++p;break;}if(line[p++]!=',')return false;
++ }
++ space();return p==line.size();
++}
++inline bool ParseGain(const std::string& wire,Gain& result) {
++ std::map<std::string,std::string> v;if(!GainJson(wire,v)||v.size()!=15)return false;
++ auto text=[&](const char* k,size_t size,std::string& out){auto i=v.find(k);if(i==v.end()||i->second.size()!=size+2||i->second.front()!='"'||i->second.back()!='"')return false;out=i->second.substr(1,size);return Hex(out,size);};
++ auto number=[&](const char* k,uint64_t& out){auto i=v.find(k);return i!=v.end()&&GainNumber(i->second,out);};
++ Gain g;uint64_t contract=0;
++ if(!text("nonce",32,g.nonce)||!text("incarnation",32,g.incarnation)||!text("timeline_sha256",64,g.timeline)||
++    v["output_backend"]!="\"hal_callback_v1\""||!number("hal_contract_version",contract)||contract!=1||
++    !number("device_generation",g.device)||!g.device||!number("revision",g.revision)||!g.revision||g.revision>6000||
++    !number("effective_epoch",g.epoch)||!g.epoch||!number("request_start_ns",g.start)||!number("request_end_ns",g.end)||
++    !number("issue_ns",g.issue)||!number("expiry_ns",g.expiry)||!number("volume",g.volume)||g.volume>100||
++    (v["muted"]!="true"&&v["muted"]!="false"))return false;
++ g.muted=v["muted"]=="true";const auto& m=v["multiplier"];if(m.empty()||m.front()=='+'||m.front()=='-'||m.front()=='.')return false;
++ // Decimal JSON grammar; strtod alone would also accept hex, infinity and NaN.
++ size_t i=0;if(m[i]=='0')++i;else{if(m[i]<'1'||m[i]>'9')return false;while(i<m.size()&&m[i]>='0'&&m[i]<='9')++i;}
++ if(i<m.size()&&m[i]=='.'){size_t b=++i;while(i<m.size()&&m[i]>='0'&&m[i]<='9')++i;if(i==b)return false;}
++ if(i<m.size()&&(m[i]=='e'||m[i]=='E')){++i;if(i<m.size()&&(m[i]=='+'||m[i]=='-'))++i;size_t b=i;while(i<m.size()&&m[i]>='0'&&m[i]<='9')++i;if(i==b)return false;}
++ if(i!=m.size())return false;char* tail=nullptr;g.multiplier=std::strtod(m.c_str(),&tail);
++ if(!tail||*tail||!std::isfinite(g.multiplier)||g.start>g.end||g.end-g.start>50000000||g.end>g.issue||
++    g.start>UINT64_MAX-500000000||g.expiry!=g.start+500000000||g.issue>g.expiry)return false;
++ result=g;return true;
++}
++}
+--- a/src/OwnedClockTransport.h
++++ b/src/OwnedClockTransport.h
+@@ -142,0 +143,30 @@
++  bool PollGain(uint64_t revision,std::vector<Gain>& pending) {
++    pending.clear();struct stat current{};
++    if(directory<0||revision>6000||lstat(path.c_str(),&current)!=0||current.st_dev!=identity.st_dev||
++       current.st_ino!=identity.st_ino||!S_ISDIR(current.st_mode)||(current.st_mode&0777)!=0700||current.st_uid!=geteuid())return false;
++    int fd=openat(directory,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);DIR* scan=fd>=0?fdopendir(fd):nullptr;
++    if(!scan){if(fd>=0)close(fd);return false;}
++    std::vector<bool> present(6000,false);bool valid=true;errno=0;
++    while(dirent* entry=readdir(scan)) {
++      const std::string name(entry->d_name);if(name.compare(0,5,"gain-")!=0)continue;
++      if(name.size()!=16||name.substr(11)!=".json"){valid=false;continue;}
++      uint64_t n=0;bool digits=true;for(size_t i=5;i<11;++i){if(name[i]<'0'||name[i]>'9'){digits=false;break;}n=n*10+name[i]-'0';}
++      if(!digits||n==0||n>6000){valid=false;continue;}present[n-1]=true;
++    }
++    if(errno)valid=false;closedir(scan);bool missing=false;
++    for(uint64_t i=0;i<6000;++i) {
++      if(!present[i]){if(i<revision)valid=false;missing=true;continue;}
++      if(missing){valid=false;continue;}
++      char name[32];std::snprintf(name,sizeof(name),"gain-%06llu.json",static_cast<unsigned long long>(i+1));struct stat st{};
++      if(fstatat(directory,name,&st,AT_SYMLINK_NOFOLLOW)!=0||!File(st)||st.st_size<=0||st.st_size>2048){valid=false;continue;}
++      auto old=gainRecords.find(i+1);if(old!=gainRecords.end()&&!Same(old->second,st)){valid=false;continue;}
++      if(i<revision||pending.size()>=1)continue;
++      int file=openat(directory,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);if(file<0){valid=false;continue;}
++      struct stat before{},after{};char bytes[2049];bool stable=fstat(file,&before)==0&&Same(st,before);ssize_t n=stable?read(file,bytes,sizeof(bytes)):-1;
++      stable=stable&&fstat(file,&after)==0&&Same(before,after);close(file);Gain gain;
++      if(!stable||n!=st.st_size||!ParseGain(std::string(bytes,static_cast<size_t>(n)),gain)||gain.revision!=i+1){valid=false;continue;}
++      gainRecords[i+1]=st;pending.push_back(gain);
++    }
++    return valid;
++  }
++
+@@ -161,0 +192 @@
++  std::map<uint64_t,struct stat> gainRecords;
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -36,0 +37,4 @@
++
++if(APPLE)
++  list(APPEND FFMPEGDIRECT_SOURCES src/OwnedHalDevice.cpp)
++endif()
+--- a/inputstream.ffmpegdirect/addon.xml.in
++++ b/inputstream.ffmpegdirect/addon.xml.in
+@@ -13 +13 @@
+-    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths"
++    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet|owned_player_mode|owned_player_core|owned_player_queue_tenths|owned_output_backend|owned_hal_contract_version"

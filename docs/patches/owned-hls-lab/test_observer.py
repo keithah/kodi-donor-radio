@@ -106,3 +106,56 @@ class VideoControlIdentityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_gain_trial_schedule_restore_and_exact_dispatch(tmp_path,monkeypatch):
+    now=[0.0];calls=[]
+    report=dict(actions=[],timeline=[])
+    args=types.SimpleNamespace(output_backend='hal_callback_v1',hal_phase='controls',action='none',port=19092,player_mode='videoplayer_video_v1',seconds=50)
+    def rpc(method,params=None,**kw):
+        calls.append((now[0],method,params))
+        if method=='Application.GetProperties':return dict(volume=37,muted=True)
+        if method=='Player.GetActivePlayers':return [{'playerid':7,'type':'video'}]
+        if method=='Player.GetItem':return {'item':{'dynpath':'fixture'}}
+        return 'OK'
+    monkeypatch.setattr(observer,'rpc',rpc)
+    monkeypatch.setattr(observer,'host_ns',lambda:int(now[0]*1e9))
+    monkeypatch.setattr(observer.time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(observer.time,'sleep',lambda s:now.__setitem__(0,now[0]+s))
+    observer.gain_controls_trial(report,args,'fixture',lambda:report.update(open_response_host_ns=observer.host_ns()),tmp_path)
+    dispatched=[(t,p) for t,m,p in calls if m in ('Application.SetVolume','Application.SetMute')]
+    assert dispatched[:2]==[(0,{'volume':100}),(0,{'mute':False})]
+    assert dispatched[-2:]==[(50,{'volume':37}),(50,{'mute':True})]
+    for (actual,params),due in zip(dispatched[2:-2],observer.GAIN_CONTROLS):
+        assert abs(actual-due['at'])<1e-6
+        assert params=={('mute' if 'muted' in due else 'volume'):due.get('muted',due.get('volume'))}
+    assert [(t,m) for t,m,p in calls if m=='Player.Stop']==[(40,'Player.Stop')]
+    saved=json.loads((tmp_path/'kodi-clock-observation.json').read_text())
+    assert saved['original_gain']=={'volume':37,'muted':True}
+    assert saved['gain_restore']['restored'] is True
+
+
+def test_gain_trial_failure_persists_and_never_retries_or_toggles(tmp_path,monkeypatch):
+    now=[0.0];calls=[];report=dict(actions=[],timeline=[])
+    args=types.SimpleNamespace(output_backend='hal_callback_v1',hal_phase='controls',action='none',port=19092,player_mode='videoplayer_video_v1',seconds=50)
+    def rpc(method,params=None,**kw):
+        calls.append((now[0],method,params))
+        if method=='Application.GetProperties':return dict(volume=37,muted=True)
+        if method=='Player.GetActivePlayers':return [{'playerid':7,'type':'video'}]
+        if method=='Player.GetItem':return {'item':{'dynpath':'wrong'}}
+        return 'OK'
+    monkeypatch.setattr(observer,'rpc',rpc);monkeypatch.setattr(observer,'host_ns',lambda:int(now[0]*1e9))
+    monkeypatch.setattr(observer.time,'monotonic',lambda:now[0]);monkeypatch.setattr(observer.time,'sleep',lambda s:now.__setitem__(0,now[0]+s))
+    with __import__('pytest').raises(RuntimeError):
+        observer.gain_controls_trial(report,args,'fixture',lambda:report.update(open_response_host_ns=observer.host_ns()),tmp_path)
+    assert not any(m=='Input.ExecuteAction' for t,m,p in calls)
+    assert len([1 for t,m,p in calls if m.startswith('Application.Set')])==4
+    assert report['gain_restore']['restored'] is True
+    assert json.loads((tmp_path/'kodi-clock-observation.json').read_text())['gain_trial_error']=='RuntimeError'
+
+
+def test_gain_trial_restrictions_before_any_action(monkeypatch,tmp_path):
+    base=dict(output_backend='hal_callback_v1',hal_phase='controls',action='none',port=19092,player_mode='videoplayer_video_v1',seconds=50)
+    monkeypatch.setattr(observer,'rpc',lambda *a,**kw:__import__('pytest').fail('RPC before guard'))
+    for change in (dict(output_backend='ae'),dict(hal_phase=None),dict(action='pause'),dict(port=19093),dict(seconds=49)):
+        with __import__('pytest').raises(ValueError):observer.gain_controls_trial({},types.SimpleNamespace(**dict(base,**change)),'fixture',lambda:None,tmp_path)

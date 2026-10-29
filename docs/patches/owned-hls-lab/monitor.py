@@ -8,6 +8,100 @@ import threading
 import time
 import xbmc
 
+
+def run_hal_controls(transport, binding, fixture):
+    """Dedicated controls phase. This function never constructs an ad adapter."""
+    from dataclasses import asdict
+    from owned_clock import OwnedTransportError, mach_host_ns
+    from owned_hal_gain import HalControlSession, HalGainController
+    provider=HalControlSession(binding,mach_host_ns)
+    pending=queue.Queue(maxsize=80000)
+    stopped=threading.Event();active=threading.Event()
+    def emit(row):
+        try:pending.put_nowait(row)
+        except queue.Full:provider.retire('hal_output_queue_bound')
+    def rpc(method,params):
+        response=json.loads(xbmc.executeJSONRPC(json.dumps(dict(jsonrpc='2.0',id=1,method=method,params=params))))
+        if 'error' in response or 'result' not in response:raise RuntimeError('gain_rpc_error')
+        return response['result']
+    gain=HalGainController(rpc,transport,mach_host_ns)
+    class ControlMonitor(xbmc.Monitor):
+        def onNotification(self,sender,method,data):gain.notify(sender,method,data)
+    # Register notifications before any Application.GetProperties call.
+    monitor=ControlMonitor()
+    def control(state,callback):
+        command=provider.control(state)
+        emit(dict(kind='owned_callback',event=state,callback=callback,issued_mach_ns=mach_host_ns(),
+                  revision=command.revision if command else None))
+        if state=='play':active.set()
+        if state=='stop':stopped.set()
+    class ControlPlayer(xbmc.Player):
+        def onAVStarted(self):
+            try:provider.route(self.getPlayingFile())
+            except Exception:provider.retire('route_unreadable')
+            control('play','onAVStarted')
+        def onPlayBackPaused(self):control('pause','onPlayBackPaused')
+        def onPlayBackResumed(self):control('resume','onPlayBackResumed')
+        def onPlayBackStopped(self):control('stop','onPlayBackStopped')
+        def onPlayBackEnded(self):control('stop','onPlayBackEnded')
+        def onPlayBackError(self):provider.retire('playback_error')
+        def onPlayBackSeek(self,*args):provider.retire('seek')
+        def onPlayBackSpeedChanged(self,speed):
+            if speed not in (0,1):provider.retire('non_unit_speed')
+    player=ControlPlayer()
+    fd=os.open('owned-events.jsonl',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=transport.fd)
+    output=os.fdopen(fd,'w');rows=0
+    def flush():
+        nonlocal rows
+        while not pending.empty():
+            rows+=1
+            if rows>80000:provider.retire('hal_output_bound');raise RuntimeError('hal_output_bound')
+            output.write(json.dumps(pending.get_nowait(),sort_keys=True,separators=(',',':'),allow_nan=False)+'\n')
+        output.flush()
+    emit(dict(kind='owned_hal_controls_launch',binding=asdict(binding),beacons_enabled=False,
+              clock_authority=False,production_eligible=False))
+    fixture.publish_ready(transport.fd,asdict(binding));flush()
+    try:
+        for _ in range(30000):
+            if monitor.waitForAbort(.02) or (transport.directory/'monitor-stop').exists():break
+            if active.is_set() and not stopped.is_set():
+                try:provider.route(player.getPlayingFile())
+                except Exception:provider.retire('route_unreadable')
+            try:
+                records=transport.poll(provider)
+                if provider.binding.incarnation is not None:
+                    transport.binding=provider.binding;transport.device_generation=provider.device_generation
+                    transport.flush_commands(provider)
+                    if not provider.retired:
+                        command=gain.reconcile()
+                        if command:emit(dict(kind='owned_hal_gain_command',**asdict(command)))
+                for row in records:
+                    if row is None:continue
+                    if row['kind']=='hal_gain_ack':gain.acknowledge(row)
+                    emit(dict(kind='owned_hal_native_input',record=row))
+                if gain.retired:provider.retire(gain.reason)
+            except OwnedTransportError:provider.retire('transport_invalid')
+            if provider.retired and not stopped.is_set():
+                provider.control('stop')
+                transport.flush_commands(provider)
+                stopped.set()
+            flush()
+            if stopped.is_set():break
+            if not active.is_set() and mach_host_ns()-binding.launch_mach_ns>30_000_000_000:
+                provider.retire('startup_timeout');break
+    finally:
+        commands=provider.pending_commands()
+        if commands and commands[-1].state!='stop':
+            provider.control('stop')
+            try:transport.flush_commands(provider)
+            except OwnedTransportError:provider.retire('stop_transport_invalid')
+        gain.close();provider.retire('monitor_exit')
+        emit(dict(kind='owned_monitor_exit',retired=provider.retired,reason=provider.reason,
+                  beacons_enabled=False,clock_authority=False,checked_mach_ns=mach_host_ns()))
+        try:flush()
+        finally:output.close();transport.close()
+
+
 def run_owned(directory,library):
     """One monitor claims a newly created session; restart/reconnect is forbidden."""
     from dataclasses import asdict
@@ -31,6 +125,9 @@ def run_owned(directory,library):
             or fixture.sha(timeline)!=binding.timeline_sha256 or launch['estimator_sha256']!=runtime_clock.SHA256):
         raise ValueError('monitor_fresh_launch_binding')
     fixture.validate_profile(launch['settings'])
+    if binding.output_backend=='hal_callback_v1':
+        if launch.get('hal_phase')!='controls':raise ValueError('hal_controls_phase_required')
+        return run_hal_controls(transport,binding,fixture)
     presentation=fixture.presentation_from_manifest(json.loads(timeline))
     module=runtime_clock.frozen_module()
     pending=queue.Queue(maxsize=80000);cancel=threading.Event()
@@ -121,126 +218,132 @@ def run_owned(directory,library):
         finally:output.close();transport.close()
 
 
-import sys
-if len(sys.argv)>1 and sys.argv[1]=='--owned-beacons':
-    if len(sys.argv)!=4:raise ValueError('owned_monitor_arguments')
-    run_owned(sys.argv[2],sys.argv[3])
-    raise SystemExit
 
-ROOT = Path('/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer')
-# Kodi executes this script without guaranteeing its directory is on sys.path.
-HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('owned_hls_runtime_clock', str(HERE/'runtime_clock.py'))
-clock = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(clock)
-launch_ns = clock.mach_host_ns()
-session = clock.RuntimeClockSession(clock.URL, launch_ns)
-reader = clock.LedgerReader(ROOT/'hls-clock-ledger.jsonl')
-write_lock = threading.RLock()
-output_rows = 0
-MAX_OUTPUT_ROWS = 80000
+def main():
+    import sys
+    if len(sys.argv)>1 and sys.argv[1]=='--owned-beacons':
+        if len(sys.argv)!=4:raise ValueError('owned_monitor_arguments')
+        run_owned(sys.argv[2],sys.argv[3])
+        return
 
-def emit(row):
-    global output_rows
-    with write_lock:
-        if output_rows >= MAX_OUTPUT_ROWS:
-            session.retire('runtime_output_bound')
-            raise RuntimeError('bounded runtime ledger exhausted')
-        if row.get('kind') in ('runtime_clock_input','runtime_clock_snapshot'):
-            row = session.for_publication(row)
-        with (ROOT/'runtime-clock.jsonl').open('a') as f:
-            f.write(session.module.strict_json(row)+'\n')
-        output_rows += 1
+    ROOT = Path('/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer')
+    # Kodi executes this script without guaranteeing its directory is on sys.path.
+    HERE = Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location('owned_hls_runtime_clock', str(HERE/'runtime_clock.py'))
+    clock = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(clock)
+    launch_ns = clock.mach_host_ns()
+    session = clock.RuntimeClockSession(clock.URL, launch_ns)
+    reader = clock.LedgerReader(ROOT/'hls-clock-ledger.jsonl')
+    write_lock = threading.RLock()
+    output_rows = 0
+    MAX_OUTPUT_ROWS = 80000
 
-pending = queue.Queue(maxsize=MAX_OUTPUT_ROWS)
-control_lock = threading.Lock()
+    def emit(row):
+        nonlocal output_rows
+        with write_lock:
+            if output_rows >= MAX_OUTPUT_ROWS:
+                session.retire('runtime_output_bound')
+                raise RuntimeError('bounded runtime ledger exhausted')
+            if row.get('kind') in ('runtime_clock_input','runtime_clock_snapshot'):
+                row = session.for_publication(row)
+            with (ROOT/'runtime-clock.jsonl').open('a') as f:
+                f.write(session.module.strict_json(row)+'\n')
+            output_rows += 1
 
-def enqueue(row):
-    try:
-        pending.put_nowait(row)
-    except queue.Full:
-        session.retire('runtime_queue_bound')
+    pending = queue.Queue(maxsize=MAX_OUTPUT_ROWS)
+    control_lock = threading.Lock()
 
-def state(value):
-    # No telemetry read, parse or output IO can delay callback revocation.
-    # This independent lock preserves native control-file callback ordering.
-    now = clock.mach_host_ns()
-    with control_lock:
-        session.control(value, now)
-        tmp = ROOT/'control.tmp'
-        tmp.write_text(value)
-        os.replace(str(tmp), str(ROOT/'control'))
-        enqueue(dict(kind='runtime_callback', event=value, monotonic_ns=now))
-        enqueue(session.snapshot())
-
-def flush_pending():
-    while True:
+    def enqueue(row):
         try:
-            row = pending.get_nowait()
-        except queue.Empty:
-            break
-        if row['kind'] == 'runtime_callback':
-            with (ROOT/'callbacks.jsonl').open('a') as f:
-                f.write(json.dumps({'event':row['event'],
-                                    'monotonic_ns':row['monotonic_ns']})+'\n')
-        else:
-            emit(row)
+            pending.put_nowait(row)
+        except queue.Full:
+            session.retire('runtime_queue_bound')
 
-class Player(xbmc.Player):
-    def onAVStarted(self):
-        session.route(self.getPlayingFile())
-        state('play')
-    def onPlayBackPaused(self): state('pause')
-    def onPlayBackResumed(self): state('resume')
-    def onPlayBackStopped(self): state('stop')
-    def onPlayBackEnded(self): state('stop')
-    def onPlayBackError(self): session.retire('playback_error')
-    def onPlayBackSeek(self, *args): session.retire('seek')
-    def onPlayBackSpeedChanged(self, speed):
-        if speed not in (0, 1): session.retire('non_unit_speed')
+    def state(value):
+        # No telemetry read, parse or output IO can delay callback revocation.
+        # This independent lock preserves native control-file callback ordering.
+        now = clock.mach_host_ns()
+        with control_lock:
+            session.control(value, now)
+            tmp = ROOT/'control.tmp'
+            tmp.write_text(value)
+            os.replace(str(tmp), str(ROOT/'control'))
+            enqueue(dict(kind='runtime_callback', event=value, monotonic_ns=now))
+            enqueue(session.snapshot())
 
-(ROOT/'monitor-stop').unlink(missing_ok=True)
-for name in ('callbacks.jsonl', 'runtime-clock.jsonl'):
-    previous = ROOT/name
-    if previous.exists():
-        previous.rename(ROOT/('%s-previous-%d.jsonl'%(previous.stem,time.time_ns())))
-(ROOT/'monitor-ready').unlink(missing_ok=True)
-p = Player()
-m = xbmc.Monitor()
-state('waiting')
-emit(dict(kind='runtime_clock_launch', launch_id=session.launch_id,
-          launch_ns=launch_ns, selected_url=clock.URL, estimator_sha256=clock.SHA256,
-          clock_domain='explicit mach_absolute_time times mach_timebase_info nanoseconds; legacy callback monotonic_ns uses this domain',
-          production_eligible=False))
-(ROOT/'monitor-ready').write_text(str(launch_ns))
-last_snapshot = None
-try:
-    for _ in range(30000):
-        if m.waitForAbort(.02) or (ROOT/'monitor-stop').exists(): break
-        if session.control_state in ('play','resume','pause'):
+    def flush_pending():
+        while True:
             try:
-                session.route(p.getPlayingFile())
-            except Exception:
-                session.retire('route_unreadable')
-        try:
-            rows = reader.read()
-            for item in rows:
-                row = item.pop('row')
-                if row.get('kind') == 'clock_sample':
-                    enqueue(session.ingest(row, identity=item))
-        except clock.LedgerError as exc:
-            session.retire('ledger_error:'+str(exc))
-        snapshot = session.snapshot()
-        key = (snapshot['valid'], tuple(snapshot['reasons']), snapshot['generation'])
-        if key != last_snapshot:
-            enqueue(snapshot)
-            last_snapshot = key
-        flush_pending()
-finally:
-    session.retire('monitor_exit')
+                row = pending.get_nowait()
+            except queue.Empty:
+                break
+            if row['kind'] == 'runtime_callback':
+                with (ROOT/'callbacks.jsonl').open('a') as f:
+                    f.write(json.dumps({'event':row['event'],
+                                        'monotonic_ns':row['monotonic_ns']})+'\n')
+            else:
+                emit(row)
+
+    class Player(xbmc.Player):
+        def onAVStarted(self):
+            session.route(self.getPlayingFile())
+            state('play')
+        def onPlayBackPaused(self): state('pause')
+        def onPlayBackResumed(self): state('resume')
+        def onPlayBackStopped(self): state('stop')
+        def onPlayBackEnded(self): state('stop')
+        def onPlayBackError(self): session.retire('playback_error')
+        def onPlayBackSeek(self, *args): session.retire('seek')
+        def onPlayBackSpeedChanged(self, speed):
+            if speed not in (0, 1): session.retire('non_unit_speed')
+
+    (ROOT/'monitor-stop').unlink(missing_ok=True)
+    for name in ('callbacks.jsonl', 'runtime-clock.jsonl'):
+        previous = ROOT/name
+        if previous.exists():
+            previous.rename(ROOT/('%s-previous-%d.jsonl'%(previous.stem,time.time_ns())))
+    (ROOT/'monitor-ready').unlink(missing_ok=True)
+    p = Player()
+    m = xbmc.Monitor()
+    state('waiting')
+    emit(dict(kind='runtime_clock_launch', launch_id=session.launch_id,
+              launch_ns=launch_ns, selected_url=clock.URL, estimator_sha256=clock.SHA256,
+              clock_domain='explicit mach_absolute_time times mach_timebase_info nanoseconds; legacy callback monotonic_ns uses this domain',
+              production_eligible=False))
+    (ROOT/'monitor-ready').write_text(str(launch_ns))
+    last_snapshot = None
     try:
-        flush_pending()
-        emit(session.snapshot())
+        for _ in range(30000):
+            if m.waitForAbort(.02) or (ROOT/'monitor-stop').exists(): break
+            if session.control_state in ('play','resume','pause'):
+                try:
+                    session.route(p.getPlayingFile())
+                except Exception:
+                    session.retire('route_unreadable')
+            try:
+                rows = reader.read()
+                for item in rows:
+                    row = item.pop('row')
+                    if row.get('kind') == 'clock_sample':
+                        enqueue(session.ingest(row, identity=item))
+            except clock.LedgerError as exc:
+                session.retire('ledger_error:'+str(exc))
+            snapshot = session.snapshot()
+            key = (snapshot['valid'], tuple(snapshot['reasons']), snapshot['generation'])
+            if key != last_snapshot:
+                enqueue(snapshot)
+                last_snapshot = key
+            flush_pending()
     finally:
-        reader.close()
-        (ROOT/'monitor-ready').unlink(missing_ok=True)
+        session.retire('monitor_exit')
+        try:
+            flush_pending()
+            emit(session.snapshot())
+        finally:
+            reader.close()
+            (ROOT/'monitor-ready').unlink(missing_ok=True)
+
+
+if __name__ == '__main__':
+    main()

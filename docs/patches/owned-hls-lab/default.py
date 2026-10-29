@@ -2,7 +2,7 @@
 import os
 import sys
 
-def validate_lab_manifest(path, owned=False, video=False, video_control=False):
+def validate_lab_manifest(path, owned=False, video=False, video_control=False, hal=False):
     """Refuse a misinstalled diagnostic before monitor startup or playback."""
     import xml.etree.ElementTree as ET
     try:
@@ -16,6 +16,7 @@ def validate_lab_manifest(path, owned=False, video=False, video_control=False):
     if owned: required.update(('owned_clock_nonce','owned_clock_timeline','owned_clock_first_packet'))
     if video: required.update(('owned_player_mode','owned_player_core'))
     if video_control: required.add('owned_player_queue_tenths')
+    if hal: required.update(('owned_output_backend','owned_hal_contract_version'))
     if len(extensions) != 1 or not required.issubset(set(extensions[0].get('listitemprops', '').split('|'))):
         raise RuntimeError('Owned HLS lab requires terminal_eof and is_realtime_stream in kodi.inputstream listitemprops')
     dependencies = root.findall("requires/import[@addon='kodi.binary.global.audioengine']")
@@ -48,6 +49,14 @@ def owned_item_properties(binding):
         raise ValueError('resolved_video_queue_binding')
     if (video and binding.get('video_extradata_hex')!='00') or (not video and binding.get('video_extradata_hex') is not None):
         raise ValueError('resolved_video_marker_binding')
+    backend=binding.get('output_backend','ae')
+    if backend not in ('ae','hal_callback_v1'):raise ValueError('resolved_output_backend')
+    if backend=='hal_callback_v1':
+        from owned_hal_gain import HAL_FORMAT
+        if (not video or binding.get('hal_contract_version')!=1 or type(binding.get('hal_contract_version')) is not int
+                or binding.get('device_uid')!='BuiltInSpeakerDevice' or binding.get('device_format')!=HAL_FORMAT
+                or binding.get('lifecycle_capability')!='retained_exposed_context_until_process_exit'):
+            raise ValueError('resolved_hal_contract')
     properties={'inputstream':'inputstream.ffmpegdirect',
         'inputstream-player':'videodefaultplayer' if core=='VideoPlayer' else 'audiodefaultplayer',
         'inputstream.ffmpegdirect.stream_mode':'timeshift','inputstream.ffmpegdirect.is_realtime_stream':'false',
@@ -55,6 +64,9 @@ def owned_item_properties(binding):
         'inputstream.ffmpegdirect.owned_clock_timeline':binding['timeline_sha256'],
         'inputstream.ffmpegdirect.owned_clock_first_packet':binding['first_packet_sha256'],
         'inputstream.ffmpegdirect.owned_player_mode':mode,'inputstream.ffmpegdirect.owned_player_core':core}
+    if backend=='hal_callback_v1':
+        properties['inputstream.ffmpegdirect.owned_output_backend']=backend
+        properties['inputstream.ffmpegdirect.owned_hal_contract_version']='1'
     if video:properties['inputstream.ffmpegdirect.owned_player_queue_tenths']='40'
     return properties
 
@@ -88,9 +100,11 @@ def resolve_owned(nonce,mode):
         expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
         if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
         if binding.video_extradata_hex is not None:expected['video_extradata_hex']=binding.video_extradata_hex
+        for key in ('output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability'):
+            if binding.output_backend=='hal_callback_v1':expected[key]=asdict(binding)[key]
         expected['kind']='owned_monitor_ready'
         if (binding.player_mode=='videoplayer_video_v1'
-                and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or ready!=expected:
+                and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or json.dumps(ready,sort_keys=True,allow_nan=False)!=json.dumps(expected,sort_keys=True,allow_nan=False):
             raise ValueError('resolved_monitor_binding')
         if (transport.directory/'hello.json').exists() or (transport.directory/'native.jsonl').exists():
             raise ValueError('resolved_launch_reuse')
@@ -100,8 +114,12 @@ def resolve_owned(nonce,mode):
     finally:transport.close()
 
 
-def launch_owned(fixture, mode="paplayer_pcm_v1"):
+def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase=None):
     mode,core=player_contract(mode)
+    if (output_backend not in ('ae','hal_callback_v1')
+            or (output_backend=='hal_callback_v1' and (mode!='videoplayer_video_v1' or hal_phase!='controls'))
+            or (output_backend=='ae' and hal_phase is not None)):
+        raise ValueError('explicit_hal_controls_phase_required')
     import json
     import time
     import uuid
@@ -115,7 +133,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
     from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns
     from owned_ad_playback import canonical_timeline
     import runtime_clock
-    validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1')
+    validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1',hal=output_backend=='hal_callback_v1')
     runtime_clock.frozen_module()  # Refuse altered estimator before native Open.
     settings={}
     for setting in ('audiodevice','lowlatency','channels','config','processquality','stereoupmix','passthrough'):
@@ -132,9 +150,14 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
     nonce=uuid.uuid4().hex
     presentation,proof=fixture_api.resolve_presentation(Path(fixture),nonce)
     timeline=canonical_timeline(presentation,fixture_api.FIRST_PACKET)
+    hal_fields={}
+    if output_backend=='hal_callback_v1':
+        from owned_hal_gain import HAL_FORMAT
+        hal_fields=dict(output_backend=output_backend,hal_contract_version=1,device_uid='BuiltInSpeakerDevice',
+                        device_format=HAL_FORMAT,lifecycle_capability='retained_exposed_context_until_process_exit')
     binding=OwnedClockBinding(nonce,None,fixture_api.sha(timeline),fixture_api.FIRST_PACKET,
                               fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core,video_queue_tenths=40 if mode=="videoplayer_video_v1" else None,
-                              video_extradata_hex="00" if mode=="videoplayer_video_v1" else None)
+                              video_extradata_hex="00" if mode=="videoplayer_video_v1" else None,**hal_fields)
     transport=OwnedClockTransport.create(SESSION_ROOT,binding)
     directory=transport.directory
     def private_write(name,raw):
@@ -145,7 +168,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
         finally:os.close(descriptor)
     private_write('timeline.json',timeline)
     private_write('launch.json',fixture_api.canonical({'binding':asdict(binding),'fixture':str(Path(fixture).resolve()),
-                  'proof':proof,'settings':settings,'estimator_sha256':runtime_clock.SHA256}))
+                  'proof':proof,'settings':settings,'estimator_sha256':runtime_clock.SHA256,'hal_phase':hal_phase}))
     try:
         xbmc.executebuiltin('RunScript(%s,--owned-beacons,%s,%s)'%(lab/'monitor.py',directory,library))
         deadline=time.monotonic()+10
@@ -174,8 +197,9 @@ if __name__ == '__main__':
         if set(query)!={'owned_resolve','player_mode'} or any(len(v)!=1 for v in query.values()):raise ValueError('resolved_arguments')
         resolve_owned(query['owned_resolve'][0],query['player_mode'][0])
     elif query.get('owned_beacons')==['1']:
-        if not {'owned_beacons','fixture'}.issubset(query) or set(query)-{'owned_beacons','fixture','player_mode'} or any(len(v)!=1 for v in query.values()):raise RuntimeError('Explicit fixture required')
-        launch_owned(query['fixture'][0],query.get('player_mode',['paplayer_pcm_v1'])[0])
+        if not {'owned_beacons','fixture'}.issubset(query) or set(query)-{'owned_beacons','fixture','player_mode','output_backend','hal_phase'} or any(len(v)!=1 for v in query.values()):raise RuntimeError('Explicit fixture required')
+        launch_owned(query['fixture'][0],query.get('player_mode',['paplayer_pcm_v1'])[0],
+                     query.get('output_backend',['ae'])[0],query.get('hal_phase',[None])[0])
     elif len(sys.argv)>2 and sys.argv[2]=='?diagnostic_owned_hls=1':
         import xbmc, xbmcgui, xbmcplugin, xbmcaddon
         validate_lab_manifest(os.path.join(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'), 'addon.xml'))

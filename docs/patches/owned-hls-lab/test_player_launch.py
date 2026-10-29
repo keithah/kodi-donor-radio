@@ -89,3 +89,19 @@ class VideoControlLaunchTests(unittest.TestCase):
         for queue in (None,39,41,'40',True):
             b['video_queue_tenths']=queue
             with self.assertRaises(ValueError):launcher.owned_item_properties(b)
+
+
+def test_hal_backend_requires_explicit_video_controls_phase_before_open():
+    import sys
+    sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'plugin.audio.kodi_donor_radio/resources/lib'))
+    import owned_hal_gain as h
+    b=dict(nonce='a'*32,timeline_sha256='b'*64,first_packet_sha256='c'*64,
+        selected_url='http://127.0.0.1:18789/live/index.m3u8',player_mode='videoplayer_video_v1',
+        requested_core='VideoPlayer',video_queue_tenths=40,video_extradata_hex='00',output_backend='hal_callback_v1',
+        hal_contract_version=1,device_uid='BuiltInSpeakerDevice',device_format=h.HAL_FORMAT,
+        lifecycle_capability='retained_exposed_context_until_process_exit')
+    p=launcher.owned_item_properties(b)
+    assert p['inputstream.ffmpegdirect.owned_output_backend']=='hal_callback_v1'
+    assert p['inputstream.ffmpegdirect.owned_hal_contract_version']=='1'
+    for changed in (dict(output_backend='bad'),dict(player_mode='videoplayer_pcm_v1',video_queue_tenths=None,video_extradata_hex=None),dict(device_uid='external')):
+        with pytest.raises(ValueError):launcher.owned_item_properties(dict(b,**changed))

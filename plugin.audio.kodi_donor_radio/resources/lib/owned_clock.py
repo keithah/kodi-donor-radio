@@ -81,8 +81,25 @@ class OwnedClockBinding:
     requested_core: str = "PAPlayer"
     video_queue_tenths: object = None
     video_extradata_hex: object = None
+    output_backend: str = 'ae'
+    hal_contract_version: object = None
+    device_uid: object = None
+    device_format: object = None
+    lifecycle_capability: object = None
 
     def __post_init__(self):
+        hal = self.output_backend == 'hal_callback_v1'
+        expected_format = dict(rate=48000, frames=512, channels=2, buffers=1, format='float32_interleaved')
+        if (self.output_backend not in ('ae', 'hal_callback_v1')
+                or (hal and (self.player_mode != 'videoplayer_video_v1'
+                    or type(self.hal_contract_version) is not int or self.hal_contract_version != 1
+                    or self.device_uid != 'BuiltInSpeakerDevice'
+                    or self.device_format != expected_format
+                    or any(type(self.device_format[k]) is not type(v) for k,v in expected_format.items())
+                    or self.lifecycle_capability != 'retained_exposed_context_until_process_exit'))
+                or (not hal and any(v is not None for v in (self.hal_contract_version,
+                    self.device_uid,self.device_format,self.lifecycle_capability)))):
+            raise ValueError('invalid_output_backend_binding')
         if ((self.player_mode,self.requested_core) not in (("paplayer_pcm_v1","PAPlayer"),("videoplayer_pcm_v1","VideoPlayer"),("videoplayer_video_v1","VideoPlayer"))
                 or (self.player_mode=="videoplayer_video_v1" and (type(self.video_queue_tenths) is not int or self.video_queue_tenths!=40))
                 or (self.player_mode!="videoplayer_video_v1" and self.video_queue_tenths is not None)
@@ -126,6 +143,8 @@ class OwnedClockSnapshot:
 
 class OwnedClockProvider:
     def __init__(self, binding, estimator_factory, now_ns=mach_host_ns):
+        if binding.output_backend != 'ae':
+            raise ValueError('ae_provider_backend_mismatch')
         self.binding, self.now_ns = binding, now_ns
         self.estimator = estimator_factory()
         self.lock = threading.RLock()
@@ -164,7 +183,7 @@ class OwnedClockProvider:
     def bind_hello(self, hello):
         with self.lock:
             b = self.binding
-            valid = (isinstance(hello,dict) and type(hello.get('protocol')) is int and hello['protocol']==1
+            valid = (isinstance(hello,dict) and hello.get('output_backend','ae')=='ae' and type(hello.get('protocol')) is int and hello['protocol']==1
                 and hello.get('player_mode','paplayer_pcm_v1')==b.player_mode
                 and hello.get('requested_core','PAPlayer')==b.requested_core
                 and hello.get('video_extradata_hex')==b.video_extradata_hex
@@ -478,6 +497,10 @@ class OwnedClockTransport:
         self.offset = 0
         self.pending = b''
         self.commands = {}
+        self.gain_commands = {}
+        self.binding = None
+        self.device_generation = None
+        self._gain_lock = threading.Lock()
         self.failed = False
 
     def _check_directory(self):
@@ -524,6 +547,9 @@ class OwnedClockTransport:
             for name,expected in self.commands.items():
                 if self._read_immutable(name,512)!=expected:
                     raise OwnedTransportError('command_changed')
+            for name,expected in self.gain_commands.items():
+                if self._read_immutable(name,2048)!=expected:
+                    raise OwnedTransportError('gain_command_changed')
             st = os.stat('native.jsonl',dir_fd=self.fd,follow_symlinks=False)
             if not _private(st):
                 raise OwnedTransportError('ledger_type')
@@ -549,7 +575,7 @@ class OwnedClockTransport:
             result = []
             for line in lines:
                 row = _json(line)
-                if row.get('kind')=='clock_sample':
+                if row.get('kind')=='clock_sample' or row.get('kind','').startswith('hal_'):
                     result.append(provider.ingest(line))
             return tuple(result)
         except (OSError,ValueError,UnicodeError,RecursionError,OwnedTransportError) as exc:
@@ -587,3 +613,31 @@ class OwnedClockTransport:
         if self.fd is not None:
             os.close(self.fd)
             self.fd = None
+
+    def write_gain(self, command):
+        """Exclusive immutable gain records; one serialized owner, no overwrites."""
+        with self._gain_lock:
+            try:
+                self._check_directory()
+                b = self.binding
+                if (self.failed or b is None or b.output_backend != 'hal_callback_v1'
+                        or command.nonce != b.nonce or command.incarnation != b.incarnation
+                        or command.timeline_sha256 != b.timeline_sha256
+                        or command.device_generation != self.device_generation
+                        or command.revision != len(self.gain_commands)+1):
+                    raise OwnedTransportError('gain_sequence_or_binding')
+                name = 'gain-%06d.json' % command.revision
+                temp = '.gain-'+uuid.uuid4().hex+'.tmp'
+                fd = os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
+                try:
+                    wire = command.wire()
+                    os.fchmod(fd,0o600)
+                    if len(wire)>2048 or os.write(fd,wire)!=len(wire):
+                        raise OwnedTransportError('gain_short_write')
+                finally:
+                    os.close(fd)
+                _rename_exclusive(self.fd,temp,name)
+                self.gain_commands[name] = self._read_immutable(name,2048)
+            except (OSError,ValueError,OwnedTransportError) as exc:
+                self.failed = True
+                raise OwnedTransportError('gain_transport_invalid') from exc

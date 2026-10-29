@@ -130,12 +130,85 @@ def observe(report, args, target_file):
             report['timeline'].append(sample)
         time.sleep(.1)
 
+GAIN_CONTROLS = [dict(at=10,volume=90),dict(at=11,volume=75),dict(at=12,muted=True),
+    dict(at=13,muted=False),dict(at=14,volume=0),dict(at=15,volume=100),
+    dict(at=16,volume=90),dict(at=16.05,volume=75),dict(at=16.1,volume=100),
+    dict(at=18,muted=True),dict(at=18.05,muted=False),dict(at=18.1,muted=True),dict(at=19,muted=False)]
+
+
+def gain_controls_trial(report, args, target_file, open_action, capture):
+    if (args.output_backend!='hal_callback_v1' or args.hal_phase!='controls' or args.action!='none'
+            or args.port!=19092 or args.player_mode!='videoplayer_video_v1' or args.seconds!=50):
+        raise ValueError('gain_trial_requires_isolated_hal_controls_50seconds')
+    def persist():
+        (capture/'kodi-clock-observation.json').write_text(json.dumps(report,indent=2)+'\n')
+    def application(method, params):
+        event=dict(method=method,params=params,request_host_ns=host_ns())
+        try:
+            event['result']=rpc(method,params,port=args.port)
+            return event['result']
+        except (OSError,RuntimeError) as exc:
+            event['error']=type(exc).__name__
+            raise
+        finally:
+            event['response_host_ns']=host_ns()
+            report.setdefault('gain_rpc',[]).append(event)
+            persist()
+    original=application('Application.GetProperties',{'properties':['volume','muted']})
+    if (not isinstance(original,dict) or type(original.get('volume')) is not int or not 0<=original['volume']<=100
+            or type(original.get('muted')) is not bool):raise ValueError('gain_original_state_invalid')
+    report['original_gain']=original
+    report['gain_schedule']=GAIN_CONTROLS
+    try:
+        application('Application.SetVolume',{'volume':100})
+        application('Application.SetMute',{'mute':False})
+        open_action()
+        persist() # open bracket must be visible while the trial is running
+        start=time.monotonic(); pending=list(GAIN_CONTROLS)+[dict(at=40,stop=True)]
+        while time.monotonic()-start < args.seconds:
+            elapsed=time.monotonic()-start
+            if pending and elapsed>=pending[0]['at']:
+                due=pending.pop(0) # never retry a dispatch of uncertain outcome
+                actual=expected_player(target_file,args.port,'video')
+                if actual is None:raise RuntimeError('No active player for gain action')
+                event=dict(declared=due,actual_player=actual,request_host_ns=host_ns())
+                report['actions'].append(event)
+                try:
+                    if 'stop' in due:
+                        event['result']=rpc('Player.Stop',{'playerid':actual['playerid']},port=args.port)
+                    else:
+                        method='Application.SetMute' if 'muted' in due else 'Application.SetVolume'
+                        params={'mute':due['muted']} if 'muted' in due else {'volume':due['volume']}
+                        event['result']=application(method,params)
+                finally:
+                    event['response_host_ns']=host_ns();persist()
+                continue
+            delay=min(.1,args.seconds-elapsed)
+            if pending:delay=min(delay,max(0,pending[0]['at']-elapsed))
+            if delay>0:time.sleep(delay)
+    except (OSError,RuntimeError,ValueError) as exc:
+        report['gain_trial_error']=type(exc).__name__
+        raise
+    finally:
+        report['gain_restore']=dict(restored=False)
+        failures=[]
+        for method,params in (('Application.SetVolume',{'volume':original['volume']}),
+                              ('Application.SetMute',{'mute':original['muted']})):
+            try:application(method,params)
+            except (OSError,RuntimeError) as exc:failures.append(type(exc).__name__)
+        report['gain_restore']=dict(restored=not failures,errors=failures)
+        persist()
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--output-root', type=Path, required=True)
     p.add_argument('--source', default='extended')
     p.add_argument('--owned-fixture',type=Path)
     p.add_argument('--player-mode',choices=['paplayer_pcm_v1','videoplayer_pcm_v1','videoplayer_video_v1'],default='paplayer_pcm_v1')
+    p.add_argument('--output-backend',choices=['ae','hal_callback_v1'],default='ae')
+    p.add_argument('--hal-phase',choices=['controls'])
+    p.add_argument('--gain-controls-trial',action='store_true')
     p.add_argument('--port', type=int, default=19093)
     p.add_argument('--pause-at', type=float, default=3)
     p.add_argument('--pause-duration', type=float, default=3)
@@ -145,6 +218,8 @@ def main():
     p.add_argument('--action', choices=['none','pause','seek'], default='none')
     p.add_argument('--ready-timeout', type=float, default=180)
     args = p.parse_args()
+    if (args.output_backend=='hal_callback_v1' and (args.hal_phase!='controls' or args.player_mode!='videoplayer_video_v1' or not args.owned_fixture)) or (args.output_backend=='ae' and args.hal_phase):p.error('HAL requires explicit video fixture controls phase')
+    if args.gain_controls_trial and (args.output_backend!='hal_callback_v1' or args.hal_phase!='controls' or args.action!='none' or args.port!=19092 or args.seconds!=50):p.error('gain trial requires isolated HAL controls, action none and 50 seconds')
     if args.player_mode!='paplayer_pcm_v1' and not args.owned_fixture:p.error('VideoPlayer mode requires --owned-fixture')
     deadline = time.monotonic() + args.ready_timeout
     capture = None
@@ -168,15 +243,20 @@ def main():
     target_file = 'http://127.0.0.1:18789/live/index.m3u8'
     report = {'kind':'captured_kodi_clock_observation', 'source':args.source,
               'clock':'mach_absolute_time', 'timebase':{'numer':timebase.numer,'denom':timebase.denom},
-              'poll_interval_s':args.poll_interval, 'mapping_proven':False, 'target_file':target_file,'player_mode':args.player_mode, 'timeline':[], 'actions':[], 'requested_action':args.action}
+              'poll_interval_s':args.poll_interval, 'mapping_proven':False, 'target_file':target_file,'player_mode':args.player_mode, 'timeline':[], 'actions':[], 'requested_action':args.action,'output_backend':args.output_backend,'hal_phase':args.hal_phase}
     report['pause_gate'] = {'kind':'wall time after open response, independent of tested player clock'}
-    report['open_request_host_ns'] = host_ns()
     from urllib.parse import urlencode
     query={'owned_beacons':'1','fixture':str(args.owned_fixture),'player_mode':args.player_mode} if args.owned_fixture else {'diagnostic_owned_hls':'1'}
-    rpc('Files.GetDirectory', {'directory':'plugin://plugin.audio.kodi_donor_radio/?'+urlencode(query),'media':'music'},port=args.port)
-    report['open_response_host_ns'] = host_ns()
-    observe(report, args, target_file)
-    save_observation(capture, report, args.port)
+    if args.output_backend=='hal_callback_v1':query.update(output_backend=args.output_backend,hal_phase=args.hal_phase)
+    def open_action():
+        report['open_request_host_ns']=host_ns()
+        rpc('Files.GetDirectory', {'directory':'plugin://plugin.audio.kodi_donor_radio/?'+urlencode(query),'media':'music'},port=args.port)
+        report['open_response_host_ns']=host_ns()
+        (capture/'kodi-clock-observation.json').write_text(json.dumps(report,indent=2)+'\n')
+    try:
+        if args.gain_controls_trial:gain_controls_trial(report,args,target_file,open_action,capture)
+        else:open_action();observe(report,args,target_file)
+    finally:save_observation(capture,report,args.port)
     print(json.dumps({'capture':str(capture), 'samples':len(report['timeline']),
                       'beacons':report['fixture'].get('beacons', {})}))
 

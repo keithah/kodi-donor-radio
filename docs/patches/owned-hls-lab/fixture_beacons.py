@@ -63,17 +63,17 @@ def load_contract(path=DEFAULT_CONTRACT):
 
 
 def validate_ready(ready,binding):
-    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex') if k in binding and (k not in ('video_queue_tenths','video_extradata_hex') or binding[k] is not None)}
+    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
     expected['kind']='owned_monitor_ready'
     if (binding.get('player_mode')=='videoplayer_video_v1'
-            and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or ready!=expected:
+            and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or canonical(ready)!=canonical(expected):
         raise ValueError('monitor_ready_binding')
     return True
 
 
 def publish_ready(directory_fd,binding):
     from owned_clock import _rename_exclusive
-    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex') if k in binding and (k not in ('video_queue_tenths','video_extradata_hex') or binding[k] is not None)}
+    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
     ready['kind']='owned_monitor_ready'
     name='.monitor-ready.tmp'
     fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory_fd)
