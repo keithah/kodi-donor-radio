@@ -385,3 +385,109 @@ the generated manifest for exactly one required import and all three new
 properties before installing it. Build and protocol tests are not playback
 acceptance. Archive the new native source/binary hashes and retain earlier
 failures. Production paths and production success beacons remain disabled.
+
+## Opt-in owned fixture beacons
+
+The diagnostic query remains `?diagnostic_owned_hls=1`. Owned tracking is a separate
+lab-only launch, restricted to `http://127.0.0.1:18789/live/index.m3u8`. It uses the
+existing VAST resolver, HTTP client, tracker and beacon worker with the complete
+immutable Presentation. Six creatives are exact AAC access-unit subsets of the
+precomposed fixture, exposed as copy-muxed TS behind small HLS playlists; this is
+not a general insertion implementation.
+
+Use a new copied fixture directory, preserving earlier assets and captures. The
+locked acceptance contract is
+`/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/acceptance-contract.json`
+(SHA256 `0f61940179856249077e9536643c6c2868da68853b2406abf0024849de49f1f8`).
+Generate once; existing `owned-beacons` outputs are never overwritten:
+
+```sh
+python3 docs/patches/owned-hls-lab/fixture_beacons.py \
+  --root /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture \
+  --repo /Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio
+python3 docs/patches/owned-hls-lab/serve_fixture.py \
+  --root /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture \
+  --repo /Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio --owned-beacons
+```
+
+Generation verifies the pinned metadata, all 92 assets, original ADTS access
+units, every actual served fMP4 packet through FFprobe, reference PCM, and all six
+creative TS extractions. Launch repeats local byte checks, resolves actual VAST,
+checks the server proof, and fetches the served creative HLS/TS. Served source and
+creative assets are checked again on each HTTP request. `/stats` reports tracking
+attempts separately from source requests. `beacon-receipts.jsonl` retains every
+accepted, duplicate, unknown and HEAD tracking attempt with a Mach receipt time;
+only the first valid GET is accepted. Unknown attempts are never deduplicated out
+of evidence. Receipts use hashed session IDs, not raw launch capabilities. Logs
+are bounded to 4096 completed tracking attempts; exhaustion is a failure, not a
+clean gate. The receipt file is created exclusively. Keep the server running
+across both captures: `/reset` resets the source window but retains receipts. To
+restart, preserve the previous receipt file under a distinct evidence name first.
+
+Parent-controlled installation layout:
+
+- Replace the isolated addon `default.py` with this lab launcher.
+- Keep the existing addon `resources/lib` tree, including `owned_clock.py`,
+  `owned_ad_playback.py`, the reviewed `ad_tracking.py`, and VAST/HTTP dependencies.
+- In `/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer`,
+  place `monitor.py`, `fixture_beacons.py`, `runtime_clock.py` and the unchanged
+  `clock-candidate-v2/estimator.py` in that relative subdirectory.
+- The real `clock-sessions` parent must exist below that directory. Each launch
+  creates a new nonce directory mode0700 before native Open. Do not reuse one.
+- Install the reviewed native binary/manifest containing all three ownership
+  properties. Require default output (`Default` or the observed
+  `DARWINOSX:default|Default`), lowlatency=false, channels=1, config=2,
+  processquality=30, stereoupmix=false and passthrough=false. Native source and
+  output checks establish rate; a failed samplerate RPC is not a rate proof.
+
+Exact query (the fixture value may be URL-encoded):
+
+```text
+?owned_beacons=1&fixture=/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture
+```
+
+The launcher saves private `launch.json` and canonical `timeline.json`. The
+monitor claims the session exclusively, starts callbacks, and publishes a
+nonce/timeline/PID-specific `monitor-ready.json`. This only confirms monitor
+startup. `owned_native_ready` is logged after the transport validates the actual
+native hello; qualified samples require the subsequent native acknowledgments
+and frozen estimator acquisition. A stopped monitor cannot rejoin its directory.
+Callbacks only revoke/queue controls in memory using explicit Mach time. The
+monitor polls every20ms, flushes commands, and observes every returned snapshot,
+including invalid startup rows. `owned-events.jsonl` retains each ingested row
+SHA/sequence, contemporaneous snapshot, callback, tracker decision and delivery
+authorization. Native `native.jsonl` retains the original bytes. On stop, callbacks
+cancel the worker without joining; cleanup joins outside callbacks.
+
+After the parent's unchanged recorder/normal-pause driver completes, run the
+existing whole-audio analyzer with the owned native ledger. For its optional
+callback annotation, convert `owned_callback` records to `event` and
+`monotonic_ns=issued_mach_ns`; this does not alter the native or owned logs.
+Then run the new evaluator with the NumPy-enabled analysis runtime:
+
+```sh
+/Users/hermes/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  docs/patches/owned-hls-lab/evaluate_owned_beacons.py \
+  --capture /absolute/path/to/capture \
+  --reference-pcm /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture/reference-from-fmp4.f32 \
+  --analysis /absolute/path/to/capture/hls-audio-clock-analysis.json \
+  --native /absolute/path/to/clock-sessions/NONCE/native.jsonl \
+  --events /absolute/path/to/clock-sessions/NONCE/owned-events.jsonl \
+  --receipts /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture/beacon-receipts.jsonl \
+  --output /absolute/path/to/capture/owned-beacon-evaluation.json
+```
+
+The evaluator never imports or replays an estimator. It joins exact native bytes
+and sequence to recorded input/snapshot, decision, authorization and actual HTTP
+receipt. It directly source-matches every qualified query and event decision at
+actual per-buffer Mach timestamps. Capture-only anchors stay within one audible
+span; startup uses a forward window with exact query-relative source position.
+Threshold timing is independently rematched and cannot cross pause uncertainty.
+Clock tolerance stays21.333ms; threshold-to-decision bound stays141.333ms. Early
+events, uncertainty and decision-to-receipt network delay remain separate fields.
+Preroll is required only when the first real qualified point is within250ms;
+late onset cannot manufacture zero. Paused B allows only pre-pause authorization,
+and its source overlap must be confirmed. A/C/D/E require all six events exactly
+once. All receipt attempts are retained in the report, including rejected ones.
+A passing clock/beacon audit still requires separate whole-audio, prefix/tail,
+continuity, no-replay and natural-EOF evidence from two final-candidate captures.

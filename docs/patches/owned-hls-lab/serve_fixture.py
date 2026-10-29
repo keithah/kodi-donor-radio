@@ -58,11 +58,18 @@ def render_playlist(snapshot):
     return '\n'.join(lines)+'\n'
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).parent);ap.add_argument('--repo',type=Path,default=DEFAULT_REPO);ap.add_argument('--port',type=int,default=18789);args=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).parent);ap.add_argument('--repo',type=Path,default=DEFAULT_REPO);ap.add_argument('--port',type=int,default=18789);ap.add_argument('--owned-beacons',action='store_true');args=ap.parse_args()
     root=args.root.resolve();metadata=json.loads((root/'metadata.json').read_text());assets=root/'assets'
     sys.path.insert(0,str(args.repo/'tools'))
     from ad_fixture_server import make_tracking_clock
     now,clock=make_tracking_clock()
+    beacons=None
+    if args.owned_beacons:
+        if args.port!=18789:raise ValueError('owned_beacons_requires_fixed_loopback_port')
+        sys.path.insert(0,str(args.repo/'plugin.audio.kodi_donor_radio/resources/lib'))
+        from fixture_beacons import verify_fixture,BeaconEndpoints,sha
+        metadata,proof=verify_fixture(root)
+        beacons=BeaconEndpoints(root,proof,now)
     lock=threading.RLock();timeline=RollingTimeline(metadata);requests=Counter();ledger=deque(maxlen=2048);run_id=str(uuid.uuid4());asset_map={s['filename']:s for s in metadata['segments']}
     required_assets=list(asset_map)+([timeline.init_segment] if timeline.init_segment else [])
     if not all((assets/name).is_file() for name in required_assets):raise ValueError('Generated fixture assets are missing')
@@ -84,23 +91,27 @@ def main():
             route=self.path.split('?',1)[0];sequence=None
             host,utc,uncertainty=clock_pair();status=200;mime='application/json';body=b'{}';headers={}
             with lock:
-                if route=='/reset':
+                if beacons and route.startswith(('/track/','/vast/','/creative/','/owned-proof')):
+                    status,mime,body=beacons.get(self.path,head,receipt_ns=host)
+                elif route=='/reset':
                     if not head:
                         run_id=str(uuid.uuid4());timeline=RollingTimeline(metadata);requests.clear();ledger.clear();write_event({'event':'reset','host_ns':host});persist_state()
                     body=json.dumps({'run_id':run_id,'started':False}).encode()
                 elif route=='/stats':
                     s=timeline.snapshot(host,utc)
-                    body=json.dumps({'run_id':run_id,'requests':dict(requests),'beacons':{},'request_ledger':list(ledger),'clock':clock,'anchor':timeline.anchor,'window':{k:s[k] for k in ['started','first_sequence','published_count','endlist','media_elapsed_samples']},'source_metadata':str(root/'metadata.json')}).encode()
+                    body=json.dumps({'run_id':run_id,'requests':dict(requests),'beacons':beacons.stats() if beacons else {},'request_ledger':list(ledger),'clock':clock,'anchor':timeline.anchor,'window':{k:s[k] for k in ['started','first_sequence','published_count','endlist','media_elapsed_samples']},'source_metadata':str(root/'metadata.json')}).encode()
                 elif route=='/live/index.m3u8':
                     before=timeline.anchor;s=timeline.snapshot(host,utc,activate=not head,uncertainty_ns=uncertainty)
                     if before is None and timeline.anchor is not None:write_event({'event':'clock_started','host_ns':host,'anchor':timeline.anchor});persist_state()
                     body=render_playlist(s).encode();mime='application/vnd.apple.mpegurl'
                 elif route=='/live/init.mp4' and timeline.init_segment:
                     body=(assets/timeline.init_segment).read_bytes();mime='audio/mp4'
+                    if beacons and sha(body)!=proof['assets'][timeline.init_segment]:raise ValueError('served_init_changed')
                 elif re.fullmatch(r'/live/segment\d{3}\.(?:ts|m4s)',route) and route.rsplit('/',1)[1] in asset_map:
                     name=route.rsplit('/',1)[1];sequence=asset_map[name]['sequence'];body=(assets/name).read_bytes();mime='audio/mp4' if timeline.init_segment else 'video/mp2t'
+                    if beacons and sha(body)!=proof['assets'][name]:raise ValueError('served_segment_changed')
                 else:status=404;route='other';body=b'Not found\n';mime='text/plain'
-                if route not in ['/stats','/reset']:
+                if route not in ['/stats','/reset'] and not (beacons and route.startswith('/track/')):
                     s=timeline.snapshot(host,utc);row={'event':'request','method':'HEAD' if head else 'GET','route':route,'status':status,'host_ns':host,'first_sequence':s['first_sequence'],'published_count':s['published_count'],'endlist':s['endlist'],'sequence':sequence,'expired':sequence is not None and sequence<s['first_sequence']}
             if mime in ('video/mp2t','audio/mp4') and self.headers.get('Range'):
                 match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers['Range'])
@@ -109,7 +120,7 @@ def main():
                     if start<=end:headers['Content-Range']='bytes %d-%d/%d'%(start,end,len(body));body=body[start:end+1];status=206
                     else:headers['Content-Range']='bytes */%d'%len(body);body=b'';status=416
                 else:headers['Content-Range']='bytes */%d'%len(body);body=b'';status=416
-            if route not in ['/stats','/reset']:
+            if route not in ['/stats','/reset'] and not (beacons and route.startswith('/track/')):
                 with lock:
                     row['status']=status;row['response_bytes']=len(body);requests[route]+=1;ledger.append(row);write_event(row)
             self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
@@ -123,5 +134,7 @@ def main():
     print('Ready: http://127.0.0.1:%d/live/index.m3u8 (clock starts on first GET)'%args.port,flush=True)
     try:server.serve_forever(poll_interval=.2)
     except KeyboardInterrupt:pass
-    finally:server.server_close()
+    finally:
+        server.server_close()
+        if beacons:beacons.close()
 if __name__=='__main__':main()

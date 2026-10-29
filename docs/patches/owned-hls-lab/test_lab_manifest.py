@@ -15,6 +15,17 @@ class ManifestTests(unittest.TestCase):
             path.write_text('<addon id="inputstream.ffmpegdirect"><requires>'+dependency_xml+
                             '</requires><extension point="kodi.inputstream" listitemprops="'+properties+'"/></addon>')
             launcher.validate_lab_manifest(path)
+    def test_owned_properties_required_without_affecting_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'addon.xml'
+            prefix='<addon id="inputstream.ffmpegdirect"><requires><import addon="kodi.binary.global.audioengine"/></requires><extension point="kodi.inputstream" listitemprops="'
+            suffix='"/></addon>'
+            path.write_text(prefix+'terminal_eof|is_realtime_stream'+suffix)
+            launcher.validate_lab_manifest(path)
+            with self.assertRaises(RuntimeError):launcher.validate_lab_manifest(path,owned=True)
+            path.write_text(prefix+'terminal_eof|is_realtime_stream|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet'+suffix)
+            launcher.validate_lab_manifest(path,owned=True)
+
     def test_present_passes(self):
         self.validate()
     def test_missing_each_required_property_fails(self):
