@@ -1399,7 +1399,7 @@
  } // namespace owned_stall
 --- /dev/null
 +++ b/src/OwnedHostOverride.h
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,145 @@
 +#pragma once
 +// One bounded dependency token. OS operations are injected; no worker is owned here.
 +#include <cstdint>
@@ -1422,7 +1422,7 @@
 +  bool Reset(bool enabled) {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(token || state.ownerRunning) return false;
-+    state=Snapshot{};state.enabled=enabled;nativePaused=false;lastSuspendedNs=0;return true;
++    state=Snapshot{};state.enabled=enabled;nativePaused=false;releasePending=false;lastSuspendedNs=0;return true;
 +  }
 +  bool OwnerBegin(uint64_t id) {
 +    std::lock_guard<std::mutex> lock(mutex);
@@ -1433,7 +1433,7 @@
 +  Snapshot Get() const {
 +    std::lock_guard<std::mutex> lock(mutex);
 +    auto out=state;out.outstanding=token ? 1 : 0;
-+    out.active=token && !nativePaused && state.allowed && state.ownerRunning && !state.failed && !state.terminal;
++    out.active=token && !releasePending && !nativePaused && state.allowed && state.ownerRunning && !state.failed && !state.terminal;
 +    return out;
 +  }
 +  void Suspend(uint64_t now) {
@@ -1441,6 +1441,7 @@
 +    if(!state.enabled)return;
 +    ++state.suspensionEpoch;++state.generation;
 +    lastSuspendedNs=now;nativePaused=true;
++    if(token)releasePending=true; // Native resume cannot cancel owner cleanup.
 +    state.blockedThrough=state.revision;state.allowed=false;
 +  }
 +  void ResumeNative() {
@@ -1454,6 +1455,8 @@
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(!state.enabled)return;
 +    if(!state.ownerRunning || owner!=state.ownerId) { Fail("owner_invalid");return; }
++    // Consume pause debt before a fresh resume can permit another acquisition.
++    if(releasePending)Release(owner,end,now);
 +    if(revision<state.revision) Fail("control_reversed");
 +    if(revision>state.revision) { state.revision=revision;++state.generation; }
 +    // Fence the entire Apply-to-publication transaction, not just acquisition.
@@ -1473,7 +1476,7 @@
 +    std::lock_guard<std::mutex> lock(mutex);
 +    if(!state.enabled || state.failed || state.terminal || !state.ownerRunning) return false;
 +    if(!ready) { ++state.ignoredPreparation;return false; }
-+    if(generation!=state.generation || nativePaused || !state.allowed)return false;
++    if(generation!=state.generation || releasePending || nativePaused || !state.allowed)return false;
 +    if(state.targetId && state.targetId!=id) { Fail("caller_changed");return false; }
 +    if(!state.targetId && name && std::strcmp(name,"JobWorker")==0) { ++state.ignoredPreparation;return false; }
 +    if(!id || id==state.ownerId || !name || std::strcmp(name,"PAPlayer")!=0) { Fail("unsupported_target");return false; }
@@ -1506,7 +1509,7 @@
 +  template<class End> void Release(uint64_t owner,End end,uint64_t now) {
 +    if(!token)return;
 +    if(owner!=state.ownerId || owner==state.targetId) { Fail("cleanup_owner_invalid");return; }
-+    void* consumed=token;token=nullptr; // end consumes even on error; never retry.
++    void* consumed=token;token=nullptr;releasePending=false; // end consumes even on error; never retry.
 +    ++state.endAttempts;state.lastEndNs=now;state.lastEndOwner=owner;++state.generation;
 +    state.lastEndStatus=end(consumed);
 +    if(state.lastEndStatus==0)++state.ends;else Fail("end_failed");
@@ -1514,7 +1517,7 @@
 +  mutable std::mutex mutex;
 +  Snapshot state;
 +  void* token=nullptr;
-+  bool nativePaused=false;
++  bool nativePaused=false,releasePending=false;
 +  uint64_t lastSuspendedNs=0;
 +};
 +template<class Function> class OnExit {
