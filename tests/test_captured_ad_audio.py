@@ -93,6 +93,16 @@ def test_silence_tones_and_unclassified_audio_are_distinct():
     assert all(window['rms'] > .01 for window in measured['windows'][2:5])
 
 
+def test_capture_timing_precomputes_acquisition_buffer_offsets():
+    analyzer = get_analyzer()
+    capture, rows = capture_evidence(.5)
+    measurement = analyzer.measure_tones(tone(1120, .5), 8000, [1120])
+    timing, buffers, offsets = analyzer._timing_evidence(capture, rows, measurement)
+    assert timing['usable_for_clock_comparison'] is True
+    assert offsets == [row['frame_offset'] for row in buffers]
+    assert analyzer._host_at(.2, buffers, 48000, offsets) == BASE_NS + 200_000_000
+
+
 def test_only_first_sustained_unambiguous_source_tones_are_correlated():
     analyzer = get_analyzer()
     samples = tone(440, .3) + tone(1120, .1) + noise(.2) + tone(1120, .5)

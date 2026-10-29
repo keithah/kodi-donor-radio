@@ -144,13 +144,15 @@ def _timing_evidence(capture, rows, measurement):
                'maximum_host_step_error_ns': maximum_gap,
                'issues': list(dict.fromkeys(issues)),
                'usable_for_clock_comparison': not issues}
-    return summary, buffers
+    return summary, buffers, [row['frame_offset'] for row in buffers]
 
 
-def _host_at(seconds, buffers, rate):
+def _host_at(seconds, buffers, rate, offsets=None):
     """Use the containing acquisition buffer, not the recorder's start time."""
     frame = seconds * rate
-    index = bisect_right([row['frame_offset'] for row in buffers], frame) - 1
+    if offsets is None:
+        offsets = [row['frame_offset'] for row in buffers]
+    index = bisect_right(offsets, frame) - 1
     if index < 0:
         raise ValueError('Audio position precedes captured frames')
     row = buffers[index]
@@ -219,7 +221,7 @@ def _clock_comparison(interval, expected, samples):
             'all_observed_speeds_one': all(sample['speed'] == 1 for sample in selected)}
 
 
-def _source_boundaries(metadata, measurement, preroll_samples, buffers, timing, rpc):
+def _source_boundaries(metadata, measurement, preroll_samples, buffers, offsets, timing, rpc):
     assets = metadata['assets']
     counts = Counter(item['expected_tone_hz'] for item in assets.values())
     unique = {item['expected_tone_hz']: (name, item) for name, item in assets.items()
@@ -248,7 +250,7 @@ def _source_boundaries(metadata, measurement, preroll_samples, buffers, timing, 
                     'onset_may_be_masked': bool(unclassified),
                     'clock_observation': {'status': 'unavailable', 'reason': 'invalid_capture_timing'}}
         if timing['usable_for_clock_comparison']:
-            interval = [_host_at(seconds, buffers, timing['native_sample_rate'])
+            interval = [_host_at(seconds, buffers, timing['native_sample_rate'], offsets)
                         for seconds in boundary['classification_interval_seconds']]
             boundary['classification_host_interval_ns'] = interval
             boundary['clock_observation'] = _clock_comparison(interval, expected_seconds, rpc)
@@ -256,7 +258,7 @@ def _source_boundaries(metadata, measurement, preroll_samples, buffers, timing, 
     return result
 
 
-def _plateaus(samples, measurement, timing, buffers):
+def _plateaus(samples, measurement, timing, buffers, offsets):
     if not timing['usable_for_clock_comparison']:
         return []
     groups, current = [], []
@@ -280,8 +282,8 @@ def _plateaus(samples, measurement, timing, buffers):
             continue
         lengths, tones = Counter(), set()
         for region in measurement['regions']:
-            lower = _host_at(region['start_seconds'], buffers, timing['native_sample_rate'])
-            upper = _host_at(region['end_seconds'], buffers, timing['native_sample_rate'])
+            lower = _host_at(region['start_seconds'], buffers, timing['native_sample_rate'], offsets)
+            upper = _host_at(region['end_seconds'], buffers, timing['native_sample_rate'], offsets)
             overlap = max(0, min(end, upper) - max(start, lower)) / 1e9
             lengths[region['classification']] += overlap
             if overlap and region['classification'] == 'tone':
@@ -312,15 +314,15 @@ def analyze_capture(samples, analysis_rate, metadata, capture, timing_rows, obse
             raise ValueError('Invalid generated asset metadata')
     measurement = measure_tones(samples, analysis_rate,
                                 [asset['expected_tone_hz'] for asset in assets.values()])
-    timing, buffers = _timing_evidence(capture, timing_rows, measurement)
+    timing, buffers, offsets = _timing_evidence(capture, timing_rows, measurement)
     rpc_summary, rpc = _rpc_evidence(observation)
     return {'schema_version': 1, 'kind': 'controlled_captured_audio_measurement',
             'composition_assumptions': {'preroll_samples': preroll_samples,
                 'source_sample_rate': source_rate, 'midroll_replacement_preserves_source_duration': True},
             'measurement': measurement, 'capture_timing': timing, 'rpc': rpc_summary,
             'source_boundaries': _source_boundaries(metadata, measurement, preroll_samples,
-                                                   buffers, timing, rpc),
-            'raw_clock_plateaus': _plateaus(rpc, measurement, timing, buffers),
+                                                   buffers, offsets, timing, rpc),
+            'raw_clock_plateaus': _plateaus(rpc, measurement, timing, buffers, offsets),
             'limitations': [
                 'Tone classification uses 100 ms windows; surrounding RPC intervals add polling uncertainty.',
                 'Classification intervals describe detected tone onset, not guaranteed segment-start bounds.',
