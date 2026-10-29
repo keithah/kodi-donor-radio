@@ -1,0 +1,56 @@
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -962,6 +962,12 @@
+   line << ",\"renderer_qos_status\":" << m_ownedRendererQosStatus.load()
+        << ",\"renderer_qos_class\":" << m_ownedRendererQosClass.load()
+        << ",\"renderer_qos_relative_priority\":" << m_ownedRendererQosRelative.load()
++       << ",\"renderer_qos_requested_class\":" << m_ownedRendererQosRequestedClass.load()
++       << ",\"renderer_qos_set_status\":" << m_ownedRendererQosSetStatus.load()
++       << ",\"renderer_qos_initial_class\":" << m_ownedRendererQosInitialClass.load()
++       << ",\"renderer_qos_initial_relative_priority\":" << m_ownedRendererQosInitialRelative.load()
++       << ",\"renderer_qos_initial_status\":" << m_ownedRendererQosInitialStatus.load()
++       << ",\"renderer_qos_request_confirmed\":" << (m_ownedRendererQosRequestConfirmed.load() ? "true" : "false")
+        << ",\"stall_diagnostics\":";
+   owned_stall::WriteJson(line, stalls);
+   line << '}';
+@@ -1254,12 +1260,25 @@
+ #if defined(__APPLE__)
+   if (m_ownedHlsFixture)
+   {
++    // One-variable lab experiment: this renderer thread only. Failure is
++    // diagnostic evidence, not a reason to alter the original playback path.
++    int initialRelative = 0;
++    qos_class_t initialQos = QOS_CLASS_UNSPECIFIED;
++    const int initialStatus = pthread_get_qos_class_np(pthread_self(), &initialQos, &initialRelative);
++    m_ownedRendererQosInitialStatus.store(initialStatus);
++    m_ownedRendererQosInitialClass.store(static_cast<int>(initialQos));
++    m_ownedRendererQosInitialRelative.store(initialRelative);
++    m_ownedRendererQosRequestedClass.store(static_cast<int>(QOS_CLASS_USER_INITIATED));
++    const int setStatus = pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
++    m_ownedRendererQosSetStatus.store(setStatus);
+     int relativePriority = 0;
+     qos_class_t qos = QOS_CLASS_UNSPECIFIED;
+     const int qosStatus = pthread_get_qos_class_np(pthread_self(), &qos, &relativePriority);
+     m_ownedRendererQosStatus.store(qosStatus);
+     m_ownedRendererQosClass.store(static_cast<int>(qos));
+     m_ownedRendererQosRelative.store(relativePriority);
++    m_ownedRendererQosRequestConfirmed.store(setStatus == 0 && qosStatus == 0 &&
++                                             qos == QOS_CLASS_USER_INITIATED && relativePriority == 0);
+   }
+ #endif
+   std::chrono::steady_clock::time_point readyDeadline{};
+--- a/src/StreamManager.h
++++ b/src/StreamManager.h
+@@ -136,6 +136,12 @@
+   std::atomic<int> m_ownedRendererQosClass{-1};
+   std::atomic<int> m_ownedRendererQosRelative{-1};
+   std::atomic<int> m_ownedRendererQosStatus{-1};
++  std::atomic<int> m_ownedRendererQosRequestedClass{-1};
++  std::atomic<int> m_ownedRendererQosSetStatus{-1};
++  std::atomic<int> m_ownedRendererQosInitialClass{-1};
++  std::atomic<int> m_ownedRendererQosInitialRelative{-1};
++  std::atomic<int> m_ownedRendererQosInitialStatus{-1};
++  std::atomic<bool> m_ownedRendererQosRequestConfirmed{false};
+   std::mutex m_ownedTelemetryMutex;
+   std::ofstream m_ownedTelemetryFile;
+   size_t m_ownedTelemetryRows{0};

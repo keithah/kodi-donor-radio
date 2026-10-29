@@ -1,0 +1,367 @@
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -19,6 +19,8 @@
+
+ #if defined(__APPLE__)
+ #include <mach/mach_time.h>
++#include <pthread.h>
++#include <pthread/qos.h>
+ #endif
+
+ #include "stream/FFmpegCatchupStream.h"
+@@ -479,6 +481,8 @@
+   m_ownedQueuedFrames = 0;
+   m_ownedTotalDecodedFrames = 0;
+   m_ownedSyntheticFrames = 0;
++  m_ownedLastHostPacketNs.store(0);
++  (void)m_ownedStalls.Take(); // Discard prior-instance pending diagnostics before worker launch.
+   m_ownedHostOutputFrames = 0;
+   m_ownedAcceptedFrames = 0;
+   m_ownedSourcePacketCount = 0;
+@@ -644,7 +648,11 @@
+       packet->iStreamId != m_ownedAudioStreamId)
+     return false;
+
++  const uint64_t decodeWaitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+   std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (m_ownedHlsFixture)
++    m_ownedStalls.Record(owned_stall::DecodeOwnedWait, decodeWaitStart, MachAbsoluteNowNs());
++  owned_stall::Span heldSpan(m_ownedStalls, owned_stall::DecodeOwnedHeld, MachAbsoluteNowNs, m_ownedHlsFixture);
+   if (!m_ownedRendererActive.load() || !m_ownedDecoder || !m_ownedDecodeFrame)
+     return false;
+
+@@ -738,15 +746,24 @@
+   // 180 seconds of 20 ms clock samples, up to 15 minutes of pause samples,
+   // packet records, and bounded startup/shutdown records fit under this cap.
+   constexpr size_t maxRows = 70000;
++  const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+   std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
++  if (m_ownedHlsFixture)
++    m_ownedStalls.Record(owned_stall::TelemetryWait, waitStart, MachAbsoluteNowNs());
+   if (!m_ownedTelemetryFile.is_open() || m_ownedTelemetryRows >= maxRows)
+   {
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: bounded HLS telemetry ledger unavailable or full");
+     return false;
+   }
+-  m_ownedTelemetryFile << line << '\n';
+-  m_ownedTelemetryFile.flush();
++  {
++    owned_stall::Span span(m_ownedStalls, owned_stall::TelemetryWrite, MachAbsoluteNowNs, m_ownedHlsFixture);
++    m_ownedTelemetryFile << line << '\n';
++  }
++  {
++    owned_stall::Span span(m_ownedStalls, owned_stall::TelemetryFlush, MachAbsoluteNowNs, m_ownedHlsFixture);
++    m_ownedTelemetryFile.flush();
++  }
+   if (!m_ownedTelemetryFile)
+   {
+     m_ownedFailed = true;
+@@ -777,7 +794,9 @@
+   bool hostPtsValid = false;
+   size_t syntheticHostFrames = 0;
+   {
++    const uint64_t waitStart = MachAbsoluteNowNs();
+     std::lock_guard<std::mutex> lock(m_ownedMutex);
++    m_ownedStalls.Record(owned_stall::PacketOwnedWait, waitStart, MachAbsoluteNowNs());
+     firstPts = m_ownedFirstSourcePts;
+     epoch = m_ownedSourceEpoch;
+     packetIndex = m_ownedSourcePacketCount;
+@@ -865,7 +884,9 @@
+   size_t syntheticHostFrames = 0;
+   bool sourceEnded = false;
+   {
++    const uint64_t waitStart = MachAbsoluteNowNs();
+     std::lock_guard<std::mutex> lock(m_ownedMutex);
++    m_ownedStalls.Record(owned_stall::ClockOwnedWait, waitStart, MachAbsoluteNowNs());
+     packetIndex = m_ownedSourcePacketCount;
+     sourceEpoch = m_ownedSourceEpoch;
+     firstPts = m_ownedFirstSourcePts;
+@@ -934,7 +955,16 @@
+     line << "null";
+   line << ",\"synthetic_host_aac_access_units\":" << syntheticHostFrames
+        << ",\"source_pts_ticks_per_second\":" << STREAM_TIME_BASE
+-       << ",\"host_pts_ticks_per_second\":" << STREAM_TIME_BASE << '}';
++       << ",\"host_pts_ticks_per_second\":" << STREAM_TIME_BASE;
++  // Snapshot/format before telemetry lock: diagnostic aggregator never nests
++  // either owned mutex and never waits. Current row's write appears next row.
++  const auto stalls = m_ownedStalls.Take();
++  line << ",\"renderer_qos_status\":" << m_ownedRendererQosStatus.load()
++       << ",\"renderer_qos_class\":" << m_ownedRendererQosClass.load()
++       << ",\"renderer_qos_relative_priority\":" << m_ownedRendererQosRelative.load()
++       << ",\"stall_diagnostics\":";
++  owned_stall::WriteJson(line, stalls);
++  line << '}';
+   WriteOwnedTelemetryLine(line.str());
+ }
+
+@@ -1221,6 +1251,17 @@
+   if (!m_ownedStream || m_ownedPcmQueue.empty())
+     return;
+
++#if defined(__APPLE__)
++  if (m_ownedHlsFixture)
++  {
++    int relativePriority = 0;
++    qos_class_t qos = QOS_CLASS_UNSPECIFIED;
++    const int qosStatus = pthread_get_qos_class_np(pthread_self(), &qos, &relativePriority);
++    m_ownedRendererQosStatus.store(qosStatus);
++    m_ownedRendererQosClass.store(static_cast<int>(qos));
++    m_ownedRendererQosRelative.store(relativePriority);
++  }
++#endif
+   std::chrono::steady_clock::time_point readyDeadline{};
+   auto nextTelemetrySample = std::chrono::steady_clock::now();
+   bool readyDeadlineArmed = false;
+@@ -1228,11 +1269,15 @@
+   size_t acceptedFrames = 0;
+   while (!m_ownedStop.load())
+   {
++    owned_stall::Span loopSpan(m_ownedStalls, owned_stall::RendererLoop, MachAbsoluteNowNs, m_ownedHlsFixture);
++    const uint64_t controlStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+     std::ifstream control(
+         "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
+     std::string state;
+     if (control)
+       control >> state;
++    if (m_ownedHlsFixture)
++      m_ownedStalls.Record(owned_stall::ControlRead, controlStart, MachAbsoluteNowNs());
+
+     // The addon monitor writes play from onAVStarted, after demux probing.
+     if ((state == "play" || state == "resume") && !readyDeadlineArmed)
+@@ -1249,7 +1294,10 @@
+       uint64_t decodedFrames = 0;
+       size_t queuedFrames = 0;
+       {
++        const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+         std::lock_guard<std::mutex> lock(m_ownedMutex);
++        if (m_ownedHlsFixture)
++          m_ownedStalls.Record(owned_stall::RendererOwnedWait, waitStart, MachAbsoluteNowNs());
+         decodedFrames = m_ownedTotalDecodedFrames;
+         queuedFrames = m_ownedQueuedFrames;
+       }
+@@ -1271,7 +1319,10 @@
+     if (m_ownedFailed.load())
+       return;
+
++    const uint64_t spaceStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+     const size_t availableFrames = m_ownedStream->GetSpace() / (sizeof(float) * 2);
++    if (m_ownedHlsFixture)
++      m_ownedStalls.Record(owned_stall::GetSpace, spaceStart, MachAbsoluteNowNs());
+     if (shouldFeed && availableFrames != 0)
+       m_ownedRendererReady = true;
+     else if (readyDeadlineArmed && !m_ownedRendererReady.load() &&
+@@ -1285,16 +1336,22 @@
+     bool sourceEnded = false;
+     if (shouldFeed && m_ownedRendererReady.load() && availableFrames != 0)
+     {
++      const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+       std::lock_guard<std::mutex> lock(m_ownedMutex);
++      if (m_ownedHlsFixture)
++        m_ownedStalls.Record(owned_stall::RendererOwnedWait, waitStart, MachAbsoluteNowNs());
+       if (m_ownedQueuedFrames != 0)
+       {
+         const size_t contiguousFrames = m_ownedQueueCapacityFrames - m_ownedQueueReadFrame;
+         const size_t frames = std::min({size_t{1024}, availableFrames,
+                                         m_ownedQueuedFrames, contiguousFrames});
+         uint8_t* planes[] = {reinterpret_cast<uint8_t*>(m_ownedPcmQueue.data())};
++        const uint64_t addStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+         const unsigned int consumed = m_ownedStream->AddData(
+             planes, static_cast<unsigned int>(m_ownedQueueReadFrame),
+             static_cast<unsigned int>(frames));
++        if (m_ownedHlsFixture)
++          m_ownedStalls.Record(owned_stall::AddData, addStart, MachAbsoluteNowNs());
+         m_ownedQueueReadFrame = (m_ownedQueueReadFrame + consumed) % m_ownedQueueCapacityFrames;
+         m_ownedQueuedFrames -= consumed;
+         acceptedFrames += consumed;
+@@ -1303,7 +1360,10 @@
+     }
+
+     {
++      const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+       std::lock_guard<std::mutex> lock(m_ownedMutex);
++      if (m_ownedHlsFixture)
++        m_ownedStalls.Record(owned_stall::RendererOwnedWait, waitStart, MachAbsoluteNowNs());
+       sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
+       if (sourceEnded && !m_ownedDrainStarted.load())
+       {
+@@ -1320,7 +1380,10 @@
+       WriteOwnedClockTelemetry("drained");
+       uint64_t decodedFrames = 0;
+       {
++        const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+         std::lock_guard<std::mutex> lock(m_ownedMutex);
++        if (m_ownedHlsFixture)
++          m_ownedStalls.Record(owned_stall::RendererOwnedWait, waitStart, MachAbsoluteNowNs());
+         decodedFrames = m_ownedTotalDecodedFrames;
+       }
+       Log(LOGLEVEL_INFO,
+@@ -1329,7 +1392,14 @@
+       return;
+     }
+
++    const uint64_t sleepStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+     std::this_thread::sleep_for(std::chrono::milliseconds(5));
++    if (m_ownedHlsFixture)
++    {
++      const uint64_t wake = MachAbsoluteNowNs();
++      const uint64_t expectedWake = sleepStart + 5000000ULL;
++      m_ownedStalls.Record(owned_stall::SleepOvershoot, expectedWake, wake);
++    }
+   }
+ }
+
+@@ -1458,6 +1528,7 @@
+
+ DEMUX_PACKET* InputStreamFFmpegDirect::MakeOwnedSilentPacket()
+ {
++  owned_stall::Span callSpan(m_ownedStalls, owned_stall::HostPacketCall, MachAbsoluteNowNs, m_ownedHlsFixture);
+   std::vector<uint8_t> silenceFrame;
+   double pts = 0.0;
+   int streamId = -1;
+@@ -1465,7 +1536,10 @@
+   const bool hlsHostTimeline = m_ownedHlsFixture;
+   constexpr size_t maxSyntheticFrames = (64 * 48000) / 1024;
+   {
++    const uint64_t waitStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+     std::lock_guard<std::mutex> lock(m_ownedMutex);
++    if (m_ownedHlsFixture)
++      m_ownedStalls.Record(owned_stall::HostOwnedWait, waitStart, MachAbsoluteNowNs());
+     const std::vector<uint8_t>& selectedSilenceFrame =
+         m_ownedInputFormatKnown && !m_ownedInputUsesAdts ? m_silenceRawAacFrame
+                                                          : m_silenceAdtsFrame;
+@@ -1529,6 +1603,13 @@
+   packet->dispTime = -1;
+   packet->recoveryPoint = false;
+   packet->cryptoInfo = nullptr;
++  if (m_ownedHlsFixture)
++  {
++    const uint64_t delivered = MachAbsoluteNowNs();
++    const uint64_t previous = m_ownedLastHostPacketNs.exchange(delivered);
++    if (previous != 0)
++      m_ownedStalls.Record(owned_stall::HostPacketInterarrival, previous, delivered);
++  }
+   return packet;
+ }
+
+--- a/src/StreamManager.h
++++ b/src/StreamManager.h
+@@ -10,6 +10,7 @@
+ #include "stream/FFmpegStream.h"
+ #include "stream/IManageDemuxPacket.h"
+ #include "utils/Properties.h"
++#include "OwnedStallDiagnostics.h"
+
+ #include <memory>
+ #include <atomic>
+@@ -130,6 +131,11 @@
+   std::thread m_ownedSourceThread;
+   std::unique_ptr<kodi::audioengine::CAEStream> m_ownedStream;
+   std::mutex m_ownedMutex;
++  owned_stall::Aggregate m_ownedStalls;
++  std::atomic<uint64_t> m_ownedLastHostPacketNs{0};
++  std::atomic<int> m_ownedRendererQosClass{-1};
++  std::atomic<int> m_ownedRendererQosRelative{-1};
++  std::atomic<int> m_ownedRendererQosStatus{-1};
+   std::mutex m_ownedTelemetryMutex;
+   std::ofstream m_ownedTelemetryFile;
+   size_t m_ownedTelemetryRows{0};
+--- a/src/OwnedStallDiagnostics.h
++++ b/src/OwnedStallDiagnostics.h
+@@ -0,0 +1,96 @@
++#pragma once
++// Diagnostic only: fixed storage, no IO, no waiting for instrumentation locks.
++#include <array>
++#include <atomic>
++#include <cstdint>
++#include <mutex>
++#include <ostream>
++
++namespace owned_stall {
++enum Operation : size_t {
++  ControlRead, TelemetryWait, TelemetryWrite, TelemetryFlush,
++  RendererOwnedWait, ClockOwnedWait, HostOwnedWait, AddData,
++  SleepOvershoot, HostPacketInterarrival, HostPacketCall, RendererLoop, GetSpace, DecodeOwnedWait, DecodeOwnedHeld, PacketOwnedWait, Count
++};
++static constexpr const char* Names[] = {
++  "control_read", "telemetry_mutex_wait", "telemetry_write", "telemetry_flush",
++  "renderer_owned_mutex_wait", "clock_owned_mutex_wait", "host_owned_mutex_wait",
++  "adddata", "renderer_sleep_overshoot", "host_packet_interarrival", "host_packet_call", "renderer_loop", "getspace", "decode_owned_mutex_wait", "decode_owned_mutex_held", "packet_owned_mutex_wait"
++};
++struct Metric {
++  uint64_t count{0}, maxNs{0}, maxStartNs{0}, maxEndNs{0};
++};
++struct Event { size_t operation{0}; uint64_t startNs{0}, endNs{0}; };
++struct Snapshot {
++  bool available{false};
++  uint64_t revision{0}, droppedContention{0}, droppedEvents{0};
++  std::array<Metric, Count> metrics{};
++  std::array<Event, 12> events{};
++  size_t eventCount{0};
++};
++class Aggregate {
++ public:
++  void Record(Operation op, uint64_t start, uint64_t end) {
++    if (op >= Count || end < start) return;
++    std::unique_lock<std::mutex> guard(mutex, std::try_to_lock);
++    if (!guard.owns_lock()) { dropped.fetch_add(1, std::memory_order_relaxed); return; }
++    auto& metric = pending.metrics[op];
++    ++metric.count;
++    if (end-start >= metric.maxNs) {
++      metric.maxNs=end-start; metric.maxStartNs=start; metric.maxEndNs=end;
++    }
++    if (end-start > 40000000ULL) {
++      if (pending.eventCount < pending.events.size())
++        pending.events[pending.eventCount++] = Event{op,start,end};
++      else ++pending.droppedEvents;
++    }
++  }
++  Snapshot Take() {
++    std::unique_lock<std::mutex> guard(mutex, std::try_to_lock);
++    if (!guard.owns_lock()) return Snapshot{}; // Preserve pending events for next row.
++    Snapshot out=pending;
++    out.available=true; out.revision=++revision;
++    out.droppedContention=dropped.exchange(0, std::memory_order_relaxed);
++    pending=Snapshot{};
++    return out;
++  }
++ private:
++  std::mutex mutex;
++  std::atomic<uint64_t> dropped{0};
++  uint64_t revision{0};
++  Snapshot pending{};
++};
++class Span {
++ public:
++  Span(Aggregate& aggregate, Operation op, uint64_t (*clock)(), bool enabled)
++      : aggregate(aggregate), op(op), clock(clock), enabled(enabled), start(enabled ? clock() : 0) {}
++  ~Span() { if (enabled) aggregate.Record(op,start,clock()); }
++ private:
++  Aggregate& aggregate;
++  Operation op;
++  uint64_t (*clock)();
++  bool enabled;
++  uint64_t start;
++};
++inline void WriteJson(std::ostream& out, const Snapshot& snapshot) {
++  out << "{\"version\":1,\"threshold_ns\":40000000,\"available\":"
++      << (snapshot.available ? "true" : "false") << ",\"revision\":" << snapshot.revision
++      << ",\"dropped_contention\":" << snapshot.droppedContention
++      << ",\"dropped_events\":" << snapshot.droppedEvents << ",\"operations\":{";
++  for (size_t i=0;i<Count;++i) {
++    const auto& m=snapshot.metrics[i];
++    if (i) out << ',';
++    out << '\"' << Names[i] << "\":{\"count\":" << m.count << ",\"max_ns\":" << m.maxNs
++        << ",\"max_start_mach_ns\":" << m.maxStartNs
++        << ",\"max_end_mach_ns\":" << m.maxEndNs << '}';
++  }
++  out << "},\"long_events\":[";
++  for (size_t i=0;i<snapshot.eventCount;++i) {
++    const auto& e=snapshot.events[i];
++    if (i) out << ',';
++    out << "{\"operation\":\"" << Names[e.operation] << "\",\"start_mach_ns\":"
++        << e.startNs << ",\"end_mach_ns\":" << e.endNs << '}';
++  }
++  out << "]}";
++}
++} // namespace owned_stall

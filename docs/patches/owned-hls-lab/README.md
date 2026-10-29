@@ -194,3 +194,52 @@ repeat reached natural EOF but contained six unrequested quiet intervals.
 threshold; the other two were explicitly invalidated during pause callbacks.
 The preceding incomplete recorder attempt is retained separately. No competing
 jobs were stopped, and reduced polling is not claimed to fix sink starvation.
+
+### Bounded native stall measurements
+
+Apply `../inputstream.ffmpegdirect-22.2.10-owned-hls-stall-diagnostics.patch`
+after the owned-HLS patch for the next diagnostic build. It changes only the
+opted-in addon measurements. Original audio feeding, pause controls, 5 ms sleep,
+telemetry flush cadence and clock calculations remain in place. QoS is observed,
+not changed. Record the new addon hash separately from earlier recordings.
+
+Each clock row adds fixed per-operation counts and maximum Mach-time brackets,
+plus at most 12 completed operations longer than 40 ms. Measurements cover
+shared mutex waits, decoding under the shared mutex, telemetry writes/flushes,
+control-file reads, AddData/GetSpace, renderer iterations and sleep overshoot,
+and synthetic host-packet calls/interarrival. Durations overlap; never sum them.
+The aggregator uses nonwaiting try-locks, fixed storage and explicit contention
+and event-overflow counters. JSON is formatted outside its lock. Worst-case
+extra JSON is below 10 KiB; the full existing row limit remains 16 KiB.
+
+The current row's own write appears in a later snapshot. Final pending operations
+may never be published. Unavailable snapshots or loss counters make absence of
+an event inconclusive. A long measured operation includes any time its thread
+was descheduled: overlap with a captured gap identifies a candidate phase, not
+a proven syscall, lock owner, scheduler mechanism or competing process.
+Instrumentation itself adds clock calls and output bytes and may affect timing.
+
+After applying the patch to the native addon source, the standalone aggregator
+check can be compiled with a C++14 compiler, `-pthread` and `-I/path/to/addon/src`
+using `test_stall_diagnostics.cpp`. It checks exact maximum brackets, snapshot
+reset, the strict duration threshold, bounded event loss and worst-case JSON
+size. It does not replace the native build or captured playback acceptance.
+
+`summarize_stalls.py` reads an archived ledger with `--ledger`, the capture
+manifest's first Mach timestamp with `--capture-first-host-ns`, and optional
+`--gap START_SECONDS END_SECONDS` pairs. Write its JSON with `--output`. It
+validates the complete diagnostic schema and retains unavailable/lost evidence.
+Gap overlaps use capture host time directly; downstream pipeline latency means
+a contributing stall can precede a captured gap, so zero overlap is not exclusion.
+The summary reports observations only and cannot declare a playback pass.
+
+The separate `../inputstream.ffmpegdirect-22.2.10-owned-hls-renderer-qos.patch`
+applies after the stall-diagnostic patch. On macOS it requests
+`QOS_CLASS_USER_INITIATED` only from the dedicated owned-HLS renderer thread,
+then records the setter result and readback. It does not change another thread,
+the process policy, Kodi core, or another job. A failed request leaves playback
+running and records `renderer_qos_request_confirmed=false`; a confirmed request
+is an experiment precondition, never proof of seamless output. The request ends
+with that thread. Compare captured output and operation brackets against the
+diagnostic baseline, retaining both results. The original shared-lock and file
+I/O behavior remains; this change is not a real-time scheduling guarantee.

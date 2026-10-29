@@ -80,3 +80,25 @@ Reduced polling therefore does not resolve the no-gap requirement. Of 154
 independent audio points, 152 had valid runtime estimates within threshold; two
 were invalidated by pause callback state. All are reported and the all-points
 gate remains failed. Do not push or enable beacons on this result.
+
+## Addon stall investigation
+
+Continue under the user's explicit addon-only constraint; do not suspend or
+reprioritize other jobs. Independent waveform reconstruction of the six previous
+gaps found inserted sink-block silence while retaining source sequence. The
+longer cluster also drained the owned AudioEngine cache despite four seconds of
+decoded PCM, so a sink warning alone does not isolate the starving stage.
+
+Measure the existing native addon without changing its playback behavior. Apply
+`inputstream.ffmpegdirect-22.2.10-owned-hls-stall-diagnostics.patch` after the owned
+HLS patch. It brackets control-file access, telemetry IO, shared-mutex waits and
+decode holds, AddData/GetSpace, sleep overshoot and host-packet progress in Mach
+time. Fixed storage and try-lock loss counters keep the instrumentation bounded;
+extra JSON is appended to existing rows. Record requested feeder QoS without
+changing it. Preserve original core and recorder hashes.
+
+Correlate completed operation brackets against independently captured gaps and
+queue depths before choosing a fix. Durations include descheduling; a long syscall
+bracket is not proof of disk or lock causality. Missing diagnostics never prove
+absence of a stall. Retest any actual fix with the same normal pause schedule,
+source reference, natural EOF and frozen runtime clock; retain every failure.
