@@ -198,12 +198,34 @@ def hal_hello(b):
     return {k:values[k] for k in ('nonce','incarnation','timeline_sha256','first_packet_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability')} | dict(protocol=1,stream_generation=1,device_generation=1,native_open_mach_ns=BASE-50,qualification_scope='controlled_fixture')
 
 
+def gain_ack(command, **changes):
+    row=dict(kind='hal_gain_ack',nonce=command.nonce,incarnation=command.incarnation,
+        timeline_sha256=command.timeline_sha256,output_backend=command.output_backend,
+        hal_contract_version=1,device_generation=1,gain_revision=command.revision,
+        gain_epoch=command.effective_epoch,volume=command.volume,muted=command.muted,
+        applied_gain=command.multiplier,output_host_ns=command.issue_ns,source_start=0,
+        request_start_ns=command.request_start_ns,request_end_ns=command.request_end_ns,
+        issue_ns=command.issue_ns,expiry_ns=command.expiry_ns,in_flight_generation=1,
+        playback_revision=1,playback_epoch=1,segment_sequence=command.revision,
+        publication_sequence=1,applied_intent=2,native_gate=1,authorized_native_epoch=0,
+        resume_playback_revision=0,resume_granted=False)
+    return row | changes
+
+
+def terminal_row(**changes):
+    b=binding()
+    return dict(kind='hal_terminal',output_backend=b.output_backend,nonce=b.nonce,
+        incarnation=b.incarnation,timeline_sha256=b.timeline_sha256,reason='natural_eof',
+        source_end_ns=BASE,hold_until_ns=BASE+1_000_000_000,observed_mach_ns=BASE,
+        native_control_reason='eligible',core_failure=0,failed=False,cleanup_result=-1,
+        exposed_context_retained_until_exit=True,quarantined=False,
+        clock_authority=False,beacons_enabled=False) | changes
+
+
 def test_natural_terminal_does_not_cancel_native_one_second_hold():
     h=implementation();b=binding();session=h.HalControlSession(b,lambda:BASE)
     assert session.bind_hello(hal_hello(b))
-    raw=json.dumps(dict(kind='hal_terminal',output_backend=b.output_backend,nonce=b.nonce,
-        incarnation=b.incarnation,timeline_sha256=b.timeline_sha256,reason='natural_eof',source_end_ns=BASE,
-        hold_until_ns=BASE+1_000_000_000,observed_mach_ns=BASE,clock_authority=False,beacons_enabled=False)).encode()
+    raw=json.dumps(terminal_row()).encode()
     result=session.ingest(raw)
     assert result and not session.retired and session.source_ended
     assert result['raw_sha256']==__import__('hashlib').sha256(raw).hexdigest()
@@ -211,16 +233,8 @@ def test_natural_terminal_does_not_cancel_native_one_second_hold():
 
 def test_gain_ack_newer_ack_cannot_be_followed_by_stale_value():
     c,t,now,state,calls=controller();first=c.reconcile();state['volume']=75;now[0]+=100_000_000;second=c.reconcile()
-    def ack(command):
-        return dict(nonce=command.nonce,incarnation=command.incarnation,timeline_sha256=command.timeline_sha256,
-            output_backend=command.output_backend,device_generation=1,gain_revision=command.revision,
-            gain_epoch=command.effective_epoch,volume=command.volume,muted=command.muted,
-            applied_gain=command.multiplier,output_host_ns=now[0],source_start=0,
-            hal_contract_version=1,request_start_ns=command.request_start_ns,request_end_ns=command.request_end_ns,
-            issue_ns=command.issue_ns,expiry_ns=command.expiry_ns,in_flight_generation=2,playback_revision=1,
-            playback_epoch=1,segment_sequence=command.revision)
-    assert c.acknowledge(ack(second))
-    assert not c.acknowledge(ack(first)) and c.retired
+    assert c.acknowledge(gain_ack(second))
+    assert not c.acknowledge(gain_ack(first)) and c.retired
 
 
 def test_initial_issue_request_start_100ms_boundary():
@@ -293,11 +307,7 @@ def test_muted_volume_refresh_does_not_change_effective_gain_epoch():
 
 def test_gain_ack_request_brackets_cannot_be_coerced():
     c,t,now,state,calls=controller();command=c.reconcile()
-    row=dict(nonce=command.nonce,incarnation=command.incarnation,timeline_sha256=command.timeline_sha256,
-        output_backend=command.output_backend,device_generation=1,gain_revision=1,gain_epoch=1,volume=100,
-        muted=False,applied_gain=1,output_host_ns=BASE,source_start=0,hal_contract_version=1,
-        request_start_ns=float(command.request_start_ns),request_end_ns=command.request_end_ns,issue_ns=command.issue_ns,
-        expiry_ns=command.expiry_ns,in_flight_generation=2,playback_revision=1,playback_epoch=1,segment_sequence=1)
+    row=gain_ack(command,request_start_ns=float(command.request_start_ns))
     assert not c.acknowledge(row) and c.retired
 
 
@@ -321,3 +331,118 @@ def test_hello_nested_format_types_are_strict(field,value):
     h=implementation();b=binding();hello=hal_hello(b);hello['device_format']=dict(hello['device_format'],**{field:value})
     p=h.HalControlSession(b,lambda:BASE)
     assert not p.bind_hello(hello) and p.retired
+
+
+# These mutations must fail before either consumer advances its accepted state.
+ACK_FIELDS=('kind','nonce','incarnation','timeline_sha256','output_backend','hal_contract_version',
+    'device_generation','gain_revision','gain_epoch','volume','muted','applied_gain','output_host_ns',
+    'source_start','request_start_ns','request_end_ns','issue_ns','expiry_ns','in_flight_generation',
+    'playback_revision','playback_epoch','segment_sequence','publication_sequence','applied_intent',
+    'native_gate','authorized_native_epoch','resume_playback_revision','resume_granted')
+
+
+@pytest.mark.parametrize('field',ACK_FIELDS)
+@pytest.mark.parametrize('mutation',['missing','coerced'])
+@pytest.mark.parametrize('consumer',['controller','session'])
+def test_complete_ack_schema_rejects_each_missing_or_coerced_field(field,mutation,consumer):
+    c,t,now,state,calls=controller();command=c.reconcile();row=gain_ack(command)
+    if mutation=='missing':del row[field]
+    else:
+        value=row[field]
+        row[field]=float(value) if type(value) is int else (0 if type(value) is bool else None)
+    if consumer=='controller':
+        assert not c.acknowledge(row) and c.retired and c._ack==0
+    else:
+        session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+        assert session.ingest(json.dumps(row).encode()) is None and session.retired
+        assert session._ack==0 and not session.source_ended
+
+
+@pytest.mark.parametrize('changes',[
+    dict(publication_sequence=0),dict(applied_intent=0),dict(native_gate=0),
+    dict(native_gate=True),dict(native_gate=1<<64),dict(native_gate=(1<<63)|1),
+    dict(authorized_native_epoch=-1),dict(authorized_native_epoch=1<<62),
+    dict(resume_playback_revision=2),dict(resume_granted='false'),
+    dict(resume_granted=True),dict(in_flight_generation=2),dict(core_failure=0,clock_authority=True),
+    dict(beacons_enabled=True),dict(clock_authority=0),dict(volume=101),
+    dict(applied_gain=float('inf')),dict(request_end_ns=BASE+50_000_001),
+    dict(issue_ns=BASE-1),dict(expiry_ns=BASE+500_000_001),dict(output_host_ns=BASE-1),
+])
+def test_ack_invalid_ranges_or_grant_provenance_never_advance(changes):
+    c,t,now,state,calls=controller();row=gain_ack(c.reconcile(),**changes)
+    assert not c.acknowledge(row) and c.retired and c._ack==0
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    # Nonfinite JSON is independently rejected by the production decoder.
+    if changes.get('applied_gain')==float('inf'):
+        with pytest.raises(ValueError):session.ingest(json.dumps(row).encode())
+    else:assert session.ingest(json.dumps(row).encode()) is None and session.retired
+
+
+@pytest.mark.parametrize('changes',[
+    {}, # bootstrap has no resume grant
+    dict(native_gate=(1<<62)|2,in_flight_generation=(1<<62)|2), # pause before playback grant
+    dict(authorized_native_epoch=1,resume_playback_revision=1,resume_granted=True),
+    dict(native_gate=(1<<62)|2,in_flight_generation=(1<<62)|2,
+         authorized_native_epoch=1,resume_playback_revision=1), # native pause override
+    dict(native_gate=3,in_flight_generation=3,authorized_native_epoch=1,resume_playback_revision=1),
+    dict(native_gate=(1<<62)|2,in_flight_generation=(1<<62)|2,
+         authorized_native_epoch=3,resume_playback_revision=1), # deferred next unpause
+])
+def test_ack_valid_bootstrap_paused_and_native_override_provenance(changes):
+    c,t,now,state,calls=controller();row=gain_ack(c.reconcile(),**changes)
+    assert c.acknowledge(row) and c._ack==1 and not c.retired
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    assert session.ingest(json.dumps(row).encode()) and not session.retired
+
+
+@pytest.mark.parametrize('field',tuple(terminal_row()))
+@pytest.mark.parametrize('mutation',['missing','coerced'])
+def test_terminal_schema_rejects_each_missing_or_coerced_field_before_eof(field,mutation):
+    row=terminal_row()
+    if mutation=='missing':del row[field]
+    else:
+        value=row[field];row[field]=float(value) if type(value) is int else (0 if type(value) is bool else None)
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    assert session.ingest(json.dumps(row).encode()) is None and session.retired and not session.source_ended
+
+
+@pytest.mark.parametrize('changes',[
+    dict(reason='other'),dict(source_end_ns=-1),dict(source_end_ns=0),dict(hold_until_ns=BASE),
+    dict(observed_mach_ns=BASE-1),dict(core_failure=11),dict(core_failure=1),dict(failed=True),
+    dict(cleanup_result=0),dict(exposed_context_retained_until_exit=False),dict(clock_authority=True),
+    dict(beacons_enabled=True),dict(native_control_reason=''),dict(observed_mach_ns=1<<64),
+    dict(reason='cleanup_clean',cleanup_result=1),dict(reason='cleanup_failed',cleanup_result=0),
+    dict(reason='cleanup_failed',cleanup_result=2,failed=False),
+])
+def test_terminal_invalid_ranges_or_authority_cannot_declare_source_end(changes):
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    assert session.ingest(json.dumps(terminal_row(**changes)).encode()) is None
+    assert session.retired and not session.source_ended
+
+
+@pytest.mark.parametrize('changes',[
+    dict(reason='retired',source_end_ns=0,hold_until_ns=0,core_failure=6),
+    dict(reason='cleanup_clean',cleanup_result=0,core_failure=8,quarantined=True,
+         observed_mach_ns=BASE+1_000_000_000), # cleanup revocation after natural END
+    dict(reason='cleanup_clean',source_end_ns=0,hold_until_ns=0,cleanup_result=0,
+         core_failure=6,failed=True,quarantined=True),
+    dict(reason='cleanup_failed',cleanup_result=1,failed=True,quarantined=True),
+    dict(reason='cleanup_failed',cleanup_result=2,failed=True,quarantined=True),
+])
+def test_terminal_valid_retirement_and_eof_cleanup_are_not_schema_failures(changes):
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    if changes.get('source_end_ns',BASE):
+        assert session.ingest(json.dumps(terminal_row()).encode()) and session.source_ended and not session.retired
+    assert session.ingest(json.dumps(terminal_row(**changes)).encode())
+    assert session.retired and session.reason=='native_terminal'
+
+
+@pytest.mark.parametrize('field',[
+    'publication_sequence','applied_intent','native_gate','authorized_native_epoch','resume_playback_revision',
+])
+@pytest.mark.parametrize('value',[True,False,-1,None,'bad',1<<64])
+def test_new_ack_provenance_requires_exact_unsigned_integer_fields(field,value):
+    c,t,now,state,calls=controller();row=gain_ack(c.reconcile(),**{field:value})
+    assert not c.acknowledge(row) and c.retired and c._ack==0
+    session=hal.HalControlSession(binding(),lambda:BASE);assert session.bind_hello(hal_hello(binding()))
+    assert session.ingest(json.dumps(row).encode()) is None and session.retired

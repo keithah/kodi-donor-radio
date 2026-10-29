@@ -20,6 +20,71 @@ def kodi_gain(volume, muted):
     return 1.0 if multiplier >= .99 else multiplier
 
 
+def _controls_only(row, required=False):
+    return all((key not in row and not required) or row.get(key) is False
+               for key in ('clock_authority','beacons_enabled'))
+
+
+def _valid_gain_ack(row):
+    """Validate emitted callback provenance before either consumer accepts it."""
+    positive=('device_generation','gain_revision','gain_epoch','in_flight_generation',
+              'playback_revision','playback_epoch','segment_sequence','publication_sequence','applied_intent')
+    unsigned=('request_start_ns','request_end_ns','issue_ns','expiry_ns','output_host_ns',
+              'source_start','native_gate','authorized_native_epoch','resume_playback_revision','volume')
+    if (not isinstance(row,dict) or row.get('kind')!='hal_gain_ack'
+            or row.get('output_backend')!='hal_callback_v1'
+            or not _hex(row.get('nonce'),32) or not _hex(row.get('incarnation'),32)
+            or not _hex(row.get('timeline_sha256'),64)
+            or type(row.get('hal_contract_version')) is not int or row['hal_contract_version']!=1
+            or any(not _uint(row.get(k)) or not row[k] for k in positive)
+            or any(not _uint(row.get(k)) for k in unsigned)
+            or type(row.get('muted')) is not bool or type(row.get('resume_granted')) is not bool
+            or type(row.get('applied_gain')) not in (int,float) or not math.isfinite(row['applied_gain'])
+            or not _controls_only(row) or row['volume']>100):
+        return False
+    paused=1<<62
+    epoch=row['native_gate'] & (paused-1)
+    granted=not (row['native_gate'] & paused) and bool(row['resume_playback_revision']) and row['authorized_native_epoch']==epoch
+    return (bool(epoch) and row['native_gate']==row['in_flight_generation']
+            and row['authorized_native_epoch']<paused
+            and bool(row['authorized_native_epoch'])==bool(row['resume_playback_revision'])
+            and row['resume_playback_revision']<=row['playback_revision']
+            and row['resume_granted']==granted
+            and row['request_start_ns']<=row['request_end_ns']<=row['issue_ns']
+            and row['request_end_ns']-row['request_start_ns']<=50_000_000
+            and row['issue_ns']<=row['request_start_ns']+100_000_000
+            and row['expiry_ns']==row['request_start_ns']+500_000_000
+            and row['output_host_ns']>=row['issue_ns']
+            and abs(row['applied_gain']-kodi_gain(row['volume'],row['muted']))<=1e-12)
+
+
+def _valid_terminal(row):
+    unsigned=('source_end_ns','hold_until_ns','observed_mach_ns','core_failure')
+    flags=('failed','exposed_context_retained_until_exit','quarantined')
+    if (any(not _uint(row.get(k)) for k in unsigned)
+            or any(type(row.get(k)) is not bool for k in flags)
+            or not _controls_only(row,required=True)
+            or row['exposed_context_retained_until_exit'] is not True
+            or type(row.get('native_control_reason')) is not str or not row['native_control_reason']
+            or row['core_failure']>10 or not row['observed_mach_ns']
+            or type(row.get('cleanup_result')) is not int or row['cleanup_result'] not in (-1,0,1,2)):
+        return False
+    end=row['source_end_ns']
+    if (row['hold_until_ns']!=(end+1_000_000_000 if end else 0)
+            or row['observed_mach_ns']<end):
+        return False
+    reason=row.get('reason')
+    if reason=='natural_eof':
+        return bool(end) and not row['failed'] and row['core_failure']==0 and row['cleanup_result']==-1
+    if reason=='retired':
+        return end==0 and row['cleanup_result']==-1
+    if reason=='cleanup_clean':
+        return row['cleanup_result']==0
+    if reason=='cleanup_failed':
+        return row['cleanup_result'] in (1,2) and row['failed']
+    return False
+
+
 @dataclass(frozen=True)
 class GainCommand:
     nonce: str
@@ -110,6 +175,8 @@ class HalGainController:
 
     def acknowledge(self, row):
         with self._owner:
+            if not _valid_gain_ack(row):
+                self._retire('gain_ack_schema'); return False
             revision = row.get('gain_revision')
             if (not _uint(revision) or not self._ack < revision <= len(self._commands) or not revision):
                 self._retire('gain_ack_sequence'); return False
@@ -219,10 +286,14 @@ class HalControlSession:
                     or any(row.get(k)!=v for k,v in dict(nonce=b.nonce,incarnation=b.incarnation,
                         timeline_sha256=b.timeline_sha256,output_backend=b.output_backend).items())):
                 self.retire('hal_record_binding'); return None
+            if row['kind'] == 'hal_gain_ack':
+                if not _valid_gain_ack(row):
+                    self.retire('hal_gain_ack_schema'); return None
+                return row
             if row['kind'] == 'hal_terminal':
-                if (row.get('reason') == 'natural_eof' and _uint(row.get('source_end_ns'))
-                        and type(row.get('hold_until_ns')) is int
-                        and row['hold_until_ns'] == row['source_end_ns']+1_000_000_000):
+                if not _valid_terminal(row):
+                    self.retire('hal_terminal_schema'); return None
+                if row['reason'] == 'natural_eof':
                     self.source_ended = True
                     self.reason = 'natural_eof_hold'
                     return row
