@@ -22,9 +22,9 @@ from tools import ad_fixture_server
 from url_policy import UrlPolicy
 
 
-def request(url, method='GET', headers=None, body=None):
+def request(url, method='GET', headers=None, body=None, timeout=5):
     target = urlsplit(url)
-    client = http.client.HTTPConnection(target.hostname, target.port, timeout=5)
+    client = http.client.HTTPConnection(target.hostname, target.port, timeout=timeout)
     try:
         client.request(method, target.path, body=body, headers=headers or {})
         response = client.getresponse()
@@ -372,3 +372,24 @@ def test_cancellation_during_composition_never_claims_sample_zero(fixture, monke
         assert reader.result(timeout=2)[0] == 502
     state = session.continuous_audio_state()
     assert not state.started_from_zero and state.next_sample == 0
+
+
+def test_cancellation_before_first_composed_audio_replies_and_closes(fixture, monkeypatch):
+    from relay import _Handler
+    session = fixture.create()
+    entered = threading.Event()
+
+    def cancel_reload(_handler, current, _resource, _ad):
+        entered.set()
+        current.cancel.set()
+        raise OSError('controlled cancellation')
+
+    monkeypatch.setattr(_Handler, '_reload_composition', cancel_reload)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        reader = pool.submit(request, continuous_url(session), timeout=.5)
+        assert entered.wait(3)
+        status, headers, _body = reader.result(timeout=2)
+
+    assert status == 503
+    assert headers['Connection'].lower() == 'close'
+    wait_until(lambda: fixture.manager.get(session.id) is None)

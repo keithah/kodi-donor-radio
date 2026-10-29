@@ -189,7 +189,6 @@ def check_contents(contents):
     require(imports == [
         {'addon': 'xbmc.python', 'version': '3.0.1'},
         {'addon': 'inputstream.adaptive', 'version': '21.0.0', 'optional': 'true'},
-        {'addon': 'inputstream.ffmpegdirect', 'version': '22.2.10', 'optional': 'true'},
     ], 'Incorrect runtime dependency')
     info = metadata.find("extension[@point='xbmc.addon.metadata']")
     require(info is not None, 'Addon metadata missing')

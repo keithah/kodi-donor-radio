@@ -138,9 +138,10 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
     from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns
     from owned_ad_playback import canonical_timeline
     import runtime_clock
-    validate_lab_manifest(Path(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path'))/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1',hal=output_backend=='hal_callback_v1')
+    installed_addon=Path(xbmc.translatePath(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path')))
+    validate_lab_manifest(installed_addon/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1',hal=output_backend=='hal_callback_v1')
     runtime_clock.frozen_module()  # Preserve AE fixture identity for both paths.
-    hal_freeze=fixture_api.load_hal_clock(library) if hal_phase=='clock' else None
+    hal_freeze=fixture_api.load_hal_clock(library,installed_addon) if hal_phase=='clock' else None
     settings={}
     for setting in ('audiodevice','lowlatency','channels','config','processquality','stereoupmix','passthrough'):
         name='audiooutput.'+setting

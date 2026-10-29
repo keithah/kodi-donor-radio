@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
@@ -12,6 +13,10 @@ import fixture_beacons as fixture
 
 
 class HalActivationTests(unittest.TestCase):
+    def load_hal_clock(self):
+        with mock.patch.object(fixture.sys,'platform','darwin'):
+            return fixture.load_hal_clock(self.library,self.installed_addon)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
         self.library=self.root/'library';self.library.mkdir()
@@ -21,8 +26,10 @@ class HalActivationTests(unittest.TestCase):
             source=HERE.parents[2]/'plugin.audio.kodi_donor_radio/resources/lib'/name;target=self.library/name
             target.write_bytes(source.read_bytes())
             self.assertEqual(fixture.file_sha(target),freeze[key])
-        self.dylib=self.root/'inputstream.dylib';self.dylib.write_bytes(b'native-candidate')
-        self.addon=self.root/'addon.xml';self.addon.write_bytes(b'<addon/>')
+        self.installed_addon=self.root/'inputstream.ffmpegdirect';self.installed_addon.mkdir()
+        self.dylib=self.installed_addon/'inputstream.ffmpegdirect.22.2.10.dylib';self.dylib.write_bytes(b'native-candidate')
+        self.addon=self.installed_addon/'addon.xml'
+        self.addon.write_text('<addon><extension point="kodi.inputstream" library_osx="inputstream.ffmpegdirect.22.2.10.dylib"/></addon>')
         self.manifest=self.root/'native-manifest.json'
         self.freeze=freeze
         self.write_manifest()
@@ -44,7 +51,7 @@ class HalActivationTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(value));self.manifest.chmod(0o600)
 
     def test_exact_installed_native_candidate_is_required(self):
-        self.assertEqual(fixture.load_hal_clock(self.library),self.freeze)
+        self.assertEqual(self.load_hal_clock(),self.freeze)
 
     def test_source_digest_or_installed_artifact_mismatch_fails_closed(self):
         for mutation in ('clock','authorization','transport','dylib','addon'):
@@ -55,8 +62,23 @@ class HalActivationTests(unittest.TestCase):
                 self.manifest.write_text(json.dumps(value));self.manifest.chmod(0o600)
             elif mutation=='dylib':self.dylib.write_bytes(b'swapped')
             else:self.addon.write_bytes(b'<other/>')
-            with self.subTest(mutation=mutation),self.assertRaises(ValueError):fixture.load_hal_clock(self.library)
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.load_hal_clock()
+
+    def test_manifest_cannot_attest_a_different_installed_binary(self):
+        external=self.root/'archived-inputstream.dylib';external.write_bytes(b'native-candidate')
+        value=json.loads(self.manifest.read_text())
+        value['dylib']={'path':str(external),'sha256':fixture.file_sha(external)}
+        self.manifest.write_text(json.dumps(value));self.manifest.chmod(0o600)
+
+        with self.assertRaisesRegex(ValueError,'hal_native_artifact_not_installed'):
+            self.load_hal_clock()
 
     def test_untrusted_manifest_permissions_fail_closed(self):
         self.manifest.chmod(0o666)
-        with self.assertRaisesRegex(ValueError,'hal_native_manifest_trust'):fixture.load_hal_clock(self.library)
+        with self.assertRaisesRegex(ValueError,'hal_native_manifest_trust'):
+            self.load_hal_clock()
+
+    def test_hal_clock_fixture_rejects_non_macos_hosts(self):
+        with mock.patch.object(fixture.sys,'platform','linux'):
+            with self.assertRaisesRegex(ValueError,'hal_native_platform_unsupported'):
+                fixture.load_hal_clock(self.library,self.installed_addon)

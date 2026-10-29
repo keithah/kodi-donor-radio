@@ -297,6 +297,8 @@ class _Handler(BaseHTTPRequestHandler):
                         return self._reply(409)
                     try:
                         self._composed_audio(session, resource)
+                        if not self._started:
+                            self._reply(503 if session.cancel.is_set() else 502)
                     finally:
                         session.finish_continuous_audio()
                         manager.stop(session.id)

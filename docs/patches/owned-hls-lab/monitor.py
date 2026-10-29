@@ -109,8 +109,10 @@ def run_owned(directory,library):
     sys.path[:0]=[str(Path(__file__).resolve().parent),library]
     import fixture_beacons as fixture
     import runtime_clock
+    import xbmcaddon
     from owned_clock import OwnedClockBinding,OwnedClockProvider,OwnedClockTransport,OwnedTransportError,SESSION_ROOT,mach_host_ns
     from owned_ad_playback import OwnedAdPlayback
+    installed_addon=Path(xbmc.translatePath(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path')))
     directory=Path(directory)
     if directory.parent!=SESSION_ROOT:raise ValueError('session_root_mismatch')
     transport=OwnedClockTransport(directory)
@@ -129,7 +131,7 @@ def run_owned(directory,library):
     if binding.output_backend=='hal_callback_v1':
         if launch.get('hal_phase')!=binding.hal_phase:raise ValueError('hal_phase_binding')
         if not hal_clock:return run_hal_controls(transport,binding,fixture)
-        if launch.get('hal_clock_freeze')!=fixture.load_hal_clock(library):raise ValueError('hal_clock_freeze_binding')
+        if launch.get('hal_clock_freeze')!=fixture.load_hal_clock(library,installed_addon):raise ValueError('hal_clock_freeze_binding')
     presentation=fixture.presentation_from_manifest(json.loads(timeline))
     module=runtime_clock.frozen_module()
     pending=queue.Queue(maxsize=80000);cancel=threading.Event()

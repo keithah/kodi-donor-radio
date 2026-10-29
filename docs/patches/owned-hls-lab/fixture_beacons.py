@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import threading
+import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, urlsplit
 
 ORIGIN = 'http://127.0.0.1:18789'
@@ -369,8 +370,15 @@ def _manifest_file(manifest,key):
     return path
 
 
-def load_hal_clock(library):
+def load_hal_clock(library, installed_addon):
     """Verify the freeze and the exact installed native candidate at activation."""
+    if sys.platform != 'darwin':
+        raise ValueError('hal_native_platform_unsupported')
+    try:
+        addon_root=Path(installed_addon).resolve(strict=True)
+    except (OSError,TypeError,ValueError) as exc:
+        raise ValueError('hal_native_addon_path') from exc
+    if not addon_root.is_dir():raise ValueError('hal_native_addon_path')
     directory=Path(__file__).resolve().parent/'hal-clock-v1'
     contract=json.loads((directory/'contract.json').read_bytes())
     freeze=json.loads((directory/'freeze.json').read_bytes())
@@ -391,6 +399,17 @@ def load_hal_clock(library):
               'native_transport_sha256':'src/OwnedClockTransport.h'}
     if any(source.get(path)!=freeze.get(field) for field,path in required.items()):
         raise ValueError('hal_native_source_binding')
-    _manifest_file(manifest,'dylib')
-    _manifest_file(manifest,'addon_manifest')
+    dylib=_manifest_file(manifest,'dylib').resolve()
+    addon_manifest=_manifest_file(manifest,'addon_manifest').resolve()
+    if addon_manifest!=addon_root/'addon.xml':raise ValueError('hal_native_artifact_not_installed')
+    try:
+        addon=ET.parse(addon_manifest).getroot()
+    except (OSError,ET.ParseError) as exc:
+        raise ValueError('hal_native_addon_manifest') from exc
+    extension=addon.find("./extension[@point='kodi.inputstream']")
+    library_name=extension.get('library_osx') if extension is not None else None
+    if (addon.get('id')!='inputstream.ffmpegdirect' or not isinstance(library_name,str)
+            or not library_name or Path(library_name).name!=library_name
+            or dylib!=addon_root/library_name):
+        raise ValueError('hal_native_artifact_not_installed')
     return freeze

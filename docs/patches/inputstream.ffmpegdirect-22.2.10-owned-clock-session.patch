@@ -1423,8 +1423,11 @@
 +} // namespace owned_clock
 --- /dev/null
 +++ b/src/OwnedClockTransport.h
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,166 @@
 +#pragma once
++#if !defined(__APPLE__)
++#error "owned clock fixture patch is macOS-only"
++#endif
 +#include "OwnedClockProtocol.h"
 +#include <cerrno>
 +#include <cstdio>

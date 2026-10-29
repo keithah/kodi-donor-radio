@@ -739,12 +739,19 @@ decoder symbol; actual live format discovery remains a capture gate.
 
 ### Owned HAL component harness (no playback)
 
-The new additive `../inputstream.ffmpegdirect-22.2.10-owned-hal-fixture.patch`
-applies after the complete existing chain through `owned-clock-session.patch`.
-At this checkpoint it adds only four independent native component files. It
-neither selects a backend nor changes the build, StreamManager, installed addon,
-Kodi, recorder, output settings, or frozen V2 estimator. Actual audio/clock and
-normal-control acceptance remain separate gates.
+The owned clock transport patch is supported only for macOS fixtures; it now
+fails explicitly on other platforms instead of compiling Darwin-only APIs by
+accident.
+
+`../inputstream.ffmpegdirect-22.2.10-owned-hal-fixture.patch` is cumulative
+against pristine inputstream.ffmpegdirect 22.2.10 commit
+`70c378da893cdcfb031b54f84811c17c14b4fb2d`. Apply it alone, not after the
+realtime, startup/EOF, owned-HLS, stall, renderer-QoS, or clock-session patches.
+It includes those earlier changes and adds the opt-in `hal_callback_v1` backend.
+Its native changes include CMake, addon manifest properties, StreamManager,
+Timeshift sources, Properties, and the HAL component and test files. It does
+not change Kodi, the recorder, output settings, or the frozen V2 estimator.
+Actual audio/clock and normal-control acceptance remain separate gates.
 
 Run the focused native harness on macOS after applying the patch. The fake device
 API prevents real CoreAudio registration/start. The real `OwnedHalDevice.cpp`

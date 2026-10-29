@@ -174,7 +174,12 @@ def main():
                 raise RuntimeError('native_setup_exit_%s:%s:%s' % (process.returncode, out, err))
             time.sleep(.001)
         if not (session / 'populated').exists():
-            out, err = process.communicate(timeout=3)
+            process.terminate()
+            try:
+                out, err = process.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                out, err = process.communicate()
             raise RuntimeError('native_setup_timeout:%s:%s' % (out, err))
         final_now = mach_host_ns()
         # Native lookup is by the immutable original query sequence. The
