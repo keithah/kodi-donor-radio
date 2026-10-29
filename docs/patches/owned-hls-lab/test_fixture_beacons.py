@@ -35,11 +35,15 @@ class FixtureBeaconTests(unittest.TestCase):
 
     def test_video_queue_ready_binding(self):
         binding=dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123,
-                     player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+                     player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40,video_extradata_hex='00')
         ready=dict(binding,kind='owned_monitor_ready')
         self.assertTrue(f.validate_ready(ready,binding))
         for value in (None,39,41,40.0,"40",True,False,[],{}):
             with self.assertRaises(ValueError):f.validate_ready(dict(ready,video_queue_tenths=value),binding)
+        for value in (None,'','01','0000',0,False):
+            with self.assertRaises(ValueError):f.validate_ready(dict(ready,video_extradata_hex=value),binding)
+        no_marker=dict(ready);del no_marker['video_extradata_hex']
+        with self.assertRaises(ValueError):f.validate_ready(no_marker,binding)
         del ready['video_queue_tenths']
         with self.assertRaises(ValueError):f.validate_ready(ready,binding)
 

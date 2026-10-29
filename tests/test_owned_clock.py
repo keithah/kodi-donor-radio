@@ -417,18 +417,18 @@ def test_video_generation_change_is_pending_then_reacquires():
 
 def video_control_evidence(r):
     video_evidence(r)
-    r['ownership'].update(player_mode='videoplayer_video_v1',video_queue_tenths=40)
+    r['ownership'].update(player_mode='videoplayer_video_v1',video_queue_tenths=40,video_extradata_hex='00')
     r['host_representation']=dict(version=1,stream_type='video',codec='rawvideo',fourcc=0x30323449,
         width=16,height=16,fps_rate=10,fps_scale=1,packet_bytes=384,packet_duration_s=.1,lead_frames=60,
-        video_frames=20,failed=False)
+        video_frames=20,failed=False,video_extradata_hex='00')
     return r
 
 
 def test_video_control_binding_queue_and_qualified_source_clock():
-    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40,video_extradata_hex='00')
     for value in (None,39,41,40.0,True,'40'):
         with pytest.raises(ValueError):binding(**dict(mode,video_queue_tenths=value))
-    with pytest.raises(ValueError):binding(video_queue_tenths=40)
+    with pytest.raises(ValueError):binding(video_queue_tenths=40,video_extradata_hex='00')
     t=[BASE];p=clock.OwnedClockProvider(binding(**mode),estimator_factory,lambda:t[0])
     assert p.bind_hello(hello(**mode));p.control('play',BASE-25)
     r=video_control_evidence(row(-1,revision=1,state='waiting',issued=BASE-100,applied=BASE-40))
@@ -443,7 +443,7 @@ def test_video_control_binding_queue_and_qualified_source_clock():
 
 @pytest.mark.parametrize('damage',['hello_queue','own_queue','audio','codec','size','budget','missing'])
 def test_video_control_binding_and_projection_fail_closed(damage):
-    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40)
+    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40,video_extradata_hex='00')
     t=[BASE];p=clock.OwnedClockProvider(binding(**mode),estimator_factory,lambda:t[0])
     h=hello(**mode)
     if damage=='hello_queue':h.pop('video_queue_tenths')
@@ -456,4 +456,23 @@ def test_video_control_binding_and_projection_fail_closed(damage):
     if damage=='size':r['host_representation']['packet_bytes']=385
     if damage=='budget':r['host_representation']['video_frames']=71
     if damage=='missing':r.pop('host_representation')
+    assert not feed(p,t,r).valid and p.retired
+
+
+@pytest.mark.parametrize('where',['binding','hello','ownership','host'])
+@pytest.mark.parametrize('value',[None,'','0000','01',0,False,[],{}])
+def test_video_marker_fail_closed(where,value):
+    mode=dict(player_mode='videoplayer_video_v1',requested_core='VideoPlayer',video_queue_tenths=40,video_extradata_hex='00')
+    if where=='binding':
+        with pytest.raises(ValueError):binding(**dict(mode,video_extradata_hex=value))
+        return
+    t=[BASE];p=clock.OwnedClockProvider(binding(**mode),estimator_factory,lambda:t[0])
+    h=hello(**mode)
+    if where=='hello':h['video_extradata_hex']=value
+    if where=='hello':
+        assert not p.bind_hello(h) and p.retired
+        return
+    assert p.bind_hello(h)
+    p.control('play',BASE-25);r=video_control_evidence(row(0))
+    r['ownership' if where=='ownership' else 'host_representation']['video_extradata_hex']=value
     assert not feed(p,t,r).valid and p.retired

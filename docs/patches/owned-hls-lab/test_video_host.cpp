@@ -12,7 +12,7 @@ int main() {
  source.SetStreamType(INPUTSTREAM_TYPE_AUDIO);source.SetCodecName("aac");source.SetSampleRate(48000);source.SetChannels(2);source.SetExtraData(std::vector<uint8_t>{0x11,0x90});
  CHECK(Project(source,host));CHECK(host.GetStreamType()==INPUTSTREAM_TYPE_VIDEO && host.GetCodecName()=="rawvideo");
  CHECK(host.GetCodecFourCC()==0x30323449 && host.GetWidth()==16 && host.GetHeight()==16 && host.GetAspect()==1);
- CHECK(host.GetFpsRate()==10 && host.GetFpsScale()==1 && host.GetExtraDataSize()==0 && host.GetChannels()==0 && host.GetSampleRate()==0);
+ CHECK(host.GetFpsRate()==10 && host.GetFpsScale()==1 && host.GetExtraDataSize()==1 && host.GetExtraData()==std::vector<uint8_t>{0} && host.GetChannels()==0 && host.GetSampleRate()==0);
  CHECK(source.GetCodecName()=="aac" && source.GetExtraDataSize()==2);source.SetSampleRate(44100);CHECK(!Project(source,host));
  owned_player::State mode;CHECK(mode.Configure("videoplayer_video_v1","VideoPlayer","40"));CHECK(mode.Video() && mode.VideoControl());
  CHECK(mode.Observe(71,0,"VideoPlayer",0,101));int decoded=0;

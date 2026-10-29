@@ -46,6 +46,8 @@ def owned_item_properties(binding):
     queue=binding.get('video_queue_tenths')
     if (video and (type(queue) is not int or queue!=40)) or (not video and queue is not None):
         raise ValueError('resolved_video_queue_binding')
+    if (video and binding.get('video_extradata_hex')!='00') or (not video and binding.get('video_extradata_hex') is not None):
+        raise ValueError('resolved_video_marker_binding')
     properties={'inputstream':'inputstream.ffmpegdirect',
         'inputstream-player':'videodefaultplayer' if core=='VideoPlayer' else 'audiodefaultplayer',
         'inputstream.ffmpegdirect.stream_mode':'timeshift','inputstream.ffmpegdirect.is_realtime_stream':'false',
@@ -85,6 +87,7 @@ def resolve_owned(nonce,mode):
         ready=json.loads(transport._read_immutable('monitor-ready.json',2048)[0])
         expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
         if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
+        if binding.video_extradata_hex is not None:expected['video_extradata_hex']=binding.video_extradata_hex
         expected['kind']='owned_monitor_ready'
         if (binding.player_mode=='videoplayer_video_v1'
                 and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or ready!=expected:
@@ -130,7 +133,8 @@ def launch_owned(fixture, mode="paplayer_pcm_v1"):
     presentation,proof=fixture_api.resolve_presentation(Path(fixture),nonce)
     timeline=canonical_timeline(presentation,fixture_api.FIRST_PACKET)
     binding=OwnedClockBinding(nonce,None,fixture_api.sha(timeline),fixture_api.FIRST_PACKET,
-                              fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core,video_queue_tenths=40 if mode=="videoplayer_video_v1" else None)
+                              fixture_api.URL,mach_host_ns(),os.getpid(),player_mode=mode,requested_core=core,video_queue_tenths=40 if mode=="videoplayer_video_v1" else None,
+                              video_extradata_hex="00" if mode=="videoplayer_video_v1" else None)
     transport=OwnedClockTransport.create(SESSION_ROOT,binding)
     directory=transport.directory
     def private_write(name,raw):

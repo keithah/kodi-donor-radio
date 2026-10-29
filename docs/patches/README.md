@@ -146,3 +146,15 @@ callbacks, full captured prefix/tail, natural EOF, no extra gaps/replay and all
 clock/beacon gates require two fresh captures. Ordinary video presentation may
 negotiate refresh/fullscreen under the user's existing settings; output guards
 remain active. No display policy changes or fresh qualification are implied.
+
+
+Run11 exposed a separate core demux readiness requirement: rawvideo packets with
+empty extradata are discarded before reaching the opened decoder. The corrected
+video projection supplies an SDK-owned one-byte zero compatibility marker;
+FFmpeg9.0.2 rawvideo ignores it. Original AAC metadata remains independent.
+`video_extradata_hex:"00"` now binds the new-mode launch/readiness/hello/ownership
+and host representation; missing or wrong evidence retires qualification. Legacy
+modes keep null/absent marker. This adds no budget, recovery-point workaround,
+callback or clock exception. `check-video-host-startup.py` compiles the exact
+external Kodi readiness methods and decodes the generated frame using the matching
+FFmpeg9.0.2-Kodi libraries; actual Kodi startup and captured audio remain gates.
