@@ -281,3 +281,102 @@ and retained the QoS setter/confirmation fields in the offline summary. The
 recorded binaries predate that compile-time guard; their runtime source is
 otherwise identical. The guard and both additive patch applications passed the
 standalone C++ check. No audio behavior or estimator changed after capture.
+
+### Native session-owned clock protocol v1
+
+Apply `../inputstream.ffmpegdirect-22.2.10-owned-clock-session.patch` after the
+realtime, startup/EOF, owned-HLS, stall-diagnostic and renderer-QoS patches.
+This is an additive macOS fixture patch. The three registered ListItem properties
+are `inputstream.ffmpegdirect.owned_clock_nonce` (32 lowercase hex),
+`inputstream.ffmpegdirect.owned_clock_timeline` (64 lowercase hex), and
+`inputstream.ffmpegdirect.owned_clock_first_packet` (64 lowercase hex).
+The only qualifying URL is exactly `http://127.0.0.1:18789/live/index.m3u8`, with
+the existing two lab opt-in markers. Missing properties retain legacy lab mode;
+legacy mode never reports owned eligibility. Present but malformed properties do
+not fall back to the shared control file.
+
+The Python launcher must create a fresh mode-0700 session directory at
+`/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/clock-sessions/<nonce>`.
+Native validates directory ownership, permissions and every path component with
+no-follow opens, then pins the directory. Native creates `native.jsonl`
+exclusively, and publishes a complete mode-0600 `hello.json` last using an
+exclusive temporary file and `renameatx_np(RENAME_EXCL)`. Existing files are
+never overwritten. The hello has protocol, nonce, independently random native
+incarnation, timeline and first-packet digests, native PID, native Open Mach
+nanoseconds, stream generation 1, and `qualification_scope=controlled_fixture`.
+Hello replacement or mutation, session-directory replacement, and invalid or
+changed command files retire eligibility. These checks prevent accidental
+cross-run contamination; they are not a security boundary against same-user code.
+
+Commands are immutable mode-0600 files `command-000001.txt` through
+`command-000064.txt`. Stage them under a hidden temporary name that does not
+start with `command-`, then publish atomically without overwriting. Each file
+contains exactly one canonical ASCII line, at most 512 bytes:
+
+```text
+v1 <nonce> <incarnation> <revision> <state> <issued_mach_ns>\n
+```
+
+Here `\n` denotes the single terminating newline. Revision is an unpadded decimal
+integer from 1 through 64. States are `waiting`, `play`, `pause`, `resume`, `stop`.
+Revision 1 must be `waiting` with the Python launch timestamp, no later than
+native Open. Later timestamps must be strictly increasing, at least native Open,
+and no later than application. Native applies exactly the next revision; identical
+repeated records are idempotent, while conflicts, gaps, malformed records and
+bounds violations retire eligibility. Each renderer iteration drains at most
+eight commands and publishes an acknowledgment for every applied transition.
+The source reader sees the same applied pause gate through an atomic value.
+Acknowledgment means the feeder gate was applied; it does not mean immediate
+audible pause. Ownership failure preserves the source queue and normal audio
+failure behavior; subsequent valid sequential controls can still apply.
+
+Every native clock row retains the frozen estimator inputs and adds `ownership`:
+protocol, nonce, incarnation, timeline_sha256, strictly increasing
+observation_sequence, control_revision, control_state, control_issued_mach_ns,
+control_applied_mach_ns, state_generation_before/after, stream_generation,
+source_zero_confirmed, eligible, reason, output_guard_generation and
+output_guard_valid. Before binding, revision is 0 and state is `unbound`.
+Initial `output_guard_valid=false`, generation 1, and reason
+`output_guard_unarmed` are expected and never qualify a clock. Source-zero proof
+requires the first raw AAC payload digest, first PTS exactly zero and decoded
+48 kHz stereo. ADTS retains legacy playback but cannot obtain this ownership
+proof. The timeline digest binds identity; it does not validate every media byte.
+
+The renderer installs CoreAudio default-output/device-list and pinned-device
+alive/rate/output-stream listeners immediately before its first owned AddData,
+after initial prefill and normal startup. Setup is checked by repeated readback
+and generation comparison. Callbacks only atomically revoke shared state; copied
+blocks preserve callback lifetime across listener removal, using CoreAudio's
+existing global dispatch infrastructure. No new owned worker thread is created.
+Sink format, 48 kHz rate, stream format and unit resample ratio are checked around
+samples. Any failed check or observed change permanently retires this launch.
+The parent launch preflight must establish Kodi's default output and the qualified
+buffered profile. This is `fixture_default_device_observation`, not proof of
+physical speaker timing or detection of same-format internal Kodi sink restarts.
+
+Eligibility also requires confirmed renderer QoS, a verified source origin,
+active play/resume, unchanged native/output generations and no terminal
+revocation. Speed 0 invalidates immediately; normal speed plus a resume ack newer
+than the latest speed-0 observation permits fresh acquisition, in either callback
+order. Normal speed alone cannot revive an old resume. Active seek, flush,
+reset, abort, abnormal speed, source discontinuity, native failure, drain and
+close revoke before lifecycle work or joins. The allowed initial Seek(0) and
+normal-speed initialization remain. A monitor restart requires a new nonce;
+there is no reconnect, retained-ledger replay, or heartbeat qualification.
+
+Compile `test_owned_clock_protocol.cpp` with a C++14 compiler, `-pthread`,
+`-Wall -Wextra -Werror`, and `-I/path/to/patched-addon/src`; repeat with
+`-DNDEBUG`. Its CHECK failures remain active in both builds. Tests cover strict
+wire parsing, sequence/conflict/bounds, generation/revocation and speed ordering,
+secure directory/file checks, immutable hello/commands, retained ledger collision,
+file replacement/truncation and the eight-command drain bound. Run the existing
+stall check against the same source too.
+
+Build the existing `ffmpegdirect-patched-build/inputstream.ffmpegdirect.xcodeproj`
+with XcodeBuildMCP, scheme `inputstream.ffmpegdirect`, Debug, arm64 and `-jobs 2`.
+CoreAudio is linked through CMake. Kodi's AddonHelpers scans the existing
+`kodi/AudioEngine.h` include to generate the required audioengine import; inspect
+the generated manifest for exactly one required import and all three new
+properties before installing it. Build and protocol tests are not playback
+acceptance. Archive the new native source/binary hashes and retain earlier
+failures. Production paths and production success beacons remain disabled.

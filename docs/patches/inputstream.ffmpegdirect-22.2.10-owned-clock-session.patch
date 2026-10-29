@@ -1,0 +1,1024 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -110,6 +110,9 @@
+ addon_version(inputstream.ffmpegdirect FFMPEGDIRECT)
+ add_definitions(-DFFMPEGDIRECT_VERSION=${FFMPEGDIRECT_VERSION})
+
++if(APPLE)
++  list(APPEND DEPLIBS "-framework CoreAudio")
++endif()
+ build_addon(inputstream.ffmpegdirect FFMPEGDIRECT DEPLIBS)
+
+ if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+--- a/inputstream.ffmpegdirect/addon.xml.in
++++ b/inputstream.ffmpegdirect/addon.xml.in
+@@ -10,7 +10,7 @@
+     name="ffmpegdirect"
+     extension=""
+     tags="true"
+-    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id"
++    listitemprops="program_number|stream_mode|open_mode|manifest_type|default_url|is_realtime_stream|terminal_eof|playback_as_live|programme_start_time|programme_end_time|catchup_url_format_string|catchup_url_near_live_format_string|catchup_buffer_start_time|catchup_buffer_end_time|catchup_buffer_offset|catchup_terminates|catchup_granularity|timezone_shift|default_programme_duration|programme_catchup_id|owned_clock_nonce|owned_clock_timeline|owned_clock_first_packet"
+     library_@PLATFORM@="@LIBRARY_FILENAME@" />
+   <extension point="xbmc.service" library="resources/lib/runner.py"/>
+   <extension point="xbmc.addon.metadata">
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -16,6 +16,10 @@
+ #include <iomanip>
+ #include <sstream>
+ #include <utility>
++#include <cstdlib>
++extern "C" {
++#include <libavutil/sha.h>
++}
+
+ #if defined(__APPLE__)
+ #include <mach/mach_time.h>
+@@ -133,6 +137,22 @@
+ {
+   Log(LOGLEVEL_INFO, "inputstream.ffmpegdirect: OpenStream() - Num Props: %d", props.GetPropertiesAmount());
+
++  if (m_ownedRendererActive.load() || m_ownedThread.joinable() || m_ownedSourceThread.joinable())
++    StopOwnedRenderer();
++  m_ownedClockOutput.reset();
++  m_ownedClockTransport.reset();
++  m_ownedClock.reset();
++  m_ownedClockPaused = false;
++  m_ownedClockOpenNs = MachAbsoluteNowNs();
++  m_ownedClockSequence = 0;
++  m_ownedClockRequested = false;
++  m_ownedClockNonce.clear(); m_ownedClockTimeline.clear(); m_ownedClockFirstPacket.clear();
++  m_ownedClockIncarnation.clear();
++#if defined(__APPLE__)
++  unsigned char randomness[16]; arc4random_buf(randomness, sizeof(randomness));
++  const char* hex = "0123456789abcdef";
++  for (auto byte : randomness) { m_ownedClockIncarnation += hex[byte >> 4]; m_ownedClockIncarnation += hex[byte & 15]; }
++#endif
+   m_properties.m_isRealTimeStream.reset();
+   m_properties.m_terminalEof = false;
+   for (const auto& prop : props.GetProperties())
+@@ -142,7 +162,10 @@
+     else
+       Log(LOGLEVEL_INFO, "inputstream.ffmpegdirect property: %s = %s", prop.first.c_str(), prop.second.c_str());
+
+-    if (PROGRAM_NUMBER == prop.first)
++    if (prop.first == "inputstream.ffmpegdirect.owned_clock_nonce") { m_ownedClockRequested = true; m_ownedClockNonce = prop.second; }
++    else if (prop.first == "inputstream.ffmpegdirect.owned_clock_timeline") { m_ownedClockRequested = true; m_ownedClockTimeline = prop.second; }
++    else if (prop.first == "inputstream.ffmpegdirect.owned_clock_first_packet") { m_ownedClockRequested = true; m_ownedClockFirstPacket = prop.second; }
++    else if (PROGRAM_NUMBER == prop.first)
+     {
+       m_properties.m_programProperty = prop.second;
+     }
+@@ -232,6 +255,11 @@
+
+   m_streamUrl = props.GetURL();
+   m_mimeType = props.GetMimeType();
++  if (m_ownedClockRequested && m_streamUrl == "http://127.0.0.1:18789/live/index.m3u8" &&
++      owned_clock::Hex(m_ownedClockNonce, 32) && owned_clock::Hex(m_ownedClockIncarnation, 32) &&
++      owned_clock::Hex(m_ownedClockTimeline, 64) && owned_clock::Hex(m_ownedClockFirstPacket, 64))
++    m_ownedClock = std::make_unique<owned_clock::Authority>(m_ownedClockNonce, m_ownedClockIncarnation, m_ownedClockOpenNs);
++
+
+   Log(LOGLEVEL_INFO, "Stream mimetype: %s", m_mimeType.c_str());
+
+@@ -456,7 +484,7 @@
+   }
+
+   m_ownedTelemetryPath = m_ownedHlsFixture ? root + "hls-clock-ledger.jsonl" : "";
+-  if (m_ownedHlsFixture)
++  if (m_ownedHlsFixture && !m_ownedClockRequested)
+   {
+     std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
+     m_ownedTelemetryFile.close();
+@@ -515,6 +543,23 @@
+   format.SetFrameSize(frameBytes);
+   format.SetFramesAmount(1024);
+   m_ownedStream = std::make_unique<kodi::audioengine::CAEStream>(format, AUDIO_STREAM_AUTOSTART);
++  if (m_ownedClock)
++  {
++    m_ownedClockTransport = std::make_unique<owned_clock::Transport>();
++    m_ownedClockOutput = std::make_unique<owned_clock::OutputGuard>();
++    std::ostringstream hello;
++    hello << "{\"protocol\":1,\"nonce\":\"" << m_ownedClockNonce
++          << "\",\"incarnation\":\"" << m_ownedClockIncarnation
++          << "\",\"timeline_sha256\":\"" << m_ownedClockTimeline
++          << "\",\"first_packet_sha256\":\"" << m_ownedClockFirstPacket
++          << "\",\"native_pid\":" << getpid()
++          << ",\"native_open_mach_ns\":" << m_ownedClockOpenNs
++          << ",\"stream_generation\":1,\"qualification_scope\":\"controlled_fixture\"}\n";
++    m_ownedTelemetryPath = root + "clock-sessions/" + m_ownedClockNonce + "/native.jsonl";
++    m_ownedTelemetryRows = 0;
++    if (!m_ownedClockTransport->Open(root + "clock-sessions/" + m_ownedClockNonce, hello.str()))
++      RevokeOwnedClock("session_transport");
++  }
+   m_ownedStop = false;
+   m_ownedRendererReady = false;
+   m_ownedPlaybackStarted = false;
+@@ -703,6 +748,23 @@
+   decodedEndFrame = m_ownedTotalDecodedFrames;
+   m_ownedLastPacketDecodedStartFrame = decodedStartFrame;
+   m_ownedLastPacketDecodedEndFrame = decodedEndFrame;
++  if (m_ownedClock && m_ownedSourcePacketCount == 0)
++  {
++    std::string digest;
++    AVSHA* sha = av_sha_alloc();
++    if (sha && av_sha_init(sha, 256) == 0)
++    {
++      unsigned char bytes[32];
++      av_sha_update(sha, packet->pData, static_cast<size_t>(packet->iSize));
++      av_sha_final(sha, bytes);
++      const char* hex = "0123456789abcdef";
++      for (auto byte : bytes) { digest += hex[byte >> 4]; digest += hex[byte & 15]; }
++    }
++    av_free(sha);
++    m_ownedClock->ConfirmSource(!packetIsAdts && packet->pts == 0.0 &&
++        m_ownedDecoder->sample_rate == 48000 && m_ownedDecoder->ch_layout.nb_channels == 2 &&
++        digest == m_ownedClockFirstPacket);
++  }
+   ++m_ownedSourcePacketCount;
+
+   if (packet->pts != STREAM_NOPTS_VALUE)
+@@ -721,7 +783,10 @@
+       const double discontinuityThreshold =
+           std::max(STREAM_SEC_TO_TIME(0.5), expectedDuration * 3.0);
+       if (delta < -STREAM_SEC_TO_TIME(0.05) || delta > discontinuityThreshold)
++      {
++        RevokeOwnedClock("source_discontinuity");
+         ++m_ownedSourceEpoch;
++      }
+     }
+     m_ownedHasLastSourcePts = true;
+     m_ownedLastSourcePts = packet->pts;
+@@ -750,8 +815,18 @@
+   std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
+   if (m_ownedHlsFixture)
+     m_ownedStalls.Record(owned_stall::TelemetryWait, waitStart, MachAbsoluteNowNs());
++  if (m_ownedClockRequested)
++  {
++    // Ownership loss stops clock qualification, never drops the PCM/source queue.
++    if (!m_ownedClockTransport || m_ownedTelemetryRows >= maxRows || !m_ownedClockTransport->Append(line))
++      RevokeOwnedClock("ledger_unavailable");
++    else
++      ++m_ownedTelemetryRows;
++    return true;
++  }
+   if (!m_ownedTelemetryFile.is_open() || m_ownedTelemetryRows >= maxRows)
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: bounded HLS telemetry ledger unavailable or full");
+     return false;
+@@ -766,6 +841,7 @@
+   }
+   if (!m_ownedTelemetryFile)
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: failed writing HLS telemetry ledger");
+     return false;
+@@ -858,6 +934,10 @@
+   if (!m_ownedHlsFixture)
+     return;
+
++  const uint64_t generationBefore = m_ownedClock ? m_ownedClock->Generation() : 0;
++  const uint64_t guardBefore = m_ownedClockOutput ? m_ownedClockOutput->Generation() : 0;
++  if (m_ownedClockOutput && m_ownedClockOutput->Valid() && !m_ownedClockOutput->Check(*m_ownedStream))
++    RevokeOwnedClock("output_guard");
+   const uint64_t sampleSteadyNs = SteadyNowNs();
+   const uint64_t sampleMachNs = MachAbsoluteNowNs();
+   const uint64_t sampleWallNs = WallNowNs();
+@@ -970,6 +1050,9 @@
+        << ",\"renderer_qos_request_confirmed\":" << (m_ownedRendererQosRequestConfirmed.load() ? "true" : "false")
+        << ",\"stall_diagnostics\":";
+   owned_stall::WriteJson(line, stalls);
++  if (m_ownedClockOutput && m_ownedClockOutput->Valid() && !m_ownedClockOutput->Check(*m_ownedStream))
++    RevokeOwnedClock("output_guard");
++  WriteOwnedOwnership(line, generationBefore, guardBefore);
+   line << '}';
+   WriteOwnedTelemetryLine(line.str());
+ }
+@@ -1016,6 +1099,7 @@
+   }
+   catch (const std::exception& error)
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not start independent AAC source reader: %s",
+         error.what());
+@@ -1033,6 +1117,7 @@
+     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+   if (!m_ownedInitialPrefillComplete.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR,
+@@ -1051,7 +1136,9 @@
+   const size_t startupHeadroomFrames = startupHeadroomSeconds * 48000;
+   DEMUX_PACKET* pendingPacket = nullptr;
+
+-  auto readControlState = [] {
++  auto readControlState = [this] {
++    if (m_ownedClockRequested)
++      return std::string(m_ownedClockPaused.load() ? "pause" : "play");
+     std::ifstream control(
+         "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
+     std::string state;
+@@ -1078,6 +1165,7 @@
+     }
+     if (queueCapacity == 0 || queuedFrames > queueCapacity)
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source reader observed invalid bounded PCM queue state");
+       break;
+@@ -1117,6 +1205,7 @@
+           break;
+         if (!FlushOwnedDecoder())
+         {
++          RevokeOwnedClock("native_failure");
+           m_ownedFailed = true;
+           Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite HLS EOF");
+           break;
+@@ -1125,6 +1214,7 @@
+           std::lock_guard<std::mutex> lock(m_ownedMutex);
+           if (m_ownedTotalDecodedFrames == 0)
+           {
++            RevokeOwnedClock("native_failure");
+             m_ownedFailed = true;
+             Log(LOGLEVEL_ERROR,
+                 "OWNED_RENDERER: finite HLS source ended before producing decoded programme audio");
+@@ -1158,6 +1248,7 @@
+           "OWNED_RENDERER: unexpected stream/control packet in independent HLS source reader; aborting");
+       FreeDemuxPacketFromInputStreamAPI(pendingPacket);
+       pendingPacket = nullptr;
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       break;
+     }
+@@ -1194,6 +1285,7 @@
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS AAC source packet has invalid access-unit framing");
+       FreeDemuxPacketFromInputStreamAPI(pendingPacket);
+       pendingPacket = nullptr;
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       break;
+     }
+@@ -1203,6 +1295,7 @@
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: one HLS packet exceeds bounded PCM queue capacity");
+       FreeDemuxPacketFromInputStreamAPI(pendingPacket);
+       pendingPacket = nullptr;
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       break;
+     }
+@@ -1234,6 +1327,7 @@
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: independent AAC source decode or telemetry failed");
+       FreeDemuxPacketFromInputStreamAPI(pendingPacket);
+       pendingPacket = nullptr;
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       break;
+     }
+@@ -1290,11 +1384,34 @@
+   {
+     owned_stall::Span loopSpan(m_ownedStalls, owned_stall::RendererLoop, MachAbsoluteNowNs, m_ownedHlsFixture);
+     const uint64_t controlStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
+-    std::ifstream control(
+-        "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
+     std::string state;
+-    if (control)
+-      control >> state;
++    if (m_ownedClockRequested)
++    {
++      if (m_ownedClock && m_ownedClockTransport)
++      {
++        std::vector<std::string> commands;
++        if (!m_ownedClockTransport->Poll(m_ownedClock->Control().revision, commands))
++          RevokeOwnedClock("command_transport");
++        else for (const auto& wire : commands)
++        {
++          // Apply each feeder gate, then publish its ack before the next transition.
++          // No AddData occurs between these transitions. Ack is not audible silence.
++          if (!m_ownedClock->Apply(wire, MachAbsoluteNowNs())) break;
++          const auto& appliedState = m_ownedClock->Control().state;
++          m_ownedClockPaused.store(appliedState == "pause");
++          if (appliedState == "play" || appliedState == "resume") m_ownedPlaybackStarted = true;
++          m_ownedClock->Acknowledge(MachAbsoluteNowNs());
++          WriteOwnedClockTelemetry(appliedState);
++        }
++        state = m_ownedClock->Control().state;
++      }
++    }
++    else
++    {
++      std::ifstream control(
++          "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
++      if (control) control >> state;
++    }
+     if (m_ownedHlsFixture)
+       m_ownedStalls.Record(owned_stall::ControlRead, controlStart, MachAbsoluteNowNs());
+
+@@ -1343,10 +1460,16 @@
+     if (m_ownedHlsFixture)
+       m_ownedStalls.Record(owned_stall::GetSpace, spaceStart, MachAbsoluteNowNs());
+     if (shouldFeed && availableFrames != 0)
++    {
++      // Kodi startup is complete; pin output before the first owned AddData.
++      if (m_ownedClockOutput && !m_ownedClockOutput->Start(*m_ownedStream))
++        RevokeOwnedClock("output_guard");
+       m_ownedRendererReady = true;
++    }
+     else if (readyDeadlineArmed && !m_ownedRendererReady.load() &&
+              std::chrono::steady_clock::now() >= readyDeadline)
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: Kodi audio stream did not become ready; aborting lab playback");
+       return;
+@@ -1386,6 +1509,7 @@
+       sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
+       if (sourceEnded && !m_ownedDrainStarted.load())
+       {
++        RevokeOwnedClock("drain");
+         m_ownedStream->Drain(false);
+         m_ownedDrainStarted.store(true);
+         Log(LOGLEVEL_INFO,
+@@ -1424,6 +1548,7 @@
+
+ void InputStreamFFmpegDirect::StopOwnedRenderer()
+ {
++  RevokeOwnedClock("close");
+   // The source worker owns m_stream->DemuxRead after the first anchored packet.
+   // Join it before closing or mutating that source and before decoder teardown.
+   m_ownedSourceStop = true;
+@@ -1435,6 +1560,7 @@
+   if (m_ownedThread.joinable())
+     m_ownedThread.join();
+   m_ownedRendererActive = false;
++  if (m_ownedClockOutput) m_ownedClockOutput->Close();
+   m_ownedStream.reset();
+   {
+     std::lock_guard<std::mutex> lock(m_ownedMutex);
+@@ -1462,6 +1588,7 @@
+
+ bool InputStreamFFmpegDirect::OwnedPlaybackStarted()
+ {
++  if (m_ownedClockRequested) return m_ownedPlaybackStarted.load();
+   if (m_ownedPlaybackStarted.load())
+     return true;
+   std::ifstream control(
+@@ -1571,6 +1698,7 @@
+         m_ownedSyntheticFrames == std::numeric_limits<size_t>::max() ||
+         m_ownedAudioStreamId < 0 || selectedSilenceFrame.empty())
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR,
+           "OWNED_RENDERER: cannot maintain a bounded silent AAC timeline; aborting lab playback");
+@@ -1585,6 +1713,7 @@
+     {
+       if (m_ownedHostOutputFrames == std::numeric_limits<uint64_t>::max())
+       {
++        RevokeOwnedClock("native_failure");
+         m_ownedFailed = true;
+         Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS host frame ledger overflowed");
+         return nullptr;
+@@ -1605,6 +1734,7 @@
+       static_cast<int>(silenceFrame.size()));
+   if (!packet)
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not allocate silent AAC tail packet");
+     return nullptr;
+@@ -1688,8 +1818,10 @@
+
+ void InputStreamFFmpegDirect::DemuxReset()
+ {
++  RevokeOwnedClock("reset");
+   if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after deferred HLS start is unsupported; failing closed");
+@@ -1700,6 +1832,7 @@
+
+ void InputStreamFFmpegDirect::DemuxAbort()
+ {
++  RevokeOwnedClock("abort");
+   if (m_ownedRendererActive.load() && m_ownedHlsFixture)
+   {
+     m_ownedSourceStop = true;
+@@ -1717,8 +1850,10 @@
+
+ void InputStreamFFmpegDirect::DemuxFlush()
+ {
++  RevokeOwnedClock("flush");
+   if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after deferred HLS start is unsupported; failing closed");
+@@ -1765,6 +1900,7 @@
+       return nullptr;
+     if (!FlushOwnedDecoder())
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite EOF");
+       return nullptr;
+@@ -1802,6 +1938,7 @@
+   {
+     if (m_ownedPlaybackStarted.load())
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: playback started before a successful seek-to-zero; aborting");
+       FreeDemuxPacketFromInputStreamAPI(packet);
+@@ -1827,6 +1964,7 @@
+       info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
+       info.GetSampleRate() != 48000 || info.GetChannels() != 2)
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: stream format changed outside the controlled AAC fixture");
+     FreeDemuxPacketFromInputStreamAPI(packet);
+@@ -1840,6 +1978,7 @@
+   if (!DecodeOwnedPacket(packet, packetIsAdts, sourceFrameCount,
+                          decodedStartFrame, decodedEndFrame))
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR,
+         "OWNED_RENDERER: AAC packet decode, framing, or bounded PCM queue failed; aborting lab playback");
+@@ -1866,6 +2005,7 @@
+           m_silenceRawAacFrame.empty() ||
+           m_silenceRawAacFrame.size() > static_cast<size_t>(packet->iSize))
+       {
++        RevokeOwnedClock("native_failure");
+         m_ownedFailed = true;
+         Log(LOGLEVEL_ERROR,
+             "OWNED_RENDERER: raw AAC packet cannot be replaced by one validated silence access unit");
+@@ -1882,6 +2022,7 @@
+     }
+     if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
+     {
++      RevokeOwnedClock("native_failure");
+       m_ownedFailed = true;
+       Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
+       FreeDemuxPacketFromInputStreamAPI(packet);
+@@ -1908,6 +2049,7 @@
+       packetAdtsFrameCount != sourceFrameCount ||
+       replacementBytes > static_cast<size_t>(packet->iSize))
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source packet is not replaceable AAC-LC ADTS; aborting lab playback");
+     FreeDemuxPacketFromInputStreamAPI(packet);
+@@ -1933,6 +2075,7 @@
+   }
+   if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
+     FreeDemuxPacketFromInputStreamAPI(packet);
+@@ -1943,14 +2086,18 @@
+
+ bool InputStreamFFmpegDirect::DemuxSeekTime(double time, bool backwards, double& startpts)
+ {
++  if (std::abs(time) >= 0.001 || m_ownedPlaybackStarted.load() || m_ownedSourceOwnershipTransferred.load())
++    RevokeOwnedClock("seek");
+   if (m_ownedRendererActive.load() && m_ownedHlsFixture && m_ownedSourceStop.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after lab cancellation is unsupported; failing closed");
+     return false;
+   }
+   if (m_ownedSourceOwnershipTransferred.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after source handoff is unsupported; failing closed");
+@@ -1958,6 +2105,7 @@
+   }
+   if (m_ownedRendererActive.load() && OwnedPlaybackStarted())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after AVStarted is unsupported; aborting lab qualification");
+     return false;
+@@ -1975,6 +2123,7 @@
+
+ void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
+ {
++  if (m_ownedClock) m_ownedClock->Speed(speed);
+   m_stream->DemuxSetSpeed(speed);
+ }
+
+@@ -2009,8 +2158,10 @@
+
+ bool InputStreamFFmpegDirect::PosTime(int ms)
+ {
++  RevokeOwnedClock("position");
+   if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after deferred HLS start is unsupported; failing closed");
+@@ -2049,8 +2200,10 @@
+
+ bool InputStreamFFmpegDirect::SeekChapter(int ch)
+ {
++  RevokeOwnedClock("chapter_seek");
+   if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
+   {
++    RevokeOwnedClock("native_failure");
+     m_ownedFailed = true;
+     m_ownedSourceStop = true;
+     Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after deferred HLS start is unsupported; failing closed");
+@@ -2068,6 +2221,7 @@
+
+ int64_t InputStreamFFmpegDirect::SeekStream(int64_t position, int whence /* SEEK_SET */)
+ {
++  RevokeOwnedClock("byte_seek");
+   if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
+     return -1;
+   return m_stream->SeekStream(position, whence);
+@@ -2131,3 +2285,45 @@
+ };
+
+ ADDONCREATOR(CMyAddon)
++
++void InputStreamFFmpegDirect::RevokeOwnedClock(const char* reason)
++{
++  if (m_ownedClock) m_ownedClock->Revoke(reason);
++}
++
++void InputStreamFFmpegDirect::WriteOwnedOwnership(std::ostream& line, uint64_t before, uint64_t guardBefore)
++{
++  if (!m_ownedClock)
++  {
++    line << ",\"ownership\":{\"protocol\":0,\"eligible\":false,\"reason\":\"ownership_absent\"}";
++    return;
++  }
++  const bool outputValid = m_ownedClockOutput && m_ownedClockOutput->Valid();
++  if (m_ownedClockOutput && !outputValid && m_ownedClockOutput->Generation() != 1)
++    RevokeOwnedClock("output_guard");
++  const uint64_t after = m_ownedClock->Generation();
++  const uint64_t guardAfter = m_ownedClockOutput ? m_ownedClockOutput->Generation() : 0;
++  const bool qosConfirmed = m_ownedRendererQosRequestConfirmed.load();
++  const bool eligible = outputValid && qosConfirmed && guardBefore == guardAfter && before == after &&
++      m_ownedClock->Eligible(before);
++  const auto& control = m_ownedClock->Control();
++  const char* reason = eligible ? "eligible" : m_ownedClock->Retired() ? m_ownedClock->Reason() :
++      !outputValid ? "output_guard_unarmed" : !qosConfirmed ? "qos_unconfirmed" :
++      (before != after || guardBefore != guardAfter) ? "generation_changed" : m_ownedClock->Reason();
++  line << ",\"ownership\":{\"protocol\":1,\"nonce\":\"" << m_ownedClockNonce
++       << "\",\"incarnation\":\"" << m_ownedClockIncarnation
++       << "\",\"timeline_sha256\":\"" << m_ownedClockTimeline
++       << "\",\"observation_sequence\":" << ++m_ownedClockSequence
++       << ",\"control_revision\":" << control.revision
++       << ",\"control_state\":\"" << (control.state.empty() ? "unbound" : control.state)
++       << "\",\"control_issued_mach_ns\":" << control.issued
++       << ",\"control_applied_mach_ns\":" << m_ownedClock->Applied()
++       << ",\"state_generation_before\":" << before
++       << ",\"state_generation_after\":" << after
++       << ",\"stream_generation\":1,\"source_zero_confirmed\":" << (m_ownedClock->SourceZero() ? "true" : "false")
++       << ",\"eligible\":" << (eligible ? "true" : "false")
++       << ",\"reason\":\"" << reason
++       << "\",\"output_guard_generation\":" << guardAfter
++       << ",\"output_guard_valid\":" << (outputValid ? "true" : "false")
++       << ",\"output_guard_scope\":\"fixture_default_device_observation\"}";
++}
+--- a/src/StreamManager.h
++++ b/src/StreamManager.h
+@@ -11,6 +11,9 @@
+ #include "stream/IManageDemuxPacket.h"
+ #include "utils/Properties.h"
+ #include "OwnedStallDiagnostics.h"
++#include "OwnedClockProtocol.h"
++#include "OwnedClockTransport.h"
++#include "OwnedClockOutputGuard.h"
+
+ #include <memory>
+ #include <atomic>
+@@ -95,6 +98,16 @@
+
+ private:
+   void StopOwnedRenderer();
++  void RevokeOwnedClock(const char* reason);
++  void WriteOwnedOwnership(std::ostream& line, uint64_t before, uint64_t guardBefore);
++  bool m_ownedClockRequested{false};
++  std::atomic<bool> m_ownedClockPaused{false};
++  uint64_t m_ownedClockOpenNs{0}, m_ownedClockSequence{0};
++  std::string m_ownedClockNonce, m_ownedClockIncarnation, m_ownedClockTimeline, m_ownedClockFirstPacket;
++  std::unique_ptr<owned_clock::Authority> m_ownedClock;
++  std::unique_ptr<owned_clock::Transport> m_ownedClockTransport;
++  std::unique_ptr<owned_clock::OutputGuard> m_ownedClockOutput;
++
+   void RunOwnedRenderer();
+   void RunOwnedSourceReader();
+   bool StartOwnedRenderer();
+--- /dev/null
++++ b/src/OwnedClockProtocol.h
+@@ -0,0 +1,129 @@
++#pragma once
++// Controlled-fixture protocol only. No Kodi dependencies; lifecycle revocation is atomic.
++#include <array>
++#include <atomic>
++#include <cstdint>
++#include <limits>
++#include <sstream>
++#include <string>
++
++namespace owned_clock {
++inline bool Hex(const std::string& s, size_t length) {
++  if (s.size() != length) return false;
++  for (char c : s) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
++  return true;
++}
++inline bool Number(const std::string& s, uint64_t& value) {
++  if (s.empty() || s[0] == '0') return false;
++  value = 0;
++  for (char c : s) {
++    if (c < '0' || c > '9' || value > (std::numeric_limits<uint64_t>::max() - (c-'0')) / 10) return false;
++    value = value * 10 + (c-'0');
++  }
++  return true;
++}
++struct Command {
++  std::string nonce, incarnation, state;
++  unsigned revision{0};
++  uint64_t issued{0};
++};
++inline bool Parse(const std::string& line, Command& c) {
++  if (line.empty() || line.size() > 512 || line.back() != '\n') return false;
++  std::istringstream in(line);
++  std::string version, revision, issued;
++  Command parsed;
++  if (!(in >> version >> parsed.nonce >> parsed.incarnation >> revision >> parsed.state >> issued)) return false;
++  uint64_t r = 0;
++  if (version != "v1" || !Hex(parsed.nonce,32) || !Hex(parsed.incarnation,32) ||
++      !Number(revision,r) || r > 64 || !Number(issued,parsed.issued) ||
++      (parsed.state != "waiting" && parsed.state != "play" && parsed.state != "pause" &&
++       parsed.state != "resume" && parsed.state != "stop")) return false;
++  const std::string canonical = version + " " + parsed.nonce + " " + parsed.incarnation + " " +
++      revision + " " + parsed.state + " " + issued + "\n";
++  if (line != canonical) return false;
++  parsed.revision = static_cast<unsigned>(r);
++  c = parsed;
++  return true;
++}
++class Authority {
++public:
++  Authority(const std::string& nonce, const std::string& incarnation, uint64_t openNs = 0) : nonce(nonce), incarnation(incarnation), openNs(openNs) {}
++  // Called only by renderer. No callback waits for this acknowledgment.
++  bool Apply(const std::string& wire, uint64_t now) {
++    Command next;
++    if (!Parse(wire,next) || next.nonce != nonce || next.incarnation != incarnation || next.issued > now ||
++        (openNs && (next.revision == 1 ? next.issued > openNs : next.issued < openNs))) {
++      Revoke("command_invalid"); return false;
++    }
++    if (next.revision <= command.revision) {
++      if (records[next.revision-1] == wire) return true;
++      Revoke("command_conflict"); return false;
++    }
++    if (next.revision != command.revision+1 ||
++        (command.revision == 0 ? next.state != "waiting" :
++         next.state == "waiting" || next.issued <= command.issued || command.state == "stop") ||
++        (next.state == "play" && command.state != "waiting") ||
++        ((next.state == "pause" || next.state == "resume") && command.state == "waiting")) {
++      Revoke("command_sequence"); return false;
++    }
++    generation.fetch_add(1);
++    records[next.revision-1] = wire;
++    command = next;
++    applied = now;
++    if (next.state == "resume") resumedSpeedEpoch = speedEpoch.load();
++    if (next.state == "stop") Revoke("control_stop");
++    generation.fetch_add(1);
++    return true;
++  }
++  void Revoke(const char* why) {
++    const char* expected = nullptr;
++    if (reason.compare_exchange_strong(expected,why)) generation.fetch_add(1);
++  }
++  void Speed(int speed) {
++    mutations.fetch_add(1);
++    generation.fetch_add(1);
++    if (speed == 0) { speedEpoch.fetch_add(1); normalSpeed.store(false); }
++    else if (speed == 1000) normalSpeed.store(true);
++    else Revoke("abnormal_speed");
++    generation.fetch_add(1);
++    mutations.fetch_sub(1);
++  }
++  void ConfirmSource(bool valid) {
++    mutations.fetch_add(1);
++    generation.fetch_add(1);
++    if (!valid) Revoke("source_zero_mismatch");
++    sourceZero.store(valid);
++    generation.fetch_add(1);
++    mutations.fetch_sub(1);
++  }
++  bool Eligible(uint64_t before) const {
++    const bool valid = mutations.load() == 0 && !Retired() && sourceZero.load() && normalSpeed.load() &&
++        resumedSpeedEpoch == speedEpoch.load() &&
++        (command.state == "play" || command.state == "resume");
++    return valid && mutations.load() == 0 && before == generation.load();
++  }
++  uint64_t Generation() const { return generation.load(); }
++  bool Retired() const { return reason.load() != nullptr; }
++  const char* Reason() const {
++    const char* why = reason.load();
++    if (why) return why;
++    if (!sourceZero.load()) return "source_unconfirmed";
++    if (!normalSpeed.load() || resumedSpeedEpoch != speedEpoch.load()) return "speed_resume_required";
++    if (command.state != "play" && command.state != "resume") return "control_inactive";
++    return "eligible";
++  }
++  bool SourceZero() const { return sourceZero.load(); }
++  const Command& Control() const { return command; }
++  uint64_t Applied() const { return applied; }
++  void Acknowledge(uint64_t now) { applied = now; } // renderer: after applying the source feeder gate
++private:
++  const std::string nonce, incarnation;
++  const uint64_t openNs;
++  std::array<std::string,64> records;
++  Command command;
++  uint64_t applied{0}, resumedSpeedEpoch{0};
++  std::atomic<uint64_t> generation{1}, speedEpoch{0}, mutations{0};
++  std::atomic<bool> sourceZero{false}, normalSpeed{true};
++  std::atomic<const char*> reason{nullptr};
++};
++} // namespace owned_clock
+--- /dev/null
++++ b/src/OwnedClockTransport.h
+@@ -0,0 +1,142 @@
++#pragma once
++#include "OwnedClockProtocol.h"
++#include <cerrno>
++#include <cstdio>
++#include <cstring>
++#include <dirent.h>
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <vector>
++
++namespace owned_clock {
++class Transport {
++public:
++  ~Transport() { Close(); }
++  void Close() {
++    if (ledger >= 0) close(ledger);
++    if (directory >= 0) close(directory);
++    ledger = directory = -1;
++  }
++  static bool Same(const struct stat& a,const struct stat& b) {
++    return a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_size == b.st_size &&
++        a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec && a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec &&
++        a.st_ctimespec.tv_sec == b.st_ctimespec.tv_sec && a.st_ctimespec.tv_nsec == b.st_ctimespec.tv_nsec;
++  }
++  static bool File(const struct stat& st) {
++    return S_ISREG(st.st_mode) && st.st_uid == geteuid() && (st.st_mode&0777)==0600 && st.st_nlink==1;
++  }
++  static int Pin(const std::string& path) {
++    if (path.empty() || path.front() != '/') return -1;
++    int fd = open("/",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
++    std::istringstream components(path.substr(1)); std::string component;
++    while (std::getline(components,component,'/')) {
++      if (component.empty() || component=="." || component=="..") { close(fd); return -1; }
++      int child = openat(fd,component.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
++      close(fd); fd=child; if (fd<0) return -1;
++      struct stat st{};
++      if (fstat(fd,&st)!=0 || !S_ISDIR(st.st_mode) || (st.st_uid!=0 && st.st_uid!=geteuid()) ||
++          ((st.st_mode&0022) && !(st.st_uid==0 && (st.st_mode&S_ISVTX)))) {close(fd);return -1;}
++    }
++    struct stat st{};
++    if (fd<0 || fstat(fd,&st)!=0 || st.st_uid!=geteuid() || (st.st_mode&0777)!=0700) {
++      if(fd>=0) close(fd); return -1;
++    }
++    return fd;
++  }
++  bool Open(const std::string& path,const std::string& hello) {
++    if (directory>=0 || hello.size()>2048) return false;
++    directory=Pin(path); if(directory<0) return false;
++    this->path=path;
++    if(fstat(directory,&identity)!=0) {Close();return false;}
++    ledger=openat(directory,"native.jsonl",O_WRONLY|O_CREAT|O_EXCL|O_APPEND|O_NOFOLLOW|O_CLOEXEC,0600);
++    if(ledger<0 || fchmod(ledger,0600)!=0 || fstat(ledger,&ledgerIdentity)!=0) {Close();return false;}
++    int fd=openat(directory,".native-hello.tmp",O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);
++    if(fd<0) {Close();return false;}
++    const bool helloOk=fchmod(fd,0600)==0 && Write(fd,hello);
++    close(fd);
++    // The immutable handshake becomes visible only when complete and ledger-ready.
++    // RENAME_EXCL preserves collision rejection without a link-count race for readers.
++    if(!helloOk || renameatx_np(directory,".native-hello.tmp",directory,"hello.json",RENAME_EXCL)!=0 ||
++       fstatat(directory,"hello.json",&helloIdentity,AT_SYMLINK_NOFOLLOW)!=0 || !File(helloIdentity)) {
++      Close();return false;
++    }
++    return true;
++  }
++  bool Append(const std::string& line) {
++    struct stat current{};
++    if(ledger<0 || line.size()>16383 || fstatat(directory,"native.jsonl",&current,AT_SYMLINK_NOFOLLOW)!=0 ||
++       !File(current) || current.st_dev!=ledgerIdentity.st_dev || current.st_ino!=ledgerIdentity.st_ino ||
++       current.st_size!=ledgerBytes) return false;
++    if(!Write(ledger,line+"\n")) return false;
++    ledgerBytes+=line.size()+1; return true;
++  }
++  // One directory scan detects future revisions; reads are capped at eight per iteration.
++  // Previously observed immutable records are checked by inode/size/nanosecond change stamps.
++  bool Poll(unsigned revision,std::vector<std::string>& pending) {
++    pending.clear();
++    struct stat current{};
++    if(directory<0 || lstat(path.c_str(),&current)!=0 || !S_ISDIR(current.st_mode) ||
++       current.st_dev!=identity.st_dev || current.st_ino!=identity.st_ino ||
++       current.st_uid!=geteuid() || (current.st_mode&0777)!=0700 || revision>64) return false;
++    struct stat hello{};
++    if(fstatat(directory,"hello.json",&hello,AT_SYMLINK_NOFOLLOW)!=0 || !File(hello) || !Same(hello,helloIdentity))return false;
++    int scanFd=openat(directory,".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
++    DIR* scan=scanFd>=0?fdopendir(scanFd):nullptr;
++    if(!scan) {if(scanFd>=0)close(scanFd);return false;}
++    std::array<bool,64> present{}; bool good=true;
++    errno=0;
++    while (dirent* entry=readdir(scan)) {
++      const std::string name(entry->d_name);
++      if(name.compare(0,8,"command-")!=0) continue;
++      if(name.size()!=18 || name.substr(14)!=".txt") {good=false;break;}
++      unsigned n=0;
++      for(size_t i=8;i<14;++i) {if(name[i]<'0'||name[i]>'9') {good=false;break;} n=n*10+name[i]-'0';}
++      if(!good || n==0 || n>64) {good=false;break;}
++      present[n-1]=true;
++    }
++    if(errno)good=false;
++    closedir(scan); if(!good)return false;
++    bool gap=false;
++    for(unsigned i=0;i<64;++i) {
++      if(!present[i]) {gap=true;if(i<revision)return false;continue;}
++      if(gap)return false;
++      char name[32];std::snprintf(name,sizeof(name),"command-%06u.txt",i+1);
++      struct stat st{};
++      if(fstatat(directory,name,&st,AT_SYMLINK_NOFOLLOW)!=0 || !File(st) || st.st_size<=0 || st.st_size>512) return false;
++      if(seen[i] && !Same(st,records[i]))return false;
++      if(i<revision || pending.size()>=8)continue;
++      int fd=openat(directory,name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
++      struct stat pinned{}; char bytes[513];
++      if(fd<0)return false;
++      const bool pinnedOk=fstat(fd,&pinned)==0 && File(pinned) && Same(st,pinned);
++      const ssize_t n=pinnedOk?read(fd,bytes,sizeof(bytes)):-1;
++      struct stat after{}; const bool stable=fstat(fd,&after)==0 && Same(pinned,after);
++      close(fd);
++      if(!pinnedOk || !stable || n!=st.st_size)return false;
++      Command command;
++      const std::string wire(bytes,static_cast<size_t>(n));
++      if(!Parse(wire,command) || command.revision!=i+1)return false;
++      records[i]=st; seen[i]=true;pending.push_back(wire);
++    }
++    return true;
++  }
++private:
++  static bool Write(int fd,const std::string& bytes) {
++    size_t offset=0;
++    while(offset<bytes.size()) {
++      const ssize_t n=write(fd,bytes.data()+offset,bytes.size()-offset);
++      if(n<0 && errno==EINTR)continue;
++      if(n<=0)return false;
++      offset+=static_cast<size_t>(n);
++    }
++    return true;
++  }
++  int directory{-1},ledger{-1};
++  off_t ledgerBytes{0};
++  std::string path;
++  struct stat identity{},ledgerIdentity{},helloIdentity{};
++  std::array<struct stat,64> records{};
++  std::array<bool,64> seen{};
++};
++} // namespace owned_clock
+--- /dev/null
++++ b/src/OwnedClockOutputGuard.h
+@@ -0,0 +1,116 @@
++#pragma once
++#include <atomic>
++#include <memory>
++#include <vector>
++#include <sstream>
++#include <cmath>
++#include <cstddef>
++#include <kodi/AudioEngine.h>
++#if defined(__APPLE__)
++#include <CoreAudio/CoreAudio.h>
++#include <dispatch/dispatch.h>
++#include <Block.h>
++#endif
++
++namespace owned_clock {
++// Observes default-device changes for this fixture. Not physical-output authentication,
++// and does not detect a same-device, same-format internal Kodi sink restart.
++class OutputGuard {
++public:
++  OutputGuard() : signal(std::make_shared<Signal>()) {}
++  ~OutputGuard() { Close(); }
++  uint64_t Generation() const { return signal->generation.load(); }
++  bool Valid() const { return armed && !signal->revoked.load(); }
++  void Revoke() { signal->revoked.store(true); signal->generation.fetch_add(1); }
++  bool Start(kodi::audioengine::CAEStream& stream) {
++    if(attempted)return Valid();
++    attempted=true;
++#if defined(__APPLE__)
++    const auto before=Generation();
++    if(!Listen(kAudioObjectSystemObject,kAudioHardwarePropertyDefaultOutputDevice,kAudioObjectPropertyScopeGlobal) ||
++       !Listen(kAudioObjectSystemObject,kAudioHardwarePropertyDevices,kAudioObjectPropertyScopeGlobal) ||
++       !Read(kAudioObjectSystemObject,kAudioHardwarePropertyDefaultOutputDevice,kAudioObjectPropertyScopeGlobal,device) ||
++       device==kAudioObjectUnknown ||
++       !Listen(device,kAudioDevicePropertyDeviceIsAlive,kAudioObjectPropertyScopeGlobal) ||
++       !Listen(device,kAudioDevicePropertyNominalSampleRate,kAudioObjectPropertyScopeGlobal) ||
++       !Listen(device,kAudioDevicePropertyStreamConfiguration,kAudioDevicePropertyScopeOutput)) {
++      Revoke();Close();return false;
++    }
++    std::string one,two;
++    if(!Fingerprint(stream,one) || !Fingerprint(stream,two) || one!=two || before!=Generation() || signal->revoked.load()) {
++      Revoke();Close();return false;
++    }
++    fingerprint=one;armed=true;return true;
++#else
++    Revoke();return false;
++#endif
++  }
++  bool Check(kodi::audioengine::CAEStream& stream) {
++#if defined(__APPLE__)
++    if(!Valid())return false;
++    const auto before=Generation(); std::string now;
++    if(!Fingerprint(stream,now) || now!=fingerprint || before!=Generation())Revoke();
++    return Valid();
++#else
++    return false;
++#endif
++  }
++  void Close() {
++    armed=false;
++#if defined(__APPLE__)
++    for(auto& registration:listeners) {
++      AudioObjectRemovePropertyListenerBlock(registration.object,&registration.address,queue,registration.block);
++      Block_release(registration.block);
++    }
++    listeners.clear();
++#endif
++  }
++private:
++  struct Signal { std::atomic<uint64_t> generation{1};std::atomic<bool> revoked{false}; };
++  std::shared_ptr<Signal> signal;
++  bool attempted{false},armed{false};
++  std::string fingerprint;
++#if defined(__APPLE__)
++  struct Registration { AudioObjectID object; AudioObjectPropertyAddress address; AudioObjectPropertyListenerBlock block; };
++  std::vector<Registration> listeners;
++  dispatch_queue_t queue=dispatch_get_global_queue(QOS_CLASS_DEFAULT,0);
++  AudioDeviceID device{kAudioObjectUnknown};
++  bool Listen(AudioObjectID object,AudioObjectPropertySelector selector,AudioObjectPropertyScope scope) {
++    const auto shared=signal;
++    AudioObjectPropertyListenerBlock block=Block_copy(^(UInt32,const AudioObjectPropertyAddress*) {
++      shared->revoked.store(true); shared->generation.fetch_add(1);
++    });
++    AudioObjectPropertyAddress address{selector,scope,kAudioObjectPropertyElementMain};
++    if(AudioObjectAddPropertyListenerBlock(object,&address,queue,block)!=noErr) {Block_release(block);return false;}
++    listeners.push_back({object,address,block});return true;
++  }
++  template<class T> static bool Read(AudioObjectID object,AudioObjectPropertySelector selector,
++                                    AudioObjectPropertyScope scope,T& value) {
++    AudioObjectPropertyAddress address{selector,scope,kAudioObjectPropertyElementMain};UInt32 size=sizeof(T);
++    return AudioObjectGetPropertyData(object,&address,0,nullptr,&size,&value)==noErr && size==sizeof(T);
++  }
++  bool Fingerprint(kodi::audioengine::CAEStream& stream,std::string& result) {
++    AudioDeviceID current=kAudioObjectUnknown;UInt32 alive=0;Float64 rate=0;
++    if(!Read(kAudioObjectSystemObject,kAudioHardwarePropertyDefaultOutputDevice,kAudioObjectPropertyScopeGlobal,current) ||
++       current!=device || !Read(device,kAudioDevicePropertyDeviceIsAlive,kAudioObjectPropertyScopeGlobal,alive) || alive!=1 ||
++       !Read(device,kAudioDevicePropertyNominalSampleRate,kAudioObjectPropertyScopeGlobal,rate) || rate!=48000.0) return false;
++    AudioObjectPropertyAddress address{kAudioDevicePropertyStreamConfiguration,kAudioDevicePropertyScopeOutput,kAudioObjectPropertyElementMain};
++    UInt32 size=0;
++    if(AudioObjectGetPropertyDataSize(device,&address,0,nullptr,&size)!=noErr || size<sizeof(AudioBufferList) || size>65536) return false;
++    std::vector<uint8_t> bytes(size);
++    if(AudioObjectGetPropertyData(device,&address,0,nullptr,&size,bytes.data())!=noErr || size<sizeof(AudioBufferList) || size>bytes.size())return false;
++    const auto* buffers=reinterpret_cast<const AudioBufferList*>(bytes.data());
++    if(buffers->mNumberBuffers==0 || buffers->mNumberBuffers>(size-offsetof(AudioBufferList,mBuffers))/sizeof(AudioBuffer))return false;
++    kodi::audioengine::AudioEngineFormat sink;
++    const double ratio=stream.GetResampleRatio();
++    if(!kodi::audioengine::GetCurrentSinkFormat(sink) || sink.GetSampleRate()!=48000 ||
++       stream.GetSampleRate()!=48000 || stream.GetChannelCount()!=2 || stream.GetFrameSize()!=8 ||
++       stream.GetDataFormat()!=AUDIOENGINE_FMT_FLOAT || !std::isfinite(ratio) || ratio!=1.0)return false;
++    std::ostringstream out;out<<device<<':'<<rate<<':'<<sink.GetDataFormat()<<':'<<sink.GetSampleRate()<<':'<<sink.GetFrameSize()<<':'<<ratio;
++    for(auto channel:sink.GetChannelLayout())out<<':'<<channel;
++    for(UInt32 i=0;i<buffers->mNumberBuffers;++i)out<<':'<<buffers->mBuffers[i].mNumberChannels;
++    result=out.str();return true;
++  }
++#endif
++};
++} // namespace owned_clock
