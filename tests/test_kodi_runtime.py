@@ -2188,6 +2188,23 @@ def test_directory_cache_taxonomy_reuses_then_expires(kodi, monkeypatch, mode):
     assert len(calls) == 2
 
 
+def test_directory_cache_hit_does_not_show_network_progress_ui(kodi, monkeypatch):
+    import radio_ui
+    runtime, state, profile = kodi
+    radio_ui.DirectoryCacheStore(profile).put('countries', 'all', [('Canada', 'CA')])
+    directory(monkeypatch, runtime)
+    original = runtime._operation
+    def operation(function, monitor, cancel, cleanup=None, show_progress=True):
+        if show_progress:
+            pytest.fail('fresh cache should not start network progress UI')
+        return original(function, monitor, cancel, cleanup, show_progress)
+    monkeypatch.setattr(runtime, '_operation', operation)
+
+    route(runtime, mode='countries')
+
+    assert state.items[0][1].label == 'Canada'
+
+
 def test_directory_cache_place_identity_stale_and_safe_rows(kodi, monkeypatch):
     from dataclasses import replace
     import radio_ui

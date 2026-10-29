@@ -169,10 +169,11 @@ def _error(identifier):
     xbmcgui.Dialog().ok(text(30000), text(identifier))
 
 
-def _operation(function, monitor, cancel, cleanup=None):
+def _operation(function, monitor, cancel, cleanup=None, show_progress=True):
     """Keep Kodi UI responsive; late create results are retired after cancellation."""
     progress = xbmcgui.DialogProgress()
-    progress.create(text(30000), text(30013))
+    if show_progress:
+        progress.create(text(30000), text(30013))
     done, lock, result = threading.Event(), threading.Lock(), {}
     def work():
         try:
@@ -456,7 +457,7 @@ def _directory_page(kind, key, fetch, monitor, cancel):
     cached = None
     try:
         cached = _operation(lambda: DirectoryCacheStore(profile_path()).get(
-            kind, key, ttl, allow_stale=True), monitor, cancel)
+            kind, key, ttl, allow_stale=True), monitor, cancel, show_progress=False)
     except Cancelled:
         raise
     except (OSError, ValueError, TypeError, RecursionError):
@@ -464,6 +465,7 @@ def _directory_page(kind, key, fetch, monitor, cancel):
     _check_ui_cancel(monitor, cancel)
     if cached is not None and cached.fresh:
         return cached.rows, cached.continuation
+    _check_ui_cancel(monitor, cancel)
     try:
         rows, continuation = _operation(fetch, monitor, cancel)
     except Cancelled:
@@ -487,7 +489,7 @@ def _directory_page(kind, key, fetch, monitor, cancel):
         rows = valid
     try:
         _operation(lambda: DirectoryCacheStore(profile_path()).put(
-            kind, key, rows, continuation=continuation), monitor, cancel)
+            kind, key, rows, continuation=continuation), monitor, cancel, show_progress=False)
     except Cancelled:
         raise
     except (OSError, ValueError, TypeError, RecursionError):

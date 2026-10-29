@@ -595,8 +595,9 @@ def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corrupti
     store.path.write_text(raw)
     before = store.path.read_bytes()
     with pytest.raises(ValueError): store.get('place', 'key', 60, allow_stale=True)
-    with pytest.raises(ValueError): store.put('tags', 'new', ['jazz'])
-    assert store.path.read_bytes() == before
+    store.put('tags', 'new', ['jazz'], continuation=False)
+    assert store.path.read_bytes() != before
+    assert store.get('tags', 'new', 60).rows == ('jazz',)
 
 
 def test_directory_cache_bounds_evict_oldest_and_preserve_file_on_oversized_write(tmp_path):

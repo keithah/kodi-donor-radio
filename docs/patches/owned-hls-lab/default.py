@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import os
 import sys
+from pathlib import Path
 
 def validate_lab_manifest(path, owned=False, video=False, video_control=False, hal=False):
     """Refuse a misinstalled diagnostic before monitor startup or playback."""
@@ -31,6 +32,10 @@ def player_contract(mode):
     modes={'paplayer_pcm_v1':'PAPlayer','videoplayer_pcm_v1':'VideoPlayer','videoplayer_video_v1':'VideoPlayer'}
     if mode not in modes:raise ValueError('explicit_player_mode_required')
     return mode,modes[mode]
+
+
+def installed_addon_path(xbmcvfs, xbmcaddon):
+    return Path(xbmcvfs.translatePath(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path')))
 
 
 def owned_open_request(nonce, mode):
@@ -132,8 +137,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
     import time
     import uuid
     from dataclasses import asdict
-    from pathlib import Path
-    import xbmc, xbmcgui, xbmcplugin, xbmcaddon
+    import xbmc, xbmcgui, xbmcplugin, xbmcaddon, xbmcvfs
     lab=Path('/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer')
     library=Path(__file__).resolve().parent/'resources/lib'
     sys.path[:0]=[str(lab),str(library)]
@@ -141,7 +145,7 @@ def launch_owned(fixture, mode="paplayer_pcm_v1", output_backend='ae', hal_phase
     from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns
     from owned_ad_playback import canonical_timeline
     import runtime_clock
-    installed_addon=Path(xbmc.translatePath(xbmcaddon.Addon('inputstream.ffmpegdirect').getAddonInfo('path')))
+    installed_addon=installed_addon_path(xbmcvfs,xbmcaddon)
     validate_lab_manifest(installed_addon/'addon.xml',owned=True,video=core=='VideoPlayer',video_control=mode=='videoplayer_video_v1',hal=output_backend=='hal_callback_v1')
     runtime_clock.frozen_module()  # Preserve AE fixture identity for both paths.
     hal_freeze=fixture_api.load_hal_clock(library,installed_addon) if hal_phase=='clock' else None

@@ -19,8 +19,9 @@ proof of audible position. Clock tolerances and the estimator remain frozen.
 The owned experimental preroll path delivered real fixture beacons; the legacy
 continuous adapter's zero-start suppression remains unchanged. Neither result
 qualifies general stations, arbitrary creative splices, or production billing.
-The proposed HAL output work is not implemented. Steward and CodeRabbit have
-**NOT RUN** on this checkpoint and have not passed; pushing remains blocked.
+That checkpoint predates the opt-in HAL lab output path now implemented by the
+experimental fixture patch; captured acceptance remains incomplete. Steward and
+CodeRabbit were **NOT RUN** on that checkpoint and had not passed; pushing was blocked.
 Earlier dated test and review results below remain historical evidence.
 
 ## Directory cache, map, and review-fix follow-up — 2026-10-26

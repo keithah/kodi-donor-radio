@@ -54,6 +54,13 @@ class RuntimeEvaluationTests(unittest.TestCase):
         report,lines,runtime=fixture(); report['clock']['samples'][0]['query_host_ns']=2
         with self.assertRaises(ValueError): evaluate(report,lines,runtime)
 
+    def test_nonstring_runtime_row_kind_is_rejected(self):
+        for value in (None, 5, {}):
+            report,lines,runtime=fixture()
+            runtime.insert(0, {'kind': value})
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'runtime record kind'):
+                evaluate(report,lines,runtime)
+
     def test_duplicates_fail(self):
         report,lines,runtime=fixture()
         with self.assertRaises(ValueError): evaluate(report,lines,runtime+[runtime[0]])

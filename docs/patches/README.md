@@ -111,7 +111,7 @@ Use repository `owned-hls-lab/observe-hls.py` with `--owned-fixture <fixture>` a
 `--player-mode videoplayer_pcm_v1` plus the existing output/port/duration/action
 arguments. It verifies one audio player and exact resolved `dynpath` before
 controls and observations; audio ID0 does not identify the playback core. It
-retains the four pause schedule and records any forced stop. The launcher records
+retains the four-pause schedule and records any forced stop. The launcher records
 `videoplayer.queuetimesize` without changing it. Actual VideoPlayer thread/log
 agreement, native late-pause ordering, natural EOF/tail, no gaps/replay, and all
 clock/beacon gates require fresh captured qualification. This mode remains an

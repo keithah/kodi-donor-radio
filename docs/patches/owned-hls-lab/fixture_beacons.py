@@ -319,7 +319,7 @@ class BeaconEndpoints:
                          receipt_mach_ns=receipt_ns,accepted=accepted,duplicate=duplicate,status=status,
                          method='HEAD' if head else 'GET',attempt=len(self.rows)+1,path_sha256=sha(path.encode()))
                 self.rows.append(row)
-                if known:self.counts[key]+=1
+                if accepted:self.counts[key]+=1
                 self.log.write(json.dumps(row,sort_keys=True)+'\n');self.log.flush()
                 return status,'text/plain',b'' if accepted else b'Rejected tracking attempt'
             return 404,'text/plain',b'Not found'

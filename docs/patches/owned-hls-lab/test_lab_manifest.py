@@ -75,6 +75,22 @@ def test_hal_capabilities_required_before_native_open(tmp_path):
     launcher.validate_lab_manifest(path,hal=True)
 
 
+def test_installed_addon_path_uses_current_vfs_translation_api():
+    class Addon:
+        def __init__(self, addon_id):
+            assert addon_id == 'inputstream.ffmpegdirect'
+        def getAddonInfo(self, name):
+            assert name == 'path'
+            return 'special://home/addons/inputstream.ffmpegdirect'
+    AddonFactory = type('AddonFactory', (), {'Addon': Addon})
+    class Vfs:
+        @staticmethod
+        def translatePath(path):
+            assert path == 'special://home/addons/inputstream.ffmpegdirect'
+            return '/profile/addons/inputstream.ffmpegdirect'
+    assert str(launcher.installed_addon_path(Vfs, AddonFactory)) == '/profile/addons/inputstream.ffmpegdirect'
+
+
 if __name__ == '__main__':
     import pytest
     raise SystemExit(pytest.main([__file__]))

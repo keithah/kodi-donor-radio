@@ -816,6 +816,12 @@ def evaluate(joined,matcher):
                         'This audit uses process-tap buffer Mach timestamps; physical speaker timing is not established.'])
 
 
+def select_current_launch_receipts(all_receipts, current_session_id):
+    """Retain unattributed attempts and this launch's receipts, accepted or not."""
+    return [receipt for receipt in all_receipts
+            if not receipt.get('known_launch') or receipt.get('session_id') == current_session_id]
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for flag in ('capture','reference-pcm','analysis','native','events','receipts','output'):
@@ -829,7 +835,7 @@ def main():
     all_receipts=[json.loads(x) for x in args.receipts.read_text().splitlines()]
     native=args.native.read_bytes().splitlines()
     # Unknown/malformed attempts are never silently filtered away.
-    receipts=[r for r in all_receipts if r.get('accepted') is not True or not r.get('known_launch') or r.get('session_id')==launches[0]['session_id']]
+    receipts=select_current_launch_receipts(all_receipts, launches[0]['session_id'])
     joined=join_evidence(native,rows,receipts)
     analysis=json.loads(args.analysis.read_text())
     matcher=CaptureMatcher(args.capture,args.reference_pcm,analysis,allow_fractional_endpoints=launches[0].get('output_backend')=='hal_callback_v1')

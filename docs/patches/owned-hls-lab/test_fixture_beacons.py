@@ -10,7 +10,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
@@ -95,6 +95,10 @@ class FixtureBeaconTests(unittest.TestCase):
                     status,mime,body=service.get(self.path,False)
                     self.send_response(status);self.send_header('Content-Type',mime)
                     self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+                def do_HEAD(self):
+                    status,mime,body=service.get(self.path,True)
+                    self.send_response(status);self.send_header('Content-Type',mime)
+                    self.send_header('Content-Length',str(len(body)));self.end_headers()
                 def log_message(self,*args):pass
             server=ThreadingHTTPServer(('127.0.0.1',int(origin.rsplit(':',1)[1])),Handler)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -108,15 +112,19 @@ class FixtureBeaconTests(unittest.TestCase):
                         self.assertEqual({t.event for t in ad.tracking},set(f.EVENTS))
                         self.assertEqual(ad.media_url,origin+'/creative/'+name+'/index.m3u8')
                     route=origin+'/track/'+nonce+'/a/start'
+                    head=Request(route,method='HEAD')
+                    with self.assertRaises(HTTPError) as error:urlopen(head)
+                    self.assertEqual(error.exception.code,400)
                     with urlopen(route) as response:self.assertEqual(response.status,204)
                     for bad,status in [(route,409),(origin+'/track/'+nonce+'/a/bogus',400),
                                        (origin+'/track/'+'b'*32+'/a/start',400)]:
                         with self.assertRaises(HTTPError) as error:urlopen(bad)
                         self.assertEqual(error.exception.code,status)
                     rows=[json.loads(x) for x in (root/'beacon-receipts.jsonl').read_text().splitlines()]
-                    self.assertEqual(len(rows),4)
-                    self.assertEqual([x['accepted'] for x in rows],[True,False,False,False])
-                    self.assertTrue(rows[1]['duplicate'])
+                    self.assertEqual(len(rows),5)
+                    self.assertEqual([x['accepted'] for x in rows],[False,True,False,False,False])
+                    self.assertFalse(rows[0]['duplicate'])
+                    self.assertTrue(rows[2]['duplicate'])
                     self.assertTrue(all(x['receipt_mach_ns']==987654321 for x in rows))
             finally:
                 server.shutdown();server.server_close();thread.join();service.close()

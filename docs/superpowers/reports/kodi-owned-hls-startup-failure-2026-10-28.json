@@ -50,5 +50,5 @@
   ],
   "archived_utc": "2026-10-28T08:16:51.013378+00:00",
   "native_build_sha256_observed": "239edb1f19d91c66e5fb1c3af02296d73b4fc3c17bd85d21da9e869795453575",
-  "manifest_completed_is_not_programme_acceptance": "Capture peak is only3.324e-5, below the analysis1e-4 audio threshold; startup log and immediate stop establish no valid programme run."
+  "manifest_completed_is_not_programme_acceptance": "Capture peak is only 3.324e-5, below the analysis 1e-4 audio threshold; startup log and immediate stop establish no valid programme run."
 }

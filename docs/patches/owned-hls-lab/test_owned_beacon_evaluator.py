@@ -7,6 +7,16 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import evaluate_owned_beacons as e
 
 class OwnedEvaluatorTests(unittest.TestCase):
+    def test_receipt_filter_excludes_known_other_launches_but_keeps_unknown_attempts(self):
+        rows=[
+            {'known_launch': True, 'session_id': 'current', 'accepted': True},
+            {'known_launch': True, 'session_id': 'current', 'accepted': False, 'method': 'HEAD'},
+            {'known_launch': True, 'session_id': 'previous', 'accepted': False, 'duplicate': True},
+            {'known_launch': False, 'session_id': '', 'accepted': False},
+        ]
+        selected=e.select_current_launch_receipts(rows, 'current')
+        assert selected == [rows[0], rows[1], rows[3]]
+
     def hal_chain(self):
         rows=[];proofs=[]
         def add(number,stage,decision='d'*64,event='',parent=(0,''),decision_ns=0,queue_ns=0):

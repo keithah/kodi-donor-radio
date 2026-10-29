@@ -8,7 +8,7 @@
   "recorded_seconds": 78.03733333333334,
   "target_pid": 25080,
   "target_exit_not_established": "Parent verified Kodi PID25080 remained alive with unchanged process start time and working RPC after recorder identity check failed.",
-  "later_sink_events_not_captured": "Kodi sink-underflow log events around capture121/123 seconds fall outside this78-second recording. No waveform conclusion can be made for those events.",
+  "later_sink_events_not_captured": "Kodi sink-underflow log events around capture 121/123 seconds fall outside this 78-second recording. No waveform conclusion can be made for those events.",
   "full_waveform_or_clock_acceptance": false,
   "completed_only_analyzer_not_run": true,
   "native_ledger_coverage": {
@@ -148,5 +148,5 @@
     1,
     48000
   ],
-  "native_decoder_evidence_only": "All8439 source packets are raw_aac and decode to8641536 frames; this does not establish uncaptured later rendered audio."
+  "native_decoder_evidence_only": "All 8439 source packets are raw_aac and decode to 8641536 frames; this does not establish uncaptured later rendered audio."
 }

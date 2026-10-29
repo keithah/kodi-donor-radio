@@ -347,7 +347,12 @@ class DirectoryCacheStore(_Store):
         page = DirectoryCachePage(kind, rows, continuation, timestamp, True)
         entry = _DirectoryCacheEntry(kind, identity[1], page.rows, continuation, timestamp)
         with self._mutation():
-            items = [item for item in self.list() if item.identity != identity]
+            try:
+                current = self.list()
+            except ValueError:
+                # This cache contains display-only data; recover from old or corrupt schemas.
+                current = []
+            items = [item for item in current if item.identity != identity]
             items.append(entry)
             # Retain the newest pages, including on backdated writes.
             items.sort(key=lambda item: (item.stored_at, item.identity == identity), reverse=True)

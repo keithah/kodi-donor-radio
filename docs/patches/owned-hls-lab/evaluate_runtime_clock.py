@@ -68,7 +68,10 @@ def evaluate(analysis, native_lines, runtime_rows):
             or launch.get('production_eligible') is not False):
         raise ValueError('invalid runtime launch manifest')
     for record in runtime_rows:
-        if record.get('kind', '').startswith('runtime_clock_'):
+        kind = record.get('kind')
+        if not isinstance(kind, str):
+            raise ValueError('invalid runtime record kind')
+        if kind.startswith('runtime_clock_'):
             if record.get('launch_id') != launch['launch_id']:
                 raise ValueError('mixed runtime launch identity')
             if 'launch_ns' in record and record['launch_ns'] != launch['launch_ns']:

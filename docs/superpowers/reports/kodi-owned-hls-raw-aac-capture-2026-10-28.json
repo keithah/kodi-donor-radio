@@ -175,7 +175,7 @@
   "sink_underflow_or_underrun_lines_within_retry": 0,
   "other_log_sink_events_excluded_by_timestamp": 4,
   "earlier_attempt": {
-    "result": "capture helper failed identity check after78.037333 seconds; Kodi exit not established",
+    "result": "capture helper failed identity check after 78.037333 seconds; Kodi exit not established",
     "full_audio_clock_acceptance": false,
     "later_first_run_sink_events_not_captured": true,
     "evidence": "../capture-first/capture-failure-summary.json"
