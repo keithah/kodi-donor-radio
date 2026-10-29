@@ -167,6 +167,12 @@ def test_canonical_identity_binds_tracking_and_segment_bytes():
     assert playback.timeline_sha256(changed,PACKET)!=playback.timeline_sha256(p,PACKET)
 
 
+def test_fixture_origin_override_remains_loopback_only():
+    assert playback._local_url('http://127.0.0.1:43210/track/start','http://127.0.0.1:43210')
+    assert not playback._local_url('http://example.com:43210/track/start','http://example.com:43210')
+    assert not playback._local_url('https://127.0.0.1:43210/track/start','https://127.0.0.1:43210')
+
+
 def test_stop_callback_never_waits_for_blocked_client_and_defers_join():
     a,p,t,c,_=setup();c.block=True
     try:

@@ -41,6 +41,13 @@ class ManifestTests(unittest.TestCase):
         for properties in ('is_realtime_stream','terminal_eof','prefix_terminal_eof|is_realtime_stream'):
             with self.subTest(properties=properties), self.assertRaises(RuntimeError):
                 self.validate(properties)
+
+    def test_missing_owned_properties_are_named_in_preflight_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'addon.xml'
+            path.write_text('<addon id="inputstream.ffmpegdirect"><requires><import addon="kodi.binary.global.audioengine"/></requires><extension point="kodi.inputstream" listitemprops="terminal_eof|is_realtime_stream"/></addon>')
+            with self.assertRaisesRegex(RuntimeError, 'owned_clock_first_packet.*owned_clock_nonce.*owned_clock_timeline'):
+                launcher.validate_lab_manifest(path,owned=True)
     def test_wrong_instance_audioengine_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'addon.xml'

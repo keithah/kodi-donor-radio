@@ -7,7 +7,8 @@ sample positions survive retirement of older HLS segments. This path is offered
 only for loopback fixture compositions, never ordinary Radio Browser stations.
 
 An already-enabled FFmpegDirect 22+ is selected with its timeshift buffer and
-the video-default player. The optional package dependency is 22.2.10. Kodi master
+the video-default player. FFmpegDirect 22.2.10 is detected at runtime; it is not
+declared as a package dependency. Kodi master
 also needs an explicit music playlist hint when JSON-RPC retains a video tag on
 the original plugin item. Without FFmpegDirect, the existing Adaptive/native
 fallback remains. The service does not install inputstreams.

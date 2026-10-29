@@ -7,6 +7,7 @@ probes while retaining all request/response bytes and timing samples.
 """
 import argparse
 import ctypes
+import functools
 import hashlib
 import json
 import os
@@ -29,15 +30,23 @@ TIMELINE = 'c' * 64
 AUTHORIZATION_BUDGET_NS=20_000_000
 
 
-def mach_host_ns():
-    class Timebase(ctypes.Structure):
-        _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
+class _Timebase(ctypes.Structure):
+    _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
+
+
+@functools.lru_cache(maxsize=1)
+def _mach_clock():
     lib = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
-    info = Timebase()
+    info = _Timebase()
     if lib.mach_timebase_info(ctypes.byref(info)) or not info.denom:
         raise RuntimeError('mach_timebase')
     lib.mach_absolute_time.restype = ctypes.c_uint64
-    return lib.mach_absolute_time() * info.numer // info.denom
+    return lib.mach_absolute_time, info.numer, info.denom
+
+
+def mach_host_ns():
+    absolute, numer, denom = _mach_clock()
+    return absolute() * numer // denom
 
 
 def canonical(value):

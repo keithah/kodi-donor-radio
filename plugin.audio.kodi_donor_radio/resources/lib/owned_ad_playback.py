@@ -20,7 +20,10 @@ def _local_url(value, origin=DEFAULT_ORIGIN):
     try:
         parts = urlsplit(value)
         expected=urlsplit(origin)
-        return (parts.scheme==expected.scheme and parts.hostname==expected.hostname and parts.port==expected.port
+        return (expected.scheme=='http' and expected.hostname=='127.0.0.1' and expected.port is not None
+                and expected.username is None and expected.password is None
+                and expected.path in ('','/') and not expected.query and not expected.fragment
+                and parts.scheme==expected.scheme and parts.hostname==expected.hostname and parts.port==expected.port
                 and parts.username is None and parts.password is None and not parts.fragment)
     except ValueError:
         return False

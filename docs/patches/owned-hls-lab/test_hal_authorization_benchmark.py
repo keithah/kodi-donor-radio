@@ -68,3 +68,36 @@ def test_pre_slot_deadline_rejects_delayed_exact_next_authorization():
 def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
     assert benchmark.gain(6000)['revision'] == 6000
     assert benchmark.gain(6000)['effective_epoch'] == 1
+
+
+def test_mach_clock_library_and_timebase_are_initialized_once(monkeypatch):
+    class Function:
+        def __init__(self, callback):
+            self.callback = callback
+            self.restype = None
+        def __call__(self, *args):
+            return self.callback(*args)
+
+    class Library:
+        def __init__(self):
+            self.ticks = 0
+            def timebase(pointer):
+                info = benchmark.ctypes.cast(pointer, benchmark.ctypes.POINTER(benchmark._Timebase)).contents
+                info.numer, info.denom = 3, 2
+                return 0
+            self.mach_timebase_info = Function(timebase)
+            self.mach_absolute_time = Function(self.absolute)
+        def absolute(self):
+            self.ticks += 1
+            return self.ticks
+
+    library = Library()
+    loads = []
+    monkeypatch.setattr(benchmark.ctypes, 'CDLL', lambda path: loads.append(path) or library)
+    benchmark._mach_clock.cache_clear()
+    try:
+        assert benchmark.mach_host_ns() == 1
+        assert benchmark.mach_host_ns() == 3
+        assert loads == ['/usr/lib/libSystem.B.dylib']
+    finally:
+        benchmark._mach_clock.cache_clear()

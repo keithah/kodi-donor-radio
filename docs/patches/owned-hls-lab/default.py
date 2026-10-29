@@ -17,8 +17,11 @@ def validate_lab_manifest(path, owned=False, video=False, video_control=False, h
     if video: required.update(('owned_player_mode','owned_player_core'))
     if video_control: required.add('owned_player_queue_tenths')
     if hal: required.update(('owned_output_backend','owned_hal_contract_version','owned_hal_phase','owned_hal_clock_version'))
-    if len(extensions) != 1 or not required.issubset(set(extensions[0].get('listitemprops', '').split('|'))):
-        raise RuntimeError('Owned HLS lab requires terminal_eof and is_realtime_stream in kodi.inputstream listitemprops')
+    if len(extensions) != 1:
+        raise RuntimeError('Owned HLS lab requires exactly one kodi.inputstream extension')
+    missing = required - set(extensions[0].get('listitemprops', '').split('|'))
+    if missing:
+        raise RuntimeError('Owned HLS lab manifest lacks listitemprops: ' + ','.join(sorted(missing)))
     dependencies = root.findall("requires/import[@addon='kodi.binary.global.audioengine']")
     if not dependencies or all(item.get('optional', 'false').lower() == 'true' for item in dependencies):
         raise RuntimeError('Owned HLS lab requires the audioengine binary dependency')
