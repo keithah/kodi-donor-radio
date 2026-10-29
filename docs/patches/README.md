@@ -83,6 +83,11 @@ addon; shared libraries and Kodi core were unchanged. The source-only regression
 harness is in `owned-hls-lab/ffmpeg-recovery/`. This fix does not recover media
 that has expired from an upstream playlist, nor establish audible clock accuracy.
 
+The owned-clock, owned-HAL, and later owned-HLS lab patches are macOS-only
+experiments. Their native transport rejects non-Apple targets, so applying
+those patches to the upstream addon intentionally fails non-Apple CI builds;
+they are not cross-platform inputstream patches.
+
 The controlled owned-clock lab also has an explicit `videoplayer_pcm_v1`
 experiment. Launch with `owned_beacons=1`, the existing exact fixture path, and
 `player_mode=videoplayer_pcm_v1`; omission retains `paplayer_pcm_v1`. The launcher

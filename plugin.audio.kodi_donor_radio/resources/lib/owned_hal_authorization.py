@@ -90,8 +90,15 @@ class HalAuthorizationTransport:
     def __init__(self,session,now_ns,create=True,emit=None):
         self.path=Path(session)/'authorization';self.now_ns=now_ns
         if create:self.path.mkdir(mode=0o700)
-        self.fd=_open_directory(self.path);self.identity=os.fstat(self.fd)
-        if not _private(self.identity,True):raise ValueError('authorization_permissions')
+        self.fd=_open_directory(self.path)
+        try:
+            self.identity=os.fstat(self.fd)
+            if not _private(self.identity,True):raise ValueError('authorization_permissions')
+        except BaseException:
+            try:os.close(self.fd)
+            except OSError:pass
+            self.fd=None
+            raise
         self.slot=FairAuthorizationSlot();self.cancel=threading.Event();self.closing=False
         self.count=0;self.failed=False;self.emit=emit
 

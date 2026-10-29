@@ -65,7 +65,6 @@ def main():
     now,clock=make_tracking_clock()
     beacons=None
     if args.owned_beacons:
-        if args.port!=18789:raise ValueError('owned_beacons_requires_fixed_loopback_port')
         sys.path.insert(0,str(args.repo/'plugin.audio.kodi_donor_radio/resources/lib'))
         from fixture_beacons import verify_fixture,BeaconEndpoints,sha
         metadata,proof=verify_fixture(root)

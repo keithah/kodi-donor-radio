@@ -80,6 +80,12 @@ def _seek_effect_observed(evidence):
     return abs(after - target) <= 1 and after - before > natural_advance + .5
 
 
+def _action_failure(action, elapsed, error, accepted):
+    return {'at': round(elapsed, 3), 'action': action,
+            'accepted': bool(accepted), 'state_observed': False,
+            'error': type(error).__name__}
+
+
 _RELAY_MEDIA_PATH = re.compile(r'/media/[0-9a-f]{48}/[0-9a-f]{48}(?:\.[a-z0-9]+)?')
 
 
@@ -279,6 +285,7 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
             seek_evidence = None
             seek_started_at = None
             seek_max_abs_speed = None
+            action_accepted = False
             try:
                 active = rpc('Player.GetActivePlayers', port=port)
                 playerid = active[0]['playerid'] if active else 0
@@ -296,6 +303,7 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
                     result = rpc('Player.Stop', {'playerid': playerid}, port=port)
                 else:
                     raise ValueError(action)
+                action_accepted = True
                 after = sample(port, file, previous_file)
                 if action in ('pause', 'resume'):
                     expected_speed = 0 if action == 'pause' else 1
@@ -345,9 +353,7 @@ def observe(origin, port, source, duration, actions, expected_beacons=None):
                     action_result['seek_evidence'] = seek_evidence
                 action_results.append(action_result)
             except (OSError, RuntimeError) as error:
-                action_results.append({'at': round(elapsed, 3), 'action': action,
-                                       'accepted': False, 'state_observed': False,
-                                       'error': type(error).__name__})
+                action_results.append(_action_failure(action, elapsed, error, action_accepted))
         try:
             observation = sample(port, file, previous_file)
         except (OSError, RuntimeError) as error:

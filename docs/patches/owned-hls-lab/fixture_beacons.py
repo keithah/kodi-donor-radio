@@ -18,7 +18,7 @@ import threading
 import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, urlsplit
 
-ORIGIN = 'http://127.0.0.1:18789'
+ORIGIN = os.environ.get('KODI_DONOR_FIXTURE_ORIGIN', 'http://127.0.0.1:18789')
 URL = ORIGIN+'/live/index.m3u8'
 CONTRACT_SHA = '0f61940179856249077e9536643c6c2868da68853b2406abf0024849de49f1f8'
 METADATA_ID = 'beb8dbb1d70f935688c04d428d361bdf90cca0fc1d7bd82ac62bfeda81b98d03'
@@ -210,7 +210,7 @@ def verify_fixture(root):
     return metadata,proof
 
 
-def presentation_from_manifest(document):
+def presentation_from_manifest(document, local_origin=ORIGIN):
     from ad_models import OutputSegment,Placement,Presentation,ResolvedAd,TrackingUrl
     from owned_ad_playback import canonical_timeline
     value=document['presentation'];placements=[]
@@ -221,7 +221,7 @@ def presentation_from_manifest(document):
         placements.append(Placement(placement['id'],ResolvedAd(**ad),placement['start_sample'],placement['end_sample']))
     presentation=Presentation(tuple(OutputSegment(**s) for s in value['segments']),tuple(placements),
                               value['ended'],value['initially_finite'])
-    if canonical_timeline(presentation,FIRST_PACKET)!=canonical(document):
+    if canonical_timeline(presentation,FIRST_PACKET,local_origin=local_origin)!=canonical(document):
         raise ValueError('canonical_timeline_changed')
     return presentation
 

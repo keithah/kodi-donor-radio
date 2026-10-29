@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from analyze_hls_capture import endpoint_anchors
+from analyze_hls_capture import endpoint_anchors, heldout_clock_indices
 
 
 class EndpointAnchorTests(unittest.TestCase):
@@ -23,6 +23,9 @@ class EndpointAnchorTests(unittest.TestCase):
     def test_endpoint_anchors_reports_no_usable_span(self):
         self.assertEqual(endpoint_anchors([], 0), (None, None))
         self.assertEqual(endpoint_anchors([{'channels': [{'anchors': []}]}], 0), (None, None))
+
+    def test_empty_clock_ledger_has_no_heldout_rows(self):
+        self.assertEqual(heldout_clock_indices([], 0, 48000), [])
 
 
 if __name__ == '__main__':

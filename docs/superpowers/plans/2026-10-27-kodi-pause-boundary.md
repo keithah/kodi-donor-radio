@@ -151,6 +151,11 @@ addon-owned hold control, not a repair to Kodi's ordinary Pause button.
 
 All live runs used the original isolated USB-only Kodi binary SHA-256
 `b4375fd9aa7c4fc0f250d793ac32e08beea6a2427ad81f1b35e5f8fef15d6f51`.
+This is the Kodi executable recorded by `relay-hold-probe/experiment-manifest.json`.
+The later native-pause and owned-HLS experiments record a different core
+executable SHA-256, `b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752`;
+their manifests do not establish that the two binaries came from identical
+source trees.
 The Kodi core checkout remained clean. The approved recorder was not rebuilt.
 Evidence is retained in
 `/private/tmp/kodi-audio-validation-20261027/relay-hold-probe/`.

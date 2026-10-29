@@ -29,7 +29,7 @@ class HalActivationTests(unittest.TestCase):
         self.installed_addon=self.root/'inputstream.ffmpegdirect';self.installed_addon.mkdir()
         self.dylib=self.installed_addon/'inputstream.ffmpegdirect.22.2.10.dylib';self.dylib.write_bytes(b'native-candidate')
         self.addon=self.installed_addon/'addon.xml'
-        self.addon.write_text('<addon><extension point="kodi.inputstream" library_osx="inputstream.ffmpegdirect.22.2.10.dylib"/></addon>')
+        self.addon.write_text('<addon id="inputstream.ffmpegdirect"><extension point="kodi.inputstream" library_osx="inputstream.ffmpegdirect.22.2.10.dylib"/></addon>')
         self.manifest=self.root/'native-manifest.json'
         self.freeze=freeze
         self.write_manifest()

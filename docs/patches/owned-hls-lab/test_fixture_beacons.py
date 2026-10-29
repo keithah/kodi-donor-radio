@@ -1,7 +1,9 @@
 """Owned fixture contracts; HTTP exercises use the real bounded VAST client."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import socket
 import sys
 import tempfile
 import threading
@@ -9,12 +11,19 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
 from urllib.request import urlopen
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[2]/'plugin.audio.kodi_donor_radio/resources/lib'))
 import fixture_beacons as f
 
 class FixtureBeaconTests(unittest.TestCase):
+    @staticmethod
+    def unused_loopback_origin():
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            return 'http://127.0.0.1:%d' % sock.getsockname()[1]
+
     @unittest.skipUnless(f.DEFAULT_CONTRACT.exists(),'preserved frozen acceptance contract required')
     def test_fixed_intervals_and_contract_reject_edit(self):
         path = Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/acceptance-contract.json')
@@ -79,6 +88,7 @@ class FixtureBeaconTests(unittest.TestCase):
         nonce='a'*32
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
+            origin=FixtureBeaconTests.unused_loopback_origin()
             service=f.BeaconEndpoints(root, {'proof':'test'}, now_ns=lambda:987654321)
             class Handler(BaseHTTPRequestHandler):
                 def do_GET(self):
@@ -86,28 +96,28 @@ class FixtureBeaconTests(unittest.TestCase):
                     self.send_response(status);self.send_header('Content-Type',mime)
                     self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
                 def log_message(self,*args):pass
-            # Origin is deliberately fixed in owned metadata and resolver policy.
-            server=ThreadingHTTPServer(('127.0.0.1',18789),Handler)
+            server=ThreadingHTTPServer(('127.0.0.1',int(origin.rsplit(':',1)[1])),Handler)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:
-                resolver=VastResolver(HttpClient(UrlPolicy({f.ORIGIN})),f.ORIGIN)
-                for name,(start,end) in f.PLACEMENTS.items():
-                    ad=resolver.resolve(f.ORIGIN+'/vast/'+name+'.xml?launch='+nonce,threading.Event())
-                    self.assertEqual(ad.id,name)
-                    self.assertAlmostEqual(ad.duration_seconds,(end-start)*1024/48000)
-                    self.assertEqual({t.event for t in ad.tracking},set(f.EVENTS))
-                    self.assertEqual(ad.media_url,f.ORIGIN+'/creative/'+name+'/index.m3u8')
-                route=f.ORIGIN+'/track/'+nonce+'/a/start'
-                with urlopen(route) as response:self.assertEqual(response.status,204)
-                for bad,status in [(route,409),(f.ORIGIN+'/track/'+nonce+'/a/bogus',400),
-                                   (f.ORIGIN+'/track/'+'b'*32+'/a/start',400)]:
-                    with self.assertRaises(HTTPError) as error:urlopen(bad)
-                    self.assertEqual(error.exception.code,status)
-                rows=[json.loads(x) for x in (root/'beacon-receipts.jsonl').read_text().splitlines()]
-                self.assertEqual(len(rows),4)
-                self.assertEqual([x['accepted'] for x in rows],[True,False,False,False])
-                self.assertTrue(rows[1]['duplicate'])
-                self.assertTrue(all(x['receipt_mach_ns']==987654321 for x in rows))
+                with patch.object(f, 'ORIGIN', origin):
+                    resolver=VastResolver(HttpClient(UrlPolicy({origin})),origin)
+                    for name,(start,end) in f.PLACEMENTS.items():
+                        ad=resolver.resolve(origin+'/vast/'+name+'.xml?launch='+nonce,threading.Event())
+                        self.assertEqual(ad.id,name)
+                        self.assertAlmostEqual(ad.duration_seconds,(end-start)*1024/48000)
+                        self.assertEqual({t.event for t in ad.tracking},set(f.EVENTS))
+                        self.assertEqual(ad.media_url,origin+'/creative/'+name+'/index.m3u8')
+                    route=origin+'/track/'+nonce+'/a/start'
+                    with urlopen(route) as response:self.assertEqual(response.status,204)
+                    for bad,status in [(route,409),(origin+'/track/'+nonce+'/a/bogus',400),
+                                       (origin+'/track/'+'b'*32+'/a/start',400)]:
+                        with self.assertRaises(HTTPError) as error:urlopen(bad)
+                        self.assertEqual(error.exception.code,status)
+                    rows=[json.loads(x) for x in (root/'beacon-receipts.jsonl').read_text().splitlines()]
+                    self.assertEqual(len(rows),4)
+                    self.assertEqual([x['accepted'] for x in rows],[True,False,False,False])
+                    self.assertTrue(rows[1]['duplicate'])
+                    self.assertTrue(all(x['receipt_mach_ns']==987654321 for x in rows))
             finally:
                 server.shutdown();server.server_close();thread.join();service.close()
 
@@ -120,23 +130,31 @@ class PreservedFixtureIntegrationTests(unittest.TestCase):
         source=Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture')
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'fixture';shutil.copytree(source,root)
+            (root/'beacon-receipts.jsonl').unlink(missing_ok=True)
             repository=HERE.parents[2]
+            origin=FixtureBeaconTests.unused_loopback_origin()
+            environment=dict(os.environ, KODI_DONOR_FIXTURE_ORIGIN=origin)
             process=subprocess.Popen([sys.executable,str(HERE/'serve_fixture.py'),'--root',str(root),
-                                     '--repo',str(repository),'--owned-beacons'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+                                     '--repo',str(repository),'--port',origin.rsplit(':',1)[1],
+                                     '--owned-beacons'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,env=environment)
             try:
                 deadline=time.monotonic()+10
                 while True:
                     try:
-                        with urlopen(f.ORIGIN+'/stats',timeout=.5) as response:json.load(response)
+                        with urlopen(origin+'/stats',timeout=.5) as response:json.load(response)
                         break
                     except URLError:
-                        if process.poll() is not None or time.monotonic()>deadline:self.fail('Owned server did not start')
+                        if process.poll() is not None:
+                            self.fail('Owned server exited: '+process.communicate()[1].decode(errors='replace'))
+                        if time.monotonic()>deadline:self.fail('Owned server did not start')
                         time.sleep(.02)
-                presentation,proof=f.resolve_presentation(root,'d'*32)
+                with patch.object(f, 'ORIGIN', origin):
+                    presentation,proof=f.resolve_presentation(root,'d'*32)
                 self.assertEqual(len(presentation.placements),6)
                 self.assertEqual(sum(s.samples for s in presentation.segments),8641536)
-                self.assertEqual(presentation,f.presentation_from_manifest(json.loads(canonical_timeline(presentation,f.FIRST_PACKET))))
-                with urlopen(f.ORIGIN+'/stats') as response:
+                manifest=json.loads(canonical_timeline(presentation,f.FIRST_PACKET,local_origin=origin))
+                self.assertEqual(presentation,f.presentation_from_manifest(manifest,local_origin=origin))
+                with urlopen(origin+'/stats') as response:
                     stats=json.load(response);self.assertFalse(stats['window']['started'])
                     self.assertEqual(stats['beacons']['attempts'],0)
                 original=(root/'owned-beacons/proof.json').read_bytes()

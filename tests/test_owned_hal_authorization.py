@@ -44,6 +44,23 @@ def test_fair_slot_serves_waiters_in_fifo_order():
     assert order==[0,1] and slot.pending==0
 
 
+def test_invalid_authorization_directory_permissions_close_open_descriptor(tmp_path,monkeypatch):
+    real_close=auth.os.close;real_open_directory=auth._open_directory;opened=[];closed=[]
+    def open_directory(path):
+        descriptor=real_open_directory(path);opened.append(descriptor);return descriptor
+    def close(descriptor):
+        if descriptor in opened:closed.append(descriptor)
+        return real_close(descriptor)
+    monkeypatch.setattr(auth,'_open_directory',open_directory)
+    monkeypatch.setattr(auth,'_private',lambda *_args:False)
+    monkeypatch.setattr(auth.os,'close',close)
+    with pytest.raises(ValueError,match='authorization_permissions'):
+        auth.HalAuthorizationTransport(tmp_path,time.monotonic_ns)
+    assert len(opened)==1 and closed==opened
+    with pytest.raises(OSError):
+        auth.os.fstat(opened[0])
+
+
 def test_fair_slot_removes_timeout_and_cancelled_waiters():
     slot=auth.FairAuthorizationSlot();clock=[time.monotonic_ns()];now=lambda:clock[0]
     holder_cancel=threading.Event()

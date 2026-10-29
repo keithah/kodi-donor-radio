@@ -11,14 +11,16 @@ from ad_tracking import AdTracker, BeaconWorker
 from owned_clock import URL, TOTAL_SAMPLES, _hex
 
 EVENTS = frozenset(('impression','start','firstQuartile','midpoint','thirdQuartile','complete'))
+DEFAULT_ORIGIN = 'http://127.0.0.1:18789'
 
 
-def _local_url(value):
+def _local_url(value, origin=DEFAULT_ORIGIN):
     if not isinstance(value,str) or len(value)>8192 or any(ord(c)<33 or ord(c)==127 for c in value):
         return False
     try:
         parts = urlsplit(value)
-        return (parts.scheme=='http' and parts.hostname=='127.0.0.1' and parts.port==18789
+        expected=urlsplit(origin)
+        return (parts.scheme==expected.scheme and parts.hostname==expected.hostname and parts.port==expected.port
                 and parts.username is None and parts.password is None and not parts.fragment)
     except ValueError:
         return False
@@ -28,7 +30,7 @@ def _text(value):
     return isinstance(value,str) and 0<len(value)<=256 and all(ord(c)>=32 for c in value)
 
 
-def _validate(presentation):
+def _validate(presentation, local_origin=DEFAULT_ORIGIN):
     if (type(presentation) is not Presentation or type(presentation.segments) is not tuple
             or type(presentation.placements) is not tuple or not 1<=len(presentation.segments)<=128
             or not 1<=len(presentation.placements)<=8 or type(presentation.ended) is not bool
@@ -54,29 +56,29 @@ def _validate(presentation):
         if (type(placement.start_sample) is not int or type(placement.end_sample) is not int
                 or not previous_end<=placement.start_sample<placement.end_sample<=TOTAL_SAMPLES
                 or placement.start_sample%1024 or placement.end_sample%1024 or type(ad) is not ResolvedAd
-                or not _text(ad.id) or not _local_url(ad.media_url)
+                or not _text(ad.id) or not _local_url(ad.media_url,local_origin)
                 or type(ad.duration_seconds) not in (int,float) or not math.isfinite(ad.duration_seconds)
                 or abs(ad.duration_seconds-(placement.end_sample-placement.start_sample)/48000)>1/48000
                 or type(ad.tracking) is not tuple or not 1<=len(ad.tracking)<=32
                 or type(ad.error_urls) is not tuple or len(ad.error_urls)>8):
             raise ValueError('placement_source_identity')
-        if (any(type(record) is not TrackingUrl or record.event not in EVENTS or not _local_url(record.url)
-                for record in ad.tracking) or any(not _local_url(url) for url in ad.error_urls)):
+        if (any(type(record) is not TrackingUrl or record.event not in EVENTS or not _local_url(record.url,local_origin)
+                for record in ad.tracking) or any(not _local_url(url,local_origin) for url in ad.error_urls)):
             raise ValueError('tracking_origin_or_bound')
         previous_end = placement.end_sample
 
 
-def canonical_timeline(presentation, first_packet_sha256):
+def canonical_timeline(presentation, first_packet_sha256, local_origin=DEFAULT_ORIGIN):
     """Canonical UTF-8 JSON bytes; Task3 supplies verified asset hashes as resource_id.
 
     Hashes bind declared source assets and all tracking metadata. This function
     does not claim to read those assets or verify their AAC packet contents.
     """
-    _validate(presentation)
+    _validate(presentation,local_origin)
     if not _hex(first_packet_sha256,64):
         raise ValueError('first_packet_identity')
     document = dict(protocol=1,qualification_scope='controlled_fixture',rate=48000,
-                    source_origin=0,total_samples=TOTAL_SAMPLES,selected_url=URL,
+                    source_origin=0,total_samples=TOTAL_SAMPLES,selected_url=local_origin+'/live/index.m3u8',
                     first_packet_sha256=first_packet_sha256,presentation=asdict(presentation))
     return json.dumps(document,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('utf-8')
 

@@ -413,6 +413,14 @@ def test_kodi_smoke_accepts_only_loopback_relay_media_item():
     assert not _item_matches_expected('http://127.0.0.1:8767/media/not-an-id', expected)
 
 
+def test_smoke_action_error_preserves_successful_rpc_acceptance():
+    result = smoke_ad_kodi._action_failure('seek', 1.25, RuntimeError('poll failed'), True)
+
+    assert result['accepted'] is True
+    assert result['state_observed'] is False
+    assert result['error'] == 'RuntimeError'
+
+
 @pytest.mark.parametrize(('source', 'fixture_id'), [
     ('normal', 'fixture-30045'), ('mutation', 'fixture-30046'),
     ('expired-window', 'fixture-30047'), ('stall', 'fixture-30048'),

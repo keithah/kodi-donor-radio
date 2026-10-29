@@ -96,7 +96,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(s.ingest(row(0),BASE+20_000_000)['valid'])
     def test_monitor_callbacks_preserve_native_controls(self):
         tree=ast.parse(Path(__file__).with_name('monitor.py').read_text())
-        klass=next(n for n in tree.body if isinstance(n,ast.ClassDef))
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        klass=next(n for n in main.body if isinstance(n,ast.ClassDef) and n.name=='Player')
         calls=[]
         session=types.SimpleNamespace(retire=lambda value:calls.append(('retire',value)),
                                       route=lambda value:None)
@@ -130,7 +131,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('superseded_generation',published['reasons'])
     def test_blocked_output_does_not_delay_pause_control(self):
         tree=ast.parse(Path(__file__).with_name('monitor.py').read_text())
-        funcs=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('state','enqueue','flush_pending')]
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        funcs=[n for n in main.body if isinstance(n,ast.FunctionDef) and n.name in ('state','enqueue','flush_pending')]
+        self.assertEqual(len(funcs),3)
         s=self.session()
         for i in range(10): s.ingest(row(i),BASE+i*20_000_000)
         entered=threading.Event(); release=threading.Event(); paused=threading.Event()
