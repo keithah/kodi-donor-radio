@@ -18,6 +18,9 @@ TOLERANCE=1024/RATE
 DECISION_BOUND=.1+.02+TOLERANCE
 ESTIMATOR_SHA='7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87'
 FRACTIONS=dict(zip(EVENTS,(0,0,.25,.5,.75,1)))
+# Accounting bounds only; these never extend clock or beacon freshness.
+SHUTDOWN_TAIL_MAX_ROWS=64
+SHUTDOWN_TAIL_MAX_NS=3_000_000_000
 
 
 def opaque(value):return hashlib.sha256(value.encode()).hexdigest()[:16]
@@ -45,6 +48,70 @@ def event_timing(threshold,actual_decision,network_delay):
                 early_beyond_clock_tolerance=delta < -TOLERANCE,
                 violation=delta < -TOLERANCE or delta>DECISION_BOUND,
                 decision_to_http_receipt_seconds=network_delay)
+
+
+def account_native(native,rows):
+    """Partition every clock row into ordered consumption or an explicit suffix.
+
+    Invalid provider snapshots may omit their source identity. The monitor still
+    records that identity on each input and emits the returned snapshots in the
+    same order, so compare the complete ordered payloads without changing Task2.
+    """
+    errors=[]
+    inputs=[r for r in rows if r.get('kind')=='owned_clock_input']
+    snapshots=[r for r in rows if r.get('kind')=='owned_clock_snapshot']
+    consumed=[r.get('row_sequence') for r in inputs]
+    if consumed!=list(range(1,len(inputs)+1)):errors.append('native_input_order')
+    if len(inputs)!=len(snapshots) or any(
+        record.get('snapshot')!={k:v for k,v in snapshot.items() if k not in ('kind','observed')}
+        for record,snapshot in zip(inputs,snapshots)):
+        errors.append('input_snapshot_accounting')
+    for record in inputs:
+        entry=native.get(record.get('row_sequence'))
+        if entry is None or entry[0]!=record.get('row_sha256'):errors.append('input_native_identity')
+    consumed_set=set(consumed)
+    missing=[seq for seq in native if seq not in consumed_set]
+    excluded=[]
+    stops=[r for r in rows if r.get('kind')=='owned_callback' and r.get('event')=='stop']
+    exits=[r for r in rows if r.get('kind')=='owned_monitor_exit']
+    stop_ns=stops[0].get('issued_mach_ns') if len(stops)==1 else None
+    exit_ns=exits[0].get('checked_mach_ns') if len(exits)==1 else None
+    def terminal(row):
+        own=row.get('ownership',{})
+        return (own.get('eligible') is False and row.get('failed') is False
+                and (row.get('drained') is True or row.get('control_state') in ('stop','drained')
+                     or own.get('reason') in ('drain','close','control_stop')))
+    suffix_ok=False
+    if (missing and not errors and inputs and missing==list(range(len(inputs)+1,len(native)+1))
+            and len(missing)<=SHUTDOWN_TAIL_MAX_ROWS and len(exits)==1 and exits[0].get('retired') is True
+            and type(stop_ns) is int and type(exit_ns) is int
+            and 0<=stop_ns<=exit_ns<=stop_ns+SHUTDOWN_TAIL_MAX_NS):
+        last=native[consumed[-1]][1];last_query=query_time(last)
+        last_received=inputs[-1].get('received_mach_ns')
+        suffix_ok=(terminal(last) and (inputs[-1].get('snapshot') or {}).get('valid') is False
+                   and type(last_query) is int and type(last_received) is int
+                   and last_query<=last_received<=exit_ns)
+        previous=last_query
+        for seq in missing:
+            row=native[seq][1];query=query_time(row)
+            if (not suffix_ok or not terminal(row) or type(query) is not int
+                    or not max(stop_ns,previous)<query<=stop_ns+SHUTDOWN_TAIL_MAX_NS):
+                suffix_ok=False;break
+            previous=query
+    def details(seq):
+        digest,row=native[seq];own=row.get('ownership',{})
+        return dict(row_sequence=seq,row_sha256=digest,query_host_ns=query_time(row),
+                    native_reason=own.get('reason'),eligible=own.get('eligible'),
+                    control_state=row.get('control_state'),drained=row.get('drained'),failed=row.get('failed'))
+    if suffix_ok:
+        excluded=[dict(details(seq),exclusion_reason='bounded_terminal_shutdown_suffix') for seq in missing]
+    elif missing:errors.append('native_input_missing')
+    report=dict(native_clock_rows=len(native),consumed_sequences=consumed,excluded_terminal_tail=excluded,
+                unaccounted_rows=[] if suffix_ok else [details(seq) for seq in missing],
+                stop_mach_ns=stop_ns,monitor_exit_mach_ns=exit_ns,
+                shutdown_accounting_max_rows=SHUTDOWN_TAIL_MAX_ROWS,
+                shutdown_accounting_max_ns=SHUTDOWN_TAIL_MAX_NS)
+    return errors,report
 
 
 def join_evidence(native_lines,rows,receipts):
@@ -100,6 +167,8 @@ def join_evidence(native_lines,rows,receipts):
         if (any(type(t) is not int for t in (query,received,checked))
                 or not launch['launch_mach_ns']<=query<=received<=checked<=query+100000000):
             errors.append('snapshot_freshness')
+    accounting_errors,accounting=account_native(native,rows)
+    errors.extend(accounting_errors)
     decisions=[r for r in rows if r.get('kind')=='ad_tracking']
     authorizations=[r for r in rows if r.get('kind')=='owned_beacon_authorization']
     key=lambda r:(r.get('placement_id'),r.get('event'))
@@ -128,13 +197,24 @@ def join_evidence(native_lines,rows,receipts):
                 'native_generation','mapped_seconds','decision_ns','session_id')) or auth.get('threshold_seconds')!=threshold):
             errors.append('authorization_decision_identity')
         times=[decision.get('query_host_ns'),decision.get('decision_ns'),auth.get('authorization_ns')]
-        if any(type(t) is not int for t in times) or not times[0]<=times[1]<=times[2]<=times[0]+100000000:
+        chronology=all(type(t) is int for t in times) and 0<=times[0]<=times[1]<=times[2]
+        if not chronology:errors.append('authorization_chronology')
+        elif times[1]>times[0]+100000000:errors.append('decision_freshness')
+        if type(auth.get('authorized')) is not bool:errors.append('authorization_result_schema')
+        if auth.get('authorized') is True and (not chronology or times[2]>times[0]+100000000):
             errors.append('authorization_freshness')
         matched=[(i,r) for i,r in enumerate(receipts) if (r.get('session_id'),r.get('creative'),r.get('event'))==(launch['session_id'],name,event)]
         authorized=auth.get('authorized') is True
         if not authorized:
             if matched:errors.append('receipt_without_authorization')
-            events.append(dict(creative=name,event=event,delivered=False,decision=decision,authorization=auth,threshold_seconds=threshold))
+            cancellation=dict(reason=auth.get('reason','delivery_authorization_rejected'),
+                              checked_mach_ns=auth.get('authorization_ns'),
+                              proof_stale_at_check=times[2]-times[0]>100000000 if chronology else None,
+                              intervening_controls=[r for r in rows if r.get('kind')=='owned_callback'
+                                  and type(r.get('issued_mach_ns')) is int and chronology
+                                  and times[1]<r['issued_mach_ns']<=times[2]])
+            events.append(dict(creative=name,event=event,delivered=False,decision=decision,authorization=auth,
+                               threshold_seconds=threshold,cancellation=cancellation))
             continue
         if decision.get('reason')!='queued':errors.append('authorized_unqueued_decision')
         if len(matched)!=1:errors.append('missing_or_duplicate_receipt');continue
@@ -148,7 +228,7 @@ def join_evidence(native_lines,rows,receipts):
                            receipt=receipt,threshold_seconds=threshold))
     if len(used_authorizations)!=len(authorizations):errors.append('orphan_authorization')
     if len(used_receipts)!=len(receipts):errors.append('unexpected_http_attempt')
-    return dict(launch=launch,nonce=nonce,errors=sorted(set(errors)),qualified=qualified,events=events,
+    return dict(launch=launch,nonce=nonce,errors=sorted(set(errors)),qualified=qualified,events=events,native_accounting=accounting,
                 http_receipts=receipts,tracking_decisions=decisions,authorizations=authorizations,
                 callbacks=[r for r in rows if r.get('kind')=='owned_callback'])
 
@@ -278,7 +358,7 @@ def evaluate(joined,matcher):
         events.append(item)
     return dict(kind='independent_owned_beacon_audit',gate_passed=not errors,errors=sorted(set(errors)),
                 estimator_replayed=False,clock_tolerance_seconds=TOLERANCE,decision_bound_seconds=DECISION_BOUND,
-                qualified_clock_points=len(clock),clock=clock,events=events,pauses=paused,
+                qualified_clock_points=len(clock),clock=clock,events=events,pauses=paused,native_accounting=joined['native_accounting'],
                 http_receipts=joined['http_receipts'],tracking_decisions=joined['tracking_decisions'],authorizations=joined['authorizations'],
                 first_qualified_source_seconds=first,preroll_onset_qualified=finite(first) and first<=.25,
                 missing_required_events=sorted(required-delivered),unexpected_events=sorted(delivered-required-{('b_paused',event) for event in EVENTS}),
@@ -306,7 +386,11 @@ def main():
     report['receipt_log_other_launch_attempts']=len(all_receipts)-len(receipts)
     report['input_sha256']={name:hashlib.sha256(getattr(args,name).read_bytes()).hexdigest() for name in ('native','events','receipts','analysis')}
     args.output.write_text(json.dumps(report,indent=2,allow_nan=False)+'\n')
-    print(json.dumps({k:v for k,v in report.items() if k not in ('clock','events','pauses','http_receipts','tracking_decisions','authorizations')},indent=2))
+    summary={k:v for k,v in report.items() if k not in ('clock','events','pauses','http_receipts','tracking_decisions','authorizations','native_accounting')}
+    accounting=report['native_accounting']
+    summary['native_accounting']={key:len(accounting[key]) for key in ('consumed_sequences','excluded_terminal_tail','unaccounted_rows')}
+    summary['native_accounting']['native_clock_rows']=accounting['native_clock_rows']
+    print(json.dumps(summary,indent=2))
 
 
 if __name__=='__main__':main()
