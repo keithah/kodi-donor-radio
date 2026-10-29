@@ -1,5 +1,28 @@
 # Validation record
 
+## Current owned-renderer checkpoint — 2026-10-29
+
+The [owned-clock and beacon checkpoint](superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md)
+records the current Kodi-master experiment separately from the historical results
+below. Candidate `c33f6d0`, built in Release mode, completed run19 with all
+8,641,536 source frames, four normal pause/resume cycles, and 34 actual loopback
+HTTP204 beacon receipts. Captured audio nevertheless contains an unexpected
+19.354 ms silence gap. The runtime acceptance gate is **FAILED**.
+
+An independent crosscheck of the recovered diagnostic trace confirms roughly
+55 ms runnable delays for ActiveAE and AESink around the underflow trigger.
+The scheduling cause remains unknown; trace overhead and limited retained
+coverage prevent broader causal claims. An earlier run14 query was qualified
+inside exact silence, so cached AudioEngine accounting is not unconditional
+proof of audible position. Clock tolerances and the estimator remain frozen.
+
+The owned experimental preroll path delivered real fixture beacons; the legacy
+continuous adapter's zero-start suppression remains unchanged. Neither result
+qualifies general stations, arbitrary creative splices, or production billing.
+The proposed HAL output work is not implemented. Steward and CodeRabbit have
+**NOT RUN** on this checkpoint and have not passed; pushing remains blocked.
+Earlier dated test and review results below remain historical evidence.
+
 ## Directory cache, map, and review-fix follow-up — 2026-10-26
 
 Persistent station summaries now retain the state label and click count needed

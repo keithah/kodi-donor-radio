@@ -10,11 +10,14 @@ remain ad-free. Experimental success beacons require a qualified controlled
 fixture launch; ordinary live playback remains diagnostic. This is not
 production-validated or billable tracking.
 
-**Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
+**Earlier playback validation: Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
 workaround for a Kodi USB initialization hang. Advancing player time and cue
 logs were verified; audible output was not independently confirmed. See
 [the validation record](docs/testing.md) for evidence and remaining limits.
+The later Kodi-master owned-renderer experiment has captured audio and real
+loopback beacons, but its runtime gate **failed**; see the
+[2026-10-29 checkpoint](docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md).
 
 ## Build and install
 
@@ -125,20 +128,27 @@ replacement requires a complete, explicitly marked HLS break and an exact
 measured sample-count match. No-fill, unsupported media, or mismatch preserves
 the station's original break.
 
-The controlled test menu's **Test ad tracking** context action explicitly selects
-Kodi VideoPlayer and qualifies the exact continuous AAC route with already-enabled
-FFmpegDirect 22.2.10. A short-lived, single-use launch ticket binds that selection
+The controlled test menu's **Test ad tracking** context action uses the legacy
+continuous AAC adapter. It explicitly selects Kodi VideoPlayer and qualifies that
+exact route with already-enabled FFmpegDirect 22.2.10. A short-lived, single-use
+launch ticket binds that selection
 to one fixture session. Tracking also requires owned AV startup, consecutive
 clock progress, and matching session and URL observations. Paused/interrupted ads,
-seeks, ambiguous clocks and zero-start prerolls cannot report completion.
+seeks and ambiguous clocks cannot report completion. Zero-start prerolls on this
+legacy path suppress all success beacons.
 Buffering after established playback revokes that session’s qualification. Ordinary
 playback does not acquire this qualification. Adaptive/native fallbacks remain
 available, but do not acquire the continuous clock contract.
 
-Captured audio is used to check clock alignment and beacon timing on Kodi master;
-see the [measurement report](docs/testing-continuous-clock.md) for the tested
-build and limits. Pause/resume still has an observed audio omission and is not
-considered seamless. No Kodi-core pause change is included.
+The separate owned-renderer experiment uses a precomposed controlled HLS fixture
+and a session-bound native clock. It has sent actual loopback preroll and midroll
+beacons, but has not passed captured-audio acceptance. The latest complete run
+contains an unexpected 19.354 ms silence gap; an earlier run also qualified a
+clock query inside silence. See the
+[current checkpoint](docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md)
+for the failed gate and remaining work. Neither path is claimed seamless. The
+[earlier continuous-path report](docs/testing-continuous-clock.md) retains its
+observed pause/resume omission. No Kodi-core audio or pause change is included.
 These checks are release gates; the current build is not a production ad system.
 See the [monetization roadmap](docs/monetization-roadmap.md) and
 [validation record](docs/testing.md).
