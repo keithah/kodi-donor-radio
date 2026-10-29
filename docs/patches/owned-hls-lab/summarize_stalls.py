@@ -13,6 +13,11 @@ OPERATIONS = (
     'decode_owned_mutex_held', 'packet_owned_mutex_wait',
 )
 
+OPERATIONS_V2 = OPERATIONS + (
+    'output_guard_before', 'output_guard_after', 'clock_observation', 'native_append',
+    'host_demux_call', 'host_demux_interarrival',
+)
+
 def unsigned(value, label):
     if type(value) is not int or not 0 <= value <= 2**64-1:
         raise ValueError('invalid unsigned diagnostic field: '+label)
@@ -23,17 +28,37 @@ def exact_object(value, keys, label):
         raise ValueError('invalid diagnostic '+label+' structure')
 
 def validate_diagnostic(diagnostic):
-    exact_object(diagnostic, ('version','threshold_ns','available','revision',
-                            'dropped_contention','dropped_events','operations','long_events'), 'snapshot')
-    if type(diagnostic['version']) is not int or diagnostic['version'] != 1:
+    if type(diagnostic) is not dict or type(diagnostic.get('version')) is not int or diagnostic['version'] not in (1,2):
         raise ValueError('unsupported stall diagnostic version')
+    version=diagnostic['version']
+    keys=('version','threshold_ns','available','revision','dropped_contention','dropped_events','operations','long_events')
+    if version==2: keys+=('host_threads','dropped_host_threads')
+    exact_object(diagnostic,keys,'snapshot')
+    operations=OPERATIONS if version==1 else OPERATIONS_V2
+    if version==2:
+        unsigned(diagnostic['dropped_host_threads'],'dropped_host_threads')
+        threads=diagnostic['host_threads']
+        if type(threads) is not list or len(threads)>4:
+            raise ValueError('invalid bounded host thread observations')
+        identities=set()
+        for thread in threads:
+            exact_object(thread,('thread_id','observed_mach_ns','identity_status','qos_status','qos_class','relative_priority'),'host thread')
+            for key in ('thread_id','observed_mach_ns'):unsigned(thread[key],key)
+            for key in ('identity_status','qos_status','qos_class','relative_priority'):
+                if type(thread[key]) is not int or not -(2**31)<=thread[key]<2**31:
+                    raise ValueError('invalid signed host thread observation')
+            identity=(thread['thread_id'],thread['identity_status'])
+            if identity in identities:raise ValueError('duplicate host thread identity')
+            identities.add(identity)
+        if diagnostic['available'] is False and (threads or diagnostic['dropped_host_threads']):
+            raise ValueError('unavailable snapshot claims host thread data')
     if type(diagnostic['available']) is not bool:
         raise ValueError('invalid diagnostic availability')
     for key in ('threshold_ns','revision','dropped_contention','dropped_events'):
         unsigned(diagnostic[key],key)
     if diagnostic['threshold_ns'] != 40000000:
         raise ValueError('unexpected stall threshold')
-    exact_object(diagnostic['operations'], OPERATIONS, 'operations')
+    exact_object(diagnostic['operations'], operations, 'operations')
     for metric in diagnostic['operations'].values():
         exact_object(metric,('count','max_ns','max_start_mach_ns','max_end_mach_ns'),'metric')
         for key,value in metric.items(): unsigned(value,key)
@@ -44,10 +69,10 @@ def validate_diagnostic(diagnostic):
     events=diagnostic['long_events']
     if type(events) is not list or len(events)>12:
         raise ValueError('invalid bounded diagnostic event list')
-    counts={name:0 for name in OPERATIONS}
+    counts={name:0 for name in operations}
     for event in events:
         exact_object(event,('operation','start_mach_ns','end_mach_ns'),'event')
-        if type(event['operation']) is not str or event['operation'] not in OPERATIONS:
+        if type(event['operation']) is not str or event['operation'] not in operations:
             raise ValueError('unknown long-event operation')
         start=unsigned(event['start_mach_ns'],'event start')
         end=unsigned(event['end_mach_ns'],'event end')
@@ -76,14 +101,14 @@ def summarize(rows, capture_first_host_ns, gaps=()):
                     capture_end_seconds=(end-capture_first_host_ns)/1e9,
                     gap_overlaps=[dict(gap_index=index,overlap_ms=(min(end,ge)-max(start,gs))/1e6)
                                   for index,gs,ge in gap_spans if max(start,gs)<min(end,ge)])
-    report=dict(kind='owned_hls_stall_summary',diagnostic_version=1,
+    report=dict(kind='owned_hls_stall_summary',diagnostic_version=1,diagnostic_versions=[],
                 capture_first_host_ns=capture_first_host_ns,
                 supplied_gap_intervals_seconds=[list(pair) for pair in gaps],
                 overlap_is_not_causation=True,
                 interpretation='Completed addon operations only; missing or dropped events do not prove absence of stalls. Intervals overlap and durations must not be summed.',
                 ledger_rows=0,clock_rows=0,clock_rows_without_diagnostics=0,
                 unavailable_snapshots=0,dropped_contention=0,dropped_events=0,
-                qos_observations=[],operations={name:dict(count=0,maximum=None,long_events=[]) for name in OPERATIONS})
+                qos_observations=[],host_thread_observations=[],dropped_host_threads=0,operations={name:dict(count=0,maximum=None,long_events=[]) for name in OPERATIONS})
     last_revision=None
     for line_number,row in enumerate(rows,1):
         report['ledger_rows']+=1
@@ -95,6 +120,16 @@ def summarize(rows, capture_first_host_ns, gaps=()):
             report['clock_rows_without_diagnostics']+=1
             continue
         validate_diagnostic(diagnostic)
+        version=diagnostic['version']
+        if version not in report['diagnostic_versions']:
+            report['diagnostic_versions'].append(version);report['diagnostic_versions'].sort()
+        report['diagnostic_version']=max(report['diagnostic_versions'])
+        for name in diagnostic['operations']:
+            report['operations'].setdefault(name,dict(count=0,maximum=None,long_events=[]))
+        if version==2:
+            report['dropped_host_threads']+=diagnostic['dropped_host_threads']
+            for thread in diagnostic['host_threads']:
+                if thread not in report['host_thread_observations']:report['host_thread_observations'].append(dict(thread))
         qos=dict(status=row.get('renderer_qos_status'),qos_class=row.get('renderer_qos_class'),
                  relative_priority=row.get('renderer_qos_relative_priority'))
         for key in ('requested_class','set_status','initial_class','initial_relative_priority',
@@ -113,7 +148,7 @@ def summarize(rows, capture_first_host_ns, gaps=()):
         threshold=unsigned(diagnostic['threshold_ns'],'threshold_ns')
         if threshold!=40000000: raise ValueError('unexpected stall threshold')
         for name,metric in diagnostic['operations'].items():
-            if name not in OPERATIONS: raise ValueError('unknown operation: '+name)
+            if name not in OPERATIONS_V2: raise ValueError('unknown operation: '+name)
             summary=report['operations'][name]
             count=unsigned(metric['count'],'count')
             summary['count']+=count
@@ -127,7 +162,7 @@ def summarize(rows, capture_first_host_ns, gaps=()):
                     summary['maximum']=span
         for event in diagnostic['long_events']:
             name=event['operation']
-            if name not in OPERATIONS: raise ValueError('unknown long-event operation: '+name)
+            if name not in OPERATIONS_V2: raise ValueError('unknown long-event operation: '+name)
             span=interval(event['start_mach_ns'],event['end_mach_ns'])
             if span['end_mach_ns']-span['start_mach_ns']<=threshold:
                 raise ValueError('long event does not exceed threshold')

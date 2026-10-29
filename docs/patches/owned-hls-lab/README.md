@@ -499,3 +499,44 @@ and its source overlap must be confirmed. A/C/D/E require all six events exactly
 once. All receipt attempts are retained in the report, including rejected ones.
 A passing clock/beacon audit still requires separate whole-audio, prefix/tail,
 continuity, no-replay and natural-EOF evidence from two final-candidate captures.
+
+
+### Component stall diagnostics v2
+
+The additive owned-clock patch now emits `stall_diagnostics.version=2`; the
+ownership protocol stays v1. The archived summarizer accepts strict v1 and v2
+snapshots, including mixed archives, and reports the versions observed.
+Six new completed-operation metrics retain maximum Mach brackets and use the
+existing strict >40 ms event threshold and 12-event bound:
+
+- `output_guard_before` / `output_guard_after`: each actual synchronous guard
+  check, including failure retirement; absent counts mean no check ran.
+- `clock_observation`: the entire clock observation, formatting and append.
+  It completes after this row's snapshot and is visible in a later row.
+- `native_append`: owned transport identity validation and write. It excludes
+  waiting for the outer telemetry mutex, already measured separately.
+- `host_demux_call`: top-level host DemuxRead entry through every return.
+- `host_demux_interarrival`: successive DemuxRead entry timestamps, separately
+  from the existing silent-packet delivery interarrival. Late entries with short
+  service times indicate missing host requests rather than slow addon service.
+
+Overlapping/nested durations must not be summed. Missing/unavailable/dropped
+metrics do not prove an absence of stalls; no pending operation can be reported
+until it completes. Startup and requested pauses legitimately lengthen host
+intervals and require the existing control/lifecycle context.
+
+Each available snapshot retains at most four `host_threads` observations, keyed
+by thread ID and identity-query status. Each contains the first readback's Mach
+time, identity status, QoS status/class and relative priority. Preparation and
+playback can use different callers. QoS is read once per retained caller per
+instance, never set by this diagnostic; it is not a continuous QoS assertion.
+Read failures remain explicit status values, and additional caller observation
+attempts increment `dropped_host_threads`. The collector remains fixed-size and
+uses try-locks; no listener callback performs diagnostic work. State resets
+before workers launch. The existing renderer QoS policy is unchanged.
+
+Compile `test_stall_diagnostics.cpp` with C++14, `-pthread`, and optionally
+`-DNDEBUG`; all checks remain active in both configurations. An optional output
+filename writes native v2 JSONL for `summarize_stalls.py` integration validation.
+The new timing does not qualify physical output or fix the retained run2/run3
+underruns, and it does not change the frozen estimator or clock eligibility.

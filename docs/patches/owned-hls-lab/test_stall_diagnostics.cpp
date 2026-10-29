@@ -1,43 +1,108 @@
 // Standalone aggregation tests; no Kodi/addon dependency.
-#ifdef NDEBUG
-#undef NDEBUG
-#endif
 #include "OwnedStallDiagnostics.h"
-#include <cassert>
+#include <cstdlib>
+#include <iostream>
+#define CHECK(x) do { if (!(x)) { std::cerr << __LINE__ << ": " << #x << "\n"; std::exit(1); } } while (false)
 #include <sstream>
 #include <limits>
-int main() {
+#include <fstream>
+uint64_t fakeNow=0;
+uint64_t clockNow() { return fakeNow; }
+int main(int argc, char** argv) {
   using namespace owned_stall;
   Aggregate aggregate;
   aggregate.Record(ControlRead,100,150);
   aggregate.Record(ControlRead,200,280);
   aggregate.Record(ControlRead,500,400); // reversed bracket ignored
   auto sample=aggregate.Take();
-  assert(sample.available && sample.metrics[ControlRead].count==2);
-  assert(sample.metrics[ControlRead].maxNs==80);
-  assert(sample.metrics[ControlRead].maxStartNs==200);
-  assert(sample.metrics[ControlRead].maxEndNs==280);
-  assert(sample.eventCount==0);
+  CHECK(sample.available && sample.metrics[ControlRead].count==2);
+  CHECK(sample.metrics[ControlRead].maxNs==80);
+  CHECK(sample.metrics[ControlRead].maxStartNs==200);
+  CHECK(sample.metrics[ControlRead].maxEndNs==280);
+  CHECK(sample.eventCount==0);
   sample=aggregate.Take();
-  assert(sample.metrics[ControlRead].count==0 && sample.revision==2);
+  CHECK(sample.metrics[ControlRead].count==0 && sample.revision==2);
   aggregate.Record(AddData,0,40000000); // strict >40ms
-  assert(aggregate.Take().eventCount==0);
+  CHECK(aggregate.Take().eventCount==0);
   for (unsigned i=0;i<20;++i) aggregate.Record(TelemetryFlush,i,50000000+i);
   sample=aggregate.Take();
-  assert(sample.eventCount==12 && sample.droppedEvents==8);
-  assert(sample.events[0].startNs==0 && sample.events[11].endNs==50000011);
-  assert(sample.metrics[TelemetryFlush].count==20);
+  CHECK(sample.eventCount==12 && sample.droppedEvents==8);
+  CHECK(sample.events[0].startNs==0 && sample.events[11].endNs==50000011);
+  CHECK(sample.metrics[TelemetryFlush].count==20);
   std::ostringstream json; WriteJson(json,sample);
-  assert(json.str().size()<12000); // leaves room for unchanged original clock fields
-  assert(json.str().find("start_mach_ns")!=std::string::npos);
+  CHECK(json.str().size()<12000); // leaves room for unchanged original clock fields
+  CHECK(json.str().find("start_mach_ns")!=std::string::npos);
+  // New component timings must survive serialization with exact completed brackets.
+  const char* added[] = {"output_guard_before", "output_guard_after", "clock_observation",
+                        "native_append", "host_demux_call", "host_demux_interarrival"};
+  for (const auto* name:added) {
+    size_t index=0;
+    while(index<Count && std::string(Names[index])!=name) ++index;
+    CHECK(index<Count);
+    aggregate.Record(static_cast<Operation>(index),100,50000101);
+  }
+  auto components=aggregate.Take();
+  CHECK(components.eventCount==6);
+  std::ostringstream componentJson; WriteJson(componentJson,components);
+  CHECK(componentJson.str().find("\"version\":2")!=std::string::npos);
+  for (const auto* name:added) CHECK(componentJson.str().find(name)!=std::string::npos);
+  // RAII includes early exits; interarrival is separate from service time.
+  auto service=[&]() {
+    Span span(aggregate,HostDemuxCall,clockNow,true);
+    CHECK(span.StartNs()==100000000);
+    fakeNow=101000000;
+    return;
+  };
+  fakeNow=100000000; service();
+  aggregate.Record(HostDemuxInterarrival,30000000,100000000);
+  auto calls=aggregate.Take();
+  CHECK(calls.metrics[HostDemuxCall].maxNs==1000000);
+  CHECK(calls.metrics[HostDemuxInterarrival].maxNs==70000000);
+  { Span disabled(aggregate,HostDemuxCall,clockNow,false); }
+  CHECK(aggregate.Take().metrics[HostDemuxCall].count==0);
+  // First readback per identity only, persistent across snapshots, fixed four slots.
+  unsigned reads=0;
+  auto read=[&]() { ++reads; HostThread t; t.observedNs=123; t.qosStatus=0;
+    t.qosClass=9; t.relativePriority=-2; return t; };
+  aggregate.ObserveHostThread(42,0,read);
+  aggregate.ObserveHostThread(42,0,read);
+  auto threads=aggregate.Take();
+  CHECK(reads==1 && threads.hostThreadCount==1);
+  CHECK(threads.hostThreads[0].threadId==42 && threads.hostThreads[0].observedNs==123);
+  CHECK(threads.hostThreads[0].qosClass==9 && threads.hostThreads[0].relativePriority==-2);
+  aggregate.ObserveHostThread(42,0,read);
+  for (uint64_t id=43;id<47;++id) aggregate.ObserveHostThread(id,0,read);
+  threads=aggregate.Take();
+  CHECK(reads==4 && threads.hostThreadCount==4 && threads.droppedHostThreads==1);
+  CHECK(aggregate.Take().hostThreadCount==4);
+  std::ostringstream threadJson; WriteJson(threadJson,threads);
+  CHECK(threadJson.str().find("\"thread_id\":42")!=std::string::npos);
+  if(argc==2) {
+    std::ofstream output(argv[1]);
+    output << "{\"kind\":\"clock_sample\",\"stall_diagnostics\":";
+    WriteJson(output,components); output << "}\n";
+    output << "{\"kind\":\"clock_sample\",\"stall_diagnostics\":";
+    WriteJson(output,threads); output << "}\n";
+    CHECK(output.good());
+  }
+  aggregate.Reset();
+  auto fresh=aggregate.Take();
+  CHECK(fresh.revision==1 && fresh.hostThreadCount==0 && fresh.droppedHostThreads==0);
+  aggregate.ObserveHostThread(0,-1,[] { return HostThread{}; });
+  auto failedReadback=aggregate.Take();
+  CHECK(failedReadback.hostThreadCount==1 && failedReadback.hostThreads[0].qosStatus==-1);
+  CHECK(failedReadback.hostThreads[0].threadId==0 && failedReadback.hostThreads[0].identityStatus==-1);
   Snapshot worst;
   worst.available=true;
   const auto maximum=std::numeric_limits<uint64_t>::max();
   worst.revision=maximum; worst.droppedContention=maximum; worst.droppedEvents=maximum;
   for (auto& metric:worst.metrics) metric=Metric{maximum,maximum,maximum,maximum};
+  worst.hostThreadCount=worst.hostThreads.size();
+  worst.droppedHostThreads=maximum;
+  for (auto& t:worst.hostThreads) t=HostThread{maximum,maximum,2147483647,2147483647,2147483647,-2147483647};
   worst.eventCount=worst.events.size();
   for (auto& event:worst.events) event=Event{RendererOwnedWait,maximum,maximum};
   std::ostringstream large; WriteJson(large,worst);
-  assert(large.str().size()<10000); // original clock record has >6KiB headroom
+  CHECK(large.str().size()<10000); // original clock record has >6KiB headroom
 
 }

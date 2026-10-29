@@ -91,7 +91,17 @@
    {
      std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
      m_ownedTelemetryFile.close();
-@@ -515,6 +544,23 @@
+@@ -482,7 +511,8 @@
+   m_ownedTotalDecodedFrames = 0;
+   m_ownedSyntheticFrames = 0;
+   m_ownedLastHostPacketNs.store(0);
+-  (void)m_ownedStalls.Take(); // Discard prior-instance pending diagnostics before worker launch.
++  m_ownedLastHostDemuxEntryNs.store(0);
++  m_ownedStalls.Reset(); // Previous workers stopped; new instance diagnostics start empty.
+   m_ownedHostOutputFrames = 0;
+   m_ownedAcceptedFrames = 0;
+   m_ownedSourcePacketCount = 0;
+@@ -515,6 +545,23 @@
    format.SetFrameSize(frameBytes);
    format.SetFramesAmount(1024);
    m_ownedStream = std::make_unique<kodi::audioengine::CAEStream>(format, AUDIO_STREAM_AUTOSTART);
@@ -115,7 +125,7 @@
    m_ownedStop = false;
    m_ownedRendererReady = false;
    m_ownedPlaybackStarted = false;
-@@ -703,6 +749,23 @@
+@@ -703,6 +750,23 @@
    decodedEndFrame = m_ownedTotalDecodedFrames;
    m_ownedLastPacketDecodedStartFrame = decodedStartFrame;
    m_ownedLastPacketDecodedEndFrame = decodedEndFrame;
@@ -139,7 +149,7 @@
    ++m_ownedSourcePacketCount;
 
    if (packet->pts != STREAM_NOPTS_VALUE)
-@@ -721,7 +784,10 @@
+@@ -721,7 +785,10 @@
        const double discontinuityThreshold =
            std::max(STREAM_SEC_TO_TIME(0.5), expectedDuration * 3.0);
        if (delta < -STREAM_SEC_TO_TIME(0.05) || delta > discontinuityThreshold)
@@ -150,14 +160,20 @@
      }
      m_ownedHasLastSourcePts = true;
      m_ownedLastSourcePts = packet->pts;
-@@ -750,8 +816,18 @@
+@@ -750,8 +817,24 @@
    std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
    if (m_ownedHlsFixture)
      m_ownedStalls.Record(owned_stall::TelemetryWait, waitStart, MachAbsoluteNowNs());
 +  if (m_ownedClockRequested)
 +  {
 +    // Ownership loss stops clock qualification, never drops the PCM/source queue.
-+    if (!m_ownedClockTransport || m_ownedTelemetryRows >= maxRows || !m_ownedClockTransport->Append(line))
++    bool appended=false;
++    if (m_ownedClockTransport && m_ownedTelemetryRows < maxRows)
++    {
++      owned_stall::Span appendSpan(m_ownedStalls, owned_stall::NativeAppend, MachAbsoluteNowNs, m_ownedHlsFixture);
++      appended=m_ownedClockTransport->Append(line);
++    }
++    if (!appended)
 +      RevokeOwnedClock("ledger_unavailable");
 +    else
 +      ++m_ownedTelemetryRows;
@@ -169,7 +185,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: bounded HLS telemetry ledger unavailable or full");
      return false;
-@@ -766,6 +842,7 @@
+@@ -766,6 +849,7 @@
    }
    if (!m_ownedTelemetryFile)
    {
@@ -177,28 +193,37 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: failed writing HLS telemetry ledger");
      return false;
-@@ -858,6 +935,10 @@
+@@ -858,6 +942,15 @@
    if (!m_ownedHlsFixture)
      return;
 
++  owned_stall::Span observationSpan(m_ownedStalls, owned_stall::ClockObservation, MachAbsoluteNowNs, true);
 +  const uint64_t generationBefore = m_ownedClock ? m_ownedClock->Generation() : 0;
 +  const uint64_t guardBefore = m_ownedClockOutput ? m_ownedClockOutput->Generation() : 0;
-+  if (m_ownedClockOutput && m_ownedClockOutput->Valid() && !m_ownedClockOutput->Check(*m_ownedStream))
-+    RevokeOwnedClock("output_guard");
++  if (m_ownedClockOutput && m_ownedClockOutput->Valid())
++  {
++    owned_stall::Span guardSpan(m_ownedStalls, owned_stall::GuardBefore, MachAbsoluteNowNs, true);
++    if (!m_ownedClockOutput->Check(*m_ownedStream))
++      RevokeOwnedClock("output_guard");
++  }
    const uint64_t sampleSteadyNs = SteadyNowNs();
    const uint64_t sampleMachNs = MachAbsoluteNowNs();
    const uint64_t sampleWallNs = WallNowNs();
-@@ -970,6 +1051,9 @@
+@@ -970,6 +1063,13 @@
         << ",\"renderer_qos_request_confirmed\":" << (m_ownedRendererQosRequestConfirmed.load() ? "true" : "false")
         << ",\"stall_diagnostics\":";
    owned_stall::WriteJson(line, stalls);
-+  if (m_ownedClockOutput && m_ownedClockOutput->Valid() && !m_ownedClockOutput->Check(*m_ownedStream))
-+    RevokeOwnedClock("output_guard");
++  if (m_ownedClockOutput && m_ownedClockOutput->Valid())
++  {
++    owned_stall::Span guardSpan(m_ownedStalls, owned_stall::GuardAfter, MachAbsoluteNowNs, true);
++    if (!m_ownedClockOutput->Check(*m_ownedStream))
++      RevokeOwnedClock("output_guard");
++  }
 +  WriteOwnedOwnership(line, generationBefore, guardBefore);
    line << '}';
    WriteOwnedTelemetryLine(line.str());
  }
-@@ -1016,6 +1100,7 @@
+@@ -1016,6 +1116,7 @@
    }
    catch (const std::exception& error)
    {
@@ -206,7 +231,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not start independent AAC source reader: %s",
          error.what());
-@@ -1033,6 +1118,7 @@
+@@ -1033,6 +1134,7 @@
      std::this_thread::sleep_for(std::chrono::milliseconds(5));
    if (!m_ownedInitialPrefillComplete.load())
    {
@@ -214,7 +239,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR,
-@@ -1051,7 +1137,9 @@
+@@ -1051,7 +1153,9 @@
    const size_t startupHeadroomFrames = startupHeadroomSeconds * 48000;
    DEMUX_PACKET* pendingPacket = nullptr;
 
@@ -225,7 +250,7 @@
      std::ifstream control(
          "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
      std::string state;
-@@ -1078,6 +1166,7 @@
+@@ -1078,6 +1182,7 @@
      }
      if (queueCapacity == 0 || queuedFrames > queueCapacity)
      {
@@ -233,7 +258,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source reader observed invalid bounded PCM queue state");
        break;
-@@ -1117,6 +1206,7 @@
+@@ -1117,6 +1222,7 @@
            break;
          if (!FlushOwnedDecoder())
          {
@@ -241,7 +266,7 @@
            m_ownedFailed = true;
            Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite HLS EOF");
            break;
-@@ -1125,6 +1215,7 @@
+@@ -1125,6 +1231,7 @@
            std::lock_guard<std::mutex> lock(m_ownedMutex);
            if (m_ownedTotalDecodedFrames == 0)
            {
@@ -249,7 +274,7 @@
              m_ownedFailed = true;
              Log(LOGLEVEL_ERROR,
                  "OWNED_RENDERER: finite HLS source ended before producing decoded programme audio");
-@@ -1158,6 +1249,7 @@
+@@ -1158,6 +1265,7 @@
            "OWNED_RENDERER: unexpected stream/control packet in independent HLS source reader; aborting");
        FreeDemuxPacketFromInputStreamAPI(pendingPacket);
        pendingPacket = nullptr;
@@ -257,7 +282,7 @@
        m_ownedFailed = true;
        break;
      }
-@@ -1194,6 +1286,7 @@
+@@ -1194,6 +1302,7 @@
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS AAC source packet has invalid access-unit framing");
        FreeDemuxPacketFromInputStreamAPI(pendingPacket);
        pendingPacket = nullptr;
@@ -265,7 +290,7 @@
        m_ownedFailed = true;
        break;
      }
-@@ -1203,6 +1296,7 @@
+@@ -1203,6 +1312,7 @@
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: one HLS packet exceeds bounded PCM queue capacity");
        FreeDemuxPacketFromInputStreamAPI(pendingPacket);
        pendingPacket = nullptr;
@@ -273,7 +298,7 @@
        m_ownedFailed = true;
        break;
      }
-@@ -1234,6 +1328,7 @@
+@@ -1234,6 +1344,7 @@
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: independent AAC source decode or telemetry failed");
        FreeDemuxPacketFromInputStreamAPI(pendingPacket);
        pendingPacket = nullptr;
@@ -281,7 +306,7 @@
        m_ownedFailed = true;
        break;
      }
-@@ -1290,11 +1385,35 @@
+@@ -1290,11 +1401,35 @@
    {
      owned_stall::Span loopSpan(m_ownedStalls, owned_stall::RendererLoop, MachAbsoluteNowNs, m_ownedHlsFixture);
      const uint64_t controlStart = m_ownedHlsFixture ? MachAbsoluteNowNs() : 0;
@@ -321,7 +346,7 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::ControlRead, controlStart, MachAbsoluteNowNs());
 
-@@ -1343,10 +1462,16 @@
+@@ -1343,10 +1478,16 @@
      if (m_ownedHlsFixture)
        m_ownedStalls.Record(owned_stall::GetSpace, spaceStart, MachAbsoluteNowNs());
      if (shouldFeed && availableFrames != 0)
@@ -338,7 +363,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: Kodi audio stream did not become ready; aborting lab playback");
        return;
-@@ -1386,6 +1511,7 @@
+@@ -1386,6 +1527,7 @@
        sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
        if (sourceEnded && !m_ownedDrainStarted.load())
        {
@@ -346,7 +371,7 @@
          m_ownedStream->Drain(false);
          m_ownedDrainStarted.store(true);
          Log(LOGLEVEL_INFO,
-@@ -1424,6 +1550,7 @@
+@@ -1424,6 +1566,7 @@
 
  void InputStreamFFmpegDirect::StopOwnedRenderer()
  {
@@ -354,7 +379,7 @@
    // The source worker owns m_stream->DemuxRead after the first anchored packet.
    // Join it before closing or mutating that source and before decoder teardown.
    m_ownedSourceStop = true;
-@@ -1435,6 +1562,7 @@
+@@ -1435,6 +1578,7 @@
    if (m_ownedThread.joinable())
      m_ownedThread.join();
    m_ownedRendererActive = false;
@@ -362,7 +387,7 @@
    m_ownedStream.reset();
    {
      std::lock_guard<std::mutex> lock(m_ownedMutex);
-@@ -1462,6 +1590,7 @@
+@@ -1462,6 +1606,7 @@
 
  bool InputStreamFFmpegDirect::OwnedPlaybackStarted()
  {
@@ -370,7 +395,7 @@
    if (m_ownedPlaybackStarted.load())
      return true;
    std::ifstream control(
-@@ -1571,6 +1700,7 @@
+@@ -1571,6 +1716,7 @@
          m_ownedSyntheticFrames == std::numeric_limits<size_t>::max() ||
          m_ownedAudioStreamId < 0 || selectedSilenceFrame.empty())
      {
@@ -378,7 +403,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR,
            "OWNED_RENDERER: cannot maintain a bounded silent AAC timeline; aborting lab playback");
-@@ -1585,6 +1715,7 @@
+@@ -1585,6 +1731,7 @@
      {
        if (m_ownedHostOutputFrames == std::numeric_limits<uint64_t>::max())
        {
@@ -386,7 +411,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR, "OWNED_RENDERER: HLS host frame ledger overflowed");
          return nullptr;
-@@ -1605,6 +1736,7 @@
+@@ -1605,6 +1752,7 @@
        static_cast<int>(silenceFrame.size()));
    if (!packet)
    {
@@ -394,7 +419,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not allocate silent AAC tail packet");
      return nullptr;
-@@ -1688,8 +1820,10 @@
+@@ -1688,8 +1836,10 @@
 
  void InputStreamFFmpegDirect::DemuxReset()
  {
@@ -405,7 +430,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxReset after deferred HLS start is unsupported; failing closed");
-@@ -1700,6 +1834,7 @@
+@@ -1700,6 +1850,7 @@
 
  void InputStreamFFmpegDirect::DemuxAbort()
  {
@@ -413,7 +438,7 @@
    if (m_ownedRendererActive.load() && m_ownedHlsFixture)
    {
      m_ownedSourceStop = true;
-@@ -1717,8 +1852,10 @@
+@@ -1717,8 +1868,10 @@
 
  void InputStreamFFmpegDirect::DemuxFlush()
  {
@@ -424,7 +449,40 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: DemuxFlush after deferred HLS start is unsupported; failing closed");
-@@ -1765,6 +1902,7 @@
+@@ -1729,6 +1882,32 @@
+
+ DEMUX_PACKET* InputStreamFFmpegDirect::DemuxRead()
+ {
++  owned_stall::Span demuxSpan(m_ownedStalls, owned_stall::HostDemuxCall, MachAbsoluteNowNs, m_ownedHlsFixture);
++  if (m_ownedHlsFixture)
++  {
++    const uint64_t entry=demuxSpan.StartNs();
++    const uint64_t previous=m_ownedLastHostDemuxEntryNs.exchange(entry);
++    if (previous!=0)
++      m_ownedStalls.Record(owned_stall::HostDemuxInterarrival, previous, entry);
++    // Thread identity is immutable; QoS is read once per retained caller/instance.
++    // Preparation and playback may have different callers. Never change their QoS.
++    static thread_local const std::pair<uint64_t,int> identity=[] {
++      uint64_t id=0; int status=-1;
++#if defined(__APPLE__)
++      status=pthread_threadid_np(nullptr,&id);
++#endif
++      return std::make_pair(id,status);
++    }();
++    m_ownedStalls.ObserveHostThread(identity.first,identity.second,[] {
++      owned_stall::HostThread result; result.observedNs=MachAbsoluteNowNs();
++#if defined(__APPLE__)
++      qos_class_t qos=QOS_CLASS_UNSPECIFIED; int relative=0;
++      result.qosStatus=pthread_get_qos_class_np(pthread_self(),&qos,&relative);
++      result.qosClass=static_cast<int>(qos); result.relativePriority=relative;
++#endif
++      return result;
++    });
++  }
+   if (m_ownedRendererActive.load() && m_ownedHlsFixture && m_ownedSourceStop.load())
+     return nullptr;
+   if (m_ownedRendererActive.load() && m_ownedHlsFixture &&
+@@ -1765,6 +1944,7 @@
        return nullptr;
      if (!FlushOwnedDecoder())
      {
@@ -432,7 +490,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite EOF");
        return nullptr;
-@@ -1802,6 +1940,7 @@
+@@ -1802,6 +1982,7 @@
    {
      if (m_ownedPlaybackStarted.load())
      {
@@ -440,7 +498,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: playback started before a successful seek-to-zero; aborting");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1827,6 +1966,7 @@
+@@ -1827,6 +2008,7 @@
        info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
        info.GetSampleRate() != 48000 || info.GetChannels() != 2)
    {
@@ -448,7 +506,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: stream format changed outside the controlled AAC fixture");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1840,6 +1980,7 @@
+@@ -1840,6 +2022,7 @@
    if (!DecodeOwnedPacket(packet, packetIsAdts, sourceFrameCount,
                           decodedStartFrame, decodedEndFrame))
    {
@@ -456,7 +514,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR,
          "OWNED_RENDERER: AAC packet decode, framing, or bounded PCM queue failed; aborting lab playback");
-@@ -1866,6 +2007,7 @@
+@@ -1866,6 +2049,7 @@
            m_silenceRawAacFrame.empty() ||
            m_silenceRawAacFrame.size() > static_cast<size_t>(packet->iSize))
        {
@@ -464,7 +522,7 @@
          m_ownedFailed = true;
          Log(LOGLEVEL_ERROR,
              "OWNED_RENDERER: raw AAC packet cannot be replaced by one validated silence access unit");
-@@ -1882,6 +2024,7 @@
+@@ -1882,6 +2066,7 @@
      }
      if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
      {
@@ -472,7 +530,7 @@
        m_ownedFailed = true;
        Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
        FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1908,6 +2051,7 @@
+@@ -1908,6 +2093,7 @@
        packetAdtsFrameCount != sourceFrameCount ||
        replacementBytes > static_cast<size_t>(packet->iSize))
    {
@@ -480,7 +538,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source packet is not replaceable AAC-LC ADTS; aborting lab playback");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1933,6 +2077,7 @@
+@@ -1933,6 +2119,7 @@
    }
    if (m_ownedHlsFixture && !RewriteOwnedHlsHostPacket(packet, sourceFrameCount))
    {
@@ -488,7 +546,7 @@
      m_ownedFailed = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not maintain a continuous HLS host PTS timeline");
      FreeDemuxPacketFromInputStreamAPI(packet);
-@@ -1943,14 +2088,28 @@
+@@ -1943,14 +2130,28 @@
 
  bool InputStreamFFmpegDirect::DemuxSeekTime(double time, bool backwards, double& startpts)
  {
@@ -517,7 +575,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after source handoff is unsupported; failing closed");
-@@ -1958,12 +2117,14 @@
+@@ -1958,12 +2159,14 @@
    }
    if (m_ownedRendererActive.load() && OwnedPlaybackStarted())
    {
@@ -532,7 +590,7 @@
    if (m_ownedRendererActive.load() && succeeded && std::abs(time) < 0.001)
    {
      ResetOwnedTimeline();
-@@ -1975,6 +2136,7 @@
+@@ -1975,6 +2178,7 @@
 
  void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
  {
@@ -540,7 +598,7 @@
    m_stream->DemuxSetSpeed(speed);
  }
 
-@@ -2009,8 +2171,10 @@
+@@ -2009,8 +2213,10 @@
 
  bool InputStreamFFmpegDirect::PosTime(int ms)
  {
@@ -551,7 +609,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: PosTime after deferred HLS start is unsupported; failing closed");
-@@ -2049,8 +2213,10 @@
+@@ -2049,8 +2255,10 @@
 
  bool InputStreamFFmpegDirect::SeekChapter(int ch)
  {
@@ -562,7 +620,7 @@
      m_ownedFailed = true;
      m_ownedSourceStop = true;
      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: chapter seek after deferred HLS start is unsupported; failing closed");
-@@ -2068,6 +2234,16 @@
+@@ -2068,6 +2276,16 @@
 
  int64_t InputStreamFFmpegDirect::SeekStream(int64_t position, int whence /* SEEK_SET */)
  {
@@ -579,7 +637,7 @@
    if (m_ownedHlsFixture && m_ownedAudioInfoSnapshotValid.load())
      return -1;
    return m_stream->SeekStream(position, whence);
-@@ -2131,3 +2307,52 @@
+@@ -2131,3 +2349,52 @@
  };
 
  ADDONCREATOR(CMyAddon)
@@ -663,6 +721,14 @@
    void RunOwnedRenderer();
    void RunOwnedSourceReader();
    bool StartOwnedRenderer();
+@@ -133,6 +148,7 @@
+   std::mutex m_ownedMutex;
+   owned_stall::Aggregate m_ownedStalls;
+   std::atomic<uint64_t> m_ownedLastHostPacketNs{0};
++  std::atomic<uint64_t> m_ownedLastHostDemuxEntryNs{0};
+   std::atomic<int> m_ownedRendererQosClass{-1};
+   std::atomic<int> m_ownedRendererQosRelative{-1};
+   std::atomic<int> m_ownedRendererQosStatus{-1};
 --- /dev/null
 +++ b/src/OwnedClockProtocol.h
 @@ -0,0 +1,158 @@
@@ -1109,3 +1175,103 @@
 +#endif
 +};
 +} // namespace owned_clock
+--- a/src/OwnedStallDiagnostics.h
++++ b/src/OwnedStallDiagnostics.h
+@@ -10,27 +10,48 @@
+ enum Operation : size_t {
+   ControlRead, TelemetryWait, TelemetryWrite, TelemetryFlush,
+   RendererOwnedWait, ClockOwnedWait, HostOwnedWait, AddData,
+-  SleepOvershoot, HostPacketInterarrival, HostPacketCall, RendererLoop, GetSpace, DecodeOwnedWait, DecodeOwnedHeld, PacketOwnedWait, Count
++  SleepOvershoot, HostPacketInterarrival, HostPacketCall, RendererLoop, GetSpace, DecodeOwnedWait, DecodeOwnedHeld, PacketOwnedWait, GuardBefore, GuardAfter, ClockObservation, NativeAppend, HostDemuxCall, HostDemuxInterarrival, Count
+ };
+ static constexpr const char* Names[] = {
+   "control_read", "telemetry_mutex_wait", "telemetry_write", "telemetry_flush",
+   "renderer_owned_mutex_wait", "clock_owned_mutex_wait", "host_owned_mutex_wait",
+-  "adddata", "renderer_sleep_overshoot", "host_packet_interarrival", "host_packet_call", "renderer_loop", "getspace", "decode_owned_mutex_wait", "decode_owned_mutex_held", "packet_owned_mutex_wait"
++  "adddata", "renderer_sleep_overshoot", "host_packet_interarrival", "host_packet_call", "renderer_loop", "getspace", "decode_owned_mutex_wait", "decode_owned_mutex_held", "packet_owned_mutex_wait",
++  "output_guard_before", "output_guard_after", "clock_observation", "native_append",
++  "host_demux_call", "host_demux_interarrival"
+ };
+ static_assert(sizeof(Names) / sizeof(Names[0]) == Count, "Operation names must match enum count");
+ struct Metric {
+   uint64_t count{0}, maxNs{0}, maxStartNs{0}, maxEndNs{0};
+ };
+ struct Event { size_t operation{0}; uint64_t startNs{0}, endNs{0}; };
++struct HostThread {
++  uint64_t threadId{0}, observedNs{0};
++  int identityStatus{-1}, qosStatus{-1}, qosClass{-1}, relativePriority{-1};
++};
+ struct Snapshot {
+   bool available{false};
+   uint64_t revision{0}, droppedContention{0}, droppedEvents{0};
+   std::array<Metric, Count> metrics{};
+   std::array<Event, 12> events{};
+   size_t eventCount{0};
++  std::array<HostThread, 4> hostThreads{};
++  size_t hostThreadCount{0};
++  uint64_t droppedHostThreads{0};
+ };
+ class Aggregate {
+  public:
++  // Called only before workers launch, after the previous instance has stopped.
++  void Reset() { pending=Snapshot{}; hostThreads={}; hostThreadCount=0; revision=0; dropped.store(0); }
++  template<class Read> void ObserveHostThread(uint64_t id, int identityStatus, Read read) {
++    std::unique_lock<std::mutex> guard(mutex,std::try_to_lock);
++    if (!guard.owns_lock()) { dropped.fetch_add(1,std::memory_order_relaxed); return; }
++    for (size_t i=0;i<hostThreadCount;++i)
++      if (hostThreads[i].threadId==id && hostThreads[i].identityStatus==identityStatus) return;
++    if (hostThreadCount==hostThreads.size()) { ++pending.droppedHostThreads; return; }
++    // Read-only QoS observation once per retained identity, never a setter.
++    auto observation=read(); observation.threadId=id; observation.identityStatus=identityStatus;
++    hostThreads[hostThreadCount++]=observation;
++  }
+   void Record(Operation op, uint64_t start, uint64_t end) {
+     if (op >= Count || end < start) return;
+     std::unique_lock<std::mutex> guard(mutex, std::try_to_lock);
+@@ -51,6 +72,7 @@
+     if (!guard.owns_lock()) return Snapshot{}; // Preserve pending events for next row.
+     Snapshot out=pending;
+     out.available=true; out.revision=++revision;
++    out.hostThreads=hostThreads; out.hostThreadCount=hostThreadCount;
+     out.droppedContention=dropped.exchange(0, std::memory_order_relaxed);
+     pending=Snapshot{};
+     return out;
+@@ -60,11 +82,14 @@
+   std::atomic<uint64_t> dropped{0};
+   uint64_t revision{0};
+   Snapshot pending{};
++  std::array<HostThread,4> hostThreads{};
++  size_t hostThreadCount{0};
+ };
+ class Span {
+  public:
+   Span(Aggregate& aggregate, Operation op, uint64_t (*clock)(), bool enabled)
+       : aggregate(aggregate), op(op), clock(clock), enabled(enabled), start(enabled ? clock() : 0) {}
++  uint64_t StartNs() const { return start; }
+   ~Span() { if (enabled) aggregate.Record(op,start,clock()); }
+  private:
+   Aggregate& aggregate;
+@@ -74,7 +99,7 @@
+   uint64_t start;
+ };
+ inline void WriteJson(std::ostream& out, const Snapshot& snapshot) {
+-  out << "{\"version\":1,\"threshold_ns\":40000000,\"available\":"
++  out << "{\"version\":2,\"threshold_ns\":40000000,\"available\":"
+       << (snapshot.available ? "true" : "false") << ",\"revision\":" << snapshot.revision
+       << ",\"dropped_contention\":" << snapshot.droppedContention
+       << ",\"dropped_events\":" << snapshot.droppedEvents << ",\"operations\":{";
+@@ -92,6 +117,14 @@
+     out << "{\"operation\":\"" << Names[e.operation] << "\",\"start_mach_ns\":"
+         << e.startNs << ",\"end_mach_ns\":" << e.endNs << '}';
+   }
++  out << "],\"dropped_host_threads\":" << snapshot.droppedHostThreads << ",\"host_threads\":[";
++  for (size_t i=0;i<snapshot.hostThreadCount;++i) {
++    const auto& t=snapshot.hostThreads[i];
++    if(i) out << ',';
++    out << "{\"thread_id\":" << t.threadId << ",\"observed_mach_ns\":" << t.observedNs
++        << ",\"identity_status\":" << t.identityStatus << ",\"qos_status\":" << t.qosStatus
++        << ",\"qos_class\":" << t.qosClass << ",\"relative_priority\":" << t.relativePriority << '}';
++  }
+   out << "]}";
+ }
+ } // namespace owned_stall

@@ -61,6 +61,60 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual({key:qos[key] for key in fields},{key:None for key in fields})
 
 
+ADDED = ('output_guard_before','output_guard_after','clock_observation','native_append',
+         'host_demux_call','host_demux_interarrival')
+def fixture_v2():
+    row=fixture(); d=row['stall_diagnostics']; d['version']=2
+    d['host_threads']=[]; d['dropped_host_threads']=0
+    d['operations'].update({name:dict(count=0,max_ns=0,max_start_mach_ns=0,max_end_mach_ns=0) for name in ADDED})
+    return row
+
+class VersionTwoTests(unittest.TestCase):
+    def test_component_maxima_and_mixed_archive_keep_old_metrics(self):
+        old=fixture(); row=fixture_v2(); d=row['stall_diagnostics'];d['revision']=3
+        d['operations']['host_demux_interarrival']=dict(count=1,max_ns=70_000_000,max_start_mach_ns=BASE+200_000_000,max_end_mach_ns=BASE+270_000_000)
+        d['operations']['host_demux_call']=dict(count=2,max_ns=1_000_000,max_start_mach_ns=BASE+270_000_000,max_end_mach_ns=BASE+271_000_000)
+        d['long_events'].append(dict(operation='host_demux_interarrival',start_mach_ns=BASE+200_000_000,end_mach_ns=BASE+270_000_000))
+        report=summarize([old,row],BASE,[(.25,.26)])
+        self.assertEqual(report['diagnostic_versions'],[1,2])
+        self.assertEqual(report['operations']['host_demux_call']['maximum']['duration_ms'],1)
+        self.assertEqual(report['operations']['host_demux_interarrival']['long_events'][0]['gap_overlaps'],[dict(gap_index=0,overlap_ms=10)])
+        self.assertEqual(report['operations']['renderer_sleep_overshoot']['count'],6)
+        self.assertIsNone(report['operations']['native_append']['maximum'])
+    def test_host_readbacks_and_overflow_roundtrip_without_inference(self):
+        row=fixture_v2();d=row['stall_diagnostics'];d['dropped_host_threads']=3
+        thread=dict(thread_id=42,observed_mach_ns=BASE+10,identity_status=0,qos_status=0,qos_class=9,relative_priority=-2)
+        unknown=dict(thread_id=0,observed_mach_ns=BASE+12,identity_status=-1,qos_status=-1,qos_class=-1,relative_priority=-1)
+        d['host_threads']=[thread,unknown]
+        later=json.loads(json.dumps(row));later['stall_diagnostics']['revision']=3;later['stall_diagnostics']['dropped_host_threads']=0
+        report=summarize([row,later],BASE)
+        self.assertEqual(report['host_thread_observations'],[thread,unknown])
+        self.assertEqual(report['dropped_host_threads'],3)
+    def test_host_schema_is_strict_bounded_and_unavailable_has_no_data(self):
+        thread=dict(thread_id=42,observed_mach_ns=BASE,identity_status=0,qos_status=0,qos_class=9,relative_priority=0)
+        for edit in [lambda d:d.update(host_threads=[thread]*5),
+                     lambda d:d.update(host_threads=[thread,thread]),
+                     lambda d:d.update(host_threads=[dict(thread,thread_id=True)]),
+                     lambda d:d.update(host_threads=[dict(thread,qos_class='9')]),
+                     lambda d:d.update(host_threads=[dict(thread,relative_priority=2**31)]),
+                     lambda d:d.update(dropped_host_threads=-1),
+                     lambda d:d.pop('host_threads')]:
+            row=fixture_v2();edit(row['stall_diagnostics'])
+            with self.assertRaises(ValueError):summarize([row],BASE)
+        row=fixture_v2();d=row['stall_diagnostics'];d['available']=False
+        for k in ('revision','dropped_contention','dropped_events'):d[k]=0
+        d['long_events']=[]
+        for m in d['operations'].values():
+            for k in m:m[k]=0
+        summarize([row],BASE)
+        d['host_threads']=[thread]
+        with self.assertRaises(ValueError):summarize([row],BASE)
+    def test_v1_shape_stays_exact_and_v2_requires_all_components(self):
+        for version,edit in [(1,lambda d:d['operations'].update({'host_demux_call':{}})),
+                             (2,lambda d:d['operations'].pop('native_append'))]:
+            row=fixture() if version==1 else fixture_v2();edit(row['stall_diagnostics'])
+            with self.assertRaises(ValueError):summarize([row],BASE)
+
 class StrictSchemaTests(unittest.TestCase):
     def bad(self,row):
         with self.assertRaises(ValueError): summarize([row],BASE)
