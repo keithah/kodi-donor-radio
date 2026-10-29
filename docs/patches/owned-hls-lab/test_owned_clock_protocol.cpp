@@ -227,6 +227,58 @@ int main() {
     std::ofstream(prefixDir+"/command-000003.txt")<<Wire(3,"pause",13);
     CHECK(!t.Poll(2,pending)); CHECK(pending.empty());
   }
+  // Kodi's supported startup is one capability query, one backwards 1ms probe,
+  // then a zero rewind. Every exemption must remain bounded by startup state.
+  StartupSeekState startup{0,false,false,false,true};
+  {
+    StartupSeekProbe probe;
+    CHECK(probe.Capability(0,0x10,startup));
+    CHECK(probe.Time(1.0,true,startup));
+    CHECK(probe.Time(0.0,true,startup));
+    CHECK(!probe.Time(0.0,true,startup)); // no repeated rewinds after the sequence
+    CHECK(!probe.Capability(0,0x10,startup));
+  }
+  for(unsigned phase=0;phase<3;++phase) {
+    for(unsigned unsafe=0;unsafe<5;++unsafe) {
+      StartupSeekProbe probe;
+      if(phase>0) CHECK(probe.Capability(0,0x10,startup));
+      if(phase>1) CHECK(probe.Time(1.0,true,startup));
+      auto state=startup;
+      if(unsafe==0)state.acceptedFrames=1;
+      if(unsafe==1)state.playbackStarted=true;
+      if(unsafe==2)state.decodeArmed=true;
+      if(unsafe==3)state.sourceTransferred=true;
+      if(unsafe==4)state.fixtureReady=false;
+      CHECK(!(phase==0 ? probe.Capability(0,0x10,state) : probe.Time(phase==1?1.0:0.0,true,state)));
+      CHECK(!probe.Capability(0,0x10,startup)); // invalid state cannot restart the exception
+    }
+  }
+  for(int whence : {SEEK_SET,SEEK_CUR,SEEK_END,0x11,-1}) {
+    StartupSeekProbe probe; CHECK(!probe.Capability(0,whence,startup));
+  }
+  for(int64_t position : {-1,1,1024}) {
+    StartupSeekProbe probe; CHECK(!probe.Capability(position,0x10,startup));
+  }
+  {
+    StartupSeekProbe probe; CHECK(!probe.Time(0.0,true,startup));
+    StartupSeekProbe one; CHECK(!one.Time(1.0,true,startup));
+    StartupSeekProbe repeat; CHECK(repeat.Capability(0,0x10,startup));
+    CHECK(!repeat.Capability(0,0x10,startup));
+    CHECK(!repeat.Time(1.0,true,startup));
+  }
+  for(double time : {-1.0,0.0,0.999,1.001,2.0,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+    StartupSeekProbe probe;CHECK(probe.Capability(0,0x10,startup));
+    CHECK(!probe.Time(time,true,startup));
+  }
+  for(double time : {-1.0,0.0001,1.0,2.0,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+    StartupSeekProbe probe;CHECK(probe.Capability(0,0x10,startup));CHECK(probe.Time(1.0,true,startup));
+    CHECK(!probe.Time(time,true,startup));
+  }
+  for(unsigned phase=0;phase<2;++phase) {
+    StartupSeekProbe probe;CHECK(probe.Capability(0,0x10,startup));
+    if(phase)CHECK(probe.Time(1.0,true,startup));
+    CHECK(!probe.Time(phase?0.0:1.0,false,startup));
+  }
   // Keep test directories for inspection, like the diagnostic's retained evidence.
   std::cout << "owned clock protocol checks passed (NDEBUG-safe)\n";
 }

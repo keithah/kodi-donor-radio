@@ -365,8 +365,16 @@ revocation. Speed 0 invalidates immediately; normal speed plus a resume ack newe
 than the latest speed-0 observation permits fresh acquisition, in either callback
 order. Normal speed alone cannot revive an old resume. Active seek, flush,
 reset, abort, abnormal speed, source discontinuity, native failure, drain and
-close revoke before lifecycle work or joins. The allowed initial Seek(0) and
-normal-speed initialization remain. A monitor restart requires a new nonce;
+close revoke before lifecycle work or joins. One exact initial Kodi probe sequence
+is exempted: byte capability query `(0, 0x10)`, backwards demux seek `1.0 ms`,
+then backwards demux seek `0.0 ms`. Each step requires zero accepted frames,
+playback not started, decoding unarmed, no source-reader ownership transfer and
+an initialized active fixture. Repeated, out-of-order, nonmatching or active
+seeks retire eligibility. The historical byte-query return remains `-1`; changing
+it to `0` would suppress Kodi's rewind and prevent the existing zero-seek decode
+arming. Demux calls and successful zero-rewind arming are unchanged. Native logs
+record the actual seek arguments and gate state for capture validation. Normal
+speed initialization remains. A monitor restart requires a new nonce;
 there is no reconnect, retained-ledger replay, or heartbeat qualification.
 
 Compile `test_owned_clock_protocol.cpp` with a C++14 compiler, `-pthread`,
