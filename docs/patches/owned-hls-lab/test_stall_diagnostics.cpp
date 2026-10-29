@@ -1,4 +1,7 @@
 // Standalone aggregation tests; no Kodi/addon dependency.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "OwnedStallDiagnostics.h"
 #include <cassert>
 #include <sstream>
