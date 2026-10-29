@@ -225,3 +225,11 @@ def test_owned_queued_start_is_dropped_after_pause_with_evidence():
         assert len(dropped)==1 and dropped[0]['event']=='start'
         assert dropped[0]['row_sequence']==10
     finally:c.release.set();a.close()
+
+
+def test_adapter_rejects_different_declared_player_contract():
+    view=presentation();b=binding(timeline_sha256=playback.timeline_sha256(view,PACKET))
+    other=dataclasses.replace(b,player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer')
+    provider=clock.OwnedClockProvider(other,estimator_factory,lambda:BASE)
+    with pytest.raises(ValueError):
+        playback.OwnedAdPlayback(b,provider,view,Client(),threading.Event(),lambda row:None)

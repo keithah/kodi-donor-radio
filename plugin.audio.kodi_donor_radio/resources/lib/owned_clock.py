@@ -77,9 +77,12 @@ class OwnedClockBinding:
     native_pid: int
     rate: int = 48000
     source_origin: int = 0
+    player_mode: str = "paplayer_pcm_v1"
+    requested_core: str = "PAPlayer"
 
     def __post_init__(self):
-        if (not _hex(self.nonce,32) or (self.incarnation is not None and not _hex(self.incarnation,32))
+        if ((self.player_mode,self.requested_core) not in (("paplayer_pcm_v1","PAPlayer"),("videoplayer_pcm_v1","VideoPlayer"))
+                or not _hex(self.nonce,32) or (self.incarnation is not None and not _hex(self.incarnation,32))
                 or not _hex(self.timeline_sha256,64) or not _hex(self.first_packet_sha256,64)
                 or not _uint(self.launch_mach_ns) or not _uint(self.native_pid) or not self.native_pid
                 or type(self.rate) is not int or self.rate != 48000
@@ -130,6 +133,7 @@ class OwnedClockProvider:
         self._ack_applied = 0
         self._native_generation = self._guard_generation = None
         self._epoch = self._counter = None
+        self._host_generation = self._host_identity = None
         self._last_query = None
         self._last = OwnedClockSnapshot()
         if binding.selected_url != URL:
@@ -155,6 +159,8 @@ class OwnedClockProvider:
         with self.lock:
             b = self.binding
             valid = (isinstance(hello,dict) and type(hello.get('protocol')) is int and hello['protocol']==1
+                and hello.get('player_mode','paplayer_pcm_v1')==b.player_mode
+                and hello.get('requested_core','PAPlayer')==b.requested_core
                 and hello.get('nonce')==b.nonce and _hex(hello.get('incarnation'),32)
                 and (b.incarnation is None or hello['incarnation']==b.incarnation)
                 and hello.get('timeline_sha256')==b.timeline_sha256
@@ -201,6 +207,42 @@ class OwnedClockProvider:
         with self.lock:
             return tuple(self._commands) if self._hello else ()
 
+    def _host_evidence(self, row, own):
+        b = self.binding
+        if (own.get('player_mode','paplayer_pcm_v1') != b.player_mode
+                or own.get('requested_core','PAPlayer') != b.requested_core):
+            self.retire('player_mode_mismatch'); return False
+        if b.player_mode != 'videoplayer_pcm_v1':
+            return True  # Archived v1 PAPlayer rows retain their original interpretation.
+        before, after = own.get('host_mode_generation_before'), own.get('host_mode_generation_after')
+        caller, observed = own.get('host_caller_id'), own.get('host_caller_observed_mach_ns')
+        override = row.get('host_override')
+        if (any(not _uint(v) for v in (before,after,caller,observed)) or not before or after<before
+                or (self._host_generation is not None and after<self._host_generation)
+                or own.get('host_override_applicable') is not False
+                or type(own.get('host_mode_armed')) is not bool
+                or not isinstance(override,dict)
+                or any(override.get(k) is not False for k in ('enabled','active','failed'))
+                or any(type(override.get(k)) is not int or override[k]!=0 for k in ('starts','ends','outstanding'))):
+            self.retire('player_mode_evidence'); return False
+        identity = (caller,observed)
+        if caller:
+            if (own.get('host_caller_name')!='VideoPlayer'
+                    or any(type(own.get(k)) is not int or own[k]!=0 for k in ('host_caller_identity_status','host_caller_name_status'))
+                    or not self._hello['native_open_mach_ns'] <= observed <= self.now_ns()
+                    or (self._host_identity is not None and identity!=self._host_identity)):
+                self.retire('player_caller_mismatch'); return False
+            self._host_identity = identity
+        elif (self._host_identity is not None or observed or own['host_mode_armed']
+                or own.get('host_caller_name')!='' or own.get('host_caller_identity_status')!=-1
+                or own.get('host_caller_name_status')!=-1):
+            self.retire('player_caller_mismatch'); return False
+        if self._host_generation != after:
+            self.generation += 1
+            self.estimator.clear_anchor()
+        self._host_generation = after
+        return bool(caller and own['host_mode_armed'] and before==after)
+
     def ingest(self, raw):
         """Consume every complete clock line exactly once, before any estimator update."""
         with self.lock:
@@ -237,6 +279,8 @@ class OwnedClockProvider:
                 self.retire('ownership_or_sequence')
                 return self.snapshot()
             self._sequence = own['observation_sequence']
+            host_valid = self._host_evidence(row, own)
+            if self.retired: return self.snapshot()
             reason = own.get('reason')
             pending = ('eligible','output_guard_unarmed','qos_unconfirmed','generation_changed',
                        'source_unconfirmed','speed_resume_required','control_inactive')
@@ -300,7 +344,7 @@ class OwnedClockProvider:
             if (revision != len(self._commands) or self._commands[-1].state not in ('play','resume')
                     or row.get('control_state') != own['control_state'] or start <= self._ack_applied):
                 reasons.append('control_pending')
-            if (before!=after or not own['eligible'] or reason!='eligible' or not own['source_zero_confirmed']
+            if (not host_valid or before!=after or not own['eligible'] or reason!='eligible' or not own['source_zero_confirmed']
                     or not own['output_guard_valid'] or not row['renderer_qos_request_confirmed']
                     or not row['playback_started'] or row.get('first_source_pts')!=0):
                 reasons.append('native_unqualified')

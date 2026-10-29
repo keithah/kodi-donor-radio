@@ -82,3 +82,32 @@ that segment opens. It was built into a private static archive for the inputstre
 addon; shared libraries and Kodi core were unchanged. The source-only regression
 harness is in `owned-hls-lab/ffmpeg-recovery/`. This fix does not recover media
 that has expired from an upstream playlist, nor establish audible clock accuracy.
+
+The controlled owned-clock lab also has an explicit `videoplayer_pcm_v1`
+experiment. Launch with `owned_beacons=1`, the existing exact fixture path, and
+`player_mode=videoplayer_pcm_v1`; omission retains `paplayer_pcm_v1`. The launcher
+creates a fresh bound session, then requests `Player.Open` with named
+`VideoPlayer` and `resume:false` through a one-use `owned_resolve` plugin URL.
+Both new native properties, `owned_player_mode` and `owned_player_core`, are
+required by that mode. Its initial real raw AAC packet must match the passed
+SHA256, stream and PTS0 before the same packet is decoded once; no missing-probe
+fallback or new seek exception exists. The PCM host stays 3840 frames at 48 kHz.
+
+Hello and ownership observations echo `player_mode`/`requested_core`. VideoPlayer
+observations additionally bind a pinned actual current demux caller, identity
+readback statuses, first observation time, arming state and generations around
+the clock query. `host_override_applicable:false` means the PAPlayer scheduling
+experiment is inapplicable, with zero tokens, not that a substitute override
+succeeded. Renderer QoS, source proof, output guard, ownership, callback/native
+speed fences, freshness and the frozen estimator remain required. Archived
+rows without the mode fields retain their PAPlayer interpretation only.
+
+Use repository `owned-hls-lab/observe-hls.py` with `--owned-fixture <fixture>` and
+`--player-mode videoplayer_pcm_v1` plus the existing output/port/duration/action
+arguments. It verifies one audio player and exact resolved `dynpath` before
+controls and observations; audio ID0 does not identify the playback core. It
+retains the four pause schedule and records any forced stop. The launcher records
+`videoplayer.queuetimesize` without changing it. Actual VideoPlayer thread/log
+agreement, native late-pause ordering, natural EOF/tail, no gaps/replay, and all
+clock/beacon gates require fresh captured qualification. This mode remains an
+experiment, with production paths disabled.

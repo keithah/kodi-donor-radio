@@ -63,7 +63,7 @@ def load_contract(path=DEFAULT_CONTRACT):
 
 
 def validate_ready(ready,binding):
-    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid')}
+    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core') if k in binding}
     expected['kind']='owned_monitor_ready'
     if ready!=expected:
         raise ValueError('monitor_ready_binding')
@@ -72,7 +72,7 @@ def validate_ready(ready,binding):
 
 def publish_ready(directory_fd,binding):
     from owned_clock import _rename_exclusive
-    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid')}
+    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core') if k in binding}
     ready['kind']='owned_monitor_ready'
     name='.monitor-ready.tmp'
     fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory_fd)

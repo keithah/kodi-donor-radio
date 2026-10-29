@@ -354,3 +354,62 @@ def test_host_override_pending_uses_existing_qos_pending_semantics():
     assert not p.retired and p.estimator.origin_ns is None
     # Only subsequent native-qualified rows can start the frozen acquisition.
     assert acquire(p,t,1).valid
+
+
+def test_explicit_player_mode_binding_and_hello_mismatch():
+    b=binding(player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer')
+    for change in ({},dict(player_mode='paplayer_pcm_v1',requested_core='PAPlayer'),dict(player_mode='videoplayer_pcm_v1',requested_core='PAPlayer')):
+        p=clock.OwnedClockProvider(b,estimator_factory,lambda:BASE)
+        assert not p.bind_hello(hello(**change)) and p.retired
+    p=clock.OwnedClockProvider(b,estimator_factory,lambda:BASE)
+    assert p.bind_hello(hello(player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer'))
+    for mode,core in [('unknown','VideoPlayer'),('videoplayer_pcm_v1','PAPlayer'),('paplayer_pcm_v1','VideoPlayer')]:
+        with pytest.raises(ValueError):binding(player_mode=mode,requested_core=core)
+
+
+def video_evidence(r):
+    r['ownership'].update(player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer',
+        host_override_applicable=False,host_mode_generation_before=4,host_mode_generation_after=4,
+        host_mode_armed=True,host_caller_id=71,host_caller_name='VideoPlayer',host_caller_identity_status=0,
+        host_caller_name_status=0,host_caller_observed_mach_ns=BASE-40)
+    r['host_override']=dict(enabled=False,active=False,failed=False,starts=0,ends=0,outstanding=0)
+    return r
+
+
+def video_session():
+    t=[BASE];p=clock.OwnedClockProvider(binding(player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer'),estimator_factory,lambda:t[0])
+    assert p.bind_hello(hello(player_mode='videoplayer_pcm_v1',requested_core='VideoPlayer'))
+    p.control('play',BASE-25)
+    r=video_evidence(row(-1,revision=1,state='waiting',issued=BASE-100,applied=BASE-40))
+    r.update(mach_absolute_ns=BASE-10,steady_ns=BASE-10,delay_query_start_steady_ns=BASE-10,delay_query_end_steady_ns=BASE-10)
+    feed(p,t,r)
+    return p,t
+
+
+def test_video_rows_acquire_without_override_but_keep_renderer_qos():
+    p,t=video_session()
+    for i in range(9):result=feed(p,t,video_evidence(row(i)))
+    assert result.valid and not p.retired
+    r=video_evidence(row(9));r['renderer_qos_request_confirmed']=False
+    assert not feed(p,t,r).valid
+
+
+@pytest.mark.parametrize('damage',['missing_mode','core','caller','changed_id','missing_identity','generation','override','applicable'])
+def test_video_wrong_evidence_retires(damage):
+    p,t=video_session();r=video_evidence(row(0));own=r['ownership']
+    if damage=='missing_mode':own.pop('player_mode')
+    if damage=='core':own['requested_core']='PAPlayer'
+    if damage=='caller':own['host_caller_name']='PAPlayer'
+    if damage=='changed_id':own['host_caller_id']=72
+    if damage=='missing_identity':own.pop('host_caller_identity_status')
+    if damage=='generation':own['host_mode_generation_after']=2
+    if damage=='override':r['host_override']['starts']=1
+    if damage=='applicable':own['host_override_applicable']=True
+    assert not feed(p,t,r).valid and p.retired
+
+
+def test_video_generation_change_is_pending_then_reacquires():
+    p,t=video_session();r=video_evidence(row(0));r['ownership']['host_mode_generation_before']=3
+    assert not feed(p,t,r).valid and not p.retired
+    for i in range(1,10):result=feed(p,t,video_evidence(row(i)))
+    assert result.valid

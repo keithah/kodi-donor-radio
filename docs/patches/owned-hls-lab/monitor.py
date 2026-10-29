@@ -58,7 +58,10 @@ def run_owned(directory,library):
             if value=='play':active.set()
             if value=='stop':stopped.set()
     class OwnedPlayer(xbmc.Player):
-        def onAVStarted(self):control('play','onAVStarted')
+        def onAVStarted(self):
+            try:adapter.route(self.getPlayingFile())
+            except Exception:adapter.retire('route_unreadable')
+            control('play','onAVStarted')
         def onPlayBackPaused(self):control('pause','onPlayBackPaused')
         def onPlayBackResumed(self):control('resume','onPlayBackResumed')
         def onPlayBackStopped(self):control('stop','onPlayBackStopped')
@@ -79,7 +82,7 @@ def run_owned(directory,library):
             output.write(module.strict_json(row)+'\n')
         output.flush()
     enqueue(dict(kind='owned_launch',session_id=adapter.session_id,launch_mach_ns=binding.launch_mach_ns,
-                 native_pid=binding.native_pid,timeline_sha256=binding.timeline_sha256,
+                 native_pid=binding.native_pid,player_mode=binding.player_mode,requested_core=binding.requested_core,timeline_sha256=binding.timeline_sha256,
                  first_packet_sha256=binding.first_packet_sha256,selected_url=binding.selected_url,
                  estimator_sha256=runtime_clock.SHA256,proof_sha256=fixture.sha(fixture.canonical(launch['proof'])),
                  production_eligible=False,settings=launch['settings']))

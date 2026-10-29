@@ -41,7 +41,8 @@ class ObservationSchedulingTests(unittest.TestCase):
             sleeps.append(seconds); now[0]+=seconds
         def rpc(method,params=None,**kwargs):
             calls.append((now[0],method,params))
-            if method=='Player.GetActivePlayers': return [{'playerid':0}]
+            if method=='Player.GetActivePlayers': return [{'playerid':0,'type':'audio'}]
+            if method=='Player.GetItem':return {'item':{'file':'fixture','dynpath':'fixture'}}
             if method=='Player.GetProperties':
                 return dict(time={'hours':0,'minutes':0,'seconds':0,'milliseconds':0},
                             totaltime={'hours':0,'minutes':3,'seconds':0,'milliseconds':0},
@@ -71,3 +72,26 @@ class ObservationSchedulingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class PlayerIdentityTests(unittest.TestCase):
+    def test_audio_id_is_accepted_without_claiming_core(self):
+        def rpc(method,params=None,**kwargs):
+            if method=='Player.GetActivePlayers':return [{'playerid':0,'type':'audio','playertype':'internal'}]
+            if method=='Player.GetItem':return {'item':{'file':'fixture','dynpath':'fixture'}}
+            raise AssertionError(method)
+        with patch.object(observer,'rpc',side_effect=rpc):
+            actual=observer.expected_player('fixture',19093)
+        self.assertEqual(actual,{'playerid':0,'type':'audio','playertype':'internal','file':'fixture','dynpath':'fixture'})
+        self.assertNotIn('core',actual)
+    def test_wrong_or_multiple_items_rejected(self):
+        for players in ([{'playerid':0,'type':'audio'},{'playerid':1,'type':'video'}],[{'playerid':0,'type':'audio'}]):
+            with patch.object(observer,'rpc',side_effect=lambda method,params=None,**kwargs: players if method=='Player.GetActivePlayers' else {'item':{'file':'other'}}):
+                with self.assertRaises(RuntimeError):observer.expected_player('fixture',19093)
+
+class ResolvedIdentityTests(unittest.TestCase):
+    def test_resolved_dynpath_is_authoritative_over_original_plugin_metadata(self):
+        def rpc(method,params=None,**kwargs):
+            if method=='Player.GetActivePlayers':return [{'playerid':0,'type':'audio'}]
+            return {'item':{'file':'plugin://original','dynpath':'fixture'}}
+        with patch.object(observer,'rpc',side_effect=rpc):
+            self.assertEqual(observer.expected_player('fixture',19093)['dynpath'],'fixture')
