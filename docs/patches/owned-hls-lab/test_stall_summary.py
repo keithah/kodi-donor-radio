@@ -115,6 +115,30 @@ class VersionTwoTests(unittest.TestCase):
             row=fixture() if version==1 else fixture_v2();edit(row['stall_diagnostics'])
             with self.assertRaises(ValueError):summarize([row],BASE)
 
+def override_fixture():
+    return dict(version=1,enabled=True,active=True,allowed=True,failed=False,terminal=False,owner_running=True,
+        generation_before=5,generation_after=5,control_revision=2,owner_id=7,target_id=42,target_name='PAPlayer',
+        requested_class=25,requested_relative_priority=0,start_attempts=1,starts=1,end_attempts=0,ends=0,
+        ignored_preparation=2,blocked_through_revision=1,outstanding=1,max_outstanding=1,
+        last_start_mach_ns=BASE,last_end_mach_ns=0,last_end_owner_id=0,last_start_status=0,last_end_status=-1,reason='none')
+
+class HostOverrideTests(unittest.TestCase):
+    def test_active_and_consumed_cleanup_evidence_roundtrip(self):
+        row=fixture_v2();row['host_override']=override_fixture()
+        closed=json.loads(json.dumps(row));closed['stall_diagnostics']['revision']=3
+        closed['host_override'].update(active=False,allowed=False,terminal=True,owner_running=False,
+            generation_before=6,generation_after=6,end_attempts=1,ends=1,outstanding=0,
+            last_end_mach_ns=BASE+10,last_end_owner_id=7,last_end_status=0)
+        report=summarize([row,closed],BASE)
+        self.assertEqual(report['host_override_observations'],[row['host_override'],closed['host_override']])
+        self.assertEqual(summarize([fixture()],BASE)['host_override_observations'],[])
+    def test_invalid_token_or_target_claim_rejected(self):
+        for change in [dict(outstanding=2),dict(starts=0),dict(ends=2),dict(target_name='JobWorker'),
+                       dict(owner_id=42),dict(active=True,failed=True),dict(owner_running=False),
+                       dict(last_start_status=True),dict(requested_class=33),dict(extra=1)]:
+            row=fixture_v2();row['host_override']=dict(override_fixture(),**change)
+            with self.assertRaises(ValueError):summarize([row],BASE)
+
 class StrictSchemaTests(unittest.TestCase):
     def bad(self,row):
         with self.assertRaises(ValueError): summarize([row],BASE)

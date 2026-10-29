@@ -540,3 +540,47 @@ Compile `test_stall_diagnostics.cpp` with C++14, `-pthread`, and optionally
 filename writes native v2 JSONL for `summarize_stalls.py` integration validation.
 The new timing does not qualify physical output or fix the retained run2/run3
 underruns, and it does not change the frozen estimator or clock eligibility.
+
+### Scoped PAPlayer dependency override experiment
+
+The current owned-clock candidate adds one controlled scheduling experiment to
+an exact session-owned loopback HLS launch. It does not enable production paths
+or establish that the retained output gaps are fixed. The native source FIFO,
+AAC host format, startup seek sequence, AddData batching, renderer QoS, output
+guard, pause/resume and natural EOF paths retain their existing behavior.
+
+Only a live synthetic host callback with source ownership transferred, decoding
+armed and active playback can start an override. The current pthread name must
+be exactly `PAPlayer`, its identity must be valid and distinct from the renderer
+owner, and the first playback identity stays pinned for the incarnation.
+`JobWorker` preparation is ignored before a playback identity is pinned; other
+unsupported active callers or an identity change retire the experiment.
+Acquisition uses `pthread_self()` and public
+`pthread_override_qos_class_start_np(QOS_CLASS_USER_INITIATED, 0)`. No pthread
+handle is retained and no requested-base QoS or process policy is changed.
+
+One opaque token spans active host callback intervals. A shared generation gate
+serializes acquisition against controls. Native pause creates a revision barrier;
+only a fresh validated play/resume revision can reactivate after that barrier.
+The existing renderer ends the token before pause acknowledgement, on drain and
+on every renderer exit. Abort/close/failure disable future acquisition before
+cleanup/join. The target never ends its own token. Every end attempt consumes
+and clears the token, including API errors; a consumed token is never retried.
+Failures retire clock qualification while leaving audio feeding unchanged.
+
+Each clock row adds bounded `host_override.version=1` evidence: target/owner IDs,
+verified target name, requested override class25/relative0, control and state
+generations, active/terminal/failure flags, start/end attempt/success counters,
+last attempt times/statuses, ignored preparation count and outstanding/maximum
+counts. At most one token may be outstanding. Requested host QoS can correctly
+remain21 while an override is active; neither token success nor requested QoS
+proves effective scheduling. The existing `qos_unconfirmed` pending reason blocks
+qualification until an active token exists, and an override generation change
+within a sample also blocks qualification. The frozen estimator is unchanged.
+
+`test_host_override.cpp` runs portable C++14 debug/NDEBUG lifecycle and race
+checks with injected OS operations. Optional `test_host_override_macos.cpp`
+creates and cleans one token on its own test thread only; it does not attach to
+Kodi. The archived summarizer validates the new evidence and retains transitions.
+An independent review and captured activation/cleanup/no-gap validation remain
+mandatory before this experiment can support any acceptance claim.

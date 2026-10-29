@@ -343,3 +343,14 @@ def test_stale_or_future_rows_cannot_advance_discontinuity_baselines(offset):
     assert not p.ingest(json.dumps(r).encode()).valid
     assert (p._epoch,p._counter)==previous
     assert acquire(p,t,10).valid and not p.retired
+
+
+def test_host_override_pending_uses_existing_qos_pending_semantics():
+    p,t=session()
+    pending=row(0)
+    pending['ownership'].update(eligible=False,reason='qos_unconfirmed')
+    pending['host_override']=dict(enabled=True,active=False)
+    assert not feed(p,t,pending).valid
+    assert not p.retired and p.estimator.origin_ns is None
+    # Only subsequent native-qualified rows can start the frozen acquisition.
+    assert acquire(p,t,1).valid

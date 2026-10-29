@@ -85,6 +85,33 @@ def validate_diagnostic(diagnostic):
     if not diagnostic['available'] and (diagnostic['revision'] or diagnostic['dropped_contention'] or diagnostic['dropped_events'] or events or any(any(metric.values()) for metric in diagnostic['operations'].values())):
         raise ValueError('unavailable snapshot claims data')
 
+def validate_host_override(value):
+    flags=('enabled','active','allowed','failed','terminal','owner_running')
+    integers=('generation_before','generation_after','control_revision','owner_id','target_id',
+              'start_attempts','starts','end_attempts','ends','ignored_preparation','blocked_through_revision',
+              'outstanding','max_outstanding','last_start_mach_ns','last_end_mach_ns','last_end_owner_id')
+    keys=('version','target_name','requested_class','requested_relative_priority','last_start_status','last_end_status','reason')+flags+integers
+    exact_object(value,keys,'host override')
+    if type(value['version']) is not int or value['version']!=1:raise ValueError('unsupported host override version')
+    if any(type(value[k]) is not bool for k in flags):raise ValueError('invalid host override flag')
+    for key in integers:unsigned(value[key],key)
+    for key in ('requested_class','requested_relative_priority','last_start_status','last_end_status'):
+        if type(value[key]) is not int or not -(2**31)<=value[key]<2**31:raise ValueError('invalid host override status')
+    if value['requested_class']!=25 or value['requested_relative_priority']!=0:raise ValueError('unexpected host override request')
+    if type(value['reason']) is not str or value['reason'] not in ('none','owner_invalid','control_reversed','caller_changed','unsupported_target','start_failed','cleanup_owner_invalid','end_failed'):
+        raise ValueError('invalid host override reason')
+    if value['target_name']!=('PAPlayer' if value['target_id'] else ''):raise ValueError('invalid host override target')
+    if not 0<value['generation_before']<=value['generation_after']:raise ValueError('invalid host override generation')
+    if not value['ends']<=value['end_attempts']<=value['starts']<=value['start_attempts']:raise ValueError('invalid host override counts')
+    if value['outstanding']!=value['starts']-value['end_attempts'] or not value['outstanding']<=value['max_outstanding']<=1:
+        raise ValueError('unbalanced host override token')
+    if (value['owner_running'] or value['starts']) and not value['owner_id']:raise ValueError('missing host override owner')
+    if value['starts'] and (not value['target_id'] or value['owner_id']==value['target_id']):raise ValueError('invalid host override owner/target')
+    if value['end_attempts'] and value['last_end_owner_id']!=value['owner_id']:raise ValueError('invalid host override cleanup owner')
+    if value['active'] and (not all(value[k] for k in ('enabled','allowed','owner_running')) or value['failed'] or value['terminal'] or value['outstanding']!=1):
+        raise ValueError('invalid active host override')
+
+
 def summarize(rows, capture_first_host_ns, gaps=()):
     unsigned(capture_first_host_ns, 'capture_first_host_ns')
     gap_spans=[]
@@ -108,13 +135,17 @@ def summarize(rows, capture_first_host_ns, gaps=()):
                 interpretation='Completed addon operations only; missing or dropped events do not prove absence of stalls. Intervals overlap and durations must not be summed.',
                 ledger_rows=0,clock_rows=0,clock_rows_without_diagnostics=0,
                 unavailable_snapshots=0,dropped_contention=0,dropped_events=0,
-                qos_observations=[],host_thread_observations=[],dropped_host_threads=0,operations={name:dict(count=0,maximum=None,long_events=[]) for name in OPERATIONS})
+                qos_observations=[],host_override_observations=[],host_thread_observations=[],dropped_host_threads=0,operations={name:dict(count=0,maximum=None,long_events=[]) for name in OPERATIONS})
     last_revision=None
     for line_number,row in enumerate(rows,1):
         report['ledger_rows']+=1
         if type(row) is not dict: raise ValueError('invalid ledger row structure')
         if row.get('kind')!='clock_sample': continue
         report['clock_rows']+=1
+        if 'host_override' in row:
+            override=row['host_override'];validate_host_override(override)
+            if not report['host_override_observations'] or report['host_override_observations'][-1]!=override:
+                report['host_override_observations'].append(dict(override))
         diagnostic=row.get('stall_diagnostics')
         if 'stall_diagnostics' not in row:
             report['clock_rows_without_diagnostics']+=1
