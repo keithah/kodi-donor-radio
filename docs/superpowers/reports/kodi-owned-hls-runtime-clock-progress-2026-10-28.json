@@ -7,15 +7,15 @@
   "estimator_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
   "binaries": {
     "core": {
-      "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/MacOS/Kodi",
+      "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/MacOS/Kodi",
       "sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752"
     },
     "native": {
-      "path": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/hls-startup-reviewed.dylib",
+      "path": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/hls-startup-reviewed.dylib",
       "sha256": "38d3f58bacbd4cd43332e46e65852f6907e6c3ad41366d8d4a8c8ed5733c37e9"
     },
     "recorder": {
-      "path": "/Users/hermes/Applications/KodiAudioCapture.app/Contents/MacOS/KodiAudioCapture",
+      "path": "<home>/Applications/KodiAudioCapture.app/Contents/MacOS/KodiAudioCapture",
       "sha256": "35eaed2cf477104f5459b5f0ac49c9bb1d0c9bd3361f075cc141e114854f9a58"
     },
     "estimator": {

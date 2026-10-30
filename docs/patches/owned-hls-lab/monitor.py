@@ -332,7 +332,10 @@ def main():
 
     class Player(xbmc.Player):
         def onAVStarted(self):
-            session.route(self.getPlayingFile())
+            try:
+                session.route(self.getPlayingFile())
+            except Exception:
+                session.retire('route_unreadable')
             state('play')
         def onPlayBackPaused(self): state('pause')
         def onPlayBackResumed(self): state('resume')

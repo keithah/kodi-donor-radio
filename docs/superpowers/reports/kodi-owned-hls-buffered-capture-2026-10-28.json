@@ -1,7 +1,7 @@
 {
   "overall_result": "bounded_clean_audio_and_offline_estimated_clock_in_tested_buffered_configuration",
   "mapping_proven": false,
-  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-buffered/Kodi-2026-10-28T07-37-33Z-8C317221-A9E6-48C3-A334-EDE70D2F5CB1",
+  "capture": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-buffered/Kodi-2026-10-28T07-37-33Z-8C317221-A9E6-48C3-A334-EDE70D2F5CB1",
   "profile_condition": {
     "audiooutput.lowlatency": false,
     "scope": "isolated portable profile only",
@@ -102,7 +102,7 @@
     "violation_count": 2
   },
   "frozen_v2": {
-    "report": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-buffered/Kodi-2026-10-28T07-37-33Z-8C317221-A9E6-48C3-A334-EDE70D2F5CB1/hls-audio-clock-analysis.json",
+    "report": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-buffered/Kodi-2026-10-28T07-37-33Z-8C317221-A9E6-48C3-A334-EDE70D2F5CB1/hls-audio-clock-analysis.json",
     "all_original_qualified": {
       "points": 130,
       "error_range_ms": [

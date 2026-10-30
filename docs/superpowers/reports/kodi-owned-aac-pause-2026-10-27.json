@@ -1,9 +1,9 @@
 {
   "mapping_proven": false,
-  "capture": "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/capture-final/Kodi-2026-10-28T05-47-59Z-AD2E3CA2-FE8A-446E-A592-6BE531BFF541",
+  "capture": "<tmp>/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/capture-final/Kodi-2026-10-28T05-47-59Z-AD2E3CA2-FE8A-446E-A592-6BE531BFF541",
   "target": {
-    "bundle_path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app",
-    "executable_path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/MacOS/Kodi",
+    "bundle_path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app",
+    "executable_path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/MacOS/Kodi",
     "launch_time": 1793166470.521669,
     "name": "Kodi",
     "pid": 90958

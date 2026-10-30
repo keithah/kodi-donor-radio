@@ -17,7 +17,7 @@
   "result": "Same QoS addon binary completed two fresh 230-second recordings with no detected extra quiet intervals or skipped/replayed source blocks at the tested resolution. All 251 independently qualified recorded runtime estimates passed 21.333 ms tolerance. This supports a controlled responsiveness improvement, not universal causality or production qualification.",
   "runs": [
     {
-      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-stall-validation",
+      "archive": "<tmp>/kodi-audio-validation-20261027/owned-hls-stall-validation",
       "capture": "Kodi-2026-10-29T03-27-15Z-CC53F813-6831-46A2-A963-23FD80F3F278",
       "native_sha256": "f5cb90f48cbf60682580edf89182607d59f8e82e5feca870b741e1e2084540ed",
       "captured_frames": 11043328,
@@ -85,17 +85,17 @@
       },
       "restoration": {
         "default.py": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
           "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
           "restored": true
         },
         "addon.xml": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
           "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
           "restored": true
         },
         "native.dylib": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }
@@ -114,7 +114,7 @@
       "sink_warnings_scope": "Playback window; startup before playback is excluded."
     },
     {
-      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-validation",
+      "archive": "<tmp>/kodi-audio-validation-20261027/owned-hls-qos-validation",
       "capture": "Kodi-2026-10-29T03-37-41Z-95ED0F29-F07B-4190-91FB-FEB05FF25E45",
       "native_sha256": "37c0ce739be0bc621938999fd52cefcd56f17e601e2c709830dbd9fabb9b8254",
       "captured_frames": 11048960,
@@ -180,17 +180,17 @@
       },
       "restoration": {
         "default.py": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
           "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
           "restored": true
         },
         "addon.xml": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
           "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
           "restored": true
         },
         "native.dylib": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }
@@ -199,7 +199,7 @@
       "sink_warnings_scope": "Playback window; startup before playback is excluded."
     },
     {
-      "archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-qos-repeat-validation",
+      "archive": "<tmp>/kodi-audio-validation-20261027/owned-hls-qos-repeat-validation",
       "capture": "Kodi-2026-10-29T03-44-17Z-8CC16AF8-C0F0-4BE4-979F-B765F23BEEDB",
       "native_sha256": "37c0ce739be0bc621938999fd52cefcd56f17e601e2c709830dbd9fabb9b8254",
       "captured_frames": 11049472,
@@ -265,17 +265,17 @@
       },
       "restoration": {
         "default.py": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/plugin.audio.kodi_donor_radio/default.py",
           "sha256": "c72f4fcfc53a5f17a3bed121ab1ab0b4baafda4e9efda12d053b8669a483de7d",
           "restored": true
         },
         "addon.xml": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/addon.xml",
           "sha256": "30a75848e0c80490630be8d8d2d6bbd22d88da791f12e7aba7bce3ef0b00ef32",
           "restored": true
         },
         "native.dylib": {
-          "path": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
+          "path": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/addons/inputstream.ffmpegdirect/inputstream.ffmpegdirect.22.2.10.dylib",
           "sha256": "4900f336bcd8d31fb03397eaa256ddad8e7a0587d5efec787b0a9f9ae2682dc6",
           "restored": true
         }

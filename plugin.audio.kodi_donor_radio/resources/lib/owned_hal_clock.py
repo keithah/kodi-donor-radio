@@ -198,7 +198,9 @@ class OwnedHalClockProvider(HalControlSession):
             return ev
 
     def retire(self,reason):
+        natural_eof = self.source_ended and self.reason == 'natural_eof_hold'
         super().retire(reason)
+        if natural_eof:self.reason='natural_eof_hold'
         authorization=getattr(self,'authorization',None)
         if authorization:authorization.cancel_now()
 

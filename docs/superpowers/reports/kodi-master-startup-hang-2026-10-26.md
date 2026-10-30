@@ -30,11 +30,11 @@ record addon playback or fixture events. The HTTP JSON-RPC endpoint on port
 not the HTTP JSON-RPC endpoint.
 
 Process samples are retained outside the repository at
-`/private/tmp/kodi-donor-radio-master-acceptance/kodi-speed-guard-startup.sample.txt`
+`<tmp>/kodi-donor-radio-master-acceptance/kodi-speed-guard-startup.sample.txt`
 and
-`/private/tmp/kodi-donor-radio-master-acceptance/kodi-speed-guard-retry.sample.txt`.
+`<tmp>/kodi-donor-radio-master-acceptance/kodi-speed-guard-retry.sample.txt`.
 The corresponding portable log is at
-`/private/tmp/kodi-donor-radio-master-acceptance/Kodi.app/Contents/Resources/Kodi/portable_data/temp/kodi.log`.
+`<tmp>/kodi-donor-radio-master-acceptance/Kodi.app/Contents/Resources/Kodi/portable_data/temp/kodi.log`.
 
 ## Conclusion
 

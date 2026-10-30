@@ -111,6 +111,20 @@ class RuntimeTests(unittest.TestCase):
         player.onPlayBackSeek(1,2); player.onPlayBackError()
         self.assertEqual(calls[1:], [('control','resume'),('retire','non_unit_speed'),
                                     ('retire','seek'),('retire','playback_error')])
+    def test_legacy_monitor_publishes_play_when_route_read_fails(self):
+        tree=ast.parse(Path(__file__).with_name('monitor.py').read_text())
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        klass=next(n for n in main.body if isinstance(n,ast.ClassDef) and n.name=='Player')
+        calls=[]
+        session=types.SimpleNamespace(retire=lambda value:calls.append(('retire',value)),
+                                      route=lambda value:None)
+        scope=dict(xbmc=types.SimpleNamespace(Player=object),session=session,
+                   state=lambda value:calls.append(('control',value)))
+        exec(compile(ast.Module(body=[klass],type_ignores=[]),'monitor_callbacks','exec'),scope)
+        player=scope['Player']()
+        player.getPlayingFile=lambda: (_ for _ in ()).throw(RuntimeError('player not ready'))
+        player.onAVStarted()
+        self.assertEqual(calls,[('retire','route_unreadable'),('control','play')])
     def test_evaluation_freshness_crossing(self):
         ticks=iter([BASE+99_000_000,BASE+101_000_000])
         s=RuntimeClockSession(URL,BASE-1,now_ns=lambda:next(ticks))

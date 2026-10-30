@@ -1,7 +1,7 @@
 {
   "result": "bounded_clean_controlled_HLS_audio_and_offline_estimated_clock",
   "mapping_proven": false,
-  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-startup-fixed/Kodi-2026-10-28T08-23-17Z-4BCCF2BA-18D4-494D-9154-85F8FA2A8142",
+  "capture": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-startup-fixed/Kodi-2026-10-28T08-23-17Z-4BCCF2BA-18D4-494D-9154-85F8FA2A8142",
   "native_sha256": "38d3f58bacbd4cd43332e46e65852f6907e6c3ad41366d8d4a8c8ed5733c37e9",
   "unchanged_kodi_core_sha256": "b5d4848af4a84a86c4a52eb03d03199e9773cef61dfc38f1b51d24848b3e8752",
   "profile_condition": {

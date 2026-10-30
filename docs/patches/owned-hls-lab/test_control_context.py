@@ -39,3 +39,18 @@ def test_non_pause_action_records_without_action_key_are_ignored(tmp_path):
     assert report['control_context']['actions'][0]['declared'] == 'gain'
     assert report['control_context']['callback_count_mismatch'] == {
         'pause': {'actions': 1, 'callbacks': 0}, 'resume': {'actions': 1, 'callbacks': 0}}
+
+
+def test_callback_records_without_event_are_ignored(tmp_path):
+    (tmp_path/'kodi-clock-observation.json').write_text(json.dumps({'actions': [
+        {'action': 'pause', 'cycle': 1, 'request_host_ns': 100, 'response_host_ns': 200},
+    ]}))
+    (tmp_path/'capture.json').write_text(json.dumps({'first_host_pts': {'value': 0}}))
+    callbacks=tmp_path/'callbacks.jsonl'
+    callbacks.write_text(json.dumps({'monotonic_ns': 250})+'\n')
+    report={'internal_quiet_gaps': []}
+
+    context.add_control_context(report, tmp_path, callbacks)
+
+    assert report['control_context']['callback_count_mismatch'] == {
+        'pause': {'actions': 1, 'callbacks': 0}}

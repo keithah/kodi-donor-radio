@@ -1,7 +1,7 @@
 {
   "overall_result": "failed_incomplete_source_stalled",
   "mapping_proven": false,
-  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-host-silence/Kodi-2026-10-28T06-49-29Z-139BFED9-5619-4A4E-9EA8-40EB352E2131",
+  "capture": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-host-silence/Kodi-2026-10-28T06-49-29Z-139BFED9-5619-4A4E-9EA8-40EB352E2131",
   "reference_frames": 8641536,
   "decoded_and_accepted_frames": 1344512,
   "missing_reference_frames": 7297024,

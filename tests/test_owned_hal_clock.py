@@ -159,7 +159,9 @@ def test_natural_eof_reason_survives_terminal_snapshot_invalidation():
     p,now=setup()
     p.source_ended=True
     p.reason='natural_eof_hold'
-    p._invalidate('native_terminal')
+    p.retire('hal_evidence_invalid')
+    p._invalidate('hal_evidence_invalid')
+    assert p.retired
     assert p.reason=='natural_eof_hold'
     assert p.snapshot().reasons==('natural_eof_hold',)
 

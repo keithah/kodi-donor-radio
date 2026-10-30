@@ -1,8 +1,8 @@
 {
   "kind": "independent_unique_hls_audio_clock",
   "mapping_proven": false,
-  "capture": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-first/Kodi-2026-10-28T06-20-58Z-3DF5C8A0-880E-4E07-A328-9B10B7987849",
-  "reference_pcm": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/reference-from-served-ts.f32",
+  "capture": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-first/Kodi-2026-10-28T06-20-58Z-3DF5C8A0-880E-4E07-A328-9B10B7987849",
+  "reference_pcm": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/reference-from-served-ts.f32",
   "reference_frames": 8641536,
   "captured_frames": 11043840,
   "timing": {

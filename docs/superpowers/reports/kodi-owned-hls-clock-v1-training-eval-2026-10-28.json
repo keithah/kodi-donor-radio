@@ -2,7 +2,7 @@
   "kind": "native_clock_candidate_v1",
   "estimator_sha256": "8784711981dba4a1ef627e897e61a94262cc2dbbb53ad052fae274d0ec8c690c",
   "algorithm_sha256": "740b8e8d9152b0b63f0ad028afc7760b289c91ea25683a1541b9e809067243d7",
-  "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-reader/hls-clock-ledger.jsonl",
+  "ledger": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-reader/hls-clock-ledger.jsonl",
   "ledger_sha256": "0f75f5fa096a9fae3e27aa70d118fb2dba90593df1fbe1468935f6b9d92671f5",
   "parameters": {
     "rate": 48000,
@@ -28,7 +28,7 @@
   "physical_speaker_mapping_proven": false,
   "heldout_validation_proven": false,
   "comparison": {
-    "report": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-reader/Kodi-2026-10-28T07-10-16Z-AAD6AFEA-67B5-4FF4-B5E5-37B5644EA91B/hls-audio-clock-analysis.json",
+    "report": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-reader/Kodi-2026-10-28T07-10-16Z-AAD6AFEA-67B5-4FF4-B5E5-37B5644EA91B/hls-audio-clock-analysis.json",
     "all_original_qualified": {
       "points": 116,
       "error_range_ms": [

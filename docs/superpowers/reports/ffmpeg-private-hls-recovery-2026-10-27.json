@@ -1,18 +1,18 @@
 {
-  "source": "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg",
-  "configured_build": "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build",
-  "private_root": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery",
+  "source": "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg",
+  "configured_build": "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build",
+  "private_root": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery",
   "original_sha256": {
-    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
-    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
-    "/Users/hermes/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
+    "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
+    "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
+    "<home>/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
   },
   "shared_after_sha256": {
-    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
-    "/Users/hermes/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
-    "/Users/hermes/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
+    "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg/libavformat/hls.c": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
+    "<home>/src/kodi-usb-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/libavformat/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2",
+    "<home>/kodi-usb-depends/macosx26.5_arm64-target-debug/lib/libavformat.a": "607f9b368e0a9b3d399524f956d76d439ea9b0a1a63dd7cf5ff9a30657ce53c2"
   },
-  "private_archive": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/build/libavformat/libavformat.a",
+  "private_archive": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/build/libavformat/libavformat.a",
   "private_sha256": {
     "source/libavformat/hls.c": "ccf8912b7075fe90dffb3b85b943198de79a3692f7c46a66fe2bc2b88df6a829",
     "build/libavformat/hls.o": "5bb4843e61dd3aa4cc4d18391116c8b50821e095df9a87fcbee5d97197e2a5d8",
@@ -31,7 +31,7 @@
   "release_archive_hls_sha256": "fd08aae89dc14520501ffa231597a0e47dd959e3fa62d264d2dbfb8298bcaaa9",
   "base_hls_matches_release_archive": true,
   "regression_stock": {
-    "probe": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-stock",
+    "probe": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-stock",
     "reference_packets": 189,
     "reference_frames": 193536,
     "reference_pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",
@@ -65,7 +65,7 @@
     }
   },
   "regression_final": {
-    "probe": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-final",
+    "probe": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/ffmpeg-hls-recovery/artifacts/probe-final",
     "reference_packets": 189,
     "reference_frames": 193536,
     "reference_pcm_sha256": "0df4b7a67d16a09d9336bd4d2e700ed4b74595e8a66cb791cc3c455bac489232",

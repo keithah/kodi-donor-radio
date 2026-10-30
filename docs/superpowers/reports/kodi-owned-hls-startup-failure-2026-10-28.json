@@ -13,36 +13,36 @@
   "no_waveform_fft_or_clock_estimation_performed": true,
   "archives": [
     {
-      "source": "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/callbacks.jsonl",
-      "destination": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/callbacks.jsonl",
+      "source": "<tmp>/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/callbacks.jsonl",
+      "destination": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/callbacks.jsonl",
       "sha256": "2f2343830866fda285b9eb968f5634c93d23ad9f89881dfe3ac92e524335dca9",
       "bytes": 159,
       "source_mtime_ns": 1793175135602276471
     },
     {
-      "source": "/private/tmp/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/temp/kodi.log",
-      "destination": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/kodi.log",
+      "source": "<tmp>/kodi-pause-matched-baseline-20261027/Kodi.app/Contents/Resources/Kodi/portable_data/temp/kodi.log",
+      "destination": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/kodi.log",
       "sha256": "676fbfad6bda53eea71fb5aec81d8942e5b926563395fbd437848c946197bdc5",
       "bytes": 1213456,
       "source_mtime_ns": 1793175360193856757
     },
     {
-      "source": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/server-state.json",
-      "destination": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/server-state.json",
+      "source": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/server-state.json",
+      "destination": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/server-state.json",
       "sha256": "5080cdf62ed5053aa6392d22b5694a85b67b036466924912701fa0759b2cbe0c",
       "bytes": 1199,
       "source_mtime_ns": 1793175135338376117
     },
     {
-      "source": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/requests.jsonl",
-      "destination": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/requests.jsonl",
+      "source": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/requests.jsonl",
+      "destination": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/requests.jsonl",
       "sha256": "ca4fe0636cc376970c7a322f278292cefd17938a725369535bf1baa1a95375e7",
       "bytes": 342963,
       "source_mtime_ns": 1793175135363153754
     },
     {
-      "source": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/metadata.json",
-      "destination": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/metadata.json",
+      "source": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/metadata.json",
+      "destination": "<tmp>/kodi-audio-validation-20261027/owned-hls-validation/capture-reviewed/metadata.json",
       "sha256": "bfea314f946ada8639b7215deba01264a05ddf7fd1ea896aca2c7d05ef7dfcc6",
       "bytes": 46054,
       "source_mtime_ns": 1793168371322369216
