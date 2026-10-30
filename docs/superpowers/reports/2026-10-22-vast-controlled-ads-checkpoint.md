@@ -94,7 +94,7 @@ attempted with dependency checks disabled, but its repository-index request kept
 retrying and was interrupted after more than two minutes; no checker verdict is
 claimed for this run.
 
-Latest verification: `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
+Earlier verification (superseded by the 2026-10-26 updates above): `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
 after enabling a loopback-only experimental raw Kodi-clock mapper; compileall and
 `git diff --check` passed. A fresh five-scenario Kodi run sent success beacons for
 advancing fixture playback and suppressed quartiles/completion across the delayed
