@@ -2,6 +2,7 @@
 """Local development evidence only: arm capture, then sample isolated Kodi."""
 import argparse
 import ctypes
+from functools import lru_cache
 import json
 import math
 from pathlib import Path
@@ -13,15 +14,23 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 from tools.smoke_ad_kodi import rpc, _menu_file, _time, _item_matches_expected
 
-lib = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
-lib.mach_absolute_time.restype = ctypes.c_uint64
 class Timebase(ctypes.Structure):
     _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
-timebase = Timebase()
-assert lib.mach_timebase_info(ctypes.byref(timebase)) == 0
+
+@lru_cache(maxsize=1)
+def _mach_clock():
+    if sys.platform != 'darwin':
+        raise RuntimeError('Mach clock requires macOS')
+    library = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+    timebase = Timebase()
+    if library.mach_timebase_info(ctypes.byref(timebase)) != 0 or not timebase.denom:
+        raise RuntimeError('Mach timebase unavailable')
+    library.mach_absolute_time.restype = ctypes.c_uint64
+    return library, library.mach_absolute_time, timebase
 
 def host_ns():
-    return lib.mach_absolute_time() * timebase.numer // timebase.denom
+    _, absolute, timebase = _mach_clock()
+    return absolute() * timebase.numer // timebase.denom
 
 def expected_player(target_file, port, expected_type="audio"):
     players=rpc('Player.GetActivePlayers',port=port)
@@ -240,6 +249,7 @@ def main():
         time.sleep(.1)
     if not capture:
         raise SystemExit('Recorder did not become ready')
+    _, _, timebase = _mach_clock()
     target_file = 'http://127.0.0.1:18789/live/index.m3u8'
     report = {'kind':'captured_kodi_clock_observation', 'source':args.source,
               'clock':'mach_absolute_time', 'timebase':{'numer':timebase.numer,'denom':timebase.denom},

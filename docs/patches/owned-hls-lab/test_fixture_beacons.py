@@ -37,6 +37,7 @@ class FixtureBeaconTests(unittest.TestCase):
     def test_ready_requires_exact_binding(self):
         binding = dict(nonce='a'*32,timeline_sha256='b'*64,native_pid=123)
         ready = dict(binding,kind='owned_monitor_ready')
+        self.assertEqual(f.monitor_ready_payload(binding), ready)
         self.assertTrue(f.validate_ready(ready,binding))
         for key,value in [('nonce','c'*32),('timeline_sha256','c'*64),('native_pid',124),('kind','native_hello')]:
             with self.subTest(key=key), self.assertRaises(ValueError):

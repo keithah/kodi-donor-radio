@@ -2146,6 +2146,26 @@ def test_failed_resolution_and_fixture_play_do_not_enter_history(kodi, monkeypat
     assert browser.clicks == []
 
 
+def test_fixture_launch_shutdown_cancels_without_modal_error(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    station = Station('fixture-30174', 'Fixture', 'http://127.0.0.1:18789/source/live/index.m3u8', 'AAC', True)
+    monkeypatch.setattr(runtime, '_fixture_station', lambda _identifier: station)
+    monkeypatch.setattr(runtime, 'ad_settings', lambda: SimpleNamespace(enabled=True))
+    monkeypatch.setattr(runtime, '_inputstream_version', lambda _addon_id: '22.2.10')
+    cancelled = []
+    class Client:
+        def reserve_fixture_launch(self, _uuid):
+            state.abort = True
+            return 'a' * 48
+        def cancel_fixture_launch(self, nonce): cancelled.append(nonce)
+    monkeypatch.setattr(runtime, '_service', lambda *args, **kwargs: Client())
+
+    route(runtime, mode='launch_fixture', id=station.uuid)
+
+    assert 'localized-30011' not in state.messages
+    assert cancelled == ['a' * 48]
+
+
 @pytest.mark.parametrize('store_name,mode', [('HistoryStore', 'play'), ('RecentSearchStore', 'search')])
 def test_profile_disk_failure_does_not_block_requested_action(kodi, monkeypatch, store_name, mode):
     from radio_ui import HistoryStore, RecentSearchStore

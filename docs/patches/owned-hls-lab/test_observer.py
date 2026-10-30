@@ -13,6 +13,16 @@ observer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(observer)
 
 class ObservationPersistenceTests(unittest.TestCase):
+    def test_mach_clock_is_loaded_lazily_and_requires_macos(self):
+        observer._mach_clock.cache_clear()
+        try:
+            with patch.object(observer.sys, 'platform', 'linux'), \
+                    patch.object(observer.ctypes, 'CDLL', side_effect=AssertionError('library loaded')):
+                with self.assertRaisesRegex(RuntimeError, 'requires macOS'):
+                    observer._mach_clock()
+        finally:
+            observer._mach_clock.cache_clear()
+
     def test_teardown_failures_preserve_completed_timeline(self):
         with tempfile.TemporaryDirectory() as directory:
             capture = Path(directory)

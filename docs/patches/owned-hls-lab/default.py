@@ -100,7 +100,7 @@ def resolve_owned(nonce,mode):
     from pathlib import Path
     import xbmcplugin
     sys.path.insert(0,str(Path(__file__).resolve().parent/'resources/lib'))
-    from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns
+    from owned_clock import OwnedClockBinding,OwnedClockTransport,SESSION_ROOT,mach_host_ns,monitor_ready_payload
     owned_open_request(nonce,mode)  # validate before constructing a path
     transport=OwnedClockTransport(SESSION_ROOT/nonce)
     try:
@@ -110,12 +110,7 @@ def resolve_owned(nonce,mode):
                 or binding.native_pid!=os.getpid() or not 0<=mach_host_ns()-binding.launch_mach_ns<=30_000_000_000):
             raise ValueError('resolved_launch_binding')
         ready=json.loads(transport._read_immutable('monitor-ready.json',2048)[0])
-        expected={k:asdict(binding)[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core')}
-        if binding.video_queue_tenths is not None:expected['video_queue_tenths']=binding.video_queue_tenths
-        if binding.video_extradata_hex is not None:expected['video_extradata_hex']=binding.video_extradata_hex
-        for key in ('output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version'):
-            if binding.output_backend=='hal_callback_v1' and asdict(binding)[key] is not None:expected[key]=asdict(binding)[key]
-        expected['kind']='owned_monitor_ready'
+        expected=monitor_ready_payload(asdict(binding))
         if (binding.player_mode=='videoplayer_video_v1'
                 and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or json.dumps(ready,sort_keys=True,allow_nan=False)!=json.dumps(expected,sort_keys=True,allow_nan=False):
             raise ValueError('resolved_monitor_binding')

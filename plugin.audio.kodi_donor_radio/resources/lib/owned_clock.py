@@ -66,6 +66,23 @@ def _json(raw):
     return value
 
 
+MONITOR_READY_FIELDS = (
+    'nonce', 'timeline_sha256', 'native_pid', 'player_mode', 'requested_core',
+    'video_queue_tenths', 'video_extradata_hex', 'output_backend',
+    'hal_contract_version', 'device_uid', 'device_format', 'lifecycle_capability',
+    'hal_phase', 'hal_clock_version',
+)
+
+
+def monitor_ready_payload(binding):
+    """Canonical field selection shared by the monitor and resolver."""
+    ready = {key: binding[key] for key in MONITOR_READY_FIELDS
+             if key in binding and binding[key] is not None
+             and (key != 'output_backend' or binding[key] != 'ae')}
+    ready['kind'] = 'owned_monitor_ready'
+    return ready
+
+
 @dataclass(frozen=True)
 class OwnedClockBinding:
     nonce: str

@@ -29,6 +29,8 @@ PLACEMENTS = {'preroll':(0,96),'a':(768,1152),'b_paused':(1536,2304),
               'c':(2688,3072),'d':(5280,5664),'e':(7296,7680)}
 EVENTS = ('impression','start','firstQuartile','midpoint','thirdQuartile','complete')
 DEFAULT_CONTRACT = Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/acceptance-contract.json')
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'plugin.audio.kodi_donor_radio' / 'resources' / 'lib'))
+from owned_clock import monitor_ready_payload
 
 
 def canonical(value):
@@ -64,8 +66,7 @@ def load_contract(path=DEFAULT_CONTRACT):
 
 
 def validate_ready(ready,binding):
-    expected={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
-    expected['kind']='owned_monitor_ready'
+    expected=monitor_ready_payload(binding)
     if (binding.get('player_mode')=='videoplayer_video_v1'
             and (not isinstance(ready,dict) or type(ready.get('video_queue_tenths')) is not int)) or canonical(ready)!=canonical(expected):
         raise ValueError('monitor_ready_binding')
@@ -74,8 +75,7 @@ def validate_ready(ready,binding):
 
 def publish_ready(directory_fd,binding):
     from owned_clock import _rename_exclusive
-    ready={k:binding[k] for k in ('nonce','timeline_sha256','native_pid','player_mode','requested_core','video_queue_tenths','video_extradata_hex','output_backend','hal_contract_version','device_uid','device_format','lifecycle_capability','hal_phase','hal_clock_version') if k in binding and binding[k] is not None and (k!='output_backend' or binding[k]!='ae')}
-    ready['kind']='owned_monitor_ready'
+    ready=monitor_ready_payload(binding)
     name='.monitor-ready.tmp'
     fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory_fd)
     with os.fdopen(fd,'wb') as stream:

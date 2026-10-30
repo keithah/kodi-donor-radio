@@ -1062,6 +1062,8 @@ def run_plugin(argv):
             result = json.loads(response)
             if not isinstance(result, dict) or result.get('result') != 'OK' or 'error' in result:
                 raise ValueError('Fixture playback rejected')
+        except Cancelled:
+            cancel_launch(nonce)
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             cancel_launch(nonce)
             if not cancel.is_set(): _error(30011)

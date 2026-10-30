@@ -6,6 +6,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 using namespace owned_clock;
 #define CHECK(x) do { if (!(x)) { std::cerr << __LINE__ << ": " #x "\n"; std::exit(1); } } while (0)
 const std::string nonce(32, 'a'), incarnation(32, 'b');
