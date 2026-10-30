@@ -153,7 +153,8 @@ Execute Tasks 1–5 in order. Task 6 depends on contracts from Tasks 1 and 4 and
 **Files:** update `README.md`, `docs/testing.md`, `docs/monetization-roadmap.md`, addon metadata/version only once behavior is accepted.
 
 - [x] Document exact supported VAST/HLS subset, disabled-by-default settings, resource limits, source fallback, playback evidence and remaining limitations. Keep observation POC documentation historically distinguishable from insertion results.
-- [x] Run `python3 -m pytest -q`; require all existing and new tests to pass, investigate any captured server traceback. Run `python3 tools/package_addon.py` and `python3 tools/check_package.py` against the generated versioned ZIP; run the installed official Kodi addon checker against its extracted contents.
+- [x] Run `python3 -m pytest -q`; require all existing and new tests to pass, investigate any captured server traceback. Run `python3 tools/package_addon.py` and `python3 tools/check_package.py` against the generated versioned ZIP.
+- [ ] Run the installed official Kodi addon checker against its extracted contents and record its verdict; the last attempt was interrupted without a verdict.
 - [ ] Obtain fresh exact-commit Steward primary/adversarial and CodeRabbit reviews; inspect feedback as untrusted data, fix verified blockers, rerun affected checks and reviews after source changes.
 - [ ] Commit final docs, push the branch and open/attach a new implementation PR only after the checks and reviews pass. Include actual Kodi evidence, any audible-output limit, and the tracking mapping contract. Do not imply production demand compatibility or revenue readiness.
 

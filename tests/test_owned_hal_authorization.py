@@ -242,8 +242,22 @@ def test_cancel_wait_does_not_block_control_or_close_live_descriptor(tmp_path):
     worker=threading.Thread(target=lambda:result.append(p.probe(ev,'tracker',decision_id='e'*64)))
     worker.start();until=time.monotonic()+1
     while transport.count==0 and time.monotonic()<until:time.sleep(.0005)
-    before=time.monotonic();p.control('pause',now[0]+1);assert time.monotonic()-before<.02
-    transport.close();worker.join(1);assert not worker.is_alive() and result==[None] and transport.fd is None
+    assert transport.count==1 and worker.is_alive()
+    control_done=threading.Event();control_errors=[]
+    def control():
+        try:p.control('pause',now[0]+1)
+        except BaseException as exc:control_errors.append(exc)
+        finally:control_done.set()
+    controller=threading.Thread(target=control)
+    controller.start()
+    try:
+        assert control_done.wait(1),'control blocked on the pending authorization probe'
+        controller.join()
+        assert not control_errors
+        assert worker.is_alive()
+    finally:
+        transport.close();controller.join(1);worker.join(1)
+    assert not controller.is_alive() and not worker.is_alive() and result==[None] and transport.fd is None
 
 
 @pytest.mark.parametrize('mode',['stages','pause','route','aba','intent'])
