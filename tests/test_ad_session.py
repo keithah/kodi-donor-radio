@@ -8,7 +8,7 @@ import pytest
 from ad_session import AdSession
 
 
-def test_midroll_prefix_preserves_original_finite_playlist_state(monkeypatch):
+def test_midroll_prefix_is_reported_as_live_to_clock_anchor(monkeypatch):
     from types import SimpleNamespace
     from hls import parse_playlist
     from url_policy import origin
@@ -34,7 +34,7 @@ def test_midroll_prefix_preserves_original_finite_playlist_state(monkeypatch):
 
     assert rendered.segments == playlist.segments[:1]
     assert not any(line.strip() == '#EXT-X-ENDLIST' for line in rendered.lines)
-    assert source_finite is True
+    assert source_finite is False
 
 
 def test_published_source_read_does_not_wait_for_playlist_render_lock():

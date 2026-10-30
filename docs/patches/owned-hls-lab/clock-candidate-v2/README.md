@@ -6,9 +6,14 @@ Null, missing, nonnumeric and nonfinite delay observations are retained as uncer
 
 ## Frozen identity and validation
 
-Freeze time: 2026-10-28T07:33:18.969494Z, before the sixth capture. `freeze.json` records implementation, algorithm, tests and analyzer hashes. Estimator SHA256: `7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87`.
+The estimator and finite-input algorithm were frozen at 2026-10-28T07:33:18.969494Z, before the sixth capture. `freeze.json` retains those original hashes. The capture analyzer later gained capture-integrity checks, endpoint-anchor selection, and held-out-row safeguards; its current hash and validation are recorded separately as `post_freeze_analyzer_sha256` and `post_freeze_analyzer_validation`. Estimator SHA256: `7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87`.
 
 Twelve targeted tests passed with the bundled Python runtime (NumPy is required for analyzer import). Tests first reproduced the null/missing crashes and nonstandard nonfinite output, then verified uncertainty, hold/reacquisition, retained CLI rows, strict JSON and the unchanged finite analyzer formula.
+
+The post-freeze analyzer hardening was rechecked with the same 12 targeted tests
+and exact finite-input equivalence across the five archived ledgers (47,605 rows).
+This validates analyzer behavior and unchanged estimator output; it adds no new
+captured-audio acceptance claim.
 
 `finite-input-equivalence.json` proves exact equality of every v1/v2 output dictionary over 47,605 native clock rows across five archived ledgers: first capture, independent reader, independent pauses, host silence and its debug run. This comparison includes every timeline field, not only qualified points, and uses no waveform input. Ledger and resulting timeline hashes are recorded. This is equivalence evidence, not a new capture-validation claim.
 

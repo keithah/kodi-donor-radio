@@ -10,5 +10,13 @@
     "verify_equivalence.py": "76311e702c83cc085743da85781616592b9fcce7c1690699b572b5243d35e849"
   },
   "analyzer_sha256": "4f09fd56e4d6e69dfd60280a5cde87f46533f19736a9544f30baab41d0eccd9a",
-  "tests": "12 tests passed"
+  "tests": "12 tests passed",
+  "post_freeze_analyzer_sha256": "e654fc6805fdf70d581fb369ae7603c9a965552c7bf1dcac76d7e6b8787483a9",
+  "post_freeze_analyzer_validation": {
+    "tests": "12 passed",
+    "finite_input_equivalence": "47,605 native clock rows across five archived ledgers; identical to frozen v1 outputs",
+    "equivalence_report": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/clock-candidate-v2-equivalence-rerun.json",
+    "equivalence_report_sha256": "c67a37e1973ac436a576d351d9b65b1c6c0dc124fd3d7f923da7e50727059354",
+    "scope": "capture-integrity, endpoint-anchor selection, and held-out-row analysis hardening; estimator and finite-input algorithm unchanged"
+  }
 }

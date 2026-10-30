@@ -228,8 +228,6 @@ class AdSession:
                     raise CompositionFailure('session_closed')
                 if origin(playlist.final_url) != self.source_origin:
                     raise CompositionFailure('source_origin_changed')
-                source_finite = any(line.strip() == '#EXT-X-ENDLIST'
-                                    for line in playlist.lines)
                 # A complete break may appear in the first source window before
                 # asynchronous midroll preparation finishes. Publish the safe
                 # programme prefix, then expose the interval on a later reload.
@@ -243,6 +241,11 @@ class AdSession:
                                                cues=tuple(c for c in playlist.cues if c.sequence < boundary),
                                                lines=tuple(line for line in playlist.lines
                                                            if not line.startswith('#EXT-X-ENDLIST')))
+                # Clock anchoring must reflect the exact presentation sent to
+                # Kodi. A live prefix stays live even when its source playlist
+                # was finite and the omitted suffix carried ENDLIST.
+                source_finite = any(line.strip() == '#EXT-X-ENDLIST'
+                                    for line in playlist.lines)
             # Keep network I/O outside the state lock. Media reads for already
             # published immutable segments can continue while this window loads.
             sources = self._cache_window(playlist)

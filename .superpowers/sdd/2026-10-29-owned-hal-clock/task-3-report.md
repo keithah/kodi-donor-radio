@@ -43,3 +43,28 @@ Separately, the native ledger reader now treats non-string `kind` fields safely 
 The authorization transport now uses a bounded fair FIFO slot rather than opportunistic lock acquisition. The native request start/deadline remains sampled before the caller joins that slot, so all queue wait remains inside the frozen 20ms native action budget. Tests cover FIFO order, timed-waiter removal, cancellation removal, close while cancellation-draining waiters exist, and the existing active-holder close path. No waits are taken under provider/tracker/gain/worker locks.
 
 The benchmark imports this production slot implementation directly. Changed candidate `benchmark-18` is retained with driver SHA-256 `32a6cf6a711980c8769fd356f9615e618c6a6f8440ae7e5ced2a1db45b163d58`, authorization-provider SHA-256 `29284c8490f3fb4c068d7c60bd28e25b242031ced5030a9dc8d097909b253cb1`, and harness SHA-256 `ba9ac4165393341e14cdc075e9bdd82cff2c03004ae1cc89b0a31a229b926d48`. Under two monitor and three worker roles, 32,753 retained requests plus five tracker/queue/dispatch chains filled the 32,768 request limit; all 15 final stages authorized. Maximum pre-slot request-to-action was 19.476875ms (20ms bound), native bracket 24.917 microseconds (5ms), reply-to-action 1.018ms (5ms), query-to-action 64.911584ms (100ms), and slot wait 16.446792ms. Control/gain cadence continued and exact-next gain renewal was observed. Benchmark-17 remains preserved as the prior failing non-FIFO candidate.
+
+## Pre-publication timeout handling: benchmark-19 passed
+
+The transport previously retired itself if a fair-slot acquisition timed out
+before any request file was published. That left native exact-next sequencing
+untouched but prevented later authorization attempts. The provider now drops
+only that unpublished stage; failures after request publication remain
+terminal. A regression forces one slot-acquisition timeout, verifies zero
+published requests/count and a live transport, then completes the following
+probe successfully.
+
+The updated provider passed benchmark-19 using the same maximum-population
+32,768-request run, two monitor and three worker roles, 6,000 gain records and
+64 controls. All 15 tracker/queue/dispatch stages authorized. The maximum
+pre-slot request-to-action time was 16.076458ms (20ms bound), native bracket
+43.417us (5ms), reply-to-action 1.013041ms (5ms), and query-to-action
+47.324833ms (100ms). Control/gain cadence and exact-next gain renewal were
+observed. Result: `/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/hal-task3-1793300802259852000/benchmark-19/result.json`.
+
+Benchmark-19 used provider SHA-256
+`9fc49887d811cdbb0bb1956e54889cf941ce337207612380011c5a42f981cf6a`, driver
+SHA-256 `fbd0c0ff2bf1bca92d1a566d1378f4335d04176990f0ed791933f131bfe68116`, and
+harness SHA-256 `d2ab00e058ad502d183a82413a77ca3f865f6ae590fed26b7aeff51e6f9726d0`.
+The HAL freeze now records the current Python provider bindings and benchmark
+provenance; authority, beacon and production flags remain false.

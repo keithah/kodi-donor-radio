@@ -138,9 +138,13 @@ class HalAuthorizationTransport:
         try:
             if stage not in ('tracker','queue','dispatch') or self.cancel.is_set() or self.failed: return None
             acquired=self.slot.acquire(deadline,self.now_ns,self.cancel)
-            if not acquired:raise ValueError('authorization_slot_timeout')
+            # Before a request is published, an expired admission window has
+            # no native counterpart to keep in sequence. Drop only this stage;
+            # transport failure is reserved for an exchange already visible
+            # to the native owner.
+            if not acquired:return None
             if self.cancel.is_set() or self.failed:return None
-            if self.now_ns()>deadline:raise ValueError('authorization_slot_timeout')
+            if self.now_ns()>deadline:return None
             if self.count>=LIMIT:raise ValueError('authorization_exhausted')
             self.count+=1
             request={k:getattr(evidence,k) for k in FIELDS}

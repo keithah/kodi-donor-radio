@@ -111,7 +111,7 @@
 +      owned_clock::Hex(m_ownedClockTimeline, 64) && owned_clock::Hex(m_ownedClockFirstPacket, 64))
 +    m_ownedClock = std::make_unique<owned_clock::Authority>(m_ownedClockNonce, m_ownedClockIncarnation, m_ownedClockOpenNs);
 +
-+  if (m_ownedPlayerMode.Video() && !m_ownedClock) return false;
++  if ((m_ownedClockRequested || m_ownedPlayerMode.Video()) && !m_ownedClock) return false;
 
    Log(LOGLEVEL_INFO, "Stream mimetype: %s", m_mimeType.c_str());
 
@@ -190,7 +190,7 @@
 +    m_ownedTelemetryPath = root + "clock-sessions/" + m_ownedClockNonce + "/native.jsonl";
 +    m_ownedTelemetryRows = 0;
 +    if (!m_ownedClockTransport->Open(root + "clock-sessions/" + m_ownedClockNonce, hello.str()))
-+      RevokeOwnedClock("session_transport");
++    { RevokeOwnedClock("session_transport"); return false; }
 +  }
    m_ownedStop = false;
    m_ownedRendererReady = false;

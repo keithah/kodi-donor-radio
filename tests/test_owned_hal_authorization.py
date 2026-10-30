@@ -89,6 +89,41 @@ def test_close_claims_slot_after_cancelling_queued_waiters(tmp_path):
     assert transport.fd is None
 
 
+def test_slot_timeout_before_request_publication_does_not_retire_transport(tmp_path,monkeypatch):
+    import json
+    p,now,ev,_=prepared()
+    transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
+    real_acquire=transport.slot.acquire
+    monkeypatch.setattr(transport.slot,'acquire',lambda *_args:False)
+
+    assert transport.probe(p.binding,ev,p.generation,'tracker',
+        lease_expiry_ns=now[0]+500_000_000) is None
+    assert transport.failed is False
+    assert transport.count==0
+    assert not list(transport.path.glob('request-*.json'))
+
+    monkeypatch.setattr(transport.slot,'acquire',real_acquire)
+    def responder():
+        path=transport.path/'request-000001.json';until=time.monotonic()+1
+        while not path.exists() and time.monotonic()<until:time.sleep(.0005)
+        raw=path.read_bytes();request=json.loads(raw)
+        response=response_for(request,request_sha256=auth.sha(raw))
+        output=transport.path/'response-000001.json'
+        temporary=transport.path/'.response-000001.tmp'
+        temporary.write_bytes(auth.canonical(response))
+        temporary.chmod(0o600)
+        temporary.rename(output)
+    server=threading.Thread(target=responder);server.start()
+    proof=transport.probe(p.binding,ev,p.generation,'tracker',
+        lease_expiry_ns=now[0]+500_000_000)
+    server.join(1)
+    assert not server.is_alive()
+    assert proof is not None
+    assert transport.failed is False
+    assert transport.count==1
+    transport.close()
+
+
 def test_close_racing_probe_release_closes_authorization_descriptor(tmp_path,monkeypatch):
     import json
     p,now,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
