@@ -103,6 +103,12 @@ def test_capture_timing_precomputes_acquisition_buffer_offsets():
     assert analyzer._host_at(.2, buffers, 48000, offsets) == BASE_NS + 200_000_000
 
 
+def test_null_capture_format_reports_missing_sample_rate():
+    analyzer = get_analyzer()
+    with pytest.raises(ValueError, match='Capture sample rate is missing or invalid'):
+        analyzer._timing_evidence({'format': None}, [], {})
+
+
 def test_only_first_sustained_unambiguous_source_tones_are_correlated():
     analyzer = get_analyzer()
     samples = tone(440, .3) + tone(1120, .1) + noise(.2) + tone(1120, .5)

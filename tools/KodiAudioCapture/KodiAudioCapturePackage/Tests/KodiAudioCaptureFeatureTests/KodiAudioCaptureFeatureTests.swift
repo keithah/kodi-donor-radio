@@ -21,6 +21,11 @@ import Testing
     #expect(try CaptureOptions(arguments: []).duration == 30)
 }
 
+@Test func launchOptionsIgnoreCocoaDefaultArguments() throws {
+    let options = try CaptureOptions(arguments: ["-AppleLanguages", "(en)", "-NSDocumentRevisionsDebugMode", "YES"])
+    #expect(options.duration == 30)
+}
+
 @Test func pcmCopyOwnsSamplesAndRejectsWrongFrameCount() throws {
     let source = try #require(AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!, frameCapacity: 3))
     source.frameLength = 3

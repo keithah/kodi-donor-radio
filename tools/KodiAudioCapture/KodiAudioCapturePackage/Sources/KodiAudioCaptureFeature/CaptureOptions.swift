@@ -38,7 +38,13 @@ struct CaptureOptions: Sendable {
             case "--auto-record": autoRecord = true
             case "--exit-after-recording": exitAfterRecording = true
             default:
-                if !argument.hasPrefix("-psn_") { throw CaptureFailure("Unknown launch option: \(argument)") }
+                if argument.hasPrefix("-psn_") { break }
+                if argument.hasPrefix("-"), !argument.hasPrefix("--") {
+                    // Cocoa NSArgumentDomain default: "-Key value".
+                    if index + 1 < arguments.count { index += 1 }
+                    break
+                }
+                throw CaptureFailure("Unknown launch option: \(argument)")
             }
             index += 1
         }

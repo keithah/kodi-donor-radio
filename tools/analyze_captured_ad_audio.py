@@ -90,7 +90,8 @@ def measure_tones(samples, sample_rate, frequencies, window_seconds=.1,
 
 
 def _timing_evidence(capture, rows, measurement):
-    rate = capture.get('format', {}).get('sample_rate')
+    capture_format = capture.get('format')
+    rate = capture_format.get('sample_rate') if isinstance(capture_format, dict) else None
     if not _number(rate) or rate <= 0:
         raise ValueError('Capture sample rate is missing or invalid')
     issues, buffers = [], [row for row in rows if row.get('event') == 'audio_buffer']

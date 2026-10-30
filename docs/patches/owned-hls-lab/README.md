@@ -440,6 +440,9 @@ Parent-controlled installation layout:
 - In `/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer`,
   place `monitor.py`, `fixture_beacons.py`, `runtime_clock.py` and the unchanged
   `clock-candidate-v2/estimator.py` in that relative subdirectory.
+- Also place the `hal-clock-v1/` directory there, beside `fixture_beacons.py`,
+  with its `contract.json` and `freeze.json`; `load_hal_clock()` reads those
+  files relative to the installed `fixture_beacons.py`.
 - The real `clock-sessions` parent must exist below that directory. Each launch
   creates a new nonce directory mode 0700 before native Open. Do not reuse one.
 - Install the reviewed native binary/manifest containing all three ownership

@@ -10,7 +10,7 @@
   "clock_authority": false,
   "beacons_enabled": false,
   "production_eligible": false,
-  "frozen_utc": "2026-10-28T07:33:18.969494+00:00",
+  "frozen_utc": "2026-10-30T01:36:06Z",
   "authorization_benchmark": {
     "result": "/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/hal-task3-1793300802259852000/benchmark-19/result.json",
     "result_sha256": "f7637f79a5c5ba5c4c7259e5531be6a23c64bc1768692db9eda0d2ed9d3ff9fa",
@@ -30,5 +30,5 @@
       "query_to_action": 100000000
     }
   },
-  "runtime_binding_utc": "2026-10-30T01:36:06Z"
+  "binding_note": "Current Python providers were bound after benchmark-19 validated the authorization provider."
 }
