@@ -42,7 +42,7 @@ early beacon; it does not establish a decoded-media anchor.
 
 Two 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1 matched the
 requested item. In the startup-gate run, Kodi JSON-RPC observed
-`0.000 → -0.091 → 0.318`;
+`0.000 → -0.091 → 0.316`;
 the add-on callback sampled `0.000` then `-0.091`, invalidated its mapper, and
 sent no beacons. In the separate clock-progress run, JSON-RPC showed the same
 initial sequence, while add-on callback samples were `0.000` with tracking

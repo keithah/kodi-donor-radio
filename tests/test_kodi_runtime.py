@@ -2225,6 +2225,13 @@ def test_directory_cache_hit_does_not_show_network_progress_ui(kodi, monkeypatch
     assert state.items[0][1].label == 'Canada'
 
 
+def test_operation_without_progress_does_not_touch_uncreated_dialog(kodi):
+    runtime, _, _ = kodi
+    monitor = runtime.xbmc.Monitor()
+    cancel = threading.Event()
+    assert runtime._operation(lambda: 'cached', monitor, cancel, show_progress=False) == 'cached'
+
+
 def test_directory_cache_place_identity_stale_and_safe_rows(kodi, monkeypatch):
     from dataclasses import replace
     import radio_ui
@@ -2499,7 +2506,7 @@ def test_directory_cache_contended_write_remains_cancellable(kodi, monkeypatch):
         try: return original(self, *args, **kwargs)
         finally: completed.set()
     monkeypatch.setattr(runtime.DirectoryCacheStore, 'put', put)
-    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    state.action = lambda monitor: setattr(state, 'abort', True) if entered.is_set() else None
     # A watchdog releases the lock on the unfixed implementation, ensuring RED
     # is an assertion failure instead of leaving the test process deadlocked.
     with profile_file_lock(profile / '.directory_cache.json.lock'):
@@ -2556,7 +2563,7 @@ def test_directory_cache_slow_profile_read_remains_cancellable(kodi, monkeypatch
         finally: completed.set()
         return None
     monkeypatch.setattr(runtime.DirectoryCacheStore, 'get', get)
-    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    state.action = lambda monitor: setattr(state, 'abort', True) if entered.is_set() else None
     try:
         route(runtime, mode='countries')
         assert entered.is_set()

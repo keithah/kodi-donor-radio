@@ -171,8 +171,8 @@ def _error(identifier):
 
 def _operation(function, monitor, cancel, cleanup=None, show_progress=True):
     """Keep Kodi UI responsive; late create results are retired after cancellation."""
-    progress = xbmcgui.DialogProgress()
-    if show_progress:
+    progress = xbmcgui.DialogProgress() if show_progress else None
+    if progress is not None:
         progress.create(text(30000), text(30013))
     done, lock, result = threading.Event(), threading.Lock(), {}
     def work():
@@ -193,7 +193,8 @@ def _operation(function, monitor, cancel, cleanup=None, show_progress=True):
     thread.start()
     try:
         while True:
-            if monitor.abortRequested() or progress.iscanceled():
+            if (monitor.abortRequested() or cancel.is_set()
+                    or (progress is not None and progress.iscanceled())):
                 with lock:
                     cancel.set()
                     value = result.pop('value', None)
@@ -206,7 +207,8 @@ def _operation(function, monitor, cancel, cleanup=None, show_progress=True):
                 return result.get('value')
             monitor.waitForAbort(.05)
     finally:
-        progress.close()
+        if progress is not None:
+            progress.close()
 
 
 def _service(profile, monitor, cancel, create_timeout=10):

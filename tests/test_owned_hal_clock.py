@@ -147,6 +147,23 @@ def test_historical_query_during_pending_control_or_gain_does_not_retire(transit
     assert not p.retired
 
 
+def test_invalid_callback_keeps_first_retirement_reason():
+    p,now=setup()
+    p.control('play',now[0]+1)
+    assert p.retired
+    assert p.reason=='invalid_callback_control'
+    assert p.snapshot().reasons==('invalid_callback_control',)
+
+
+def test_natural_eof_reason_survives_terminal_snapshot_invalidation():
+    p,now=setup()
+    p.source_ended=True
+    p.reason='natural_eof_hold'
+    p._invalidate('native_terminal')
+    assert p.reason=='natural_eof_hold'
+    assert p.snapshot().reasons==('natural_eof_hold',)
+
+
 def test_ordinary_renewal_keeps_qualified_epoch_and_historical_mapping():
     p,now=setup();s=ready(p,now);assert p.ingest(raw(query(10,s,qualified=True))).valid
     s=segment(21,True,gain_revision=2,publication_sequence=3)

@@ -120,9 +120,15 @@ def kodi(monkeypatch, tmp_path):
         def setGenres(self, value): self.genres = value
         def setComment(self, value): self.comment = value
     class Progress:
-        def create(self, heading, message): state.messages.append(message)
-        def iscanceled(self): return state.cancel
-        def close(self): pass
+        def __init__(self): self.created = False
+        def create(self, heading, message):
+            self.created = True
+            state.messages.append(message)
+        def iscanceled(self):
+            if not self.created: raise RuntimeError('Dialog not created.')
+            return state.cancel
+        def close(self):
+            if not self.created: raise RuntimeError('Dialog not created.')
     class Monitor:
         def abortRequested(self): return state.abort
         def waitForAbort(self, timeout):

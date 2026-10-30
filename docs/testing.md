@@ -114,8 +114,8 @@ override this reproducible retry failure. See the
 
 ## Independent relay decode smoke — 2026-10-26
 
-The relay-only decoder smoke passed five controlled VAST cases: direct midroll
-replacement (`direct`), preroll with the original midroll preserved (`preroll`),
+The relay-only decoder smoke passed five controlled VAST cases: preroll plus midroll
+replacement from one direct creative (`direct`), preroll with the original midroll preserved (`preroll`),
 no-fill fallback (`no-fill`), failed-media fallback (`failed-media`), and a VAST
 duration mismatch resolved from measured media samples (`wrong-duration`). Every
 decoded segment contained exactly 96,256 samples; the measured section order matched the expected presentation, and the
@@ -145,7 +145,7 @@ the unstable startup interval.
 
 The two refreshed 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1
 matched the requested item. In the startup-gate run, Kodi JSON-RPC reported
-`0.000 → -0.091 → 0.318` seconds; the add-on callback sampled `0.000` then
+`0.000 → -0.091 → 0.316` seconds; the add-on callback sampled `0.000` then
 `-0.091`, invalidated its mapper, and sent no tracking beacons. In the separate
 clock-progress run, JSON-RPC showed the same initial sequence, while the add-on
 callback sampled `0.000` then `0.318`; tracking was disabled on the first sample

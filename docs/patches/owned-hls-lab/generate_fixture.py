@@ -25,7 +25,7 @@ def frames(data):
  return out
 
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).parent);ap.add_argument('--repo',type=Path,default=Path('/Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio'));args=ap.parse_args();root=args.root.resolve();assets=root/'assets';assets.mkdir(parents=True,exist_ok=True)
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).parent);ap.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[3]);args=ap.parse_args();root=args.root.resolve();assets=root/'assets';assets.mkdir(parents=True,exist_ok=True)
  if (root/'metadata.json').exists():raise SystemExit('Validated fixture already exists; use a new output root to preserve evidence')
  ffmpeg=shutil.which('ffmpeg');ffprobe=shutil.which('ffprobe')
  if not(ffmpeg and ffprobe):raise SystemExit('FFmpeg and FFprobe required')

@@ -42,8 +42,8 @@ class OwnedHalClockProvider(HalControlSession):
         self.authorization=None;self._consumed_proofs=set()
 
     def _invalidate(self,reason):
-        self.reason=reason
-        self._last=OwnedClockSnapshot(reasons=(reason,),generation=self.generation,backend=BACKEND)
+        if not self.retired and self.reason!='natural_eof_hold':self.reason=reason
+        self._last=OwnedClockSnapshot(reasons=(self.reason,),generation=self.generation,backend=BACKEND)
 
     def gain_pending(self,command):
         with self.lock:
@@ -194,7 +194,7 @@ class OwnedHalClockProvider(HalControlSession):
                     or self._applied['expiry_ns']<now or self._desired_gain_epoch is not None and ev.gain_epoch!=self._desired_gain_epoch
                     or any(getattr(ev,k)!=self._applied[k] for k in ('device_generation','stream_generation','playback_epoch','gain_epoch'))
                     or ev.native_generation!=self._applied['native_gate'] or ev.effective_intent!=self._applied['applied_intent']):
-                return replace(ev,valid=False,reasons=(self.reason if self.retired else 'stale_or_changed',))
+                return replace(ev,valid=False,reasons=(self.reason if self.retired or self.source_ended else 'stale_or_changed',))
             return ev
 
     def retire(self,reason):
