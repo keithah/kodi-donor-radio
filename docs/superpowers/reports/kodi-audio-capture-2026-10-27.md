@@ -144,12 +144,17 @@ window retirement.
 
 ## Packaged Adaptive clock fix
 
-The final package uses an already enabled InputStream Adaptive 21+ only for
-controlled, ad-enabled HLS compositions. It advertises AAC only after validating
-the composition, reserves a bounded master-resource slot, and checks readiness
-with a cancellable five-second, 4 KiB, no-redirect loopback request. Unsupported
-or unavailable readiness falls back to native playback. The dependency is
-optional; no addon installation or enabling happens automatically. Program dates
+The final package used InputStream Adaptive 21+ only when it was already enabled
+and only for controlled, ad-enabled HLS compositions. It advertised AAC only
+after validating the composition, reserved a bounded master-resource slot, and
+checked readiness with a cancellable five-second, 4 KiB, no-redirect loopback
+request. Unsupported or unavailable readiness fell back to native playback.
+The package tested for this historical capture declared Adaptive as an optional
+manifest dependency. Kodi may enable an installed disabled optional dependency
+or update an installed version below that declaration during installation, so
+the earlier claim that no enabling or update could happen was too broad. Current
+source removes that manifest import and relies on runtime detection of an
+already enabled addon; the ZIP hash below predates that correction. Program dates
 begin at first publication and remain fixed to composed sample positions.
 
 The package SHA-256 deployed into the isolated master profile was:

@@ -69,7 +69,6 @@ def test_package_is_installable_source_only(package):
             ('xbmc.python.pluginsource', 'default.py'), ('xbmc.service', 'service.py')}
         assert [item.attrib for item in metadata.findall('requires/import')] == [
             {'addon': 'xbmc.python', 'version': '3.0.1'},
-            {'addon': 'inputstream.adaptive', 'version': '21.0.0', 'optional': 'true'},
         ]
         assert metadata.find("extension[@point='xbmc.addon.metadata']/license").text == 'GPL-2.0-or-later'
         license_text = archive.read(ADDON + '/LICENSE.txt').decode()
@@ -80,14 +79,17 @@ def test_package_is_installable_source_only(package):
     assert result.returncode == 0, result.stderr
 
 
-def test_package_checker_rejects_mandatory_adaptive_dependency(package):
+def test_package_checker_rejects_adaptive_manifest_dependency(package):
     import runpy
     checker = runpy.run_path(str(ROOT / 'tools' / 'check_package.py'))['check_contents']
     with zipfile.ZipFile(package) as archive:
         prefix = ADDON + '/'
         contents = {name[len(prefix):]: archive.read(name)
                     for name in archive.namelist() if name.startswith(prefix)}
-    contents['addon.xml'] = contents['addon.xml'].replace(b'optional="true"', b'optional="false"')
+    contents['addon.xml'] = contents['addon.xml'].replace(
+        b'<import addon="xbmc.python" version="3.0.1"/>',
+        b'<import addon="xbmc.python" version="3.0.1"/>\n'
+        b'    <import addon="inputstream.adaptive" version="21.0.0" optional="true"/>')
     with pytest.raises(ValueError, match='Incorrect runtime dependency'):
         checker(contents)
 
