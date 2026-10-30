@@ -154,9 +154,11 @@ class OwnedHalClockProvider(HalControlSession):
                 or not usable(s) or not applied or not usable(applied) or any(s[k]!=row[k] or applied[k]!=row[k] for k in EPOCHS)
                 or s['applied_intent']!=row['effective_intent'] or applied['applied_intent']!=row['effective_intent']
                 or not 0<=end-host(self._latest,'entry_ticks')<=40_000_000 or applied['expiry_ns']<end
-                or not 0<=now-q<=100_000_000 or self._ack!=len(self._commands)
-                or self._desired_gain_epoch is not None and row['gain_epoch']!=self._desired_gain_epoch):
+                or not 0<=now-q<=100_000_000):
             raise ValueError('hal_query_proof')
+        if (self._ack!=len(self._commands)
+                or self._desired_gain_epoch is not None and row['gain_epoch']!=self._desired_gain_epoch):
+            self._last=OwnedClockSnapshot(reasons=('control_or_gain_pending',),**evidence);return self._last
         if self._acquiring:
             self._consistent.append(q)
             if row['qualified'] and (len(self._consistent)<9 or q-self._consistent[0]<120_000_000):

@@ -1,63 +1,11 @@
 """Continuous fixture clocks remain exact-route diagnostic candidates."""
-from types import SimpleNamespace
 import json
-import threading
 
 import pytest
 
-from ad_models import OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
+from ad_models import OutputSegment, Presentation
 from events import JsonEventSink
-from kodi_ad_player import KodiAdPlayback
 from sessions import ContinuousAudioState
-
-
-@pytest.fixture
-def scenario(monkeypatch):
-    state = SimpleNamespace(clock=.25, now=10.0, caching=False, playing=True,
-                            audio=ContinuousAudioState(True, 480000, False))
-    records, queued = [], []
-    ad = ResolvedAd('creative', 'fixture.ts', 1, tuple(
-        TrackingUrl(event, 'http://127.0.0.1:8765/track/' + event)
-        for event in ('impression', 'start', 'firstQuartile', 'midpoint',
-                      'thirdQuartile', 'complete')), ())
-    state.presentation = Presentation(
-        (OutputSegment(0, 0, 'source', 0, 480000, None),),
-        (Placement('placement', ad, 24000, 72000),), False)
-    session = SimpleNamespace(
-        id='session', cancel=threading.Event(), ad_enabled=True,
-        station=SimpleNamespace(uuid='fixture-continuous'),
-        source=SimpleNamespace(protocol='hls'),
-        presentation=lambda: state.presentation, take_ad_errors=lambda: [],
-        playback_url='http://127.0.0.1:8765/media/session/root.m3u8',
-        continuous_playback_url='http://127.0.0.1:8765/media/session/root.aac',
-        continuous_audio_state=lambda: state.audio)
-    state.path = session.continuous_playback_url
-    player = SimpleNamespace(isPlaying=lambda: state.playing,
-                             getTime=lambda: state.clock,
-                             getPlayingFile=lambda: state.path)
-
-    class Worker:
-        def __init__(self, *_args): pass
-        def enqueue(self, *args): queued.append(args); return True
-        def close(self): pass
-
-    monkeypatch.setattr('kodi_ad_player.BeaconWorker', Worker)
-    monkeypatch.setattr('kodi_ad_player.time', SimpleNamespace(monotonic=lambda: state.now))
-    manager = SimpleNamespace(get=lambda identity: session if identity == session.id else None,
-                              sink=SimpleNamespace(emit=records.append))
-    adapter = KodiAdPlayback(manager, player, client=SimpleNamespace(),
-                             fixture_origin='http://127.0.0.1:8765',
-                             is_caching=lambda: state.caching)
-
-    def sample(clock, elapsed=.25):
-        state.clock = clock
-        state.now += elapsed
-        adapter.sample()
-        return [record.details for record in records if record.kind == 'ad_clock_sample'][-1]
-
-    yield SimpleNamespace(state=state, session=session, player=player, adapter=adapter,
-                          records=records, queued=queued, sample=sample)
-    adapter.close()
 
 
 def test_continuous_clock_is_candidate_only_even_across_complete_ad(scenario):

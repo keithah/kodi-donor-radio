@@ -135,7 +135,8 @@ def test_rpc_comparison_uses_observed_intervals_and_never_extrapolates():
     assert 'interpolated_clock' not in comparison
 
 
-@pytest.mark.parametrize('fault', ['missing_buffer', 'invalid_host_flag', 'timestamp_gap'])
+@pytest.mark.parametrize('fault', ['missing_buffer', 'invalid_host_flag', 'timestamp_gap',
+                                   'missing_frame_offset', 'null_input_timestamp'])
 def test_invalid_capture_timing_suppresses_clock_correlation(fault):
     analyzer = get_analyzer()
     samples = [0.] * 1600 + tone(1120, .5)
@@ -144,9 +145,13 @@ def test_invalid_capture_timing_suppresses_clock_correlation(fault):
         del rows[1]
     elif fault == 'invalid_host_flag':
         rows[1]['input_timestamp']['flags'] = 1
-    else:
+    elif fault == 'timestamp_gap':
         rows[1]['host_pts_ns'] += 20_000_000
         rows[1]['discontinuity'] = True
+    elif fault == 'missing_frame_offset':
+        del rows[1]['frame_offset']
+    else:
+        rows[1]['input_timestamp'] = None
     report = analyze(analyzer, samples, rows=rows)
     assert report['capture_timing']['issues']
     assert report['capture_timing']['usable_for_clock_comparison'] is False

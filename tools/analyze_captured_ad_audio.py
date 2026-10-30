@@ -112,7 +112,7 @@ def _timing_evidence(capture, rows, measurement):
             issues.append('noncontiguous_frame_offsets')
         total += count
         expected_offset = offset + count
-        flags = row.get('input_timestamp', {}).get('flags')
+        flags = (row.get('input_timestamp') or {}).get('flags')
         host = row.get('host_pts_ns')
         if type(flags) is not int or not flags & 2 or type(host) is not int:
             issues.append('invalid_input_host_timestamp')
@@ -144,7 +144,7 @@ def _timing_evidence(capture, rows, measurement):
                'maximum_host_step_error_ns': maximum_gap,
                'issues': list(dict.fromkeys(issues)),
                'usable_for_clock_comparison': not issues}
-    return summary, buffers, [row['frame_offset'] for row in buffers]
+    return summary, buffers, [row.get('frame_offset') for row in buffers]
 
 
 def _host_at(seconds, buffers, rate, offsets=None):

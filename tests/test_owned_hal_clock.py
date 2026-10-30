@@ -3,6 +3,7 @@ import dataclasses
 import hashlib
 import importlib.util
 import json
+from types import SimpleNamespace
 import pytest
 import owned_clock
 from test_owned_hal_gain import binding as controls_binding, hal_hello as controls_hello
@@ -125,6 +126,25 @@ def test_gain_epoch_cannot_skip_nine_query_reacquisition():
     now[0]=s['output_ticks']+30_000;p.ingest(raw(s))
     q=query(11,s,qualified=True,gain_epoch=2,effective_intent=3)
     assert not p.ingest(raw(q)).valid
+
+
+@pytest.mark.parametrize('transition', ['pause', 'gain'])
+def test_historical_query_during_pending_control_or_gain_does_not_retire(transition):
+    p,now=setup();s=ready(p,now)
+    first=query(10,s,qualified=True)
+    assert p.ingest(raw(first)).valid
+    if transition=='pause':
+        p.control('pause',first['query_host_ns']+1)
+    else:
+        p.gain_pending(SimpleNamespace(effective_epoch=1))
+        p.gain_pending(SimpleNamespace(effective_epoch=2))
+    qtime=first['query_host_ns']+2
+    now[0]=qtime+100
+    historical=query(11,s,qualified=True,query_start_ns=qtime,query_end_ns=qtime,query_host_ns=qtime)
+    snapshot=p.ingest(raw(historical))
+    assert not snapshot.valid
+    assert snapshot.reasons==('control_or_gain_pending',)
+    assert not p.retired
 
 
 def test_ordinary_renewal_keeps_qualified_epoch_and_historical_mapping():

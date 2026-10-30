@@ -3,8 +3,6 @@ from dataclasses import replace
 
 import pytest
 
-from test_continuous_ad_clock import scenario
-
 
 def qualify(s, av=True):
     s.session.fixture_clock_qualified = True
