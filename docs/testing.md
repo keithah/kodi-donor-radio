@@ -165,8 +165,9 @@ only to confirm progress and sends only the second sample to the tracker. This
 prevents a reset that occurs between add-on polls from retroactively turning an
 unverified startup zero into a preroll beacon. Tests cover that no-replay case,
 confirmed midroll tracking, pause, caching and clock jumps. This stricter change
-still needs a fresh Kodi run; the 2026-10-26 no-replay run above predates it. The
-decoded-media anchor and audible output remain unverified. Because the Kodi
+was exercised in the 2026-10-26 no-replay Kodi run above. That run confirms the
+startup samples were withheld until progress was observed, but does not establish
+an absolute decoded-media anchor or verify audible output. Because the Kodi
 adapter sets `allow_preroll_start=False`, a preroll beginning at sample zero
 intentionally emits no impression, start, or quartile beacons: the withheld
 startup sample is not proof that playback entered the preroll. Older reports

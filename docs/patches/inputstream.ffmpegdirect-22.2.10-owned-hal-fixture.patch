@@ -615,7 +615,7 @@ index 8facb7f..cc1e8a2 100644
 +    m_ownedTelemetryPath = root + "clock-sessions/" + m_ownedClockNonce + "/native.jsonl";
 +    m_ownedTelemetryRows = 0;
 +    if (!m_ownedClockTransport->Open(root + "clock-sessions/" + m_ownedClockNonce, hello.str()))
-+      RevokeOwnedClock("session_transport");
++    { RevokeOwnedClock("session_transport"); return false; }
 +  }
 +  m_ownedStop = false;
 +  m_ownedRendererReady = false;
