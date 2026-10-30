@@ -545,8 +545,8 @@ index 17ebfe2..521964e 100644
 +
 +bool InputStreamFFmpegDirect::WriteOwnedTelemetryLine(const std::string& line)
 +{
-+  // 180 seconds of 20 ms clock samples, up to 15 minutes of pause samples,
-+  // packet records, and bounded startup/shutdown records fit under this cap.
++  // About eight minutes at 144 native records/second fit under this cap;
++  // commands and other diagnostic rows reduce the usable session time.
 +  constexpr size_t maxRows = 70000;
 +  std::lock_guard<std::mutex> lock(m_ownedTelemetryMutex);
 +  if (!m_ownedTelemetryFile.is_open() || m_ownedTelemetryRows >= maxRows)

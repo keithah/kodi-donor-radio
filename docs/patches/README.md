@@ -88,6 +88,13 @@ experiments. Their native transport rejects non-Apple targets, so applying
 those patches to the upstream addon intentionally fails non-Apple CI builds;
 they are not cross-platform inputstream patches.
 
+`inputstream.ffmpegdirect-22.2.10-owned-hal-fixture.patch` applies alone to the
+pristine 22.2.10 commit above; it is cumulative and must not be stacked on the
+earlier lab patches. `inputstream.ffmpegdirect-22.2.10-owned-clock-session.patch`
+applies after the realtime-override, timeshift-startup-eof, owned-HLS,
+stall-diagnostics and renderer-QoS patches; see the owned-clock section in
+`owned-hls-lab/README.md` for the exact sequence.
+
 The controlled owned-clock lab also has an explicit `videoplayer_pcm_v1`
 experiment. Launch with `owned_beacons=1`, the existing exact fixture path, and
 `player_mode=videoplayer_pcm_v1`; omission retains `paplayer_pcm_v1`. The launcher

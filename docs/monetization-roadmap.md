@@ -4,16 +4,17 @@ The branch implements Radio Browser discovery and controlled loopback-only VAST
 preparation, preroll, HLS midroll replacement and guarded fixture tracking.
 General Radio Browser playback remains outside ad insertion.
 
-The separate native inputstream lab has captured a complete 180.032-second HLS
+The separate native inputstream lab captured a complete 180.032-second HLS
 programme through four normal Kodi pauses without detected gaps or replay in the
-tested buffered profile. Its frozen offline clock estimator passed all 171
-qualified measurements. The raw player/delay clock, low-latency mode, startup and
-pause-tail timing remain unqualified. The native lab is preserved as optional
-source patches; it is not installed or required by the shipped Python addon.
-No production success beacons are enabled from this evidence. See
-`docs/superpowers/reports/kodi-owned-hls-final-capture-2026-10-28.txt` for the exact
-build, captured scope and remaining limits. Earlier USB/startup/stall failures
-remain historical evidence rather than the current acceptance status.
+tested buffered profile. Treat that as a scoped historical result; its frozen
+offline clock estimator passed all 171 qualified measurements, but the raw
+player/delay clock, low-latency mode, startup and pause-tail timing remain
+unqualified. The native lab is preserved as optional source patches; it is not
+installed or required by the shipped Python addon. No production success beacons
+are enabled. The later owned-clock/beacon run failed its runtime gate;
+`docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md` is the current
+acceptance status. The buffered-profile capture details are in
+`docs/superpowers/reports/kodi-owned-hls-final-capture-2026-10-28.txt`.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
 that is a project assumption rather than independently verified repository

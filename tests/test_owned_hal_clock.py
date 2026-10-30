@@ -3,6 +3,7 @@ import dataclasses
 import hashlib
 import importlib.util
 import json
+import threading
 from types import SimpleNamespace
 import pytest
 import owned_clock
@@ -164,6 +165,34 @@ def test_natural_eof_reason_survives_terminal_snapshot_invalidation():
     assert p.retired
     assert p.reason=='natural_eof_hold'
     assert p.snapshot().reasons==('natural_eof_hold',)
+
+
+def test_natural_eof_reason_restoration_is_atomic(monkeypatch):
+    p,now=setup()
+    p.source_ended=True
+    p.reason='natural_eof_hold'
+    entered,release,read_done=threading.Event(),threading.Event(),threading.Event()
+    original=hal.HalControlSession.retire
+    def paused_parent_retire(self,reason):
+        result=original(self,reason)
+        if self is p:
+            entered.set()
+            assert release.wait(1)
+        return result
+    monkeypatch.setattr(hal.HalControlSession,'retire',paused_parent_retire)
+    writer=threading.Thread(target=lambda:p.retire('hal_evidence_invalid'))
+    writer.start()
+    assert entered.wait(1)
+    snapshots=[]
+    reader=threading.Thread(target=lambda:(snapshots.append(p.snapshot()),read_done.set()))
+    reader.start()
+    try:
+        assert not read_done.wait(.05)
+    finally:
+        release.set()
+    writer.join(1);reader.join(1)
+    assert not writer.is_alive() and not reader.is_alive()
+    assert snapshots[0].reasons==('natural_eof_hold',)
 
 
 def test_ordinary_renewal_keeps_qualified_epoch_and_historical_mapping():
