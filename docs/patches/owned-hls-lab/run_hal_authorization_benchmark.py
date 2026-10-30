@@ -124,6 +124,12 @@ def require_slot_budget(slot_attempt_ns, slot_acquired_ns):
         raise TimeoutError('benchmark_authorization_slot_timeout')
 
 
+def allocate_request_id(sequence, slot_attempt_ns, slot_acquired_ns):
+    """Reject an expired slot acquisition before consuming exact-next state."""
+    require_slot_budget(slot_attempt_ns, slot_acquired_ns)
+    return next(sequence)
+
+
 def gain(revision):
     return dict(nonce=NONCE, incarnation=INCARNATION, timeline_sha256=TIMELINE,
                 output_backend='hal_callback_v1', hal_contract_version=1, device_generation=1,
@@ -206,8 +212,7 @@ def main():
             if not slot.acquire(slot_attempt+AUTHORIZATION_BUDGET_NS,mach_host_ns,slot_cancel):
                 raise TimeoutError('benchmark_authorization_slot_timeout')
             try:
-                slot_acquired=mach_host_ns();number=next(sequence)
-                require_slot_budget(slot_attempt,slot_acquired)
+                slot_acquired=mach_host_ns();number=allocate_request_id(sequence,slot_attempt,slot_acquired)
                 # `probe()` starts its deadline before taking io_lock.  The
                 # benchmark must submit the same pre-slot request start rather
                 # than excluding genuine contention from the 20ms action gate.
@@ -238,7 +243,10 @@ def main():
                 tracker=exchange('tracker',digest,role)
                 queue=exchange('queue',digest,role,tracker,tracker['action_mach_ns'])
                 exchange('dispatch',digest,role,queue,tracker['action_mach_ns'],queue['action_mach_ns'])
-            except BaseException as exc:failures.append(repr(exc))
+            except BaseException as exc:
+                slot_cancel.set()
+                slot.wake()
+                failures.append(repr(exc))
         roles=('monitor','monitor','worker','worker','worker')
         workers=[threading.Thread(target=chain,args=(index,role),name='benchmark-'+role) for index,role in enumerate(roles)]
         for worker in workers:worker.start()

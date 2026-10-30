@@ -2,6 +2,7 @@ import importlib.util
 import hashlib
 import json
 from pathlib import Path
+import pytest
 
 
 spec = importlib.util.spec_from_file_location(
@@ -63,6 +64,13 @@ def test_pre_slot_deadline_rejects_delayed_exact_next_authorization():
     try:benchmark.require_slot_budget(100,101+benchmark.AUTHORIZATION_BUDGET_NS)
     except TimeoutError as exc:assert str(exc)=='benchmark_authorization_slot_timeout'
     else:raise AssertionError('pre-lock latency excluded from action budget')
+
+
+def test_budget_rejection_does_not_consume_the_exact_next_request_id():
+    sequence=iter(range(32754,32769))
+    with pytest.raises(TimeoutError,match='benchmark_authorization_slot_timeout'):
+        benchmark.allocate_request_id(sequence,100,101+benchmark.AUTHORIZATION_BUDGET_NS)
+    assert next(sequence)==32754
 
 
 def test_maximum_gain_history_leaves_one_exact_successor_for_renewal():
