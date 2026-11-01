@@ -30,8 +30,7 @@ minus AudioEngine delay; its absolute error, startup, pause tail, resume and EOF
 behavior remain subject to captured validation. Success beacons remain disabled.
 
 
-The first waveform audit and the later partial-playback failure are preserved
-in `docs/superpowers/reports/kodi-owned-hls-*-2026-10-27.json`. Run
+Run
 `analyze_hls_capture.py` with a completed capture, the served-media reference,
 and its archived native ledger. It derives source anchors by searching the
 entire reference, then checks a fixed held-out clock grid using actual capture
@@ -171,8 +170,7 @@ it does not replace native-binary identity validation.
 ### Runtime capture status
 
 The live session bridge has now been exercised with recorded output estimates,
-not just offline replay. See
-`../../superpowers/reports/kodi-owned-hls-runtime-clock-progress-2026-10-28.json`.
+not just offline replay.
 The first run passed 140 clock points but missed natural EOF because the test
 manifest did not forward terminal_eof. The corrected run passed 129 points and
 natural EOF, but recorded one unrequested 512-frame Darwin sink underrun.
@@ -267,8 +265,7 @@ Maximum feeder sleep overshoot was 19.476 and 21.711 ms versus 50.846 ms in the
 baseline. The independent audit confirmed native/runtime row identity and actual
 captured buffer timestamps; estimator replay is not the runtime evidence.
 
-See `../../superpowers/reports/kodi-owned-hls-stall-investigation-2026-10-28.json`
-for identities and archives. Kodi core and the signed recorder were unchanged;
+Kodi core and the signed recorder were unchanged;
 other jobs remained running. The original profile and installed addon files were
 restored. These results clear the controlled candidate's repeated-capture check,
 not arbitrary-load reliability or general-station/production mapping. Previous

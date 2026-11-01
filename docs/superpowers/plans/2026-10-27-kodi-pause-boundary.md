@@ -434,8 +434,7 @@ final review of those fixes.
 Selected binary SHA-256:
 `a04d7cfc17daccb7a40fb050dddc2c1a64fe0b061745f1ee6484c449f878c730`.
 Final capture is `owned-renderer/capture-final/` under the native repair
-root, suffix `AD2E3CA2-FE8A-446E-A592-6BE531BFF541`. The structured report is
-`docs/superpowers/reports/kodi-owned-aac-pause-2026-10-27.json`.
+root, suffix `AD2E3CA2-FE8A-446E-A592-6BE531BFF541`.
 The decoded and accepted counts both equal 1,541,120 frames. Accepted cursors
 remain identical across each pause/resume pair. Both channels preserve the
 opening 20 ms (correlation >= 0.999999985), all measured 1 ms seam windows,

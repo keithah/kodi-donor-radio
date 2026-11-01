@@ -16,8 +16,7 @@ success beacons.
 Pause, resume, and seek were rejected by Kodi for this nonseekable HLS item; a
 separate stop action succeeded. The run validates the no-replay safeguard, not
 the absolute clock-to-decoded-presentation mapping or audible output; both report
-flags remain false. Full evidence is in
-[`kodi-no-replay-live-2026-10-26.json`](kodi-no-replay-live-2026-10-26.json).
+flags remain false.
 
 ## Post-speed-guard master startup retry — 2026-10-26
 
@@ -47,16 +46,14 @@ the add-on callback sampled `0.000` then `-0.091`, invalidated its mapper, and
 sent no beacons. In the separate clock-progress run, JSON-RPC showed the same
 initial sequence, while add-on callback samples were `0.000` with tracking
 disabled then `0.318` with tracking enabled. `mapping_proven` and
-`audible_output_verified` remain false. The sanitized
-[`startup-gate report`](kodi-clock-startup-gate-2026-10-26.json) records the run.
+`audible_output_verified` remain false.
 
 A separate 8-second run's add-on callback log observed `0.000 → 0.318`; the
 callback gate opened on that positive advance. It recorded one fixture
 impression/start/firstQuartile/midpoint/thirdQuartile sequence, with no
 completion. These beacons followed the add-on's gated raw clock on that run;
 they do not prove the absolute decoded-media anchor. `mapping_proven` and
-`audible_output_verified` remain false. See the sanitized
-[`clock-progress report`](kodi-clock-progress-2026-10-26.json).
+`audible_output_verified` remain false.
 That run predates a further startup safeguard: the adapter now uses the first
 clock sample only to confirm progress and sends only the advancing sample to the
 tracker. This avoids retroactively treating a possibly unstable startup zero as
@@ -84,8 +81,7 @@ resume. Impression/start had already been emitted on the initial zero sample;
 no later quartile or completion was emitted. The fixture recorded one impression
 and one start. This still does not prove the initial sample's decoded-media
 position, stable sample-zero origin, or audible output. `mapping_proven` and
-`audible_output_verified` remain false. See the sanitized
-[`clock diagnostics report`](kodi-clock-diagnostics-2026-10-26.json) and
+`audible_output_verified` remain false. See the
 [`validation record`](../../testing.md#controlled-vast-clock-follow-up--2026-10-26).
 
 The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,

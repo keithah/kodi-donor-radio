@@ -16,9 +16,7 @@ end at player time 260.408 seconds, produced 76.4 seconds of captured silence,
 and did not reach natural EOF. No production success beacons are
 enabled; `docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-30.md` is the
 current acceptance status. The native lab is preserved as optional source
-patches; it is not installed or required by the shipped Python addon. The
-buffered-profile capture details are in
-`docs/superpowers/reports/kodi-owned-hls-final-capture-2026-10-28.txt`.
+patches; it is not installed or required by the shipped Python addon.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
 that is a project assumption rather than independently verified repository

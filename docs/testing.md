@@ -93,8 +93,7 @@ Kodi rejected scripted pause, resume, and seek on this nonseekable HLS item; a
 separate stop action succeeded. These results verify the no-replay safeguard and
 the tested fixture outcomes only. They do not prove the absolute Kodi-clock to
 decoded-presentation mapping or audible output: `mapping_proven` and
-`audible_output_verified` remain false. See the sanitized
-[`fresh no-replay report`](superpowers/reports/kodi-no-replay-live-2026-10-26.json).
+`audible_output_verified` remain false.
 
 ## Fresh master startup retry after speed guard — 2026-10-26
 
@@ -120,7 +119,6 @@ no-fill fallback (`no-fill`), failed-media fallback (`failed-media`), and a VAST
 duration mismatch resolved from measured media samples (`wrong-duration`). Every
 decoded segment contained exactly 96,256 samples; the measured section order matched the expected presentation, and the
 collector remained empty because this relay-only run had no playback evidence.
-See [`kodi-ad-relay-decode-2026-10-26.json`](superpowers/reports/kodi-ad-relay-decode-2026-10-26.json).
 
 ## Release checks — 2026-10-26
 
@@ -153,9 +151,7 @@ and enabled after that positive advance. That fixture run recorded one
 impression, start, first quartile, midpoint and third quartile; it did not record
 completion. These beacons followed the add-on's gated raw clock on this run, but
 do not prove its absolute position against decoded media. `mapping_proven` and
-`audible_output_verified` remain false. See the sanitized
-[`startup-gate report`](superpowers/reports/kodi-clock-startup-gate-2026-10-26.json)
-and [`clock-progress report`](superpowers/reports/kodi-clock-progress-2026-10-26.json).
+`audible_output_verified` remain false.
 
 ### Startup sample follow-up
 
@@ -196,9 +192,7 @@ completion was reported. The fixture endpoint counted one impression and one
 start. This confirms reset invalidation and shows that startup zero is still an
 unproven anchor; it does not establish playback against decoded sample positions.
 The run's `mapping_proven` and `audible_output_verified` flags remain false, and
-the Mac's locked desktop prevented listening confirmation. The sanitized player
-timeline is in
-[`kodi-clock-diagnostics-2026-10-26.json`](superpowers/reports/kodi-clock-diagnostics-2026-10-26.json).
+the Mac's locked desktop prevented listening confirmation.
 
 Focused tracking, adapter and event tests passed **56 tests**. The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,
 `check_package.py`, and `git diff --check` passed. The Kodi add-on checker was
@@ -1323,9 +1317,7 @@ and observed the resulting pause, resume, or seek effect. Seek validation
 accounts for the fastest playback speed observed during its poll interval, so
 fast-forward clock movement alone cannot pass as a seek. The current run passed
 normal live playback, finite VAST playback, pause/resume, seek, stop, expired
-window, mutation, and delayed-segment scenarios. The machine-readable player
-samples and fixture counters are in
-`docs/superpowers/reports/kodi-addon-acceptance-2026-10-26.json`.
+window, mutation, and delayed-segment scenarios.
 
 - Finite no-action and pause/resume runs each recorded exactly one impression,
   start, first quartile, midpoint, third quartile, and completion. During the
