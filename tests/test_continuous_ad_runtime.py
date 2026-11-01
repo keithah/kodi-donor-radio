@@ -43,6 +43,7 @@ def test_continuous_fixture_forces_buffered_video_player(kodi, monkeypatch, hand
     assert item.props['inputstream-player'] == 'videodefaultplayer'
     assert item.props['inputstream.ffmpegdirect.stream_mode'] == 'timeshift'
     assert item.props['inputstream.ffmpegdirect.is_realtime_stream'] == 'false'
+    assert item.props['inputstream.ffmpegdirect.terminal_eof'] == 'true'
     assert not stopped
 
 
@@ -50,6 +51,7 @@ def test_missing_buffered_player_preserves_adaptive(kodi, monkeypatch):
     state, stopped = play(kodi, monkeypatch, enabled=False)
     assert state.resolved[0][1].path == MASTER
     assert state.resolved[0][1].props['inputstream'] == 'inputstream.adaptive'
+    assert 'inputstream.ffmpegdirect.terminal_eof' not in state.resolved[0][1].props
     assert not stopped
 
 

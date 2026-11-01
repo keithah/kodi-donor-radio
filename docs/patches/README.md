@@ -12,8 +12,11 @@ briefly for buffered packets before reporting EOF, and only treats an upstream
 EOF as terminal when `inputstream.ffmpegdirect.terminal_eof=true` is explicitly
 provided. This property is forwarded through `addon.xml.in` and defaults off,
 so this change does not turn transient live-HLS reload EOFs into terminal EOF.
-Only the isolated diagnostic entry currently sets it for finite controlled
-fixtures; the shipped radio addon does not set it.
+The isolated diagnostic entries set it for finite controlled fixtures, and the
+shipped radio addon sets it on the buffered composed-fixture route, which closes
+only when the source playlist ends or fails. Stock 22.2.10 ignores the property,
+so without this patch that route still stalls in caching after the final
+segment (see the 2026-10-30 owned clock beacon report).
 
 Official FFmpegDirect 22.2.10 reports every timeshift stream as realtime, even
 when `inputstream.ffmpegdirect.is_realtime_stream=false` is supplied. Kodi's
