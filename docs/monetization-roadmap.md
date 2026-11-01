@@ -9,11 +9,15 @@ programme through four normal Kodi pauses without detected gaps or replay in the
 tested buffered profile. Treat that as a scoped historical result; its frozen
 offline clock estimator passed all 171 qualified measurements, but the raw
 player/delay clock, low-latency mode, startup and pause-tail timing remain
-unqualified. The native lab is preserved as optional source patches; it is not
-installed or required by the shipped Python addon. No production success beacons
-are enabled. The later owned-clock/beacon run failed its runtime gate;
-`docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md` is the current
-acceptance status. The buffered-profile capture details are in
+unqualified. On 2026-10-30, a fresh 360-second Kodi master capture of the
+bounded 128-segment fixture aligned the controlled replacement tone with all
+six loopback VAST success events, but then stalled near the fixture's expected
+end at player time 260.408 seconds, produced 76.4 seconds of captured silence,
+and did not reach natural EOF. No production success beacons are
+enabled; `docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-30.md` is the
+current acceptance status. The native lab is preserved as optional source
+patches; it is not installed or required by the shipped Python addon. The
+buffered-profile capture details are in
 `docs/superpowers/reports/kodi-owned-hls-final-capture-2026-10-28.txt`.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
