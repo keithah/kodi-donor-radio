@@ -1154,6 +1154,10 @@ def run_plugin(argv):
                 entry.setProperty('inputstream-player', 'videodefaultplayer')
                 entry.setProperty('inputstream.ffmpegdirect.stream_mode', 'timeshift')
                 entry.setProperty('inputstream.ffmpegdirect.is_realtime_stream', 'false')
+                # The composed fixture route closes only after the source playlist ends (or
+                # fails). Stock 22.2.10 ignores this; patched timeshift then reports Kodi EOF
+                # instead of caching forever on the closed source.
+                entry.setProperty('inputstream.ffmpegdirect.terminal_eof', 'true')
             elif adaptive:
                 entry.setProperty('inputstream', 'inputstream.adaptive')
                 entry.setProperty('inputstream.adaptive.play_timeshift_buffer', 'true')

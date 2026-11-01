@@ -46,8 +46,19 @@ position is near the end of this bounded fixture. Its rolling playlist adds
 followed by `CVideoPlayerAudio::Process - stream stalled`; the source segment
 127 was requested. This points to final-window/EOF handling in the controlled
 fixture path. The exact composed playlist bytes delivered at that point were
-not retained, so the cause is not yet established and this run does not show
-that a public radio stream stalls.
+not retained, and this run does not show that a public radio stream stalls.
+
+Root cause (log review, 2026-11-01): the playlist and relay behaved as designed.
+The relay sent every composed segment through source 127, then closed the
+`Connection: close` response; `CFileCache` logged `Hit eof` at 21:48:04 local.
+Playback used **stock** `inputstream.ffmpegdirect` 22.2.10 in `timeshift` mode
+(`Num Props: 2`, no `terminal_eof` support in the installed addon). Its timeshift
+reader read its last segment (id 21) at 21:48:07 and never reported EOF, so
+VideoPlayer logged `stream stalled` at 21:48:20 and stayed in `caching state 1`
+until the manual Stop at 21:50:44. The add-on now sets
+`inputstream.ffmpegdirect.terminal_eof=true` on this buffered route; natural EOF
+still requires the `timeshift-startup-eof` FFmpegDirect patch (or an upstream
+equivalent) and a fresh capture to confirm.
 
 The capture timing sidecar itself is clean, but that only says the recorder did
 not lose timestamps. It does not make the silent audio acceptable. The RPC
