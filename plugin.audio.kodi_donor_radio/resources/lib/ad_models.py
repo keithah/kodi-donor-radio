@@ -87,6 +87,8 @@ class Presentation:
     segments: Tuple[OutputSegment, ...]
     placements: Tuple[Placement, ...]
     ended: bool
+    # A later ENDLIST cannot establish where an already live player started.
+    initially_finite: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,3 +100,6 @@ class PlaybackSample:
     paused: bool
     seeking: bool
     mapped: bool
+    caching: bool = False
+    speed: Optional[float] = 1.0
+    speed_changed: bool = False

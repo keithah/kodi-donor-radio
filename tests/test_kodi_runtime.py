@@ -28,104 +28,6 @@ def station_payload(station):
                        for key in ('uuid', 'name', 'url', 'codec', 'hls')})
 
 
-@pytest.fixture
-def kodi(monkeypatch, tmp_path):
-    state = SimpleNamespace(items=[], resolved=[], ended=[], messages=[], notifications=[], logs=[], settings={},
-                            input='jazz', cancel=False, abort=False, waits=0, players=[], action=None,
-                            player_paused=False, player_caching=False, selections=[], confirmations=[],
-                            dialog_choices=None, dialog_inputs=None, builtins=[], contents=[],
-                            selection=-1, remember=False, memory_selection=None, on_select=None, on_confirm=None,
-                            window_properties={})
-    class Item:
-        def __init__(self, label='', path=''):
-            self.label, self.path, self.props = label, path, {}
-            self.label2, self.art, self.info, self.context = '', {}, {}, []
-            self.music_info = MusicInfoTag()
-        def addContextMenuItems(self, values): self.context.extend(values)
-        def getMusicInfoTag(self): return self.music_info
-        def setLabel2(self, value): self.label2 = value
-        def setArt(self, value): self.art = value
-        def setInfo(self, kind, value): self.info[kind] = value
-        def setIsFolder(self, value): self.folder = value
-        def setProperty(self, key, value): self.props[key] = value
-        def setMimeType(self, value): self.mime = value
-        def setContentLookup(self, value): self.lookup = value
-    class Dialog:
-        def input(self, heading):
-            state.messages.append(heading)
-            return state.dialog_inputs.pop(0) if state.dialog_inputs is not None else state.input
-        def ok(self, heading, message): state.messages.append(message)
-        def select(self, heading, options):
-            state.selections.append((heading, options))
-            if state.dialog_choices is not None:
-                if state.on_select: state.on_select()
-                return state.dialog_choices.pop(0)
-            if len(state.selections) == 2:
-                state.confirmations.append((heading, options))
-                if state.on_confirm: state.on_confirm()
-                if state.memory_selection is not None: return state.memory_selection
-                return 0 if state.remember else 1
-            if state.on_select: state.on_select()
-            return state.selection
-        def yesno(self, heading, message):
-            state.confirmations.append((heading, message))
-            if state.on_confirm: state.on_confirm()
-            return state.remember
-        def notification(self, heading, message, icon, time):
-            state.notifications.append((heading, message, icon, time))
-    class MusicInfoTag:
-        def __init__(self): self.title, self.genres, self.comment = '', [], ''
-        def setTitle(self, value): self.title = value
-        def setGenres(self, value): self.genres = value
-        def setComment(self, value): self.comment = value
-    class Progress:
-        def create(self, heading, message): state.messages.append(message)
-        def iscanceled(self): return state.cancel
-        def close(self): pass
-    class Monitor:
-        def abortRequested(self): return state.abort
-        def waitForAbort(self, timeout):
-            state.waits += 1
-            if state.action: state.action(self)
-            time.sleep(min(timeout, .001))
-            return state.abort
-    class Player:
-        def __init__(self): self.file = ''; self.playing = False; state.players.append(self)
-        def getPlayingFile(self): return self.file
-        def isPlaying(self): return self.playing
-        def play(self, path, listitem): self.file = path; self.playing = True; self.item = listitem
-    class Addon:
-        def getAddonInfo(self, key): return {'profile': str(tmp_path), 'name': 'Kodi Donor Radio', 'path': str(ADDON)}[key]
-        def getLocalizedString(self, key): return 'localized-%d' % key
-        def getSettingBool(self, key): return state.settings.get(key, False)
-        def getSetting(self, key): return state.settings.get(key, '')
-        def openSettings(self): state.settings_opened = True
-    class Window:
-        def __init__(self, window_id): self.window_id = window_id
-        def getProperty(self, key): return state.window_properties.get(key, '')
-        def setProperty(self, key, value): state.window_properties[key] = value
-    modules = {
-        'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
-                                getCondVisibility=lambda condition: state.player_paused if condition == 'Player.Paused' else state.player_caching,
-                                executebuiltin=lambda value: state.builtins.append(value),
-                                log=lambda value, level: state.logs.append(value)),
-        'xbmcaddon': SimpleNamespace(Addon=Addon),
-        'xbmcgui': SimpleNamespace(ListItem=Item, Dialog=Dialog, DialogProgress=Progress,
-                                  Window=Window, NOTIFICATION_ERROR='error'),
-        'xbmcplugin': SimpleNamespace(
-            addDirectoryItem=lambda handle, url, listitem, isFolder=False: state.items.append((url,listitem,isFolder)),
-            endOfDirectory=lambda handle, **kwargs: state.ended.append(kwargs),
-            setResolvedUrl=lambda handle, succeeded, listitem: state.resolved.append((succeeded,listitem)),
-            setContent=lambda *args: state.contents.append(args)),
-        'xbmcvfs': SimpleNamespace(translatePath=lambda value: value),
-    }
-    for name, module in modules.items(): monkeypatch.setitem(sys.modules, name, module)
-    sys.modules.pop('kodi_runtime', None)
-    runtime = importlib.import_module('kodi_runtime')
-    yield runtime, state, tmp_path
-    sys.modules.pop('kodi_runtime', None)
-
-
 def route(runtime, **params):
     runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '7', '?' + urlencode(params)])
 
@@ -236,7 +138,8 @@ def test_controlled_ad_sources_appear_in_test_menu(kodi):
                 for url, _, _ in state.items]
     paths = {urlsplit(station.url).path for station in stations}
     assert {'/source/normal/index.m3u8', '/source/mutation/index.m3u8',
-            '/source/expired-window/index.m3u8', '/source/stall/index.m3u8'} <= paths
+            '/source/expired-window/index.m3u8', '/source/finite/index.m3u8',
+            '/source/stall/index.m3u8'} <= paths
     assert all(station.hls and station.codec == 'AAC' for station in stations
                if '/source/' in station.url)
     translations = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
@@ -379,9 +282,11 @@ def test_root_and_station_context_open_same_shared_map_without_clicks(kodi, monk
     source = 'plugin://plugin.audio.kodi_donor_radio?mode=tag&tag=jazz'
     route(runtime, mode='map', uuid=STATION.uuid, origin=source)
     assert opened[-1].kwargs['selected_uuid'] == STATION.uuid and opened[-1].modal
-    assert opened[-1].kwargs['stations'] == [STATION]
+    assert opened[-1].kwargs['stations'] == [runtime.StationSummary.from_station(STATION)]
     assert opened[-1].kwargs['origin_route'] == source
     assert opened[-1].kwargs['playback_arbiter'].lock_path == profile / 'playback-start.lock'
+    assert opened[-1].kwargs['profile_path'] == profile
+    assert opened[-1].kwargs['geometry_path'] == ADDON / 'resources/map/natural_earth_110m_land.json'
     assert opened[-1].native[0] == 'map.xml'
     assert opened[-1].native[1] == opened[-1].kwargs['addon_path']
     assert opened[-1].native[2:] == ('Default', '1080i', False)
@@ -421,7 +326,7 @@ def test_map_selected_lookup_failure_keeps_successful_discovery_and_reports_look
     opened = install_map_window(monkeypatch)
     route(runtime, mode='map', uuid=STATION.uuid)
     assert opened[-1].kwargs['status_message'] == 'localized-30164'
-    assert opened[-1].kwargs['stations'] == [STATION]
+    assert opened[-1].kwargs['stations'] == [runtime.StationSummary.from_station(STATION)]
 
 
 @pytest.mark.parametrize('discovery_fails', [False, True])
@@ -582,6 +487,8 @@ def test_playback_resolves_only_service_url_reports_click_once(kodi,monkeypatch,
     assert created==[STATION] and browser.clicks==['station-1']
     assert len(state.resolved)==1 and state.resolved[0][0]
     assert click_states == [state.resolved]
+    from radio_ui import HistoryStore
+    assert HistoryStore(profile).list()[0].play_count == 1
     assert stopped == []
     assert 'localized-30011' not in state.messages
     assert state.resolved[0][1].path=='http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48
@@ -689,12 +596,15 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==19
+    assert len(state.items)==23
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(station_payload(runtime._fixture_station(parse_qs(urlsplit(state.items[0][0]).query)['id'][0])))
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
     paths=[runtime._fixture_station(parse_qs(urlsplit(url).query)['id'][0]).url for url,_,_ in state.items]
     assert paths[5]=='http://127.0.0.1:8765/hls/missing-end/index.m3u8'
+    assert 'http://127.0.0.1:8765/source/extended/index.m3u8' in paths
+    assert 'http://127.0.0.1:8765/source/late-break/index.m3u8' in paths
+    assert 'http://127.0.0.1:8765/source/recovery/index.m3u8' in paths
 
 
 @pytest.mark.parametrize('callback',['onPlayBackStopped','onPlayBackEnded','onPlayBackError'])
@@ -1469,7 +1379,7 @@ def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(k
     browser = directory(monkeypatch, runtime)
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
     route(runtime, mode='tests')
-    assert len(state.items) == 19
+    assert len(state.items) == 23
     for link, item, folder in state.items:
         params = parse_qs(urlsplit(link).query)
         assert set(params) == {'mode', 'id'} and params['mode'] == ['play_fixture']
@@ -1502,6 +1412,39 @@ def test_uuid_play_resolves_transient_station_before_existing_relay(kodi, monkey
     route(runtime, mode='play', uuid='station-1', station=station_payload(Station('evil', 'Evil', 'https://evil', '', False)))
     assert browser.lookups == ['station-1'] and created == [STATION]
     assert browser.clicks == ['station-1'] and state.resolved[0][0]
+
+
+def test_deeply_nested_history_profile_does_not_suppress_play_reporting(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    path = profile / 'history.json'
+    malformed = ('[' * 2000 + '0' + ']' * 2000).encode()
+    path.write_bytes(malformed)
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64),
+        create=lambda station: {'id': 'c' * 48,
+            'playback_url': 'http://127.0.0.1:32123/media/' + 'c' * 48 + '/' + 'd' * 48,
+            'mime_type': 'audio/mpeg'})
+    monkeypatch.setattr(runtime, '_service', lambda *args, **kwargs: client)
+
+    route(runtime, mode='play', uuid='station-1')
+
+    assert state.resolved[0][0]
+    assert browser.clicks == ['station-1']
+    assert path.read_bytes() == malformed
+
+
+def test_deeply_nested_recent_search_profile_does_not_suppress_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    path = profile / 'recent_searches.json'
+    malformed = ('[' * 2000 + '0' + ']' * 2000).encode()
+    path.write_bytes(malformed)
+
+    route(runtime, mode='search', name='jazz')
+
+    assert len(browser.searches) == 1
+    assert state.items[0][1].label == STATION.name
+    assert path.read_bytes() == malformed
 
 
 def test_favorites_render_cached_order_without_directory_lookup(kodi, monkeypatch):
@@ -2079,6 +2022,8 @@ def test_ordinary_play_timestamps_favorite_and_profile_failure_cannot_revoke_pla
     monkeypatch.setattr(FavoriteStore, 'mark_played', fail)
     route(runtime, mode='play', uuid='station-1')
     assert state.resolved[-1][0] and store.list()[0].last_played == stamp
+    from radio_ui import HistoryStore
+    assert HistoryStore(profile).list()[0].play_count == 2
     assert browser.clicks == ['station-1', 'station-1']
     assert 'localized-30011' not in state.messages
 
@@ -2115,3 +2060,715 @@ def test_radius_unit_translation_is_miles():
     strings = (ADDON / 'resources/language/resource.language.en_gb/strings.po').read_text()
     entries = dict(re.findall(r'^msgctxt "#(\d+)"\nmsgid (".*")(?:\n|$)', strings, re.MULTILINE))
     assert json.loads(entries['30136']) == 'miles'
+
+
+def test_submitted_search_persists_once_and_pagination_preserves_timestamp(kodi, monkeypatch):
+    from radio_ui import RecentSearchStore
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    state.input = ' Jazz '
+    route(runtime, mode='search')
+    records = RecentSearchStore(profile).list()
+    assert len(records) == 1 and (records[0].query, records[0].scope) == (' Jazz ', 'name')
+    assert records[0].timestamp
+    before = (profile / 'recent_searches.json').read_bytes()
+    route(runtime, mode='search', name=' Jazz ', offset=50)
+    assert (profile / 'recent_searches.json').read_bytes() == before
+    route(runtime, mode='search', name='rock')
+    assert [r.query for r in RecentSearchStore(profile).list()] == ['rock', ' Jazz ']
+
+
+@pytest.mark.parametrize('query', ['', '   '])
+def test_blank_search_does_not_enter_recent_searches(kodi, monkeypatch, query):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    state.input = query
+    route(runtime, mode='search')
+    assert not (profile / 'recent_searches.json').exists()
+
+
+def test_recent_search_profile_error_does_not_hide_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'recent_searches.json').write_text('invalid')
+    route(runtime, mode='search')
+    assert any(item.label == 'Station One' for _, item, _ in state.items)
+    assert state.ended[-1]['succeeded']
+    assert (profile / 'recent_searches.json').read_text() == 'invalid'
+
+
+@pytest.mark.parametrize('handle', ['7', '-1'])
+def test_resolved_real_plays_persist_history_even_without_favorite(kodi, monkeypatch, handle):
+    from radio_ui import HistoryStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    for _ in range(2):
+        runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', handle, '?mode=play&uuid=station-1'])
+    records = HistoryStore(profile).list()
+    assert len(records) == 1
+    assert (records[0].station_uuid, records[0].play_count) == ('station-1', 2)
+    assert records[0].last_played
+    assert browser.clicks == ['station-1', 'station-1']
+    assert not (profile / 'favorites.json').exists()
+
+
+def test_history_profile_error_cannot_revoke_play_or_click_reporting(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    (profile / 'history.json').write_text('invalid')
+    route(runtime, mode='play', uuid='station-1')
+    assert len(state.resolved) == 1 and state.resolved[0][0]
+    assert browser.clicks == ['station-1']
+    assert 'localized-30011' not in state.messages
+    assert (profile / 'history.json').read_text() == 'invalid'
+
+
+def test_failed_resolution_and_fixture_play_do_not_enter_history(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    client = runtime._service()
+    client.stop = lambda *_args: None
+    monkeypatch.setattr(runtime, '_service', lambda *args: client)
+    def fail(*args): raise OSError('resolution failed')
+    monkeypatch.setattr(runtime.xbmcplugin, 'setResolvedUrl', fail)
+    with pytest.raises(OSError):
+        route(runtime, mode='play', uuid='station-1')
+    assert not (profile / 'history.json').exists()
+    assert browser.clicks == []
+    monkeypatch.setattr(runtime.xbmcplugin, 'setResolvedUrl', lambda h, success, item: state.resolved.append((success, item)))
+    monkeypatch.setattr(runtime, '_fixture_station', lambda _: Station('fixture-1', 'Fixture', 'http://127.0.0.1:12345/live', '', False))
+    route(runtime, mode='play_fixture', id='fixture-1')
+    assert state.resolved[-1][0]
+    assert not (profile / 'history.json').exists()
+    assert browser.clicks == []
+
+
+def test_fixture_launch_shutdown_cancels_without_modal_error(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    station = Station('fixture-30174', 'Fixture', 'http://127.0.0.1:18789/source/live/index.m3u8', 'AAC', True)
+    monkeypatch.setattr(runtime, '_fixture_station', lambda _identifier: station)
+    monkeypatch.setattr(runtime, 'ad_settings', lambda: SimpleNamespace(enabled=True))
+    monkeypatch.setattr(runtime, '_inputstream_version', lambda _addon_id: '22.2.10')
+    cancelled = []
+    class Client:
+        def reserve_fixture_launch(self, _uuid):
+            state.abort = True
+            return 'a' * 48
+        def cancel_fixture_launch(self, nonce): cancelled.append(nonce)
+    monkeypatch.setattr(runtime, '_service', lambda *args, **kwargs: Client())
+
+    route(runtime, mode='launch_fixture', id=station.uuid)
+
+    assert 'localized-30011' not in state.messages
+    assert cancelled == ['a' * 48]
+
+
+@pytest.mark.parametrize('store_name,mode', [('HistoryStore', 'play'), ('RecentSearchStore', 'search')])
+def test_profile_disk_failure_does_not_block_requested_action(kodi, monkeypatch, store_name, mode):
+    from radio_ui import HistoryStore, RecentSearchStore
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    playback_client(runtime, monkeypatch)
+    store_type = HistoryStore if store_name == 'HistoryStore' else RecentSearchStore
+    def fail(*args): raise OSError('disk full')
+    monkeypatch.setattr(store_type, '_write', fail)
+    route(runtime, mode=mode, uuid='station-1')
+    if mode == 'play':
+        assert len(state.resolved) == 1 and state.resolved[0][0]
+        assert browser.clicks == ['station-1']
+    else:
+        assert any(item.label == 'Station One' for _, item, _ in state.items)
+        assert state.ended[-1]['succeeded']
+    assert not (profile / store_type.filename).exists()
+
+
+@pytest.mark.parametrize('mode', ['countries', 'tags'])
+def test_directory_cache_taxonomy_reuses_then_expires(kodi, monkeypatch, mode):
+    runtime, state, profile = kodi
+    import radio_ui
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    if mode == 'countries':
+        def fetch(): calls.append(1); return [('Canada', 'CA')]
+        browser.country_entries = fetch
+    else:
+        def fetch(offset, limit): calls.append(offset); return ['jazz'], True
+        browser.tags_page = fetch
+    route(runtime, mode=mode)
+    route(runtime, mode=mode)
+    assert len(calls) == 1
+    if mode == 'tags': assert 'offset=50' in state.items[-1][0]
+    now[0] += 7 * 86400
+    route(runtime, mode=mode)
+    assert len(calls) == 2
+
+
+def test_directory_cache_hit_does_not_show_network_progress_ui(kodi, monkeypatch):
+    import radio_ui
+    runtime, state, profile = kodi
+    radio_ui.DirectoryCacheStore(profile).put('countries', 'all', [('Canada', 'CA')])
+    directory(monkeypatch, runtime)
+    original = runtime._operation
+    def operation(function, monitor, cancel, cleanup=None, show_progress=True):
+        if show_progress:
+            pytest.fail('fresh cache should not start network progress UI')
+        return original(function, monitor, cancel, cleanup, show_progress)
+    monkeypatch.setattr(runtime, '_operation', operation)
+
+    route(runtime, mode='countries')
+
+    assert state.items[0][1].label == 'Canada'
+
+
+def test_operation_without_progress_does_not_touch_uncreated_dialog(kodi):
+    runtime, _, _ = kodi
+    monitor = runtime.xbmc.Monitor()
+    cancel = threading.Event()
+    assert runtime._operation(lambda: 'cached', monitor, cancel, show_progress=False) == 'cached'
+
+
+def test_directory_cache_place_identity_stale_and_safe_rows(kodi, monkeypatch):
+    from dataclasses import replace
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    store = radio_ui.PlaceStore(profile)
+    place = store.save('Home', 0, 0, 25)
+    other = store.save('Other', 0, 0, 25)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(code, offset, limit):
+        calls.append(offset)
+        return [replace(STATION, latitude=0, longitude=0)], True
+    browser.geographic = fetch
+    route(runtime, mode='place', id=place.place_id)
+    route(runtime, mode='place', id=place.place_id)
+    assert calls == [0]
+    route(runtime, mode='place', id=other.place_id)
+    route(runtime, mode='place', id=place.place_id, offset=50)
+    store.set_radius(place.place_id, 60)
+    route(runtime, mode='place', id=place.place_id)
+    assert calls == [0, 0, 50, 0]
+    now[0] += 86400
+    browser.geographic = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='place', id=place.place_id)
+    assert state.items[0][1].label == 'Station One'
+    assert 'offset=50' in state.items[-1][0]
+    data = (profile / 'directory_cache.json').read_text()
+    assert STATION.url not in data and '"url"' not in data
+    assert all(type(row) is radio_ui.StationSummary for entry in radio_ui.DirectoryCacheStore(profile, clock=lambda: now[0]).list() for row in entry.rows)
+
+
+def test_directory_cache_map_exact_view_country_and_stale(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_map import MapView
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]), raising=False)
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(code, offset, limit): calls.append(code); return [replace(STATION, latitude=0, longitude=0)], False
+    browser.geographic = fetch
+    opened = install_map_window(monkeypatch)
+    view = [MapView(10, -10, -20, 20, 1000, 650)]
+    monkeypatch.setattr(runtime, '_map_view', lambda **kwargs: view[0])
+    radio_ui.PlaceStore(profile).save('Home', 0, 0, 25, country_code='CA')
+    route(runtime, mode='map'); route(runtime, mode='map')
+    assert calls == ['CA']
+    for changed in [MapView(11, -10, -20, 20, 1000, 650),
+                    MapView(11, -11, -20, 20, 1000, 650),
+                    MapView(11, -11, -21, 20, 1000, 650),
+                    MapView(11, -11, -21, 21, 1000, 650),
+                    MapView(11, -11, -21, 21, 999, 650),
+                    MapView(11, -11, -21, 21, 999, 649)]:
+        view[0] = changed
+        route(runtime, mode='map')
+    assert calls == ['CA'] * 7
+    store = radio_ui.PlaceStore(profile)
+    store.remove(store.list()[0].place_id)
+    store.save('Home', 0, 0, 25, country_code='FR')
+    route(runtime, mode='map')
+    assert calls == ['CA'] * 7 + ['FR']
+    now[0] += 86400
+    browser.geographic = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='map')
+    assert opened[-1].kwargs['stations'][0].name == 'Station One'
+
+
+def test_directory_cache_search_survives_reload_without_profile_results_and_play_resolves(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='search', name='jazz')
+    runtime = importlib.reload(runtime)
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: browser)
+    route(runtime, mode='search', name='jazz')
+    assert len(browser.searches) == 1
+    assert state.window_properties
+    for path in profile.glob('*.json'):
+        assert 'Station One' not in path.read_text() and STATION.url not in path.read_text()
+    monkeypatch.setattr(runtime, '_service', lambda *args: (_ for _ in ()).throw(OSError('offline')))
+    route(runtime, mode='play', uuid=STATION.uuid)
+    assert browser.lookups == ['station-1']
+
+
+@pytest.mark.parametrize('broken', ['{bad', '[1]', 'x' * (512 * 1024 + 1)], ids=['json', 'schema', 'oversized'])
+def test_directory_cache_invalid_search_property_is_removed(kodi, monkeypatch, broken):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    state.window_properties['kodi_donor_radio.search_pages'] = broken
+    route(runtime, mode='search', name='jazz')
+    assert len(browser.searches) == 1
+    assert state.window_properties['kodi_donor_radio.search_pages'] != broken
+
+
+def test_directory_cache_search_evicts_oldest_and_bounds_bytes(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([STATION], False)
+    for index in range(66): route(runtime, mode='search', name='query-%d' % index)
+    payload = state.window_properties['kodi_donor_radio.search_pages']
+    document = json.loads(payload)
+    assert len(document['pages']) == 64
+    assert len(payload.encode('utf-8')) <= 512 * 1024
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='query-65')
+    assert state.items[0][1].label == 'Station One'
+    state.items.clear()
+    route(runtime, mode='search', name='query-0')
+    assert state.items[0][1].label == 'localized-30006'
+
+
+def test_directory_cache_search_expires_and_uses_stale_page_on_fetch_failure(kodi, monkeypatch):
+    from types import SimpleNamespace
+    runtime, state, _profile = kodi
+    browser = directory(monkeypatch, runtime)
+    now = [1000.0]
+    monkeypatch.setattr(runtime, 'time', SimpleNamespace(time=lambda: now[0]))
+    browser.search_page = lambda *args: ([STATION], True)
+
+    route(runtime, mode='search', name='jazz')
+    property_name = 'kodi_donor_radio.search_pages'
+    document = json.loads(state.window_properties[property_name])
+    assert document['version'] == 2
+    initial = document['pages'][0]
+    assert initial['stored_at'] == 1000.0
+
+    now[0] += 86401
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='jazz')
+
+    assert state.items[0][1].label == 'Station One'
+    stale = json.loads(state.window_properties[property_name])['pages'][0]
+    assert stale['stored_at'] == 1000.0
+
+    browser.search_page = lambda *args: ([], False)
+    route(runtime, mode='search', name='jazz')
+    refreshed = json.loads(state.window_properties[property_name])['pages'][0]
+    assert refreshed['stored_at'] == now[0]
+    assert refreshed['more'] is False
+
+
+def test_directory_cache_search_unrepresentably_future_timestamp_falls_back(kodi, monkeypatch):
+    runtime, state, _profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([STATION], True)
+    route(runtime, mode='search', name='jazz')
+    property_name = 'kodi_donor_radio.search_pages'
+    document = json.loads(state.window_properties[property_name])
+    document['pages'][0]['stored_at'] = 10 ** 400
+    state.window_properties[property_name] = json.dumps(document)
+
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    state.items.clear()
+    route(runtime, mode='search', name='jazz')
+
+    assert state.items[0][1].label == 'Station One'
+
+
+def test_directory_cache_storage_errors_do_not_hide_live_results(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'directory_cache.json').write_text('{bad')
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'
+
+
+def test_directory_cache_search_byte_limit_evicts_before_page_limit(kodi, monkeypatch):
+    from dataclasses import replace
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.search_page = lambda *args: ([replace(STATION, uuid='station-%d' % i,
+        name='é' * 512, tags='é' * 1024) for i in range(50)], True)
+    for index in range(10): route(runtime, mode='search', name='large-%d' % index)
+    raw = state.window_properties['kodi_donor_radio.search_pages']
+    assert len(raw.encode('utf-8')) <= 512 * 1024
+    assert 0 < len(json.loads(raw)['pages']) < 10
+    assert STATION.url not in raw and '"url"' not in raw
+
+
+@pytest.mark.parametrize('mode', ['countries', 'tags', 'place', 'map'])
+def test_directory_cache_cancelled_fetch_never_returns_stale(kodi, monkeypatch, mode):
+    from dataclasses import replace
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]))
+    browser = directory(monkeypatch, runtime)
+    browser.geographic = lambda *args: ([replace(STATION, latitude=0, longitude=0)], False)
+    browser.tags_page = lambda *args: (['jazz'], False)
+    opened = install_map_window(monkeypatch)
+    place = radio_ui.PlaceStore(profile).save('Home', 0, 0, 25)
+    params = dict(mode=mode, **({'id': place.place_id} if mode == 'place' else {}))
+    route(runtime, **params)
+    now[0] += 8 * 86400
+    state.items.clear()
+    state.cancel = True
+    route(runtime, **params)
+    assert not state.items
+    if mode == 'map': assert len(opened) == 1
+
+
+@pytest.mark.parametrize('error', [OSError, ValueError, TypeError])
+def test_directory_cache_write_failure_keeps_live_page(kodi, monkeypatch, error):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    def fail(*args, **kwargs): raise error('cache unavailable')
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'put', fail)
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'
+
+
+def test_directory_cache_invalid_search_rows_removed_even_if_offline(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='search', name='jazz')
+    document = json.loads(state.window_properties['kodi_donor_radio.search_pages'])
+    document['pages'][0]['rows'][0]['url'] = STATION.url
+    state.window_properties['kodi_donor_radio.search_pages'] = json.dumps(document)
+    browser.search_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='search', name='jazz')
+    assert 'kodi_donor_radio.search_pages' not in state.window_properties
+
+
+def test_directory_cache_deeply_nested_profile_is_ignored(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    (profile / 'directory_cache.json').write_text('[' * 2000 + '0' + ']' * 2000)
+    route(runtime, mode='countries')
+    assert state.items[0][1].label == 'Canada'
+
+
+@pytest.mark.parametrize('method', ['__init__', 'getProperty', 'setProperty', 'clearProperty'])
+@pytest.mark.parametrize('failure', [OSError, RuntimeError])
+def test_directory_cache_property_errors_keep_live_search_rows(kodi, monkeypatch, method, failure):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    if method == 'clearProperty':
+        state.window_properties['kodi_donor_radio.search_pages'] = '{bad'
+    def fail(*args): raise failure('window unavailable')
+    monkeypatch.setattr(runtime.xbmcgui.Window, method, fail)
+    route(runtime, mode='search', name='jazz')
+    assert state.items[0][1].label == 'Station One'
+    assert len(browser.searches) == 1
+
+
+def test_directory_cache_malformed_tags_round_trip_offline_with_raw_continuation(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    browser.tags_page = lambda *args: (['jazz', 'x' * 257, 'bad\x01tag', '', 'news'], True)
+    route(runtime, mode='tags')
+    state.items.clear()
+    browser.tags_page = lambda *args: (_ for _ in ()).throw(OSError('offline'))
+    route(runtime, mode='tags')
+    assert [item.label for _, item, _ in state.items] == ['jazz', 'news', 'localized-30005']
+    assert 'offset=50' in state.items[-1][0]
+    assert runtime.DirectoryCacheStore(profile).get('tags', '[0]', 60).continuation is True
+
+
+def test_directory_cache_contended_write_remains_cancellable(kodi, monkeypatch):
+    from playback_arbiter import profile_file_lock
+    runtime, state, profile = kodi
+    directory(monkeypatch, runtime)
+    entered, completed = threading.Event(), threading.Event()
+    original = runtime.DirectoryCacheStore.put
+    def put(self, *args, **kwargs):
+        entered.set()
+        try: return original(self, *args, **kwargs)
+        finally: completed.set()
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'put', put)
+    state.action = lambda monitor: setattr(state, 'abort', True) if entered.is_set() else None
+    # A watchdog releases the lock on the unfixed implementation, ensuring RED
+    # is an assertion failure instead of leaving the test process deadlocked.
+    with profile_file_lock(profile / '.directory_cache.json.lock'):
+        finished = threading.Event()
+        errors = []
+        def browse():
+            try: route(runtime, mode='countries')
+            except Exception as error: errors.append(error)
+            finally: finished.set()
+        worker = threading.Thread(target=browse, daemon=True)
+        worker.start()
+        assert entered.wait(1)
+        responsive = finished.wait(1)
+    worker.join(2)
+    assert completed.wait(2)
+    assert not errors
+    assert responsive, 'directory write blocked cancellation while cache lock was held'
+    assert not state.items
+    assert state.ended[-1]['succeeded'] is False
+
+
+def test_directory_cache_mid_fetch_cancel_does_not_render_stale(kodi, monkeypatch):
+    import radio_ui
+    runtime, state, profile = kodi
+    now = [1000000.0]
+    monkeypatch.setattr(runtime, 'DirectoryCacheStore', lambda path: radio_ui.DirectoryCacheStore(path, clock=lambda: now[0]))
+    browser = directory(monkeypatch, runtime)
+    route(runtime, mode='countries')
+    now[0] += 8 * 86400
+    entered, release = threading.Event(), threading.Event()
+    def fetch():
+        entered.set()
+        release.wait(2)
+        raise OSError('offline')
+    browser.country_entries = fetch
+    state.items.clear()
+    state.action = lambda monitor: setattr(state, 'cancel', True) if entered.is_set() else None
+    try:
+        route(runtime, mode='countries')
+        assert entered.is_set()
+        assert not state.items
+        assert state.ended[-1]['succeeded'] is False
+    finally:
+        release.set()
+
+
+def test_directory_cache_slow_profile_read_remains_cancellable(kodi, monkeypatch):
+    runtime, state, profile = kodi
+    browser = directory(monkeypatch, runtime)
+    entered, release, completed = threading.Event(), threading.Event(), threading.Event()
+    def get(*args, **kwargs):
+        entered.set()
+        try: release.wait(2)
+        finally: completed.set()
+        return None
+    monkeypatch.setattr(runtime.DirectoryCacheStore, 'get', get)
+    state.action = lambda monitor: setattr(state, 'abort', True) if entered.is_set() else None
+    try:
+        route(runtime, mode='countries')
+        assert entered.is_set()
+        assert not completed.is_set()
+        assert not state.items
+        assert state.ended[-1]['succeeded'] is False
+    finally:
+        release.set()
+        assert completed.wait(1)
+
+
+def test_favorite_refresh_local_listing_finishes_before_once_per_session_schedule(kodi, monkeypatch):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved offline'))
+    browser = directory(monkeypatch, runtime)
+    browser.by_uuids = lambda *args: pytest.fail('listing performed directory lookup')
+    scheduled = []
+    def execute(command):
+        assert state.items[0][1].label == 'Saved offline'
+        assert state.ended[-1]['succeeded'] is True
+        scheduled.append(command)
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', execute)
+    route(runtime, mode='favorites')
+    runtime = importlib.reload(runtime)
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: browser)
+    route(runtime, mode='favorites')
+    assert scheduled == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+    assert not state.messages and not state.notifications
+    assert {p.name for p in profile.glob('*.json')} == {'favorites.json'}
+
+
+def test_favorite_refresh_batches_atomic_display_update_and_missing_retained(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    # One atomic seed keeps the fixture about behavior, not 101 fsync calls.
+    records = [StationSummary('s-%d' % i, 'Saved %d' % i,
+               last_played='2026-10-23T12:00:00Z') for i in range(101)]
+    store._write(records)
+    route(runtime, mode='favorites')
+    state.builtins.clear()
+    state.items.clear(); state.ended.clear(); state.contents.clear()
+    browser = directory(monkeypatch, runtime)
+    batches = []
+    def fetch(ids):
+        assert store.list() == records
+        batches.append(ids)
+        return [replace(STATION, uuid=key, name='New ' + key) for key in ids if key != 's-1']
+    browser.by_uuids = fetch
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', lambda label: 'plugin://plugin.audio.kodi_donor_radio/?mode=favorites&offset=50', raising=False)
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert batches == [[r.station_uuid for r in records[:50]],
+                       [r.station_uuid for r in records[50:100]], ['s-100']]
+    result = store.list()
+    assert [r.station_uuid for r in result] == [r.station_uuid for r in records]
+    assert result[0].name == 'New s-0' and result[1] == records[1] and result[-1].name == 'New s-100'
+    assert all(r.last_played == '2026-10-23T12:00:00Z' for r in result)
+    assert STATION.url not in store.path.read_text() and '"url"' not in store.path.read_text()
+    assert state.builtins == ['Container.Refresh']
+    assert not state.items and not state.ended and not state.contents
+    assert not state.messages and not state.notifications
+    route(runtime, mode='favorites')
+    assert state.builtins == ['Container.Refresh']
+
+
+def test_favorite_refresh_later_batch_failure_keeps_all_bytes_and_allows_retry(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store._write([StationSummary('s-%d' % i, 'Saved') for i in range(51)])
+    before = store.path.read_bytes()
+    route(runtime, mode='favorites')
+    state.builtins.clear(); state.messages.clear(); state.ended.clear(); state.items.clear()
+    browser = directory(monkeypatch, runtime)
+    calls = []
+    def fetch(ids):
+        calls.append(ids)
+        if len(calls) == 2: raise OSError('offline')
+        return [replace(STATION, uuid=key, name='Changed') for key in ids]
+    browser.by_uuids = fetch
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert len(calls) == 2 and store.path.read_bytes() == before
+    assert not state.messages and not state.notifications and not state.builtins and not state.ended
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved'
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+
+
+@pytest.mark.parametrize('away', ['home', 'map', 'external', 'unavailable'])
+def test_favorite_refresh_navigation_away_never_refreshes_visible_container(kodi, monkeypatch, away):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    def fetch(ids):
+        if away == 'home': route(runtime, mode='home')
+        if away == 'map':
+            monkeypatch.setattr(runtime, '_ui_transition', lambda *args: None)
+            runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=map'])
+        return [replace(STATION, uuid='a', name='Updated')]
+    browser.by_uuids = fetch
+    path = 'plugin://other.addon/?mode=favorites' if away == 'external' else 'plugin://plugin.audio.kodi_donor_radio/?mode=favorites'
+    def folder(label):
+        if away == 'unavailable': raise RuntimeError('window unavailable')
+        return path
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', folder, raising=False)
+    state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.list()[0].name == 'Updated'
+    assert not state.builtins
+
+
+@pytest.mark.parametrize('error', [OSError, ValueError, RuntimeError])
+def test_favorite_refresh_storage_failure_is_quiet_and_retryable(kodi, monkeypatch, error):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    browser.by_uuids = lambda ids: [replace(STATION, uuid='a', name='Updated')]
+    def fail(*args): raise error('unavailable')
+    monkeypatch.setattr(FavoriteStore, 'refresh', fail, raising=False)
+    state.messages.clear(); state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.list()[0].name == 'Saved' and not state.messages and not state.notifications
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+
+
+@pytest.mark.parametrize('method', ['__init__', 'getProperty', 'setProperty'])
+def test_favorite_refresh_window_failure_cannot_hide_local_rows(kodi, monkeypatch, method):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved'))
+    def fail(*args): raise RuntimeError('window unavailable')
+    monkeypatch.setattr(runtime.xbmcgui.Window, method, fail)
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved'
+    assert state.ended[-1]['succeeded'] is True
+    assert not state.messages and not state.builtins
+
+
+def test_favorite_refresh_preserves_edits_made_during_directory_lookup(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store._write([StationSummary(key, key) for key in ['a', 'b', 'c']])
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    def fetch(ids):
+        store.move('c', 0)
+        store.mark_played('a', '2026-10-26T12:00:00Z')
+        store.remove('b')
+        store.add(StationSummary('d', 'Added during refresh'))
+        return [replace(STATION, uuid=key, name='New ' + key) for key in ids]
+    browser.by_uuids = fetch
+    monkeypatch.setattr(runtime.xbmc, 'getInfoLabel', lambda _: '', raising=False)
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    result = store.list()
+    assert [row.station_uuid for row in result] == ['c', 'a', 'd']
+    assert result[0].name == 'New c' and result[1].name == 'New a'
+    assert result[1].last_played == '2026-10-26T12:00:00Z'
+    assert result[2].name == 'Added during refresh'
+
+
+def test_favorite_refresh_schedule_error_does_not_revoke_listing_and_can_retry(kodi, monkeypatch):
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    FavoriteStore(profile).add(StationSummary('a', 'Saved'))
+    def fail(*args): raise RuntimeError('Kodi unavailable')
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', fail)
+    route(runtime, mode='favorites')
+    assert state.items[0][1].label == 'Saved' and state.ended[-1]['succeeded']
+    monkeypatch.setattr(runtime.xbmc, 'executebuiltin', state.builtins.append)
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+    assert not state.messages and not state.notifications
+
+
+def test_favorite_refresh_shutdown_before_commit_keeps_local_records_and_retries(kodi, monkeypatch):
+    from dataclasses import replace
+    from radio_ui import FavoriteStore, StationSummary
+    runtime, state, profile = kodi
+    store = FavoriteStore(profile)
+    store.add(StationSummary('a', 'Saved'))
+    route(runtime, mode='favorites')
+    browser = directory(monkeypatch, runtime)
+    before = store.path.read_bytes()
+    def fetch(ids):
+        state.abort = True
+        return [replace(STATION, uuid='a', name='Updated')]
+    browser.by_uuids = fetch
+    state.builtins.clear()
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '-1', '?mode=favorites_refresh'])
+    assert store.path.read_bytes() == before
+    assert not state.builtins and not state.messages and not state.notifications
+    state.abort = False
+    route(runtime, mode='favorites')
+    assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']

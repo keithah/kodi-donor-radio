@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import http.client
 import json
+import re
 
 
 @dataclass(frozen=True)
@@ -38,9 +39,24 @@ class ControlClient:
         finally:
             conn.close()
 
-    def create(self, station):
-        return self._request('POST', '/sessions', {
-            key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
+    def create(self, station, fixture_launch_nonce=None):
+        payload = {key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
+        if fixture_launch_nonce is not None:
+            payload['fixture_launch_nonce'] = fixture_launch_nonce
+        return self._request('POST', '/sessions', payload)
+
+    def reserve_fixture_launch(self, fixture_id):
+        result = self._request('POST', '/fixture-launches', {'fixture_id': fixture_id})
+        nonce = result.get('nonce') if isinstance(result, dict) else None
+        if not isinstance(nonce, str) or re.fullmatch(r'[a-f0-9]{48}', nonce) is None:
+            raise OSError('Invalid relay control response')
+        return nonce
+
+    def qualify_fixture_clock(self, session_id, nonce):
+        self._request('POST', '/fixture-clock/qualify', {'session_id': session_id, 'nonce': nonce})
+
+    def cancel_fixture_launch(self, nonce):
+        self._request('DELETE', '/fixture-launches/' + nonce)
 
     def create_preview(self, station):
         """Create only when the service has no deliberate/pending session."""

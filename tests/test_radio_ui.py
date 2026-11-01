@@ -13,13 +13,17 @@ def ui():
 
 def test_summary_round_trip_is_safe_and_legacy_station_compatible():
     from models import Station
-    station = Station('abc', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False)
+    station = Station('abc', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False,
+                      state='Ontario', click_count=23)
     summary = ui().StationSummary.from_station(station)
     assert summary.station_uuid == 'abc'
     assert summary.country == ''
+    assert summary.state == 'Ontario'
+    assert summary.click_count == 23
     assert not hasattr(summary, 'url')
     assert 'secret' not in json.dumps(summary.to_dict())
     assert ui().StationSummary.from_dict(summary.to_dict()) == summary
+    assert ui().StationSummary.from_dict({'station_uuid': 'legacy', 'name': 'Legacy'}).state == ''
 
 
 def test_favorites_preserve_order_update_played_and_round_trip(tmp_path):
@@ -297,3 +301,433 @@ def test_removing_default_place_selects_first_remaining_in_stored_order(tmp_path
     assert store.list()[0].is_default
     store.remove(last.place_id)
     assert store.list() == []
+
+
+def test_recent_search_round_trip_schema_order_and_scope_deduplication(tmp_path):
+    store = ui().RecentSearchStore(tmp_path)
+    store.record('jazz', 'name', '2026-10-26T12:00:00Z')
+    store.record('jazz', 'tag', '2026-10-26T13:00:00Z')
+    store.record(' Jazz ', 'name', '2026-10-26T14:00:00Z')
+    rows = ui().RecentSearchStore(tmp_path).list()
+    assert [(r.query, r.scope, r.timestamp) for r in rows] == [
+        (' Jazz ', 'name', '2026-10-26T14:00:00Z'), ('jazz', 'tag', '2026-10-26T13:00:00Z')]
+    assert json.loads(store.path.read_text()) == {'schema_version': 1, 'items': [
+        {'query': ' Jazz ', 'scope': 'name', 'timestamp': '2026-10-26T14:00:00Z'},
+        {'query': 'jazz', 'scope': 'tag', 'timestamp': '2026-10-26T13:00:00Z'}]}
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+
+
+def test_recent_search_evicts_oldest_at_ten_and_sorts_actual_instants(tmp_path):
+    store = ui().RecentSearchStore(tmp_path)
+    for minute in range(11):
+        store.record(str(minute), 'name', '2026-10-26T12:%02d:00Z' % minute)
+    assert [r.query for r in store.list()] == ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+    store.record('old', 'country', '2026-10-26T14:00:00+03:00')
+    assert [r.query for r in store.list()] == ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1']
+    store.record('new', 'language', '2026-10-26T07:11:00-05:00')
+    assert store.list()[0].query == 'new'
+
+
+def test_history_counts_station_plays_orders_and_evicts_oldest_at_500(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    for number in range(501):
+        store.record_play('station-%d' % number, '2026-10-26T12:%02d:%02dZ' % divmod(number, 60))
+    rows = ui().HistoryStore(tmp_path).list()
+    assert len(rows) == 500
+    assert rows[0].station_uuid == 'station-500'
+    assert rows[-1].station_uuid == 'station-1'
+    store.record_play('station-1', '2026-10-26T13:00:00Z')
+    first = store.list()[0]
+    assert (first.station_uuid, first.play_count, first.last_played) == ('station-1', 2, '2026-10-26T13:00:00Z')
+    assert json.loads(store.path.read_text())['items'][0] == {
+        'station_uuid': 'station-1', 'play_count': 2, 'last_played': '2026-10-26T13:00:00Z'}
+    assert json.loads(store.path.read_text())['schema_version'] == 1
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+
+
+def test_history_out_of_order_write_keeps_latest_utc_instant(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    store.record_play('station-1', '2026-10-26T13:00:00Z')
+
+    store.record_play('station-1', '2026-10-26T14:00:00+03:00')
+
+    entry = store.list()[0]
+    assert entry.play_count == 2
+    assert entry.last_played == '2026-10-26T13:00:00Z'
+
+    store.record_play('station-1', '2026-10-26T17:00:00+03:00')
+    entry = store.list()[0]
+    assert entry.play_count == 3
+    assert entry.last_played == '2026-10-26T17:00:00+03:00'
+
+
+@pytest.mark.parametrize('query,scope,timestamp', [
+    ('', 'name', '2026-10-26T12:00:00Z'), ('   ', 'name', '2026-10-26T12:00:00Z'),
+    ('x'*257, 'name', '2026-10-26T12:00:00Z'), ('x\x7f', 'name', '2026-10-26T12:00:00Z'),
+    ('x\n', 'name', '2026-10-26T12:00:00Z'), (None, 'name', '2026-10-26T12:00:00Z'),
+    ('x', 'all', '2026-10-26T12:00:00Z'), ('x', 'name', ''),
+    ('x', 'name', '2026-10-26T12:00:00'), ('x', 'name', 'yesterday')])
+def test_recent_search_invalid_input_never_writes(tmp_path, query, scope, timestamp):
+    store = ui().RecentSearchStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.record(query, scope, timestamp)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('identifier,timestamp', [
+    ('https://secret.example/live', '2026-10-26T12:00:00Z'), ('x'*129, '2026-10-26T12:00:00Z'),
+    ('x', ''), ('x', '2026-10-26T12:00:00'), ('x', 'yesterday')])
+def test_history_invalid_input_never_writes(tmp_path, identifier, timestamp):
+    store = ui().HistoryStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.record_play(identifier, timestamp)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('store_name,filename,valid', [
+    ('RecentSearchStore', 'recent_searches.json', {'query': 'jazz', 'scope': 'name', 'timestamp': '2026-10-26T12:00:00Z'}),
+    ('HistoryStore', 'history.json', {'station_uuid': 'a', 'play_count': 1, 'last_played': '2026-10-26T12:00:00Z'})])
+@pytest.mark.parametrize('corruption', ['duplicate', 'unknown', 'version', 'oversized', 'record'])
+def test_history_stores_reject_corrupt_files_without_rewriting(tmp_path, store_name, filename, valid, corruption):
+    rows = [dict(valid)]
+    document = {'schema_version': 1, 'items': rows}
+    if corruption == 'duplicate': rows.append(dict(valid))
+    elif corruption == 'unknown': rows[0]['url'] = 'secret'
+    elif corruption == 'version': document['schema_version'] = True
+    elif corruption == 'record': rows[0][('play_count' if store_name == 'HistoryStore' else 'query')] = True
+    path = tmp_path / filename
+    path.write_text(' ' * (2*1024*1024+1) if corruption == 'oversized' else json.dumps(document))
+    before = path.read_bytes()
+    store = getattr(ui(), store_name)(tmp_path)
+    with pytest.raises(ValueError):
+        store.list()
+    with pytest.raises(ValueError):
+        if store_name == 'HistoryStore': store.record_play('b', '2026-10-26T13:00:00Z')
+        else: store.record('rock', 'name', '2026-10-26T13:00:00Z')
+    assert path.read_bytes() == before
+
+
+def test_history_orders_timezone_instants_and_station_id_ties(tmp_path):
+    store = ui().HistoryStore(tmp_path)
+    store.record_play('b', '2026-10-26T07:00:00-05:00')
+    store.record_play('c', '2026-10-26T14:00:00+03:00')
+    store.record_play('a', '2026-10-26T12:00:00Z')
+    assert [r.station_uuid for r in store.list()] == ['a', 'b', 'c']
+
+
+@pytest.mark.parametrize('count', [0, -1, True, 1.5, '1'])
+def test_history_rejects_invalid_persisted_play_counts(tmp_path, count):
+    path = tmp_path / 'history.json'
+    path.write_text(json.dumps({'schema_version': 1, 'items': [
+        {'station_uuid': 'a', 'play_count': count, 'last_played': '2026-10-26T12:00:00Z'}]}))
+    with pytest.raises(ValueError):
+        ui().HistoryStore(tmp_path).list()
+
+
+def test_unrepresentable_utc_timestamp_is_invalid_profile_data(tmp_path):
+    with pytest.raises(ValueError):
+        ui().HistoryStore(tmp_path).record_play('a', '0001-01-01T00:00:00+01:00')
+    assert not (tmp_path / 'history.json').exists()
+
+
+@pytest.mark.parametrize('kind', ['recent', 'history'])
+def test_new_profile_stores_serialize_mutations_and_preserve_file_on_atomic_failure(tmp_path, monkeypatch, kind):
+    import threading
+    from playback_arbiter import profile_file_lock
+    if kind == 'recent':
+        store = ui().RecentSearchStore(tmp_path)
+        mutate = lambda: store.record('jazz', 'name', '2026-10-26T12:00:00Z')
+    else:
+        store = ui().HistoryStore(tmp_path)
+        mutate = lambda: store.record_play('a', '2026-10-26T12:00:00Z')
+    mutate()
+    before = store.path.read_bytes()
+    entered = threading.Event()
+    errors = []
+    def update():
+        entered.set()
+        try: mutate()
+        except Exception as error: errors.append(error)
+    worker = threading.Thread(target=update)
+    with profile_file_lock(tmp_path / ('.' + store.filename + '.lock')):
+        worker.start()
+        assert entered.wait(1)
+        worker.join(.1)
+        assert worker.is_alive()
+    worker.join(2)
+    assert not worker.is_alive() and not errors
+    if kind == 'history': assert store.list()[0].play_count == 2
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError): mutate()
+    assert store.path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['.' + store.filename + '.lock', store.filename]
+
+
+@pytest.mark.parametrize('kind,limit', [('recent', 10), ('history', 500)])
+def test_new_profile_stores_reject_oversized_item_lists(tmp_path, kind, limit):
+    if kind == 'recent':
+        store = ui().RecentSearchStore(tmp_path)
+        rows = [{'query': str(i), 'scope': 'name', 'timestamp': '2026-10-26T12:00:00Z'} for i in range(limit+1)]
+    else:
+        store = ui().HistoryStore(tmp_path)
+        rows = [{'station_uuid': str(i), 'play_count': 1, 'last_played': '2026-10-26T12:00:00Z'} for i in range(limit+1)]
+    store.path.write_text(json.dumps({'schema_version': 1, 'items': rows}))
+    with pytest.raises(ValueError): store.list()
+
+
+def test_directory_cache_round_trip_exact_expiry_and_immutable_stale_rows(tmp_path):
+    from dataclasses import FrozenInstanceError
+    now = [1000]
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: now[0])
+    assert store.get('countries', 'all', 60) is None
+    rows = [['France', 'FR']]
+    store.put('countries', 'all', rows)
+    rows[0][0] = 'Changed'
+    page = store.get('countries', 'all', 60)
+    assert (page.kind, page.rows, page.continuation, page.stored_at, page.fresh) == (
+        'countries', (('France', 'FR'),), None, 1000, True)
+    with pytest.raises(FrozenInstanceError): page.fresh = False
+    now[0] = 1059
+    assert store.get('countries', 'all', 60).fresh
+    now[0] = 1060
+    assert store.get('countries', 'all', 60) is None
+    stale = store.get('countries', 'all', 60, allow_stale=True)
+    assert stale.rows == (('France', 'FR'),) and not stale.fresh
+    store.put('tags', 'all', ['jazz'], continuation=False)
+    assert ui().DirectoryCacheStore(tmp_path, clock=lambda: 1060).get('tags', 'all', 60).rows == ('jazz',)
+
+
+def test_directory_cache_future_timestamps_are_stale_and_repairable(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('tags', 'all', ['jazz'], continuation=False, stored_at=1100)
+
+    assert store.get('tags', 'all', 60) is None
+    stale = store.get('tags', 'all', 60, allow_stale=True)
+    assert stale.rows == ('jazz',) and not stale.fresh
+
+    store.put('tags', 'new', ['rock'], continuation=False)
+    assert store.get('tags', 'all', 60, allow_stale=True).rows == ('jazz',)
+    assert store.get('tags', 'new', 60).rows == ('rock',)
+
+
+def test_directory_cache_full_of_future_pages_still_keeps_new_writes(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 2000)
+    for index in range(store.limit):
+        store.put('tags', f'old-{index}', ['jazz'], continuation=False)
+    store.clock = lambda: 1000
+
+    store.put('tags', 'new', ['rock'], continuation=False)
+
+    assert store.get('tags', 'new', 60).rows == ('rock',)
+    assert len(store.list()) == store.limit
+
+
+def test_directory_cache_unrepresentably_future_timestamp_is_stale(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000.0)
+    store.put('tags', 'all', ['jazz'], continuation=False, stored_at=10 ** 400)
+
+    stale = store.get('tags', 'all', 60, allow_stale=True)
+
+    assert stale.rows == ('jazz',) and not stale.fresh
+
+
+def test_directory_cache_safe_station_rows_hashed_keys_and_page_isolation(tmp_path):
+    from models import Station
+    m = ui()
+    store = m.DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    station = Station('safe', 'Radio', 'https://secret.example/live?token=secret', 'MP3', False)
+    summary = m.StationSummary.from_station(station)
+    key = 'private-place-id:radius=25:offset=0'
+    store.put('place', key, [summary], continuation=200)
+    store.put('place', 'private-place-id:radius=50:offset=0', [])
+    store.put('map', key, [])
+    assert store.get('place', key, 60).rows == (summary,)
+    assert store.get('place', key, 60).continuation == 200
+    assert store.get('place', 'private-place-id:radius=50:offset=0', 60).rows == ()
+    assert store.get('map', key, 60).rows == ()
+    assert store.get('place', 'private-place-id:radius=25:offset=200', 60) is None
+    raw = store.path.read_text()
+    assert 'secret' not in raw and key not in raw and 'private-place-id' not in raw
+    assert stat.S_IMODE(store.path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    with pytest.raises(ValueError): store.put('place', 'raw', [station])
+
+
+def test_directory_cache_never_persists_favicon_urls(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    summary = ui().StationSummary('station', 'Station',
+                                  favicon='https://radio.example/live?token=secret')
+
+    store.put('place', 'place:radius=25', [summary])
+
+    raw = store.path.read_text()
+    assert 'radio.example' not in raw
+    assert 'token=secret' not in raw
+    assert store.get('place', 'place:radius=25', 60).rows[0].favicon == ''
+
+
+@pytest.mark.parametrize('kind,rows,continuation,stored_at', [
+    ('search', [], None, 1000), ('countries', [('France', 'fr')], None, 1000),
+    ('countries', [('France', 'FRA')], None, 1000), ('countries', [('France', 'FR', 'x')], None, 1000),
+    ('countries', [('', 'FR')], None, 1000), ('tags', ['x'*257], None, 1000),
+    ('tags', ['bad\n'], None, 1000), ('tags', [''], None, 1000),
+    ('tags', [True], None, 1000), ('map', [], 0, 1000), ('place', [], True, 1000),
+    ('tags', [], None, 1000), ('tags', [], 0, 1000), ('tags', [], 1, 1000),
+    ('countries', [], False, 1000),
+    ('place', [], -1, 1000), ('place', [], 1.5, 1000),
+    ('place', [], None, float('nan')), ('place', [], None, True), ('place', [], None, -1),
+])
+def test_directory_cache_invalid_values_never_write(tmp_path, kind, rows, continuation, stored_at):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    with pytest.raises(ValueError):
+        store.put(kind, 'key', rows, continuation=continuation, stored_at=stored_at)
+    assert not store.path.exists()
+
+
+@pytest.mark.parametrize('corruption', ['duplicate-key', 'duplicate-entry', 'version', 'extra',
+                                       'unsafe-row', 'kind', 'hash', 'too-many', 'oversized', 'json'])
+def test_directory_cache_rejects_corruption_and_replaces_on_write(tmp_path, corruption):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('place', 'key', [ui().StationSummary('a', 'A')])
+    document = json.loads(store.path.read_text())
+    if corruption == 'duplicate-entry': document['items'].append(document['items'][0])
+    elif corruption == 'version': document['schema_version'] = True
+    elif corruption == 'extra': document['unexpected'] = 1
+    elif corruption == 'unsafe-row': document['items'][0]['rows'][0]['url'] = 'secret'
+    elif corruption == 'kind': document['items'][0]['kind'] = 'search'
+    elif corruption == 'hash': document['items'][0]['key_hash'] = 'raw-key'
+    elif corruption == 'too-many': document['items'] *= 101
+    raw = json.dumps(document)
+    if corruption == 'duplicate-key': raw = raw.replace('"schema_version": 1', '"schema_version": 2, "schema_version": 1')
+    elif corruption == 'oversized': raw = ' ' * (2*1024*1024+1)
+    elif corruption == 'json': raw = '{'
+    store.path.write_text(raw)
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError): store.get('place', 'key', 60, allow_stale=True)
+    store.put('tags', 'new', ['jazz'], continuation=False)
+    assert store.path.read_bytes() != before
+    assert store.get('tags', 'new', 60).rows == ('jazz',)
+
+
+def test_directory_cache_bounds_evict_oldest_and_preserve_file_on_oversized_write(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    for number in range(101):
+        store.put('tags', str(number), ['tag'], continuation=False, stored_at=number)
+    assert store.get('tags', '0', 2000) is None
+    assert store.get('tags', '1', 2000).rows == ('tag',)
+    assert len(json.loads(store.path.read_text())['items']) == 100
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.put('place', 'too-many', [ui().StationSummary(str(i), 'A') for i in range(201)])
+    with pytest.raises(ValueError): store.put('tags', 'too-many', ['jazz']*51)
+    with pytest.raises(ValueError): store.put('countries', 'too-many', [('France', 'FR')]*301)
+    assert store.path.read_bytes() == before
+    store.put('place', 'full-page', [ui().StationSummary(str(i), 'A') for i in range(200)])
+    assert len(store.get('place', 'full-page', 60).rows) == 200
+
+
+def test_directory_cache_mutation_waits_for_lock_and_atomic_failure_preserves_data(tmp_path, monkeypatch):
+    import threading
+    from playback_arbiter import profile_file_lock
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    store.put('tags', 'before', ['jazz'], continuation=False)
+    started = threading.Event()
+    errors = []
+    def update():
+        started.set()
+        try: store.put('tags', 'after', ['rock'], continuation=False)
+        except Exception as error: errors.append(error)
+    worker = threading.Thread(target=update)
+    with profile_file_lock(tmp_path / '.directory_cache.json.lock'):
+        worker.start()
+        assert started.wait(1)
+        worker.join(.1)
+        assert worker.is_alive()
+    worker.join(2)
+    assert not worker.is_alive() and not errors
+    assert store.get('tags', 'before', 60).rows == ('jazz',)
+    assert store.get('tags', 'after', 60).rows == ('rock',)
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(os, 'replace', fail)
+    with pytest.raises(OSError): store.put('tags', 'failed', ['pop'], continuation=False)
+    assert store.path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['.directory_cache.json.lock', 'directory_cache.json']
+
+
+def test_directory_cache_file_byte_bound_keeps_newest_page(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    summary = ui().StationSummary('s'*128, '𝄞'*512, city='𝄞'*256, state='𝄞'*256,
+                                  country='𝄞'*256, codec='𝄞'*64, tags='𝄞'*1024)
+    store.put('map', 'first', [summary]*200)
+    assert len(store.path.read_bytes()) <= 2*1024*1024
+    store.put('map', 'second', [summary]*200)
+    assert store.get('map', 'second', 60).rows == (summary,) * 200
+    assert store.get('map', 'first', 60) is None
+    assert len(store.path.read_bytes()) <= 2*1024*1024
+
+
+def test_directory_cache_evicts_old_pages_to_keep_newest_within_byte_limit(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
+    rows = [ui().StationSummary(str(index), 'Station %d' % index, tags='t' * 1024)
+            for index in range(200)]
+
+    for page_number in range(12):
+        store.put('map', 'view-%d' % page_number, rows, stored_at=page_number)
+
+    assert store.get('map', 'view-11', 2000) is not None
+    assert store.get('map', 'view-0', 2000) is None
+    assert len(store.path.read_bytes()) <= ui().MAX_FILE_BYTES
+
+
+@pytest.mark.parametrize('has_more', [True, False])
+def test_directory_cache_tags_preserve_raw_page_continuation(tmp_path, has_more):
+    from radio_ui import DirectoryCacheStore
+    store = DirectoryCacheStore(tmp_path)
+    store.put('tags', '0', ['jazz'], continuation=has_more)
+    assert store.get('tags', '0', 60).continuation is has_more
+
+
+def test_favorite_refresh_updates_metadata_preserving_order_played_and_missing(tmp_path):
+    from dataclasses import replace
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    first = m.StationSummary('a', 'First', last_played='2026-10-23T12:00:00Z')
+    missing = m.StationSummary('b', 'Missing', city='Old city')
+    store.add(first)
+    store.add(missing)
+    updated = replace(first, name='Updated', city='New city', country='Canada',
+                      country_code='CA', codec='AAC', tags='jazz', bitrate=128,
+                      latitude=1, longitude=2, favicon='https://radio.example/logo.png',
+                      last_played='2026-10-24T12:00:00Z')
+    store.refresh([m.StationSummary('unknown', 'Never add'), updated])
+    assert store.list() == [replace(updated, favicon='', last_played=first.last_played), missing]
+    assert '"url"' not in store.path.read_text()
+    assert 'radio.example/logo.png' not in store.path.read_text()
+
+
+def test_favorite_refresh_invalid_later_summary_leaves_file_unchanged(tmp_path):
+    from models import Station
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    store.add(m.StationSummary('a', 'First'))
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.refresh([m.StationSummary('a', 'Updated'),
+                       Station('b', 'Unsafe', 'https://secret.example/live', '', False)])
+    assert store.path.read_bytes() == before
+
+
+def test_favorite_refresh_atomic_write_failure_preserves_file(tmp_path, monkeypatch):
+    m = ui()
+    store = m.FavoriteStore(tmp_path)
+    store.add(m.StationSummary('a', 'First'))
+    before = store.path.read_bytes()
+    def fail(*args): raise OSError('disk unavailable')
+    monkeypatch.setattr(m.os, 'replace', fail)
+    with pytest.raises(OSError):
+        store.refresh([m.StationSummary('a', 'Updated')])
+    assert store.path.read_bytes() == before

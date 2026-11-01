@@ -8,7 +8,9 @@ _DETAIL_FIELDS = frozenset({
     "cue_id", "duration", "media_sequence", "discontinuity", "rendition_id",
     "epoch", "media_position", "classification", "reason",
     "placement_id", "creative_id", "marker_format", "confidence",
-    "insertion_type",
+    "insertion_type", "raw_clock", "mapped_position", "mapped",
+    "tracking_enabled", "playing", "candidate_only",
+    "paused", "seeking", "caching",
 })
 
 

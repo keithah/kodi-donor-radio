@@ -5,24 +5,41 @@
 Generate assets with generate_ad_audio.py first. GET /reset clears request and
 beacon counts plus all per-scenario rolling windows. No request except /track
 records a beacon. This origin is never packaged in the Kodi addon.
+
+The late-break and recovery scenarios use the extended 128-segment assets.
+Recovery holds its media clock at zero for 12 seconds, then advances without
+counting that hold as missing media. Both publish complete break intervals
+together so an earlier partial window cannot commit the original break audio.
 """
 import argparse
-from collections import Counter
+from collections import Counter, deque
+import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import sys
 import threading
 import time
+from time import get_clock_info, monotonic_ns
 from xml.etree import ElementTree as ET
 
 if __package__:
     from .fixture_server import send_fixture_response
+    from .generate_ad_audio import NORMAL_SOURCE_SEGMENTS, EXTENDED_SOURCE_SEGMENTS
 else:
     from fixture_server import send_fixture_response
+    from generate_ad_audio import NORMAL_SOURCE_SEGMENTS, EXTENDED_SOURCE_SEGMENTS
 
 
-SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window', 'finite', 'stall')
+SOURCE_SCENARIOS = ('normal', 'mutation', 'expired-window', 'finite', 'stall', 'extended',
+                    'late-break', 'recovery')
+LONG_SOURCE_SCENARIOS = ('extended', 'late-break', 'recovery')
+DEFERRED_BREAKS = {'late-break': (70, 72), 'recovery': (6, 8)}
+# Window 3 first contains the complete break. Withhold it until 18.016 s: later
+# than the 16.043 s initial programme+preroll, before Kodi's default 20 s low-speed
+# network timeout. The old hold 20 scenario released at 26 s and tested timeout.
+RECOVERY_HOLD_SECONDS = 12
 AD_ASSETS = ('replacement', 'preroll')
 LIVE_SEGMENT_SECONDS = 94 * 1024 / 48000
 EVENTS = ('impression', 'start', 'firstQuartile', 'midpoint',
@@ -41,25 +58,34 @@ def media_manifest(asset):
 def source_manifest(scenario, window):
     if scenario not in SOURCE_SCENARIOS:
         raise ValueError('Unknown source scenario')
+    source_count = EXTENDED_SOURCE_SEGMENTS if scenario in LONG_SOURCE_SCENARIOS else NORMAL_SOURCE_SEGMENTS
+    last_window = source_count - 6
     if scenario == 'finite':
         first = 0
     elif scenario == 'expired-window':
-        first = 0 if window == 0 else max(4, min(window, 18))
+        first = 0 if window == 0 else max(4, min(window, last_window))
     else:
-        first = min(window, 18)
+        first = min(window, last_window)
+    break_start, break_end = DEFERRED_BREAKS.get(scenario, (2, 4))
+    stop = min(first + 6, source_count)
+    if scenario in DEFERRED_BREAKS and first <= break_start < stop <= break_end:
+        # Publishing even one original break segment would make that interval
+        # immutable before cue-in arrived. Keep the preceding programme visible
+        # until one window contains the full break and its following cue-in.
+        stop = break_start
     lines = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-TARGETDURATION:3',
              '#EXT-X-MEDIA-SEQUENCE:%d' % first]
-    for index in range(first, min(first + 6, 24)):
-        if index == 2:
+    for index in range(first, stop):
+        if index == break_start:
             lines.append('#EXT-X-CUE-OUT:4.010667')
-        if index == 4:
+        if index == break_end:
             lines.append('#EXT-X-CUE-IN')
         filename = 'source%03d.ts' % index
         if scenario == 'mutation' and window > 0 and index == 3:
             filename = 'source003-mutated.ts'
         prefix = '/stall/' if scenario == 'stall' and index == 6 else '/ads/'
         lines.extend(('#EXTINF:2.005333,', prefix + filename))
-    if scenario == 'finite':
+    if scenario == 'finite' or (scenario in LONG_SOURCE_SCENARIOS and first == last_window):
         lines.append('#EXT-X-ENDLIST')
     return '\n'.join(lines) + '\n'
 
@@ -119,11 +145,55 @@ def vast_xml(scenario, origin):
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
 
+def make_tracking_clock():
+    """Return a timestamp reader plus its honest cross-process clock domain.
+
+    Older Python releases subtract a process origin from macOS monotonic time,
+    even though get_clock_info names mach_absolute_time. Read Mach directly for
+    comparisons with Core Audio host timestamps; never silently substitute a
+    different epoch if native initialization fails.
+    """
+    info = get_clock_info('monotonic')
+    python_clock = {'api': 'time.monotonic_ns', 'implementation': info.implementation,
+                    'resolution_seconds': info.resolution,
+                    'monotonic': info.monotonic, 'adjustable': info.adjustable}
+    if sys.platform != 'darwin':
+        return monotonic_ns, dict(python_clock, domain='python_monotonic',
+                                  cross_process_comparable=False)
+
+    class MachTimebase(ctypes.Structure):
+        _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
+
+    native = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+    native.mach_timebase_info.argtypes = [ctypes.POINTER(MachTimebase)]
+    native.mach_timebase_info.restype = ctypes.c_int
+    native.mach_absolute_time.argtypes = []
+    native.mach_absolute_time.restype = ctypes.c_uint64
+    timebase = MachTimebase()
+    if native.mach_timebase_info(ctypes.byref(timebase)) != 0 or not timebase.numer or not timebase.denom:
+        raise RuntimeError('Mach timebase initialization failed')
+    numer, denom = int(timebase.numer), int(timebase.denom)
+
+    def read_mach_ns():
+        # Python integer arithmetic preserves all tick bits and cannot overflow
+        # when the uint64 tick count is multiplied by the timebase numerator.
+        return native.mach_absolute_time() * numer // denom
+
+    return read_mach_ns, {'api': 'mach_absolute_time', 'implementation': 'mach_absolute_time()',
+                          'domain': 'mach_absolute_time', 'cross_process_comparable': True,
+                          'timebase_numer': numer, 'timebase_denom': denom,
+                          'resolution_seconds': numer / denom / 1_000_000_000,
+                          'monotonic': True, 'adjustable': False,
+                          'python_monotonic': python_clock}
+
+
 def make_server(assets, host='127.0.0.1', port=8766):
     if host != '127.0.0.1':
         raise ValueError('Advertising fixtures must bind numeric 127.0.0.1')
     assets = Path(assets)
     requests, beacons, windows = Counter(), Counter(), Counter()
+    tracking_observations = deque(maxlen=256)
+    read_tracking_ns, tracking_clock = make_tracking_clock()
     starts = {}
     lock = threading.Lock()
 
@@ -136,13 +206,16 @@ def make_server(assets, host='127.0.0.1', port=8766):
                 with lock:
                     requests.clear()
                     beacons.clear()
+                    tracking_observations.clear()
                     windows.clear()
                     starts.clear()
                 return self.respond(b'{}', 'application/json')
             if route == '/stats':
                 with lock:
                     body = json.dumps({'requests': dict(requests), 'beacons': dict(beacons),
-                                       'windows': dict(windows)}).encode()
+                                       'windows': dict(windows),
+                                       'tracking_observations': list(tracking_observations),
+                                       'tracking_clock': tracking_clock}).encode()
                 return self.respond(body, 'application/json')
             with lock:
                 requests[route] += 1
@@ -150,6 +223,10 @@ def make_server(assets, host='127.0.0.1', port=8766):
             if match and match.group(2) in EVENTS:
                 with lock:
                     beacons[match.group(1) + '/' + match.group(2)] += 1
+                    # Record arrival only, not playback. Event names are from
+                    # the fixed allowlist; URLs and arbitrary query data stay out.
+                    tracking_observations.append({'event': match.group(2),
+                                                  'monotonic_ns': read_tracking_ns()})
                 return self.respond(b'', 'text/plain')
             match = re.fullmatch(r'/vast/([a-z0-9-]+)', route)
             if match:
@@ -168,10 +245,13 @@ def make_server(assets, host='127.0.0.1', port=8766):
                 with lock:
                     now = time.monotonic()
                     started = starts.setdefault(scenario, now)
+                    elapsed = now - started
+                    if scenario == 'recovery':
+                        elapsed = max(0, elapsed - RECOVERY_HOLD_SECONDS)
                     # Mutation and expiry deliberately accelerate by request
                     # so the error is reproducible without a wall-clock wait.
                     window = (windows[scenario] if scenario in ('mutation', 'expired-window')
-                              else int((now - started) / LIVE_SEGMENT_SECONDS))
+                              else int(elapsed / LIVE_SEGMENT_SECONDS))
                     windows[scenario] += 1
                 return self.respond(source_manifest(scenario, window).encode(),
                                     'application/vnd.apple.mpegurl')

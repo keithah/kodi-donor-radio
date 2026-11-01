@@ -8,6 +8,35 @@ import pytest
 from ad_session import AdSession
 
 
+def test_midroll_prefix_is_reported_as_live_to_clock_anchor(monkeypatch):
+    from types import SimpleNamespace
+    from hls import parse_playlist
+    from url_policy import origin
+
+    url = 'http://radio.test/live.m3u8'
+    playlist = parse_playlist(
+        '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:0\n'
+        '#EXTINF:2.0,\na.ts\n#EXT-X-CUE-OUT:4.0\n'
+        '#EXTINF:2.0,\nb.ts\n#EXTINF:2.0,\nc.ts\n#EXT-X-ENDLIST\n', url)
+    session = AdSession.__new__(AdSession)
+    session._render_lock = Lock()
+    session._lock = RLock()
+    session._closed = False
+    session._terminal = False
+    session.source_origin = origin(url)
+    session.config = SimpleNamespace(midroll=True)
+    session._midroll_done = Event()
+    session._cache_window = lambda _playlist: {}
+    session._compose_locked = lambda selected, _route, _sources, source_finite=None: (
+        selected, source_finite)
+
+    rendered, source_finite = session.render(playlist, lambda identity: identity)
+
+    assert rendered.segments == playlist.segments[:1]
+    assert not any(line.strip() == '#EXT-X-ENDLIST' for line in rendered.lines)
+    assert source_finite is False
+
+
 def test_published_source_read_does_not_wait_for_playlist_render_lock():
     session = AdSession.__new__(AdSession)
     session._lock = Lock()
@@ -69,6 +98,8 @@ def test_published_route_retention_is_limited_to_two_output_windows(monkeypatch)
     session._prepared = []
     session.creative = SimpleNamespace(unpin=lambda _identity: None)
     session._initial = True
+    from datetime import datetime, timezone
+    session._program_date_origin = datetime(2026, 10, 27, tzinfo=timezone.utc)
     for batch in range(3):
         segments = tuple(OutputSegment(batch * 7 + index, 0,
                                        'resource-%d' % (batch * 7 + index),
@@ -285,3 +316,65 @@ def test_midroll_completion_after_close_tolerates_cleared_cache_and_signals_done
     session._prepare_midroll()
 
     assert session._midroll_done.is_set()
+
+
+def test_program_dates_follow_output_samples_across_discontinuities_and_reload():
+    from collections import OrderedDict
+    from datetime import datetime, timezone
+    from ad_models import OutputSegment, Presentation
+
+    session = AdSession.__new__(AdSession)
+    session._program_date_origin = datetime(2026, 10, 27, tzinfo=timezone.utc)
+    session._limit = 8
+    session._resource_limit = 32
+    session._published_order = OrderedDict()
+    session._published = set()
+    session._source = {}
+    session._source_by_id = {}
+    session.active_ids = lambda: set()
+    session._midroll = None
+    session._prepared = []
+    session._initial = True
+    segments = (OutputSegment(0, 0, 'ad', 0, 96256, 'placement'),
+                OutputSegment(1, 1, 'programme', 96256, 96256, None))
+    session.timeline = SimpleNamespace(update=lambda *_: Presentation(segments, (), False))
+    playlist = SimpleNamespace(segments=())
+    first = session._compose_locked(playlist, lambda value: '/' + value, {}).decode()
+    session.timeline.update = lambda *_: Presentation(segments[1:], (), False)
+    later = session._compose_locked(playlist, lambda value: '/' + value, {}).decode()
+
+    dates = [line for line in first.splitlines() if line.startswith('#EXT-X-PROGRAM-DATE-TIME:')]
+    assert dates == ['#EXT-X-PROGRAM-DATE-TIME:2026-10-27T00:00:00.000000Z',
+                     '#EXT-X-PROGRAM-DATE-TIME:2026-10-27T00:00:02.005333Z']
+    assert '#EXT-X-DISCONTINUITY\n' + dates[1] in first
+    assert dates[1] in later
+    assert dates[0] not in later
+
+
+def test_program_date_epoch_starts_at_first_publication_not_session_preparation(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from ad_models import AdConfig, OutputSegment, Presentation
+    import ad_session as module
+
+    class Clock(datetime):
+        current = datetime(2026, 10, 27, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, _zone):
+            return cls.current
+
+    monkeypatch.setattr(module, 'datetime', Clock)
+    session = AdSession(AdConfig(True, False, False, '', 'http://127.0.0.1:8766'),
+                        object(), tmp_path, Event(), 32, 'http://127.0.0.1:8766')
+    try:
+        Clock.current = datetime(2026, 10, 27, 0, 10, tzinfo=timezone.utc)
+        segment = OutputSegment(0, 0, 'programme', 0, 48000, None)
+        session.timeline.update = lambda *_: Presentation((segment,), (), False)
+        first = session._compose_locked(SimpleNamespace(segments=()), lambda value: '/' + value, {})
+        Clock.current = datetime(2026, 10, 27, 0, 20, tzinfo=timezone.utc)
+        second = session._compose_locked(SimpleNamespace(segments=()), lambda value: '/' + value, {})
+        expected = b'#EXT-X-PROGRAM-DATE-TIME:2026-10-27T00:10:00.000000Z'
+        assert expected in first
+        assert expected in second
+    finally:
+        session.close()

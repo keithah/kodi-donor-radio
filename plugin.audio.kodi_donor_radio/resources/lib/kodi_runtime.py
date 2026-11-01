@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -24,11 +25,11 @@ from ad_models import AdConfig
 from ad_media import CreativeCache
 from kodi_ad_player import KodiAdPlayback
 from events import JsonEventSink
-from http_client import Cancelled, HttpClient
+from http_client import Cancelled, HttpClient, read_bounded
 from models import Station
 from radio_browser import RadioBrowser
-from radio_ui import (FavoriteStore, PlaceStore, StationSummary, coordinates, safe_favicon,
-                      station_identifier, stations_in_radius)
+from radio_ui import (DirectoryCacheStore, FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
+                      coordinates, safe_favicon, station_identifier, stations_in_radius)
 from relay import RelayServer
 from sessions import SessionManager
 from icy_marker_store import IcyMarkerStore
@@ -37,6 +38,7 @@ from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
 AD_CREATE_TIMEOUT = 30.0
+ADAPTIVE_PREFLIGHT_TIMEOUT = 5.0
 PAGE_SIZE = 50
 GEO_SCAN_PAGES = 4
 MAX_OFFSET = 10000000
@@ -167,10 +169,11 @@ def _error(identifier):
     xbmcgui.Dialog().ok(text(30000), text(identifier))
 
 
-def _operation(function, monitor, cancel, cleanup=None):
+def _operation(function, monitor, cancel, cleanup=None, show_progress=True):
     """Keep Kodi UI responsive; late create results are retired after cancellation."""
-    progress = xbmcgui.DialogProgress()
-    progress.create(text(30000), text(30013))
+    progress = xbmcgui.DialogProgress() if show_progress else None
+    if progress is not None:
+        progress.create(text(30000), text(30013))
     done, lock, result = threading.Event(), threading.Lock(), {}
     def work():
         try:
@@ -190,7 +193,8 @@ def _operation(function, monitor, cancel, cleanup=None):
     thread.start()
     try:
         while True:
-            if monitor.abortRequested() or progress.iscanceled():
+            if (monitor.abortRequested() or cancel.is_set()
+                    or (progress is not None and progress.iscanceled())):
                 with lock:
                     cancel.set()
                     value = result.pop('value', None)
@@ -203,7 +207,8 @@ def _operation(function, monitor, cancel, cleanup=None):
                 return result.get('value')
             monitor.waitForAbort(.05)
     finally:
-        progress.close()
+        if progress is not None:
+            progress.close()
 
 
 def _service(profile, monitor, cancel, create_timeout=10):
@@ -235,6 +240,63 @@ def _relay_path(value, port):
     except ValueError:
         pass
     return None
+
+
+def _inputstream_version(addon_id):
+    """Read an already enabled addon; never install or enable it."""
+    try:
+        raw = xbmc.executeJSONRPC(json.dumps({
+            'jsonrpc': '2.0', 'id': 1, 'method': 'Addons.GetAddonDetails',
+            'params': {'addonid': addon_id, 'properties': ['enabled', 'version']}}))
+        if not isinstance(raw, str) or len(raw) > 16384:
+            return None
+        addon = json.loads(raw)['result']['addon']
+        version = addon.get('version', '')
+        match = re.fullmatch(r'([0-9]{1,3})\.[0-9]+\.[0-9]+(?:[.+-][a-zA-Z0-9.-]+)?', version)
+        if addon.get('addonid') == addon_id and addon.get('enabled') is True and match is not None:
+            return version
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        pass
+    return None
+
+
+def _inputstream_enabled(addon_id, minimum_major):
+    version = _inputstream_version(addon_id)
+    return version is not None and int(version.split('.', 1)[0]) >= minimum_major
+
+
+def _adaptive_enabled():
+    return _inputstream_enabled('inputstream.adaptive', 21)
+
+
+def _adaptive_ready(adaptive_url, native_url, descriptor, cancel):
+    """Bound one exact-loopback master preflight before choosing Adaptive."""
+    from hls import parse_playlist
+    session_id = _relay_path(native_url, descriptor.port)
+    if session_id is None or _relay_path(adaptive_url, descriptor.port) != session_id:
+        return False
+    relay_origin = 'http://127.0.0.1:%d' % descriptor.port
+    try:
+        client = HttpClient(UrlPolicy(test_origins={relay_origin}), max_redirects=0)
+        deadline = time.monotonic() + ADAPTIVE_PREFLIGHT_TIMEOUT
+        with client.open(adaptive_url, {}, cancel, deadline=deadline,
+                         allowed_origin=relay_origin) as response:
+            if (response.status != 200
+                    or response.headers.get('content-type', '').split(';', 1)[0].strip().lower()
+                    != 'application/vnd.apple.mpegurl'
+                    or response.headers.get('content-encoding', 'identity').lower() != 'identity'):
+                return False
+            body = read_bounded(response, 4096)
+        playlist = parse_playlist(body.decode('utf-8-sig'), adaptive_url)
+        variants = [line for line in playlist.lines if line.startswith('#EXT-X-STREAM-INF:')]
+        return (playlist.is_master and len(variants) == 1
+                and variants[0].rstrip('\r\n').endswith(',CODECS="mp4a.40.2"')
+                and len(playlist.uri_references) == 1
+                and playlist.uri_references[0].url == native_url)
+    except Cancelled:
+        raise  # A user cancellation must stop the session, never start fallback.
+    except (OSError, ValueError):
+        return False
 
 
 def _station(value):
@@ -285,6 +347,10 @@ _FIXTURES = (
     (30046, 'source/mutation/index.m3u8', 'AAC', True),
     (30047, 'source/expired-window/index.m3u8', 'AAC', True),
     (30048, 'source/stall/index.m3u8', 'AAC', True),
+    (30049, 'source/finite/index.m3u8', 'AAC', True),
+    (30172, 'source/extended/index.m3u8', 'AAC', True),
+    (30174, 'source/late-break/index.m3u8', 'AAC', True),
+    (30175, 'source/recovery/index.m3u8', 'AAC', True),
     (30061, 'icy/explicit.mp3', 'MP3', False), (30062, 'icy/tildeats.mp3', 'MP3', False),
     (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
     (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
@@ -307,6 +373,212 @@ def _query_text(value):
             any(ord(char) < 32 or ord(char) == 127 for char in value)):
         raise ValueError('Invalid query')
     return value
+
+
+_SEARCH_PROPERTY = 'kodi_donor_radio.search_pages'
+_SEARCH_BYTES = 512 * 1024
+_FAVORITES_REFRESH_PROPERTY = 'kodi_donor_radio.favorites_refresh'
+_VISIBLE_ROUTE_PROPERTY = 'kodi_donor_radio.visible_route'
+
+
+def _visible_route(action):
+    try:
+        xbmcgui.Window(10000).setProperty(_VISIBLE_ROUTE_PROPERTY, action)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
+
+
+def _schedule_favorite_refresh(base):
+    """Called only after the local directory has completed; no network work here."""
+    window = None
+    try:
+        window = xbmcgui.Window(10000)
+        if window.getProperty(_FAVORITES_REFRESH_PROPERTY):
+            return
+        window.setProperty(_FAVORITES_REFRESH_PROPERTY, 'true')
+        # Kodi 21.3 RunPlugin executes a non-directory plugin with handle -1.
+        # executebuiltin defaults to wait=False; no worker/progress dialog is needed.
+        xbmc.executebuiltin('RunPlugin(%s?mode=favorites_refresh)' % base)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        if window is not None:
+            try:
+                window.clearProperty(_FAVORITES_REFRESH_PROPERTY)
+            except (OSError, RuntimeError, ValueError, TypeError):
+                pass
+
+
+def _refresh_favorites(browser, monitor, base):
+    """Quiet background action: fetch every batch before one profile transaction."""
+    try:
+        store = FavoriteStore(profile_path())
+        favorites = store.list()
+        summaries = []
+        for offset in range(0, len(favorites), PAGE_SIZE):
+            if monitor.abortRequested():
+                raise Cancelled('Refresh cancelled')
+            ids = [station.station_uuid for station in favorites[offset:offset + PAGE_SIZE]]
+            summaries.extend(_summary(station) for station in browser.by_uuids(ids))
+        if monitor.abortRequested():
+            raise Cancelled('Refresh cancelled')
+        store.refresh(summaries)
+    except (OSError, RuntimeError, ValueError, TypeError, RecursionError):
+        try:
+            xbmcgui.Window(10000).clearProperty(_FAVORITES_REFRESH_PROPERTY)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass
+        return
+    try:
+        # The session route covers navigation inside this addon. FolderPath also
+        # protects other addons/windows, which do not invoke our route tracker.
+        if xbmcgui.Window(10000).getProperty(_VISIBLE_ROUTE_PROPERTY) != 'favorites':
+            return
+        current = urlsplit(xbmc.getInfoLabel('Container.FolderPath'))
+        expected = urlsplit(base)
+        params = parse_qs(current.query)
+        if (current.scheme == expected.scheme and current.netloc == expected.netloc and
+                current.path.rstrip('/') == expected.path.rstrip('/') and
+                params.get('mode', params.get('action')) == ['favorites']):
+            xbmc.executebuiltin('Container.Refresh')
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
+
+
+def _cache_key(*values):
+    return json.dumps(values, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
+
+
+def _summary(station):
+    return (StationSummary.from_station(replace(station, favicon=safe_favicon(station.favicon)))
+            if isinstance(station, Station) else station)
+
+
+def _directory_page(kind, key, fetch, monitor, cancel):
+    """Optional profile cache: failed storage never replaces a usable live page."""
+    _check_ui_cancel(monitor, cancel)
+    ttl = (7 if kind in ('countries', 'tags') else 1) * 86400
+    cached = None
+    try:
+        cached = _operation(lambda: DirectoryCacheStore(profile_path()).get(
+            kind, key, ttl, allow_stale=True), monitor, cancel, show_progress=False)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        pass
+    _check_ui_cancel(monitor, cancel)
+    if cached is not None and cached.fresh:
+        return cached.rows, cached.continuation
+    _check_ui_cancel(monitor, cancel)
+    try:
+        rows, continuation = _operation(fetch, monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        if cached is not None:
+            return cached.rows, cached.continuation
+        raise
+    _check_ui_cancel(monitor, cancel)
+    if kind in ('place', 'map'):
+        rows = [_summary(row) for row in rows]
+    elif kind == 'tags':
+        valid = []
+        for row in rows:
+            try:
+                tag = _query_text(row)
+                if tag.strip():
+                    valid.append(tag)
+            except ValueError:
+                continue
+        rows = valid
+    try:
+        _operation(lambda: DirectoryCacheStore(profile_path()).put(
+            kind, key, rows, continuation=continuation), monitor, cancel, show_progress=False)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        pass
+    return rows, continuation
+
+
+def _search_page(key, fetch, monitor, cancel):
+    """Kodi session memory only; validate and bound the cross-invocation payload."""
+    window, raw = None, ''
+    try:
+        window = xbmcgui.Window(10000)
+        raw = window.getProperty(_SEARCH_PROPERTY)
+    except (OSError, RuntimeError, ValueError, TypeError):
+        pass
+
+    def save_property(value):
+        if window is None:
+            return
+        try:
+            if value is None:
+                window.clearProperty(_SEARCH_PROPERTY)
+            else:
+                window.setProperty(_SEARCH_PROPERTY, value)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass  # Optional session storage cannot hide a successful directory fetch.
+
+    pages = []
+    try:
+        if raw:
+            if len(raw.encode('utf-8')) > _SEARCH_BYTES:
+                raise ValueError('Search cache too large')
+            document = json.loads(raw)
+            if (not isinstance(document, dict) or set(document) != {'version', 'pages'} or
+                    type(document['version']) is not int or document['version'] != 2 or
+                    not isinstance(document['pages'], list) or len(document['pages']) > 64):
+                raise ValueError('Invalid search cache')
+            identities = set()
+            for page in document['pages']:
+                if (not isinstance(page, dict) or set(page) != {'key', 'rows', 'more', 'stored_at'} or
+                        not isinstance(page['key'], str) or not _HEX64.fullmatch(page['key']) or
+                        page['key'] in identities or type(page['more']) is not bool or
+                        not isinstance(page['rows'], list) or len(page['rows']) > PAGE_SIZE):
+                    raise ValueError('Invalid search page')
+                stored_at = page['stored_at']
+                if (type(stored_at) is int and stored_at < 0 or
+                        type(stored_at) is float and (not math.isfinite(stored_at) or stored_at < 0) or
+                        type(stored_at) not in (int, float)):
+                    raise ValueError('Invalid search timestamp')
+                for row in page['rows']:
+                    StationSummary.from_dict(row)
+                identities.add(page['key'])
+                pages.append(page)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        save_property(None)
+        pages = []
+    identity = hashlib.sha256(key.encode('utf-8')).hexdigest()
+    _check_ui_cancel(monitor, cancel)
+    match = next((page for page in pages if page['key'] == identity), None)
+    now = time.time()
+    if (match is not None and match['stored_at'] <= now and
+            now - match['stored_at'] < 86400):
+        return [StationSummary.from_dict(row) for row in match['rows']], match['more']
+    try:
+        rows, more = _operation(fetch, monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError):
+        if match is None:
+            raise
+        return [StationSummary.from_dict(row) for row in match['rows']], match['more']
+    _check_ui_cancel(monitor, cancel)
+    rows = [_summary(row) for row in rows]
+    pages = [page for page in pages if page['key'] != identity]
+    pages.append({'key': identity, 'rows': [row.to_dict() for row in rows], 'more': more,
+                  'stored_at': now})
+    pages = pages[-64:]
+    while pages:
+        payload = json.dumps({'version': 2, 'pages': pages}, ensure_ascii=False, allow_nan=False,
+                             separators=(',', ':'))
+        if len(payload.encode('utf-8')) <= _SEARCH_BYTES:
+            save_property(payload)
+            break
+        pages.pop(0)
+    if not pages:
+        save_property(None)
+    return rows, more
 
 
 def _place_stations(browser, place, offset, cancel):
@@ -587,21 +859,28 @@ def _open_map(params, monitor, cancel, base):
                  places[0] if places else None)
     country_code = (selected.country_code if selected is not None else
                     place.country_code if place is not None else '')
-    try:
-        stations = _operation(lambda: _map_stations(browser, country_code, selected, cancel),
-                              monitor, cancel)
-    except Cancelled:
-        raise
-    except (OSError, ValueError):
-        stations = [selected] if selected is not None else []
-        discovery_error = xbmcaddon.Addon().getLocalizedString(30163)
-        unavailable = unavailable + ' · ' + discovery_error if unavailable else discovery_error
     if selected is not None and selected.latitude is not None:
         view = _map_view(station=selected)
     elif place is not None:
         view = _map_view(place=place)
     else:
         view = MapView(90, -90, -180, 180, 1000, 650)
+    try:
+        key = _cache_key(country_code, *(float(value) + 0.0 for value in
+                         (view.north, view.south, view.west, view.east)), view.width, view.height)
+        stations, _ = _directory_page('map', key,
+            lambda: (_map_stations(browser, country_code, None, cancel), None), monitor, cancel)
+    except Cancelled:
+        raise
+    except (OSError, ValueError, TypeError):
+        stations = []
+        discovery_error = xbmcaddon.Addon().getLocalizedString(30163)
+        unavailable = unavailable + ' · ' + discovery_error if unavailable else discovery_error
+    stations = list(stations)
+    if selected is not None:
+        selected_id = _summary(selected).station_uuid
+        if all(_summary(station).station_uuid != selected_id for station in stations):
+            stations = [selected] + list(stations[:GEO_SCAN_PAGES * PAGE_SIZE - 1])
 
     clients, clients_lock = {}, threading.Lock()
     def start_preview(station_uuid, request_cancel):
@@ -652,6 +931,9 @@ def _open_map(params, monitor, cancel, base):
         selected_uuid=selected_uuid, stations=stations, view=view,
         preview_enabled=xbmcaddon.Addon().getSettingBool('preview_on_browse'),
         addon_path=xbmcaddon.Addon().getAddonInfo('path'), plugin_base=base,
+        profile_path=profile_path(),
+        geometry_path=(Path(xbmcaddon.Addon().getAddonInfo('path')) /
+                       'resources' / 'map' / 'natural_earth_110m_land.json'),
         preview_start=start_preview, preview_stop=stop_preview,
         playback_arbiter=_playback_arbiter(),
         status_message=unavailable,
@@ -681,6 +963,14 @@ def run_plugin(argv):
     action = params.get('mode', params.get('action', 'home'))
     monitor, cancel = xbmc.Monitor(), threading.Event()
     browser = RadioBrowser(cancel=cancel)
+    if action == 'favorites_refresh':
+        _refresh_favorites(browser, monitor, base)
+        return
+    if (action in ('map', 'setup', 'settings') or
+            handle >= 0 and action not in ('play', 'play_fixture', 'favorite_add', 'favorite_remove',
+                                          'place_default', 'place_radius', 'place_remove',
+                                          'station_info', 'vote', 'label_icy_marker')):
+        _visible_route(action)
     def url(**values): return base + '?' + urlencode(values)
     def item(label, folder=True, playable=False, context=(), **values):
         entry = xbmcgui.ListItem(label=label)
@@ -738,6 +1028,48 @@ def run_plugin(argv):
                 (30122 if favorite else 30121, 'favorite_remove' if favorite else 'favorite_add'),
                 (30123, 'map'), (30124, 'station_info'), (30168, 'vote'))])
         xbmcplugin.addDirectoryItem(handle, url(mode='play', uuid=summary.station_uuid), entry, isFolder=False)
+    if action == 'launch_fixture':
+        client, nonce = None, None
+        def cancel_launch(value):
+            if client is not None and isinstance(value, str) and _HEX48.fullmatch(value):
+                try: client.cancel_fixture_launch(value)
+                except (OSError, ValueError): pass
+        try:
+            station = _fixture_station(params.get('id', ''))
+            if (not station.hls or not ad_settings().enabled
+                    or _inputstream_version('inputstream.ffmpegdirect') != '22.2.10'):
+                raise ValueError('Qualified fixture playback unavailable')
+            client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
+            nonce = _operation(lambda: client.reserve_fixture_launch(station.uuid),
+                               monitor, cancel, cancel_launch)
+            if not isinstance(nonce, str) or not _HEX48.fullmatch(nonce):
+                raise ValueError('Invalid fixture launch')
+            # A named core survives plugin resolution. The inputstream-player
+            # default alone can be overridden by user player-selection rules.
+            request = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'Player.Open',
+                'params': {'item': {'file': url(mode='play_fixture', id=station.uuid,
+                                              launch_nonce=nonce)},
+                           'options': {'playername': 'VideoPlayer', 'resume': False}}})
+            if cancel.is_set() or monitor.abortRequested():
+                raise Cancelled('Request cancelled')
+            response = None
+            def start_fixture():
+                nonlocal response
+                if cancel.is_set() or monitor.abortRequested():
+                    raise Cancelled('Request cancelled')
+                response = xbmc.executeJSONRPC(request)
+            _playback_arbiter().start(start_fixture)
+            if not isinstance(response, str) or len(response) > 16384:
+                raise ValueError('Invalid playback response')
+            result = json.loads(response)
+            if not isinstance(result, dict) or result.get('result') != 'OK' or 'error' in result:
+                raise ValueError('Fixture playback rejected')
+        except Cancelled:
+            cancel_launch(nonce)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            cancel_launch(nonce)
+            if not cancel.is_set(): _error(30011)
+        return
     if action in ('play', 'play_fixture'):
         client, session = None, None
         def stop(value):
@@ -745,6 +1077,10 @@ def run_plugin(argv):
                 try: client.stop(value['id'])
                 except (OSError, ValueError): pass
         try:
+            launch_nonce = params.get('launch_nonce')
+            if launch_nonce is not None and (action != 'play_fixture' or handle < 0
+                    or not _HEX48.fullmatch(launch_nonce)):
+                raise ValueError('Invalid fixture launch')
             if action == 'play_fixture':
                 station = _fixture_station(params.get('id', ''))
             else:
@@ -765,18 +1101,62 @@ def run_plugin(argv):
                 if handle >= 0:
                     xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
                 return
-            session = _operation(lambda: client.create(station), monitor, cancel, stop)
+            session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
+                                 if launch_nonce is not None else client.create(station),
+                                 monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')
             session_id = _relay_path(session.get('playback_url',''), client.descriptor.port)
             if session_id is None or session.get('id') != session_id:
                 raise ValueError('Invalid relay response')
-            entry = xbmcgui.ListItem(label=station.name, path=session['playback_url'])
-            entry.setProperty('IsPlayable', 'true')
             mime = session.get('mime_type', 'application/octet-stream')
             if (not isinstance(mime, str) or len(mime) > 128
                     or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime)):
                 raise ValueError('Invalid relay MIME type')
+            playback_url = session['playback_url']
+            adaptive_url = session.get('adaptive_playback_url')
+            continuous_url = session.get('continuous_playback_url')
+            if continuous_url is not None and (
+                    action != 'play_fixture' or mime != 'application/vnd.apple.mpegurl'
+                    or not playback_url.endswith('.m3u8')
+                    or continuous_url != playback_url[:-5] + '.aac'):
+                raise ValueError('Invalid continuous relay response')
+            adaptive = buffered = False
+            if adaptive_url is not None:
+                if (action != 'play_fixture' or mime != 'application/vnd.apple.mpegurl'
+                        or not isinstance(adaptive_url, str) or not adaptive_url.endswith('.m3u8')
+                        or _relay_path(adaptive_url, client.descriptor.port) != session_id):
+                    raise ValueError('Invalid Adaptive relay response')
+                buffered = (continuous_url is not None and
+                            _inputstream_enabled('inputstream.ffmpegdirect', 22))
+                adaptive = not buffered and _adaptive_enabled()
+                if buffered or adaptive:
+                    ready = _operation(lambda: _adaptive_ready(
+                        adaptive_url, playback_url, client.descriptor, cancel), monitor, cancel)
+                    buffered, adaptive = buffered and ready, adaptive and ready
+                if buffered:
+                    playback_url, mime = continuous_url, 'audio/aac'
+                elif adaptive:
+                    playback_url = adaptive_url
+            if (launch_nonce is not None and buffered and playback_url == continuous_url
+                    and _inputstream_version('inputstream.ffmpegdirect') == '22.2.10'):
+                _operation(lambda: client.qualify_fixture_clock(session_id, launch_nonce),
+                           monitor, cancel)
+            entry = xbmcgui.ListItem(label=station.name, path=playback_url)
+            # Master requires an explicit media type for resolved AAC URLs.
+            entry.getMusicInfoTag().setTitle(station.name)
+            # JSON-RPC can retain a video tag on the original plugin item.
+            # Resolve that ambiguous type explicitly to Kodi's music playlist.
+            entry.setProperty('playlist_type_hint', '0')
+            entry.setProperty('IsPlayable', 'true')
+            if buffered:
+                entry.setProperty('inputstream', 'inputstream.ffmpegdirect')
+                entry.setProperty('inputstream-player', 'videodefaultplayer')
+                entry.setProperty('inputstream.ffmpegdirect.stream_mode', 'timeshift')
+                entry.setProperty('inputstream.ffmpegdirect.is_realtime_stream', 'false')
+            elif adaptive:
+                entry.setProperty('inputstream', 'inputstream.adaptive')
+                entry.setProperty('inputstream.adaptive.play_timeshift_buffer', 'true')
             # Kodi's redirect/content lookup performs a disposable GET before
             # decoder playback. That would consume our single continuous reader.
             # The service already resolved redirects and the authoritative MIME.
@@ -787,8 +1167,8 @@ def run_plugin(argv):
             else:
                 player = xbmc.Player()
                 _playback_arbiter().start(
-                    lambda: player.play(session['playback_url'], entry))
-        except (OSError, ValueError, KeyError, TypeError):
+                    lambda: player.play(playback_url, entry))
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)
             if handle >= 0:
@@ -796,10 +1176,15 @@ def run_plugin(argv):
         else:
             # Playback is already resolved. Directory reporting must never revoke it.
             if not station.uuid.startswith('fixture-'):
+                played_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    HistoryStore(profile_path()).record_play(station.uuid, played_at)
+                except (OSError, ValueError, TypeError):
+                    pass  # Profile persistence cannot revoke playback or suppress reporting.
                 try:
                     favorites = FavoriteStore(profile_path())
                     if any(s.station_uuid == station.uuid for s in favorites.list()):
-                        favorites.mark_played(station.uuid, datetime.now(timezone.utc).isoformat())
+                        favorites.mark_played(station.uuid, played_at)
                 except (OSError, ValueError):
                     pass  # A profile write must not revoke already-started playback.
                 try:
@@ -810,6 +1195,7 @@ def run_plugin(argv):
     if handle >= 0:
         xbmcplugin.setContent(handle, 'songs')
     listing_succeeded = True
+    refresh_favorites = False
     retry = {'mode': 'home'}
     try:
         offset = int(params.get('offset', '0'))
@@ -868,6 +1254,7 @@ def run_plugin(argv):
                 item(text(30005), mode=action, offset=offset + PAGE_SIZE)
             if not favorites:
                 _error(30113)
+            refresh_favorites = bool(favorites)
         elif action == 'place':
             place_id = station_identifier(params.get('id', ''))
             place = next((place for place in PlaceStore(profile_path()).list() if place.place_id == place_id), None)
@@ -877,7 +1264,10 @@ def run_plugin(argv):
             if place.latitude is None or place.longitude is None:
                 _error(30114)
             else:
-                stations, next_offset = _operation(lambda: _place_stations(browser, place, offset, cancel), monitor, cancel)
+                stations, next_offset = _directory_page('place',
+                    _cache_key(place.place_id, float(place.radius_km), float(place.latitude),
+                               float(place.longitude), place.country_code, offset),
+                    lambda: _place_stations(browser, place, offset, cancel), monitor, cancel)
                 for station in stations:
                     station_item(station)
                 if next_offset is not None:
@@ -895,6 +1285,12 @@ def run_plugin(argv):
                     listing_succeeded = False
                     return
                 name = _query_text(name)
+            if action == 'search' and offset == 0 and name.strip():
+                try:
+                    RecentSearchStore(profile_path()).record(
+                        name, 'name', datetime.now(timezone.utc).isoformat())
+                except (OSError, ValueError, TypeError):
+                    pass  # Search results remain available if profile storage fails.
             if action == 'country':
                 code = params.get('code', '')
                 if not re.fullmatch(r'[A-Z]{2}', code):
@@ -904,7 +1300,9 @@ def run_plugin(argv):
             else:
                 retry = {'mode': action, 'name': name, 'country': country, 'tag': tag, 'offset': offset}
                 fetch = lambda: browser.search_page(name, country, tag, offset, PAGE_SIZE)
-            stations, has_more = _operation(fetch, monitor, cancel)
+            stations, has_more = _search_page(
+                _cache_key(action, params.get('code', ''), name, country, tag, offset),
+                fetch, monitor, cancel)
             for station in stations:
                 station_item(station)
             if has_more and offset + PAGE_SIZE <= MAX_OFFSET:
@@ -914,10 +1312,12 @@ def run_plugin(argv):
         elif action in ('countries', 'tags'):
             retry = {'mode': action, 'offset': offset}
             if action == 'countries':
-                names = _operation(lambda: browser.country_entries(), monitor, cancel)
+                names, _ = _directory_page('countries', 'all',
+                    lambda: (browser.country_entries(), None), monitor, cancel)
                 has_more = offset + PAGE_SIZE < len(names)
             else:
-                names, has_more = _operation(lambda: browser.tags_page(offset, PAGE_SIZE), monitor, cancel)
+                names, has_more = _directory_page('tags', _cache_key(offset),
+                    lambda: browser.tags_page(offset, PAGE_SIZE), monitor, cancel)
             page = names[offset:offset+PAGE_SIZE] if action == 'countries' else names
             for name in page:
                 if action == 'countries':
@@ -935,8 +1335,15 @@ def run_plugin(argv):
                 _error(30113)
         elif action == 'tests':
             if fixture_origin():
-                for label, _, _, _ in _FIXTURES:
-                    item(text(label), folder=False, playable=True, mode='play_fixture', id='fixture-%d' % label)
+                try:
+                    qualified = ad_settings().enabled
+                except ValueError:
+                    qualified = False
+                for label, _, _, hls in _FIXTURES:
+                    identifier = 'fixture-%d' % label
+                    context = [(30173, {'mode': 'launch_fixture', 'id': identifier})] if qualified and hls else ()
+                    item(text(label), folder=False, playable=True, context=context,
+                         mode='play_fixture', id=identifier)
         else:
             raise ValueError('Unknown navigation action')
     except Cancelled:
@@ -952,6 +1359,8 @@ def run_plugin(argv):
     finally:
         if handle >= 0:
             xbmcplugin.endOfDirectory(handle, succeeded=listing_succeeded, cacheToDisc=False)
+            if listing_succeeded and refresh_favorites:
+                _schedule_favorite_refresh(base)
 
 
 class RelayPlayer(xbmc.Player):
@@ -960,9 +1369,10 @@ class RelayPlayer(xbmc.Player):
         self.manager, self.port, self.owned = manager, port, None
         self._generation = 0
         self._armed_generation = None
-        self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin)
+        self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin,
+                                  is_caching=lambda: xbmc.getCondVisibility('Player.Caching'))
 
-    def onAVStarted(self):
+    def _started(self, av_started):
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
         old = self.owned
@@ -975,10 +1385,17 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
         if current is not None:
             self.ads.bind(current)
+            if av_started:
+                self.ads.on_av_started(current)
+            else:
+                self.ads.on_playback_started(current)
             self._arm_current()
 
+    def onAVStarted(self):
+        self._started(True)
+
     def onPlayBackStarted(self):
-        self.onAVStarted()
+        self._started(False)
 
     def _finished(self, reason):
         # A stop callback for the old stream can arrive after a rapid switch.
@@ -1028,6 +1445,10 @@ class RelayPlayer(xbmc.Player):
         identity = self._callback_session()
         if identity is not None and not xbmc.getCondVisibility('Player.Paused'):
             self.ads.on_resume(identity)
+
+    def onPlayBackSpeedChanged(self, speed):
+        identity = self._callback_session()
+        if identity is not None: self.ads.on_speed_changed(speed, identity)
 
     def onPlayBackSeek(self, time, seek_offset):
         identity = self._callback_session()

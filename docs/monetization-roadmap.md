@@ -1,13 +1,22 @@
 # Monetization follow-on roadmap
 
-The branch now implements controlled loopback-only VAST audio preparation,
-preroll, HLS midroll replacement and fixture success beacons on the embedded
-Python relay. General Radio Browser playback remains outside ad insertion. The
-sample-zero Kodi media-clock anchor is implemented but still needs a fresh target
-Kodi run; stall jumps taint placements whose playback interval is ambiguous.
-Audible output is unverified, so the VAST/HLS work is not production-ready. The
-remaining stages below require controlled acceptance evidence before expanding
-demand or station coverage.
+The branch implements Radio Browser discovery and controlled loopback-only VAST
+preparation, preroll, HLS midroll replacement and guarded fixture tracking.
+General Radio Browser playback remains outside ad insertion.
+
+The separate native inputstream lab captured a complete 180.032-second HLS
+programme through four normal Kodi pauses without detected gaps or replay in the
+tested buffered profile. Treat that as a scoped historical result; its frozen
+offline clock estimator passed all 171 qualified measurements, but the raw
+player/delay clock, low-latency mode, startup and pause-tail timing remain
+unqualified. On 2026-10-30, a fresh 360-second Kodi master capture of the
+bounded 128-segment fixture aligned the controlled replacement tone with all
+six loopback VAST success events, but then stalled near the fixture's expected
+end at player time 260.408 seconds, produced 76.4 seconds of captured silence,
+and did not reach natural EOF. No production success beacons are
+enabled; `docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-30.md` is the
+current acceptance status. The native lab is preserved as optional source
+patches; it is not installed or required by the shipped Python addon.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
 that is a project assumption rather than independently verified repository
@@ -24,9 +33,11 @@ production demand, settle consent inputs, creative expiry/reuse, contractual
 tracking semantics, and any broader VAST requirements. Do not expand advertising
 origins or enable production success beacons until the Kodi clock mapping passes.
 
-Remaining evidence: verify sample-zero startup, moving HLS windows and the new
-seek/reset/ambiguous-jump guards on Kodi. Separately verify heard output. Existing
-deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
+Remaining evidence: connect a qualified live source clock to the actual addon
+playback session, then correlate ad placement and tracking across moving HLS
+windows and both ad discontinuities. The offline native lab estimator does not
+yet provide that runtime contract. Verify seek/reset/ambiguous-jump behavior and heard output
+separately. Existing deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
 malformed input and incompatible media. Fetching or caching a creative must never
 count as an impression. Stop/cancel must not emit completion, and retries must
 not duplicate tracking.
@@ -39,11 +50,11 @@ fallback. Do not silently broaden this to encrypted/variant/continuous streams o
 pad/truncate mismatched media. Future codec and partial-break support needs separate
 design and fixtures.
 
-Required before release: rerun controlled playlists on the target Kodi build,
-verify the sample-zero media anchor and listen for programme/ad transitions, and
-retain the existing relay-decoding evidence for cue boundaries, missing ends,
-discontinuities, cache retention and fallback. In-band cues and continuous streams
-have separate coverage; absence of HLS cues does not prove absence of ads.
+Required before release: verify the sample-zero media anchor against decoded
+output and listen for programme/ad transitions, and retain the existing
+relay-decoding evidence for cue boundaries, missing ends, discontinuities, cache
+retention and fallback. In-band cues and continuous streams have separate
+coverage; absence of HLS cues does not prove absence of ads.
 
 ## 3. Continuous-stream replacement investigation
 

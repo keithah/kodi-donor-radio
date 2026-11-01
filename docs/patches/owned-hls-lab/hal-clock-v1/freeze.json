@@ -1,0 +1,34 @@
+{
+  "schema": "owned-hal-clock-v1",
+  "version": 1,
+  "contract_sha256": "ca5545c65b71ebdd85c2bd62fa17a309fcd7aca6c3f4f66e6995135771dcc503",
+  "provider_sha256": "5088acbe2e3e801cedbe32163c95c8250b459a9268832d207d445f2f21eddc71",
+  "authorization_provider_sha256": "9fc49887d811cdbb0bb1956e54889cf941ce337207612380011c5a42f981cf6a",
+  "native_clock_sha256": "5e9079b19b62c0ea0e6c1209bffebcef7e450336f2de6220c6d794800eee04cb",
+  "native_authorization_sha256": "461d1416138d06efd3bc231bd59b67df82926e89396ed428db760dce067c28e9",
+  "native_transport_sha256": "7d0a653c2b8eabc180d08d8070c1abd2c860fc3e7b49f2335329347170fbcd2b",
+  "clock_authority": false,
+  "beacons_enabled": false,
+  "production_eligible": false,
+  "frozen_utc": "2026-10-30T01:36:06Z",
+  "authorization_benchmark": {
+    "result": "/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/hal-task3-1793300802259852000/benchmark-19/result.json",
+    "result_sha256": "f7637f79a5c5ba5c4c7259e5531be6a23c64bc1768692db9eda0d2ed9d3ff9fa",
+    "driver_sha256": "fbd0c0ff2bf1bca92d1a566d1378f4335d04176990f0ed791933f131bfe68116",
+    "harness_sha256": "d2ab00e058ad502d183a82413a77ca3f865f6ae590fed26b7aeff51e6f9726d0",
+    "authorization_requests_prepopulated": 32753,
+    "authorization_requests_final": 15,
+    "all_final_authorized": true,
+    "max_request_to_action_ns": 16076458,
+    "max_native_bracket_ns": 43417,
+    "max_reply_to_action_ns": 1013041,
+    "max_query_to_action_ns": 47324833,
+    "limits_ns": {
+      "request_to_action": 20000000,
+      "native_bracket": 5000000,
+      "reply_to_action": 5000000,
+      "query_to_action": 100000000
+    }
+  },
+  "binding_note": "Current Python providers were bound after benchmark-19 validated the authorization provider."
+}

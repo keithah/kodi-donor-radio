@@ -4,13 +4,15 @@ Oct 22, 2026 · @Keith
 
 ## Status and implementation baseline
 
-This describes the full product target. The 2026-10-23 first slice implements
-skin-native root/nested listings, safe place and favorite stores (including the
-favorite's last deliberate-play timestamp), sequential native setup dialogs,
-station/place actions, and one shared labeled schematic map with a coordinate grid and debounced preview.
-The existing Radio Browser discovery, local relay, ICY/HLS observation, and
-controlled loopback-only VAST/HLS behavior remain in place. A separate history
-view/store and themed Home, Now playing, and other themed windows are deferred.
+This describes the full product target. The current slice implements
+skin-native root/nested listings, bounded place/favorite/history/recent-search
+stores, sequential native setup dialogs, station/place actions, and one shared
+map window with bundled land artwork, a coordinate grid, a station rail, and a
+debounced preview. Directory summaries are cached locally without stream URLs;
+favorite details refresh in the background when the listing is revisited. The
+Radio Browser discovery, local relay, ICY/HLS observation, and controlled
+loopback-only VAST/HLS behavior remain in place. A separate history screen and
+themed Home, Now playing, and other themed windows remain deferred.
 
 The implemented settings are `guided_setup=false`, `offer_setup_row=true`,
 `preview_on_browse=true`, and the `run_setup` action. The target `interface` and

@@ -45,16 +45,32 @@ class AdTracker:
     emit receives a mapping with kind, event, placement_id, creative_id,
     reason, and session_id. Identifiers are opaque hashes; no URL is emitted.
     """
-    def __init__(self, session_id, emit, enqueue):
+    def __init__(self, session_id, emit, enqueue, allow_preroll_start=True):
         self.session_id, self.emit, self.enqueue = session_id, emit, enqueue
+        self._allow_preroll_start = allow_preroll_start
         self._previous = None
+        self._previous_clock = None
         self._last_good = None
         self._initial_bad_position = None
         self._stationary_since = None
         self._seen_sample = False
+        self._last_speed = 1.0
+        self._pending_speed_taint = False
+        self._speed_taint_origin = None
         self._progress = {}
         self._presentation = None
         self._finished = False
+        self._interrupted = False
+        self._interruption_origin = None
+
+    def interrupt(self):
+        """Withhold milestones for an ad whose audio was interrupted."""
+        if not self._interrupted:
+            self._interruption_origin = self._previous or self._last_good
+        self._interrupted = True
+        self._previous = self._previous_clock = None
+        self._stationary_since = None
+        self._seen_sample = True
 
     def _report(self, placement, event):
         state = self._progress[placement.id]
@@ -93,9 +109,56 @@ class AdTracker:
         if self._finished or sample.session_id != self.session_id:
             return
         self._presentation = presentation
-        good = (sample.mapped and sample.playing and not sample.paused and
-                not sample.seeking and math.isfinite(sample.position_seconds) and
-                math.isfinite(sample.monotonic_seconds))
+        if self._interrupted and sample.mapped:
+            self._taint_ambiguous(presentation, self._interruption_origin, sample)
+            self._interrupted = False
+            self._interruption_origin = None
+        speed_untrusted = (sample.speed != 1 or sample.speed_changed or
+                           sample.speed != self._last_speed)
+        self._last_speed = sample.speed
+        if speed_untrusted:
+            self._seen_sample = True
+            # Even a rate round trip between polls breaks the interval. Keep
+            # crossed placements ambiguous rather than backfilling on resumption.
+            if not self._pending_speed_taint:
+                self._speed_taint_origin = self._previous or self._last_good
+            self._pending_speed_taint = True
+        if self._pending_speed_taint:
+            if sample.mapped and math.isfinite(sample.position_seconds):
+                self._taint_ambiguous(presentation, self._speed_taint_origin, sample)
+                self._pending_speed_taint = False
+                self._speed_taint_origin = None
+            elif sample.seeking:
+                # An explicit seek permanently invalidates the fixture mapping.
+                self._pending_speed_taint = False
+                self._speed_taint_origin = None
+            # Unavailable reads and pauses cannot locate or erase the interval.
+        clock_observed = (not speed_untrusted and sample.mapped and sample.playing and not sample.paused and
+                          not sample.seeking and math.isfinite(sample.position_seconds) and
+                          math.isfinite(sample.monotonic_seconds))
+        good = clock_observed and not sample.caching
+        # A mapped cache clock can prove a long gap or plateau is ambiguous, but it
+        # cannot prove playback or become the previous played interval.
+        previous_clock = self._previous_clock
+        if clock_observed and previous_clock is not None:
+            elapsed = sample.monotonic_seconds - previous_clock.monotonic_seconds
+            if elapsed > MAX_GAP and sample.position_seconds > previous_clock.position_seconds:
+                self._taint_ambiguous(presentation, previous_clock, sample)
+            if sample.position_seconds == previous_clock.position_seconds and elapsed > 0:
+                if self._stationary_since is None:
+                    self._stationary_since = previous_clock.monotonic_seconds
+                if sample.monotonic_seconds - self._stationary_since >= MAX_STATIONARY:
+                    self._taint_ambiguous(presentation, previous_clock, sample)
+            else:
+                self._stationary_since = None
+        elif clock_observed or sample.mapped or sample.paused or sample.seeking or speed_untrusted:
+            self._stationary_since = None
+        if clock_observed:
+            self._previous_clock = sample
+        elif sample.mapped or sample.paused or sample.seeking or speed_untrusted:
+            self._previous_clock = None
+        # Unavailable/unmapped reads cannot prove progress or erase elapsed
+        # clock or stationary evidence. Explicit transitions still break that chain.
         previous = self._previous
         first_sample = good and not self._seen_sample
         if good:
@@ -116,15 +179,6 @@ class AdTracker:
             continuous = (previous.mapped and previous.playing and not previous.paused and
                           not previous.seeking and 0 < interval <= MAX_GAP and
                           0 < advance <= interval + START_TOLERANCE)
-            if advance > 0:
-                self._stationary_since = None
-            elif advance == 0 and interval > 0:
-                if self._stationary_since is None:
-                    self._stationary_since = previous.monotonic_seconds
-                if sample.monotonic_seconds - self._stationary_since >= MAX_STATIONARY:
-                    self._taint_ambiguous(presentation, previous, sample)
-            else:
-                self._stationary_since = None
             if (sample.seeking or interval <= 0 or advance < 0 or
                     (interval > MAX_GAP and advance > 0) or
                     advance > interval + START_TOLERANCE):
@@ -143,7 +197,7 @@ class AdTracker:
                 continue
             position = sample.position_seconds
             near_start = (start <= position <= min(end, start + START_TOLERANCE) and
-                          first_sample)
+                          first_sample and (start > 0 or self._allow_preroll_start))
             if (near_start and self._initial_bad_position is not None
                     and self._initial_bad_position > start + START_TOLERANCE):
                 near_start = False
@@ -165,8 +219,6 @@ class AdTracker:
         self._previous = sample if good else None
         if good:
             self._last_good = sample
-        if not good:
-            self._stationary_since = None
 
     def finish(self, reason):
         if self._finished:
@@ -207,7 +259,7 @@ class BeaconWorker:
         self._thread = threading.Thread(target=self._run, name="ad-beacons", daemon=True)
         self._thread.start()
 
-    def enqueue(self, placement_id, event, url):
+    def enqueue(self, placement_id, event, url, authorize=None):
         try:
             parts = urlsplit(url)
             if (origin(url) != origin(self.fixture_origin) or len(url) > 8192 or
@@ -223,7 +275,7 @@ class BeaconWorker:
                 return False
             self._seen.add(key)
             try:
-                self._queue.put_nowait(key)
+                self._queue.put_nowait((key, authorize))
             except queue.Full:
                 self.overflow += 1
                 return False
@@ -232,11 +284,12 @@ class BeaconWorker:
     def _run(self):
         while not self._stop.is_set() and not self._cancel.is_set():
             try:
-                _, _, url = self._queue.get(timeout=.05)
+                (_, _, url), authorize = self._queue.get(timeout=.05)
             except queue.Empty:
                 continue
             try:
-                if not self._request_cancel.is_set():
+                if (not self._request_cancel.is_set() and
+                        (authorize is None or authorize())):
                     with self.client.open(url, {}, self._request_cancel,
                                           deadline=time.monotonic() + 2,
                                           allowed_origin=self.fixture_origin) as response:
@@ -249,11 +302,14 @@ class BeaconWorker:
             finally:
                 self._queue.task_done()
 
-    def close(self):
+    def close(self, wait=True):
+        if not wait:
+            self._stop.set()
+            return
         # Allow fast sends to drain, then cancel any slow request and discard
         # pending work. Every request has its own two-second transport deadline.
         deadline = time.monotonic() + .2
-        while (not self._cancel.is_set() and self._queue.unfinished_tasks and
+        while (not self._stop.is_set() and not self._cancel.is_set() and self._queue.unfinished_tasks and
                time.monotonic() < deadline):
             time.sleep(.005)
         self._stop.set()

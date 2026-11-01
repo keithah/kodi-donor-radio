@@ -1,5 +1,6 @@
 import threading
 import time
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -33,6 +34,34 @@ def test_real_segments_measure_frames_and_contiguous_pts():
     assert second.samples == 96256
 
 
+@pytest.mark.parametrize('name', ['preroll000.ts', 'replacement001.ts', 'source004.ts'])
+def test_extract_adts_preserves_frames_in_independent_stream_copy(name):
+    original = segment(name)
+    info, audio = ad_media.extract_adts(original)
+    expected = subprocess.run(
+        ['ffmpeg', '-v', 'error', '-f', 'mpegts', '-i', 'pipe:0',
+         '-map', '0:a:0', '-c:a', 'copy', '-f', 'adts', 'pipe:1'],
+        input=original, capture_output=True, check=True, timeout=10).stdout
+    assert isinstance(audio, bytes)
+    assert audio == expected
+    assert info == inspect_ts(original)
+    assert (info.codec, info.sample_rate, info.channels, info.samples) == ('aac', 48000, 2, 96256)
+
+
+@pytest.mark.parametrize('first_payload_bytes', [8, 17])
+def test_extract_adts_preserves_split_pes_and_adts_headers(first_payload_bytes):
+    original = segment()
+    assert ad_media.extract_adts(_split_first_audio_packet(original, first_payload_bytes)) == (
+        ad_media.extract_adts(original))
+
+
+@pytest.mark.parametrize('tail', [b'x', bytes((0x47, 0x01, 0x01, 0x10)) + b'\xff' * 184],
+                         ids=['partial-packet', 'unexpected-stream'])
+def test_extract_adts_rejects_invalid_tail_after_valid_audio(tail):
+    with pytest.raises(AdError):
+        ad_media.extract_adts(segment() + tail)
+
+
 def test_null_packets_with_arbitrary_continuity_counters_are_ignored():
     original = segment()
     null_packet = lambda counter: bytes((0x47, 0x1f, 0xff, 0x10 | counter)) + b'\xff' * 184
@@ -40,23 +69,25 @@ def test_null_packets_with_arbitrary_continuity_counters_are_ignored():
     assert inspect_ts(padded) == inspect_ts(original)
 
 
-def test_ts_rejects_pusi_when_adaptation_field_consumes_pointer_byte():
+@pytest.mark.parametrize('reader', ['inspect_ts', 'extract_adts'])
+def test_ts_rejects_pusi_when_adaptation_field_consumes_pointer_byte(reader):
     packet = bytes((0x47, 0x40, 0x00, 0x30, 183, 0)) + b'\xff' * 182
     assert len(packet) == 188
     with pytest.raises(AdError, match='Invalid transport pointer'):
-        inspect_ts(packet)
+        getattr(ad_media, reader)(packet)
 
 
-def test_ts_rejects_truncation_continuity_and_extra_stream():
+@pytest.mark.parametrize('reader', ['inspect_ts', 'extract_adts'])
+def test_ts_rejects_truncation_continuity_and_extra_stream(reader):
     original = segment()
     with pytest.raises(AdError):
-        inspect_ts(original[:-1])
+        getattr(ad_media, reader)(original[:-1])
     changed = bytearray(original)
     # Audio PID 0x100, second payload packet has a continuity counter.
     audio_packets = [i for i in range(0, len(changed), 188) if changed[i + 1] & 0x1f == 1 and changed[i + 2] == 0]
     changed[audio_packets[1] + 3] ^= 1
     with pytest.raises(AdError):
-        inspect_ts(bytes(changed))
+        getattr(ad_media, reader)(bytes(changed))
     changed = bytearray(original)
     pmt = 2 * 188
     assert changed[pmt + 1:pmt + 3] == b'P\x00'
@@ -67,7 +98,7 @@ def test_ts_rejects_truncation_continuity_and_extra_stream():
     changed[section_end - 4:section_end] = ad_media._crc32_mpeg(
         bytes(changed[section_start:section_end - 4])).to_bytes(4, 'big')
     with pytest.raises(AdError, match='Unsupported or ambiguous media streams'):
-        inspect_ts(bytes(changed))
+        getattr(ad_media, reader)(bytes(changed))
 
 
 def _split_first_audio_packet(body, first_payload_bytes):
@@ -97,21 +128,22 @@ def test_split_pes_or_adts_header_is_parsed(first_payload_bytes):
     assert inspect_ts(_split_first_audio_packet(original, first_payload_bytes)) == inspect_ts(original)
 
 
-def test_adts_profile_and_sample_rate_are_checked():
+@pytest.mark.parametrize('reader', ['inspect_ts', 'extract_adts'])
+def test_adts_profile_and_sample_rate_are_checked(reader):
     original = segment()
     offset = original.index(b'\xff\xf1')
     changed = bytearray(original)
     changed[offset + 2] ^= 0x40  # AAC LC -> AAC Main
     with pytest.raises(AdError):
-        inspect_ts(bytes(changed))
+        getattr(ad_media, reader)(bytes(changed))
     changed = bytearray(original)
     changed[offset + 3] ^= 0x40  # Stereo -> mono.
     with pytest.raises(AdError):
-        inspect_ts(bytes(changed))
+        getattr(ad_media, reader)(bytes(changed))
     changed = bytearray(original)
     changed[offset + 2] ^= 0x04  # 48 kHz -> 44.1 kHz
     with pytest.raises(AdError):
-        inspect_ts(bytes(changed))
+        getattr(ad_media, reader)(bytes(changed))
 
 
 def _shift_pts(body, shift):

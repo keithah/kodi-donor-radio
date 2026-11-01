@@ -1,0 +1,10 @@
+{
+  "frozen_utc": "2026-10-28T07:06:42.076043+00:00",
+  "status": "parameters and implementation frozen before first evaluation and held-out capture",
+  "files": {
+    "algorithm.md": "740b8e8d9152b0b63f0ad028afc7760b289c91ea25683a1541b9e809067243d7",
+    "estimator.py": "8784711981dba4a1ef627e897e61a94262cc2dbbb53ad052fae274d0ec8c690c",
+    "test_estimator.py": "34ef265790028b10c459d3ddd048024eb96f22fccc6c3031ef27ff4f5b6d9171"
+  },
+  "synthetic_tests": "6 tests passed"
+}

@@ -2,6 +2,8 @@
 """Check an addon ZIP without extracting or importing its contents (stdlib only)."""
 import argparse
 import ast
+import json
+import math
 from pathlib import Path
 import re
 import stat
@@ -18,6 +20,7 @@ FILES = frozenset({
     'addon.xml', 'default.py', 'service.py', 'LICENSE.txt',
     'resources/settings.xml', 'resources/icon.png', 'resources/fanart.jpg',
     'resources/station-monogram.png',
+    'resources/map/natural_earth_110m_land.json', 'resources/map/SOURCES.md',
     'resources/skins/Default/media/white.png',
     'resources/skins/Default/media/radio-white.png',
     'resources/language/resource.language.en_gb/strings.po',
@@ -36,6 +39,49 @@ FILES = frozenset({
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def check_land_geometry(payload, packaged_decoder):
+    """Validate map data without executing code from the package archive."""
+    decoder_path = (Path(__file__).resolve().parents[1] / ADDON_ID /
+                    'resources' / 'lib' / 'radio_map.py')
+    require(packaged_decoder == decoder_path.read_bytes(),
+            'Packaged map decoder differs from checked source')
+    require(len(payload) <= 2 * 1024 * 1024, 'Land coordinate file exceeds size limit')
+    try:
+        data = json.loads(payload.decode('utf-8'))
+    except (UnicodeError, ValueError, RecursionError) as error:
+        raise ValueError('Invalid bundled land geometry JSON') from error
+    require(isinstance(data, dict) and
+            set(data) == {'schema_version', 'source', 'polygons'} and
+            type(data['schema_version']) is int and data['schema_version'] == 1 and
+            data['source'] == 'Natural Earth 1:110m land v4.1.0',
+            'Unsupported bundled land geometry schema or source')
+    polygons = data['polygons']
+    require(isinstance(polygons, list) and 0 < len(polygons) <= 25000,
+            'Invalid bundled land polygons')
+    point_count = 0
+    for polygon in polygons:
+        require(isinstance(polygon, list) and 0 < len(polygon) <= 25000,
+                'Invalid bundled land polygon rings')
+        for ring in polygon:
+            require(isinstance(ring, list) and len(ring) >= 4,
+                    'Bundled land rings must be closed with four points')
+            point_count += len(ring)
+            require(point_count <= 100000, 'Too many bundled land coordinates')
+            for point in ring:
+                require(isinstance(point, list) and len(point) == 2,
+                        'Invalid bundled land coordinate pair')
+                for value, low, high in ((point[0], -180, 180), (point[1], -90, 90)):
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        valid = low <= value <= high
+                    elif isinstance(value, float):
+                        valid = math.isfinite(value) and low <= value <= high
+                    else:
+                        valid = False
+                    require(valid, 'Invalid bundled land coordinate')
+            require(ring[0] == ring[-1], 'Bundled land rings must be closed')
+    require(bool(polygons), 'Bundled map land geometry must not be empty')
 
 
 def parse_xml(data):
@@ -129,6 +175,8 @@ def jpeg_dimensions(data):
 
 def check_contents(contents):
     require(set(contents) == FILES, 'Distribution must contain exactly the approved source manifest')
+    check_land_geometry(contents['resources/map/natural_earth_110m_land.json'],
+                        contents['resources/lib/radio_map.py'])
     metadata = parse_xml(contents['addon.xml'])
     require(metadata.tag == 'addon' and metadata.get('id') == ADDON_ID
             and metadata.get('version') == VERSION, 'Incorrect addon identity/version')
@@ -138,7 +186,9 @@ def check_contents(contents):
     require(metadata.find("extension[@point='xbmc.python.pluginsource']/provides").text == 'audio',
             'Music plugin must provide audio')
     imports = [item.attrib for item in metadata.findall('requires/import')]
-    require(imports == [{'addon': 'xbmc.python', 'version': '3.0.1'}], 'Incorrect runtime dependency')
+    require(imports == [
+        {'addon': 'xbmc.python', 'version': '3.0.1'},
+    ], 'Incorrect runtime dependency')
     info = metadata.find("extension[@point='xbmc.addon.metadata']")
     require(info is not None, 'Addon metadata missing')
     require(info.findtext('license') == 'GPL-2.0-or-later', 'Incorrect license metadata')

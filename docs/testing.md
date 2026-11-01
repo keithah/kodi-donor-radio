@@ -1,5 +1,207 @@
 # Validation record
 
+## Current owned-renderer checkpoint — 2026-10-29
+
+The [owned-clock and beacon checkpoint](superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md)
+records the current Kodi-master experiment separately from the historical results
+below. Candidate `c33f6d0`, built in Release mode, completed run19 with all
+8,641,536 source frames, four normal pause/resume cycles, and 34 actual loopback
+HTTP 204 beacon receipts. Captured audio nevertheless contains an unexpected
+19.354 ms silence gap. The runtime acceptance gate is **FAILED**.
+
+An independent crosscheck of the recovered diagnostic trace confirms roughly
+55 ms runnable delays for ActiveAE and AESink around the underflow trigger.
+The scheduling cause remains unknown; trace overhead and limited retained
+coverage prevent broader causal claims. An earlier run14 query was qualified
+inside exact silence, so cached AudioEngine accounting is not unconditional
+proof of audible position. Clock tolerances and the estimator remain frozen.
+
+The owned experimental preroll path delivered real fixture beacons; the legacy
+continuous adapter's zero-start suppression remains unchanged. Neither result
+qualifies general stations, arbitrary creative splices, or production billing.
+That checkpoint predates the opt-in HAL lab output path now implemented by the
+experimental fixture patch; captured acceptance remains incomplete. Steward and
+CodeRabbit were **NOT RUN** on that checkpoint. The branch was later pushed to PR #4
+on 2026-11-01 after a separate local review of the 57 previously unpushed commits
+found no merge blocker; hosted CodeRabbit review of those commits is still pending.
+Earlier dated test and review results below remain historical evidence.
+
+## Directory cache, map, and review-fix follow-up — 2026-10-26
+
+Persistent station summaries now retain the state label and click count needed
+by the map, while omitting stream URLs and remote favicon URLs. The map window
+keeps the requested geographic view for its texture identity and uses
+viewport-matched coordinates for pin ranking and directional focus. Malformed
+deeply nested history and recent-search files are treated as invalid local data,
+so they do not suppress successful-play click reporting or live search results;
+the bad profile files remain unchanged. Shared Kodi test fixtures now live in
+`tests/conftest.py` rather than being imported across test modules.
+
+The full suite passed **1,418 tests in 136.84s**. The focused Kodi runtime and
+playback suites passed **283 tests**, and the focused persistence regressions
+passed **3 tests**. `compileall`, source package creation,
+`tools/check_package.py`, and `git diff --check` passed. Kodi add-on checker
+**0.0.36** on a fresh Omega extraction reported no add-on problems or warnings;
+the host emitted its known urllib3/LibreSSL compatibility warning separately.
+Live Kodi visual acceptance for this revision remains unverified because a
+usable Kodi GUI session was unavailable for this run.
+
+## Recent search and listening history stores — 2026-10-26
+
+The add-on now keeps private, versioned `recent_searches.json` and `history.json`
+files through the existing locked atomic profile writer. Recent searches retain
+ten entries, deduplicate trimmed/casefolded query text plus scope, and preserve
+the latest submitted spelling. The current UI records only nonblank first-page
+station-name searches; pagination does not change their timestamps. History
+retains at most 500 station UUIDs with counts and timezone-aware last-played
+timestamps, recorded only after successful non-fixture play resolution. Profile
+read/write errors do not prevent results, revoke playback, or suppress click
+reporting. This slice adds no Recent or History navigation rows.
+
+The full suite passed **1,260 tests in 133.64s**. The focused store/runtime suite
+passed **270 tests in 7.18s**. Tests cover schema
+round trips, normalized deduplication, ordering by UTC instant, deterministic
+history ties, limits/eviction, malformed and oversized records, private file
+permissions, competing mutation locks, atomic-write failures, submission versus
+pagination, successful/context plays, fixture/failed-resolution exclusion, and
+profile failures. A UTC conversion overflow boundary was first reproduced as a
+failing test and is now rejected as invalid profile data.
+
+Compilation, package creation in `dist/radio-history-task1/`, repository package
+validation, and `git diff --check` passed. Kodi add-on checker **0.0.36** on a fresh
+extraction for Omega exited 0 with no add-on problems or warnings; it emitted the
+known host LibreSSL/urllib3 compatibility warning separately. The usual ZIP path
+under `dist/` was already a directory, so the initial build there failed; that
+directory was preserved and the separate destination built successfully. Final
+archive SHA-256:
+`79e5d48b7f52c4af886eea76555fc28cd9f42d7801ba469c7a2dc0c4b4ee1f12`.
+
+Kodi live acceptance remains open because current master startup blocks before
+add-on execution on this Mac. No live acceptance result is claimed for these
+profile stores.
+
+## Successful Kodi no-replay run before speed guard — 2026-10-26
+
+The latest package was installed in an isolated portable profile on this Mac and
+run with unpatched Kodi master `434da3c` (`23.0-ALPHA1`, JSON-RPC 14.1). All five
+controlled scenarios matched the requested item, showed bounded clock progress,
+and reported no smoke-validation failures. In the normal scenario, the add-on log
+recorded raw startup samples `-0.091` and `0.110` with tracking disabled, then
+enabled tracking at `0.516`. It did not replay the withheld samples. The fixture
+recorded one impression, start, and first-quartile beacon for the controlled
+break. Expired-window, mutation, and stall scenarios recorded no success beacons.
+
+Kodi rejected scripted pause, resume, and seek on this nonseekable HLS item; a
+separate stop action succeeded. These results verify the no-replay safeguard and
+the tested fixture outcomes only. They do not prove the absolute Kodi-clock to
+decoded-presentation mapping or audible output: `mapping_proven` and
+`audible_output_verified` remain false.
+
+## Fresh master startup retry after speed guard — 2026-10-26
+
+After installing the speed-guard package into a new isolated Kodi portable
+profile, two clean launches of unpatched Kodi master `434da3c` stopped during
+startup. Both main-thread samples place `XBMCMainThread` in
+`CPeripheralBusUSB::DeviceAttachCallback` →
+`IOCreatePlugInInterfaceForService` → `IOUSBInterfaceClass::start`. The log ends
+at `[Media Detection] starting service for optical media detection`, before the
+Kodi JSON-RPC listener or addon route becomes available. The same USB network
+adapter stayed connected; no device was unplugged and no Kodi workaround was
+used. This is a host startup blocker, not an observed addon failure. It prevents
+claiming a Kodi end-to-end result for the speed-guard revision. A previous
+successful launch on this master build remains separate evidence and does not
+override this reproducible retry failure. See the
+[`startup retry report`](superpowers/reports/kodi-master-startup-hang-2026-10-26.md).
+
+## Independent relay decode smoke — 2026-10-26
+
+The relay-only decoder smoke passed five controlled VAST cases: preroll plus midroll
+replacement from one direct creative (`direct`), preroll with the original midroll preserved (`preroll`),
+no-fill fallback (`no-fill`), failed-media fallback (`failed-media`), and a VAST
+duration mismatch resolved from measured media samples (`wrong-duration`). Every
+decoded segment contained exactly 96,256 samples; the measured section order matched the expected presentation, and the
+collector remained empty because this relay-only run had no playback evidence.
+
+## Release checks — 2026-10-26
+
+The full suite passed **1,170 tests in 138.74 seconds**. The source-only addon
+ZIP was created in a fresh temporary output directory and passed
+`tools/check_package.py`; `compileall` and `git diff --check` also passed. Kodi's
+official addon checker **0.0.36** on a fresh extraction for Omega reported no
+problems or warnings. It emitted the host's existing LibreSSL compatibility
+warning. The independent relay decoder passed all five controlled cases above.
+These checks do not replace the post-speed-guard Kodi player run, which remains
+blocked during Kodi's USB startup as described earlier.
+
+## Kodi startup clock confirmation — 2026-10-26
+
+To prevent a transient startup clock from emitting an early success event, the
+fixture adapter now buffers its first usable sample and enables tracking only
+after two consecutive usable samples show positive, bounded clock progress.
+Repeated positions do not confirm startup. A negative reset, caching, pause
+callback, seek, or unavailable sample discards pending startup samples. This
+gate does not establish the decoded-media origin; it only prevents events from
+the unstable startup interval.
+
+The two refreshed 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1
+matched the requested item. In the startup-gate run, Kodi JSON-RPC reported
+`0.000 → -0.091 → 0.316` seconds; the add-on callback sampled `0.000` then
+`-0.091`, invalidated its mapper, and sent no tracking beacons. In the separate
+clock-progress run, JSON-RPC showed the same initial sequence, while the add-on
+callback sampled `0.000` then `0.318`; tracking was disabled on the first sample
+and enabled after that positive advance. That fixture run recorded one
+impression, start, first quartile, midpoint and third quartile; it did not record
+completion. These beacons followed the add-on's gated raw clock on this run, but
+do not prove its absolute position against decoded media. `mapping_proven` and
+`audible_output_verified` remain false.
+
+### Startup sample follow-up
+
+The clock-progress run above used an earlier gate that replayed the first
+startup sample after confirming advance. The adapter now uses that first sample
+only to confirm progress and sends only the second sample to the tracker. This
+prevents a reset that occurs between add-on polls from retroactively turning an
+unverified startup zero into a preroll beacon. Tests cover that no-replay case,
+confirmed midroll tracking, pause, caching and clock jumps. This stricter change
+was exercised in the 2026-10-26 no-replay Kodi run above. That run confirms the
+startup samples were withheld until progress was observed, but does not establish
+an absolute decoded-media anchor or verify audible output. Because the Kodi
+adapter sets `allow_preroll_start=False`, a preroll beginning at sample zero
+intentionally emits no impression, start, or quartile beacons: the withheld
+startup sample is not proof that playback entered the preroll. Older reports
+that show beacons from a zero-start preroll predate this behavior. Focused tracking,
+adapter and event tests passed **61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+package build, `check_package.py`, and `git diff --check` passed for this source
+revision. The Kodi add-on checker remains unverified because its repository
+index request previously stalled.
+
+
+## Controlled VAST clock follow-up — 2026-10-26
+
+The fixture-only Kodi adapter now invalidates permanently when its clock moves
+backward by more than 50 ms, including a negative sample after playback begins.
+It also treats Kodi's `Player.Caching` state as untrackable; if that state cannot
+be read, the sample fails closed. Opt-in diagnostics record the raw Kodi time,
+mapped position, mapping status, playback/pause/seek state, and caching state.
+These local samples contain no stream URL or credentials.
+
+On unpatched Kodi 23.0-ALPHA1 (`20261021-434da3c`), the refreshed 8-second
+controlled normal-stream run matched the requested item and showed bounded player
+clock progress. The add-on's own samples recorded `0.000` followed by `-0.091`
+seconds; the anchor then invalidated and later positions remained unmapped. The
+first sample had already emitted impression/start, while no later quartile or
+completion was reported. The fixture endpoint counted one impression and one
+start. This confirms reset invalidation and shows that startup zero is still an
+unproven anchor; it does not establish playback against decoded sample positions.
+The run's `mapping_proven` and `audible_output_verified` flags remain false, and
+the Mac's locked desktop prevented listening confirmation.
+
+Focused tracking, adapter and event tests passed **56 tests**. The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,
+`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was
+attempted with dependency checks disabled, but its repository-index request kept
+retrying and was interrupted after more than two minutes; no checker verdict is
+claimed for this run.
+
 ## Playback arbiter GUI follow-up — 2026-10-24
 
 The Kodi preview stop path now marks its playback intent and releases the shared
@@ -1061,3 +1263,109 @@ reachability, or parser failures exit 1, and Ctrl-C exits 130.
 `python3 -m pytest tests/test_hls_sampler.py -q` covers candidate bounds, the
 strict playlist gate, segment-free cue sampling, redaction, concurrency,
 cancellation, and CLI limits. Run `python3 -m pytest -q` for the full suite.
+
+
+## Offline land texture integration — 2026-10-26
+
+The shared Kodi map now installs a local 1680×840 PNG rendered from bundled
+Natural Earth 1:110m land v4.1.0 and the exact active `MapView`. Image control 19
+sits behind the graticule and existing pin controls at `(75, 145)` in a
+1030×515 viewport. Station rail, focusable control sizes, D-pad behavior,
+station context, and preview/play boundaries remain unchanged.
+
+The window receives the translated add-on profile path and the bundled geometry
+path from the runtime. Each generated PNG is bounded to 2 MiB and written through
+a temporary file in the same profile `map-textures` directory before atomic
+replacement. Kodi loads each uniquely named image with its cache bypassed.
+Retention removes only generated `map-<32 lowercase hex digits>.png` files,
+keeping at most 20; unrelated files are retained. Missing/invalid geometry,
+renderer failure, oversized output, disk errors, and native image-loader failure
+hide the texture while leaving the station rail, focus, and Play action usable.
+The package manifest includes both the geometry JSON and its `SOURCES.md`.
+
+Run the integration and packaging tests with:
+
+```sh
+python3 -m pytest tests/test_kodi_radio_map.py tests/test_kodi_runtime.py tests/test_package.py -q
+python3 -m pytest -q
+python3 tools/package_addon.py --output dist
+python3 tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+```
+
+Integration fixtures exercise real local loading and PNG rendering for world,
+regional, and antimeridian views. They verify output dimensions and a hand-checked
+regional land pixel, exact view forwarding, atomic publication, cache bypass,
+retention bounds, viewport-edge pin alignment, and rail behavior on image failure.
+Fresh package extraction must also pass the official Kodi add-on checker for
+Omega; see the checker invocation documented above.
+
+Kodi visual inspection of this texture integration is **pending**. The documented
+main-thread USB startup block on the local Kodi binaries prevents treating the
+older GUI observations as acceptance of this change. No new on-screen, audible,
+or runtime visual acceptance is claimed by these automated tests.
+
+## Kodi ad playback controls and beacon acceptance — 2026-10-26
+
+The local patched Kodi master build `23.0-ALPHA1 (22.90.701)`, Git
+`20261026-8091c14861`, ran with its isolated portable profile and the controlled
+ad fixture origin. Startup logs show both the Glinet composite USB device and
+USB Ethernet adapter attached; Kodi reached its home screen and accepted JSON-RPC
+playback commands on the test-only port. The installed Kodi 21.3 profile and
+process were not changed.
+
+`tools/smoke_ad_kodi.py` now exposes the already-existing finite source fixture
+in the add-on test menu. It verifies that Kodi accepted each requested action
+and observed the resulting pause, resume, or seek effect. Seek validation
+accounts for the fastest playback speed observed during its poll interval, so
+fast-forward clock movement alone cannot pass as a seek. The current run passed
+normal live playback, finite VAST playback, pause/resume, seek, stop, expired
+window, mutation, and delayed-segment scenarios.
+
+- Finite no-action and pause/resume runs each recorded exactly one impression,
+  start, first quartile, midpoint, third quartile, and completion. During the
+  pause interval the player clock held steady and Kodi reported speed zero.
+- The finite seek run moved to the requested late position. Beacon totals vary
+  with whether Kodi reaches the break before the seek action; this is recorded
+  but not gated because the fixture counter does not timestamp each event. On
+  the latest run, Kodi moved from 8.396 to 12.833 seconds toward the 80% target
+  in 1.265 seconds at 1× speed; the checker compares the jump with the possible
+  natural clock advance before accepting it as a seek.
+- Stop and expired-window runs recorded no success beacons. Live moving-window,
+  mutation, and stall beacon totals are retained as observations, not strict
+  expectations, because their clock mapping is not calibrated.
+- The latest report recorded no beacons in the normal live, mutation, or stall
+  scenarios. Earlier runs produced different subsets. These scenarios remain
+  observational rather than event-count gates until their clock mapping is
+  calibrated, and production station tracking remains disabled.
+
+The desktop was locked during the final run, so visual inspection and local
+audio capture/listening remain unverified. This acceptance proves Kodi drove
+the add-on's finite controlled stream, replacement media, and fixture beacons;
+it does not prove audible output or establish a production clock anchor across
+a moving HLS window and discontinuities.
+
+## Captured audio and supported Adaptive clock path — 2026-10-27
+
+The later [captured-audio report](superpowers/reports/kodi-audio-capture-2026-10-27.md)
+records actual Kodi master process audio, pause/resume, and seeking. It supersedes
+the earlier lack of capture evidence above, without proving physical speaker output.
+
+A stalled live manifest exposed a default-reader clock freeze while buffered
+audio continued. Controlled ad fixtures now optionally use an already enabled
+InputStream Adaptive addon with a validated audio-only master and stable composed
+program dates; no Kodi-core patch is required for this path. Initially live
+presentations never receive the experimental sample-zero mapper, even if ENDLIST
+arrives later. Success beacons remain disabled on this live Adaptive path and for ordinary
+stations. The later explicitly qualified continuous fixture path is described
+below. The bounded capture verifies removal of the observed freeze, not a
+session-absolute position after extended window/period retirement.
+
+
+## Continuous controlled audio and extended clocks (2026-10-27)
+
+See [the captured-audio investigation](testing-continuous-clock.md) for the
+continuous AAC fixture transport, exact playback dependencies, startup comparison,
+extended-window results, and reproducible measurement command. Live continuous
+clock positions remain diagnostic candidates under ordinary playback. The later
+explicit Test ad tracking launch is restricted to the qualified loopback path;
+see that report for its captured results and remaining pause/resume limitation.

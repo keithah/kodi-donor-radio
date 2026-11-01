@@ -68,6 +68,7 @@ class AdTimeline:
         self._boundary_pending = False
         self._ended = False
         self._started = False
+        self._initially_finite = False
 
     def offer(self, ad):
         with self._lock:
@@ -76,7 +77,8 @@ class AdTimeline:
 
     def snapshot(self):
         with self._lock:
-            return Presentation(tuple(self._segments), tuple(self._placements), self._ended)
+            return Presentation(tuple(self._segments), tuple(self._placements), self._ended,
+                                self._initially_finite)
 
     def _publish(self, item, placement_id=None, discontinuity=False, source_disc=None):
         source_delta = (max(0, source_disc - self._last_source_disc)
@@ -176,7 +178,7 @@ class AdTimeline:
                     break
         return selected
 
-    def update(self, playlist, source_segments):
+    def update(self, playlist, source_segments, source_finite=None):
         with self._lock:
             if playlist.is_master or not playlist.segments:
                 return self.snapshot()
@@ -214,6 +216,9 @@ class AdTimeline:
                 self._zero_anchors.add(zero_uri)
             if not self._started:
                 self._started = True
+                self._initially_finite = (source_finite if source_finite is not None else
+                                          any(line.strip() == '#EXT-X-ENDLIST'
+                                              for line in playlist.lines))
                 pre = self._preroll
                 if (pre is not None and pre.segments and len(pre.segments) + len(incoming) <= self._limit
                         and pre.samples == sum(x.info.samples for x in pre.segments)

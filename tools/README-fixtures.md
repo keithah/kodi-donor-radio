@@ -48,7 +48,7 @@ python3 tools/ad_fixture_server.py --assets tests/generated-audio/ad --port 8766
 
 The checked-in `tools/ad_audio_sources.json` describes every tone and spoken identifier. Generation uses developer FFmpeg, FFprobe and espeak; no generated binaries or runtime transcoder enter the addon. `metadata.json` beside the generated files records FFprobe packet and decoded-frame sample counts, MPEG PTS, and the tone identity checked by independently decoding each transport-stream segment. All 29 segments are stereo AAC-LC at 48 kHz with 94 frames (96,256 samples); original-break and replacement pairs have equal frame counts.
 
-The ad origin serves `/vast/direct`, `/vast/wrapped`, `/vast/preroll`, `/vast/no-fill`, `/vast/empty`, `/vast/wrapper-cycle`, `/vast/wrapper-depth` (seven nested wrappers; `/vast/wrapper-depth-1` has six), `/vast/invalid-xml`, `/vast/slow` (six seconds), `/vast/unsupported-media`, `/vast/wrong-duration`, and `/vast/failed-media`. The successful MediaFile points to `/ads/replacement.m3u8` or `/ads/preroll.m3u8`; their MPEG-TS segments and the intentionally unsupported MP4 are under `/ads/`. Source streams are `/source/normal/index.m3u8`, `/source/mutation/index.m3u8`, `/source/expired-window/index.m3u8`, `/source/finite/index.m3u8`, and `/source/stall/index.m3u8`. Each begins with programme A, an explicitly marked original break, and programme B. The normal and stall windows advance by one media sequence every 2.005333 seconds, independent of request count; the source has 24 sequential TS segments. Mutation and expired-window advance per request to make their error conditions deterministic: mutation changes a break segment identity and expired-window drops the early window. Finite has a static end marker, and stall delays source006.
+The ad origin serves `/vast/direct`, `/vast/wrapped`, `/vast/preroll`, `/vast/no-fill`, `/vast/empty`, `/vast/wrapper-cycle`, `/vast/wrapper-depth` (seven nested wrappers; `/vast/wrapper-depth-1` has six), `/vast/invalid-xml`, `/vast/slow` (six seconds), `/vast/unsupported-media`, `/vast/wrong-duration`, and `/vast/failed-media`. The successful MediaFile points to `/ads/replacement.m3u8` or `/ads/preroll.m3u8`; their MPEG-TS segments and the intentionally unsupported MP4 are under `/ads/`. Source streams are `/source/normal/index.m3u8`, `/source/mutation/index.m3u8`, `/source/expired-window/index.m3u8`, `/source/finite/index.m3u8`, and `/source/stall/index.m3u8`. Each begins with programme A, an explicitly marked original break, and programme B. The normal and stall windows advance by one media sequence every 2.005333 seconds, independent of request count; the source has 24 sequential TS segments and then stops advancing without ENDLIST, exercising starvation after buffered audio drains. Mutation and expired-window advance per request to make their error conditions deterministic: mutation changes a break segment identity and expired-window drops the early window. Finite has a static end marker, and stall delays source006.
 
 For the independent ad acceptance run, use `python3 tools/smoke_ad_relay.py --origin http://127.0.0.1:8766 --report /path/outside/addon/relay.json`. It fetches every published relay TS segment, independently probes its AAC frame/sample count with FFprobe, decodes a tone window with FFmpeg, and checks the resulting section order and collector state. The trace validator rejects original-break leakage, missing programme, sample-count differences, duplicate playback events, completion after stop, and any claimed success beacon because this relay-only run has no independent playback evidence. The first live window includes source000 through source005 even after multiple prompt manifest requests. VAST `/vast/wrong-duration` declares nine seconds but carries a valid 4.010667-second AAC creative; measured media duration is authoritative, so the tool expects replacement audio.
 
@@ -56,7 +56,9 @@ The relay acceptance tool discovers `ffmpeg` and `ffprobe` on `PATH`. Pass
 `--ffmpeg /path/to/ffmpeg` or `--ffprobe /path/to/ffprobe` when either executable
 is installed elsewhere.
 
-With a disposable Kodi portable profile and its JSON-RPC listener, run `python3 tools/smoke_ad_kodi.py --origin http://127.0.0.1:8766 --rpc-port 9090 --report /path/outside/addon/kodi.json`. It opens the controlled entries in the addon's test menu and records 250 ms player clock samples, selected actions, and fixture requests. It checks that the active Kodi item is the requested addon item and that its clock advances in bounded adjacent samples. This is a Kodi player observation, not a proof of audible output or a calibrated ad position. The fixture-only success beacons are experimental diagnostics enabled only for an exact loopback fixture with explicit ad opt-in; production Radio Browser stations must remain unmapped and must not send success beacons until decoded presentation position has been independently tied to Kodi's clock across both discontinuities and a moving live window. Reports omit session URLs and authentication tokens.
+When InputStream Adaptive 21 or later is already enabled, controlled HLS ad compositions can use its asynchronous demux path. The relay supplies a validated audio-only AAC master and stable composed `EXT-X-PROGRAM-DATE-TIME` values, starting at first publication. These dates describe the output timeline, not the station’s broadcast wall time. The addon does not install or enable Adaptive; ordinary Radio Browser streams retain their existing route. This avoids the native HLS clock freeze observed while the fixture’s stalled manifest left buffered audio playing, but does not establish session-absolute time after Adaptive retires old periods. Live success tracking remains disabled.
+
+With a disposable Kodi portable profile and its JSON-RPC listener, run `python3 tools/smoke_ad_kodi.py --origin http://127.0.0.1:8766 --rpc-port 9090 --report /path/outside/addon/kodi.json`. It opens the controlled entries in the add-on's test menu and records 250 ms player clock samples, requested and observed actions, and fixture requests. The finite fixture has `ENDLIST`, so it is used for pause/resume/seek checks; live-style fixtures are non-seekable on Kodi and are exercised without those controls. The smoke check requires every requested action to be attempted, the requested Kodi item, bounded clock advance, accepted controls, observed pause/resume/seek effects, and an inactive player after Stop. It gates exact beacon counts only on deterministic finite (including pause/resume), stop, and expired-window cases; seek, moving-window, and mutation/stall beacon counts are reported as observations because their timing relative to Kodi's prefetch or native clock is not calibrated. This is a Kodi player observation, not a proof of audible output or a calibrated ad position. The fixture-only success beacons are experimental diagnostics enabled only for an exact loopback fixture with explicit ad opt-in and a first published presentation that is finite and retains sample zero. Initially live, unknown-origin, or trimmed-start presentations remain unmapped even if they later acquire ENDLIST; production Radio Browser stations must remain unmapped and must not send success beacons until decoded presentation position has been independently tied to Kodi's clock across both discontinuities and a moving live window. Reports omit session URLs and authentication tokens.
 
 `/track/<placement>/<event>` alone records a beacon. `/stats` reports request, beacon, and window counters without counting itself. `/reset` clears them and restarts all source windows. Fetching VAST, playlists, or media cannot create a beacon.
 
@@ -98,3 +100,27 @@ record with `outcome: no_candidates`, the pages read, and a selected count of
 zero. Exit status is 0 for normal outcomes (including no candidates and
 `unsupported`), 1 for discovery failure or any station-level policy,
 reachability, or parser failure, and 130 for Ctrl-C.
+
+## Explicit continuous-clock tracking checks
+
+Use the controlled test entry's **Test ad tracking** context menu action to request
+VideoPlayer explicitly. It requires enabled FFmpegDirect 22.2.10 and an exact
+continuous AAC route; selecting the ordinary row leaves tracking diagnostic.
+The single-use launch has bounded queue/preparation/qualification phases of
+30/40/30 seconds and cannot qualify a replacement
+session, fallback route or different fixture. Zero-start preroll success remains
+suppressed. Pause/resume interrupts the current ad; it cannot catch up missed
+quartiles or completion afterward. Buffering after established playback
+invalidates continuous qualification for the rest of that session.
+
+`/source/late-break/index.m3u8` places the break at source070–071, after the
+retained-window boundary. `/source/recovery/index.m3u8` holds the live source
+for 12 seconds and resumes consecutive media before a later complete break.
+Both need the extended generated assets. Generate them with
+`python3 tools/generate_ad_audio.py --extended --assets tests/generated-audio/ad`
+and start the origin with the same `--assets tests/generated-audio/ad` path.
+`/stats` includes a bounded 256-record
+tracking history with timestamps. On macOS these explicitly use unshifted
+`mach_absolute_time`, matching Core Audio's host clock; older Python monotonic
+clocks can have a process-relative epoch and must not be compared directly.
+Other platforms declare an unqualified Python monotonic clock domain.

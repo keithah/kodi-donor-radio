@@ -42,6 +42,17 @@ def ids(presentation):
     return [s.resource_id for s in presentation.segments]
 
 
+@pytest.mark.parametrize('initially_ended', (False, True))
+def test_initial_presentation_origin_survives_a_later_endlist(initially_ended):
+    timeline = AdTimeline(None, 4)
+    first = timeline.update(playlist(['a'], ended=initially_ended), sources('a'))
+    final = timeline.update(playlist(['a', 'b'], ended=True), sources('a', 'b'))
+
+    assert final.ended is True
+    assert getattr(first, 'initially_finite', None) is initially_ended
+    assert getattr(final, 'initially_finite', None) is initially_ended
+
+
 def test_preroll_replacement_order_and_exact_programme_boundaries():
     t = AdTimeline(creative('pre', (94,)), 16)
     t.offer(creative())

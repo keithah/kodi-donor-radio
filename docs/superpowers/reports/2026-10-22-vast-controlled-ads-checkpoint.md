@@ -1,8 +1,96 @@
 # Controlled VAST ads — implementation checkpoint
 
-Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads`.
+Status: acceptance blocked, not release-ready. Branch: `codex/vast-controlled-ads-release`.
 
-Latest verification: `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
+## Fresh no-replay run — 2026-10-26
+
+The latest package was installed in an isolated portable profile on this Mac and
+run with unpatched Kodi master `434da3c` (`23.0-ALPHA1`, JSON-RPC 14.1). All five
+controlled scenarios matched the requested item, showed bounded clock progress,
+and reported no smoke-validation failures. The add-on log withheld startup clock
+samples `-0.091` and `0.110`, enabled tracking at `0.516`, and did not replay the
+withheld values. The normal fixture recorded one impression, start, and
+first-quartile beacon. Expired-window, mutation, and stall scenarios sent no
+success beacons.
+
+Pause, resume, and seek were rejected by Kodi for this nonseekable HLS item; a
+separate stop action succeeded. The run validates the no-replay safeguard, not
+the absolute clock-to-decoded-presentation mapping or audible output; both report
+flags remain false.
+
+## Post-speed-guard master startup retry — 2026-10-26
+
+The speed-guard package was installed in a fresh isolated Kodi portable profile
+and launched twice on the same unpatched master revision. Both launches blocked
+the main `XBMCMainThread` in USB peripheral initialization at
+`IOCreatePlugInInterfaceForService` / `IOUSBInterfaceClass::start`; Kodi never
+opened JSON-RPC or reached the addon route. The USB network adapter remained
+connected. This leaves post-speed-guard Kodi playback unverified. The earlier
+successful no-replay run above is retained as separate, pre-speed-guard
+evidence. Details and process/log paths are in
+[`kodi-master-startup-hang-2026-10-26.md`](kodi-master-startup-hang-2026-10-26.md).
+
+## Startup confirmation — 2026-10-26
+
+The fixture adapter now buffers the first usable playback sample and enables
+tracking only after two consecutive usable samples show positive, bounded clock
+progress. Repeated positions do not confirm startup. A startup reset, caching,
+pause callback, seek or unavailable sample discards the pending samples. This
+prevents the observed first-zero/next-negative clock sequence from emitting an
+early beacon; it does not establish a decoded-media anchor.
+
+Two 8-second normal-fixture runs on unpatched Kodi 23.0-ALPHA1 matched the
+requested item. In the startup-gate run, Kodi JSON-RPC observed
+`0.000 → -0.091 → 0.316`;
+the add-on callback sampled `0.000` then `-0.091`, invalidated its mapper, and
+sent no beacons. In the separate clock-progress run, JSON-RPC showed the same
+initial sequence, while add-on callback samples were `0.000` with tracking
+disabled then `0.318` with tracking enabled. `mapping_proven` and
+`audible_output_verified` remain false.
+
+A separate 8-second run's add-on callback log observed `0.000 → 0.318`; the
+callback gate opened on that positive advance. It recorded one fixture
+impression/start/firstQuartile/midpoint/thirdQuartile sequence, with no
+completion. These beacons followed the add-on's gated raw clock on that run;
+they do not prove the absolute decoded-media anchor. `mapping_proven` and
+`audible_output_verified` remain false.
+That run predates a further startup safeguard: the adapter now uses the first
+clock sample only to confirm progress and sends only the advancing sample to the
+tracker. This avoids retroactively treating a possibly unstable startup zero as
+a preroll beacon if Kodi resets between the add-on's polls. Unit tests cover the
+no-replay case and confirmed midroll tracking; this stricter behavior still needs
+a fresh Kodi run. The live reports above describe the earlier implementation.
+The no-replay regression and focused tracking/adapter/event suite passed
+**61 tests**; the full suite passed **1,162 tests in 133.15s**. `compileall`,
+package build, `check_package.py`, and `git diff --check` passed. Live Kodi
+verification of this stricter gate remains pending; `mapping_proven` and
+`audible_output_verified` remain false.
+
+## Follow-up — 2026-10-26
+
+The fixture-only Kodi clock guard now permanently invalidates on a backward jump
+over 50 ms, including a negative clock sample after playback begins. Kodi's
+`Player.Caching` condition also suppresses tracking; unavailable cache state
+fails closed. With opt-in diagnostics, the adapter records raw clock/mapped
+position and playing, pause, seek, and cache state without URLs.
+
+An 8-second normal-fixture run on unpatched Kodi 23.0-ALPHA1
+(`20261021-434da3c`) matched the fixture and showed bounded clock progress. The
+add-on observed raw time `0.000` then `-0.091`; mapping invalidated and did not
+resume. Impression/start had already been emitted on the initial zero sample;
+no later quartile or completion was emitted. The fixture recorded one impression
+and one start. This still does not prove the initial sample's decoded-media
+position, stable sample-zero origin, or audible output. `mapping_proven` and
+`audible_output_verified` remain false. See the
+[`validation record`](../../testing.md#controlled-vast-clock-follow-up--2026-10-26).
+
+The full suite passed **1,158 tests in 131.71s**. `compileall`, package build,
+`check_package.py`, and `git diff --check` passed. The Kodi add-on checker was
+attempted with dependency checks disabled, but its repository-index request kept
+retrying and was interrupted after more than two minutes; no checker verdict is
+claimed for this run.
+
+Earlier verification (superseded by the 2026-10-26 updates above): `python3 -m pytest -q` passed **534 tests in 85.28 seconds**
 after enabling a loopback-only experimental raw Kodi-clock mapper; compileall and
 `git diff --check` passed. A fresh five-scenario Kodi run sent success beacons for
 advancing fixture playback and suppressed quartiles/completion across the delayed

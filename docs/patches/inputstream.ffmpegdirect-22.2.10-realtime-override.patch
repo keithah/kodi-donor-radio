@@ -1,0 +1,161 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 6ae1019..0163918 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -35,6 +35,14 @@ jobs:
+       run: |
+         mkdir -p ${{ github.workspace }}/xbmc/cmake/addons/addons/${app_id}
+         echo ${app_id} ${{ github.workspace }}/${app_id} > ${{ github.workspace }}/xbmc/cmake/addons/addons/${app_id}/${app_id}.txt
++    - name: Test realtime policy
++      env:
++        CC: ${{ matrix.CC }}
++        CXX: ${{ matrix.CXX }}
++      run: |
++        cmake -S ${app_id}/tests -B ${app_id}/build-tests
++        cmake --build ${app_id}/build-tests
++        ctest --test-dir ${app_id}/build-tests --output-on-failure
+     - name: Configure
+       env:
+         CC: ${{ matrix.CC }}
+diff --git a/src/StreamManager.cpp b/src/StreamManager.cpp
+index 8facb7f..1c13841 100644
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -65,6 +65,7 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+ {
+   Log(LOGLEVEL_INFO, "inputstream.ffmpegdirect: OpenStream() - Num Props: %d", props.GetPropertiesAmount());
+ 
++  m_properties.m_isRealTimeStream.reset();
+   for (const auto& prop : props.GetProperties())
+   {
+     if (StringUtils::StartsWith(prop.second, "http://") || StringUtils::StartsWith(prop.second, "https://"))
+@@ -216,7 +217,7 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+ 
+   m_stream->SetVideoResolution(m_videoWidth, m_videoHeight);
+ 
+-  m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.m_isRealTimeStream, m_properties.m_programProperty);
++  m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.IsRealTimeStream(), m_properties.m_programProperty);
+ 
+   return m_opened;
+ }
+diff --git a/src/stream/TimeshiftStream.cpp b/src/stream/TimeshiftStream.cpp
+index bdcdabd..1c7b71f 100644
+--- a/src/stream/TimeshiftStream.cpp
++++ b/src/stream/TimeshiftStream.cpp
+@@ -135,7 +135,7 @@ bool TimeshiftStream::GetTimes(kodi::addon::InputstreamTimes& times)
+ 
+ bool TimeshiftStream::IsRealTimeStream()
+ {
+-  return true;
++  return m_isRealTimeStream;
+ }
+ 
+ bool TimeshiftStream::DemuxSeekTime(double timeMs, bool backwards, double& startpts)
+diff --git a/src/utils/Properties.h b/src/utils/Properties.h
+index e068052..59bd433 100644
+--- a/src/utils/Properties.h
++++ b/src/utils/Properties.h
+@@ -7,6 +7,7 @@
+ 
+ #pragma once
+ 
++#include <optional>
+ #include <string>
+ 
+ namespace ffmpegdirect
+@@ -29,8 +30,14 @@ namespace ffmpegdirect
+ 
+   struct Properties
+   {
++    bool IsRealTimeStream() const
++    {
++      // Timeshift remains realtime by default, unless the caller overrides it.
++      return m_isRealTimeStream.value_or(m_streamMode == StreamMode::TIMESHIFT);
++    }
++
+     std::string m_programProperty;
+-    bool m_isRealTimeStream;
++    std::optional<bool> m_isRealTimeStream;
+     StreamMode m_streamMode = StreamMode::NONE;
+     OpenMode m_openMode = OpenMode::DEFAULT;
+     std::string m_manifestType;
+@@ -50,4 +57,4 @@ namespace ffmpegdirect
+     int m_defaultProgrammeDurationSecs = 4 * 60 * 60; //Four hours
+     std::string m_programmeCatchupId;      
+   };
+-} //namespace ffmpegdirect
+\ No newline at end of file
++} //namespace ffmpegdirect
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+new file mode 100644
+index 0000000..33c5f43
+--- /dev/null
++++ b/tests/CMakeLists.txt
+@@ -0,0 +1,8 @@
++cmake_minimum_required(VERSION 3.16)
++project(ffmpegdirect_tests LANGUAGES CXX)
++
++enable_testing()
++
++add_executable(test_realtime_stream TestRealtimeStream.cpp)
++target_compile_features(test_realtime_stream PRIVATE cxx_std_17)
++add_test(NAME realtime_stream_policy COMMAND test_realtime_stream)
+diff --git a/tests/TestRealtimeStream.cpp b/tests/TestRealtimeStream.cpp
+new file mode 100644
+index 0000000..32e2592
+--- /dev/null
++++ b/tests/TestRealtimeStream.cpp
+@@ -0,0 +1,53 @@
++/*
++ *  Copyright (C) 2026 Team Kodi (https://kodi.tv)
++ *
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSE.md for more information.
++ */
++
++#include <ctime>
++#include <iostream>
++
++#include "../src/utils/Properties.h"
++
++int main()
++{
++  using ffmpegdirect::Properties;
++  using ffmpegdirect::StreamMode;
++
++  struct TestCase
++  {
++    StreamMode mode;
++    bool defaultRealtime;
++    const char* name;
++  };
++
++  const TestCase cases[] = {
++      {StreamMode::NONE, false, "regular"},
++      {StreamMode::CATCHUP, false, "catchup"},
++      {StreamMode::TIMESHIFT, true, "timeshift"},
++  };
++  int failures = 0;
++  for (const auto& test : cases)
++  {
++    Properties props;
++    props.m_streamMode = test.mode;
++    const auto expect = [&](bool expected, const char* overrideName)
++    {
++      if (props.IsRealTimeStream() != expected)
++      {
++        std::cerr << test.name << ": " << overrideName << " realtime override failed\n";
++        ++failures;
++      }
++    };
++
++    expect(test.defaultRealtime, "omitted");
++    props.m_isRealTimeStream = true;
++    expect(true, "true");
++    props.m_isRealTimeStream = false;
++    expect(false, "false");
++  }
++  if (failures == 0)
++    std::cout << "All 9 realtime policy cases passed\n";
++  return failures == 0 ? 0 : 1;
++}

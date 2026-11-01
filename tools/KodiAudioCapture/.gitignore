@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.xcresult
+*.dSYM/
+*.app/
+*.caf
+*.wav
+capture.json
+timing.jsonl

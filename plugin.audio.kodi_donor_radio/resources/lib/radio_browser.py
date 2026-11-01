@@ -212,6 +212,17 @@ class RadioBrowser:
                 return station
         raise ValueError('Station not found')
 
+    def by_uuids(self, station_uuids):
+        """Resolve one bounded batch; directory order and unrelated rows are ignored."""
+        if not isinstance(station_uuids, (list, tuple)) or not 1 <= len(station_uuids) <= 50:
+            raise ValueError('Invalid station batch')
+        for station_uuid in station_uuids:
+            station_identifier(station_uuid)
+        stations = self._stations(self._json('/json/stations/byuuid',
+                                            {'uuids': ','.join(station_uuids)}))
+        by_id = {station.uuid: station for station in stations}
+        return [by_id[station_uuid] for station_uuid in station_uuids if station_uuid in by_id]
+
     def _names(self, path, params, with_more=False):
         rows = self._json(path, params)
         if not isinstance(rows, list):

@@ -17,6 +17,21 @@ import tempfile
 
 
 DESCRIPTION = Path(__file__).with_name('ad_audio_sources.json')
+NORMAL_SOURCE_SEGMENTS = 24
+EXTENDED_SOURCE_SEGMENTS = 128
+
+
+def source_description(extended=False):
+    """Keep the original fixtures intact and optionally describe a bounded long run."""
+    description = json.loads(DESCRIPTION.read_text())
+    if extended:
+        for sequence in range(NORMAL_SOURCE_SEGMENTS, EXTENDED_SOURCE_SEGMENTS):
+            description['segments']['source%03d.ts' % sequence] = {
+                'section': 'programme_b_continuation',
+                'tone_hz': 1000 + sequence * 20,
+                'spoken': 'Programme B %d' % sequence,
+            }
+    return description
 
 
 def run(command, **kwargs):
@@ -100,11 +115,12 @@ def decoded_tone(path, ffmpeg, choices):
     return max(choices, key=strength)
 
 
-def generate(assets, ffmpeg, ffprobe, espeak):
-    description = json.loads(DESCRIPTION.read_text())
+def generate(assets, ffmpeg, ffprobe, espeak, extended=False):
+    description = source_description(extended)
     assets.mkdir(parents=True, exist_ok=True)
     choices = sorted({item['tone_hz'] for item in description['segments'].values()})
-    metadata = {'sample_rate': 48000, 'tone_intervals_hz': {}, 'assets': {}}
+    metadata = {'sample_rate': 48000, 'tone_intervals_hz': {}, 'assets': {},
+                'source_segment_count': EXTENDED_SOURCE_SEGMENTS if extended else NORMAL_SOURCE_SEGMENTS}
     with tempfile.TemporaryDirectory() as temporary:
         for filename, item in description['segments'].items():
             speech = Path(temporary) / (filename + '.wav')
@@ -126,6 +142,10 @@ def generate(assets, ffmpeg, ffprobe, espeak):
             validate_probe(info, path)
             info['section'] = item['section']
             info['expected_tone_hz'] = item['tone_hz']
+            info['spoken'] = item['spoken']
+            if re.fullmatch(r'source\d{3}\.ts', filename):
+                info['source_sequence'] = sequence
+                info['source_start_sample'] = sequence * 94 * 1024
             info['decoded_tone_hz'] = decoded_tone(path, ffmpeg, choices)
             if info['decoded_tone_hz'] != item['tone_hz']:
                 raise ValueError('%s: decoded tone did not match source description' % filename)
@@ -145,10 +165,12 @@ def main():
     parser.add_argument('--ffmpeg', default=shutil.which('ffmpeg'))
     parser.add_argument('--ffprobe', default=shutil.which('ffprobe'))
     parser.add_argument('--espeak', default=shutil.which('espeak'))
+    parser.add_argument('--extended', action='store_true',
+                        help='Generate 128 source segments for the bounded extended live fixture')
     args = parser.parse_args()
     if not all((args.ffmpeg, args.ffprobe, args.espeak)):
         parser.error('FFmpeg, FFprobe and espeak are required to regenerate fixtures')
-    generated = generate(args.assets, args.ffmpeg, args.ffprobe, args.espeak)
+    generated = generate(args.assets, args.ffmpeg, args.ffprobe, args.espeak, args.extended)
     print('Generated %d independently decoded AAC segments in %s' %
           (len(generated['assets']), args.assets))
 

@@ -6,6 +6,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from ad_media import CreativeCache, inspect_ts
 from ad_timeline import AdTimeline, TimelineEpochLimit
@@ -32,6 +33,7 @@ class AdSession:
                  on_error=None):
         self.config, self.client, self.cancel = config, client, cancel
         self.source_origin = origin(source_origin)
+        self._program_date_origin = None
         self.on_error = on_error
         self.creative = CreativeCache(cache_root, client, config.fixture_origin)
         self.resolver = VastResolver(client, config.fixture_origin)
@@ -239,22 +241,29 @@ class AdSession:
                                                cues=tuple(c for c in playlist.cues if c.sequence < boundary),
                                                lines=tuple(line for line in playlist.lines
                                                            if not line.startswith('#EXT-X-ENDLIST')))
+                # Clock anchoring must reflect the exact presentation sent to
+                # Kodi. A live prefix stays live even when its source playlist
+                # was finite and the omitted suffix carried ENDLIST.
+                source_finite = any(line.strip() == '#EXT-X-ENDLIST'
+                                    for line in playlist.lines)
             # Keep network I/O outside the state lock. Media reads for already
             # published immutable segments can continue while this window loads.
             sources = self._cache_window(playlist)
             with self._lock:
                 if self._closed or self._terminal:
                     raise CompositionFailure('session_closed')
-                return self._compose_locked(playlist, route, sources)
+                return self._compose_locked(playlist, route, sources, source_finite)
 
-    def _compose_locked(self, playlist, route, sources):
+    def _compose_locked(self, playlist, route, sources, source_finite=None):
         try:
-            presentation = self.timeline.update(playlist, sources)
+            presentation = self.timeline.update(playlist, sources, source_finite)
         except TimelineEpochLimit as error:
             raise CompositionFailure(str(error)) from error
         if not presentation.segments:
             raise CompositionFailure('empty_composition')
         self._committed = True
+        if self._program_date_origin is None:
+            self._program_date_origin = datetime.now(timezone.utc)
         for segment in presentation.segments:
             self._published_order[segment.resource_id] = None
             self._published_order.move_to_end(segment.resource_id)
@@ -297,14 +306,18 @@ class AdSession:
                  '#EXT-X-MEDIA-SEQUENCE:%d' % first.sequence,
                  '#EXT-X-DISCONTINUITY-SEQUENCE:%d' % first.discontinuity]
         if self._initial:
-            # The Kodi adapter maps media-relative getTime() from the
-            # first output segment. Request an explicit sample-zero start
-            # for this fixture-only composed presentation.
+            # Request the beginning for fixture playback. This hint alone
+            # cannot establish Kodi's origin or enable live success tracking.
             lines.append('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES')
         last_disc = first.discontinuity
         for index, segment in enumerate(presentation.segments):
             if index and segment.discontinuity != last_disc:
                 lines.append('#EXT-X-DISCONTINUITY')
+            # Synthetic composed time is stable across reloads and discontinuities.
+            date = self._program_date_origin + timedelta(
+                microseconds=(segment.start_sample * 1000000 + 24000) // 48000)
+            lines.append('#EXT-X-PROGRAM-DATE-TIME:' +
+                         date.isoformat(timespec='microseconds').replace('+00:00', 'Z'))
             lines.append('#EXTINF:%.6f,' % (segment.samples / 48000))
             lines.append(route(segment.resource_id))
             last_disc = segment.discontinuity

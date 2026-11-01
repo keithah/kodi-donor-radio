@@ -6,6 +6,7 @@ import hmac
 import json
 import re
 import secrets
+import select
 import socket
 from socketserver import TCPServer, ThreadingMixIn
 import threading
@@ -19,12 +20,16 @@ from icy import IcyDecoder
 from models import Event, Station
 from sessions import ResourceLimit, SessionManager
 from ad_session import CompositionFailure, SourceUnavailable
+from ad_media import extract_adts
 
 
 _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-control',
                       'etag', 'last-modified', 'expires'})
 _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|mp3|mp4|m4s|m4a|ac3|ec3))?$')
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
+_FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
+_AD_RELOAD_INTERVAL = .5
+_MAX_COMPOSITION_RELOAD_FAILURES = 3
 
 
 class _Server(ThreadingMixIn, HTTPServer):
@@ -124,12 +129,16 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(404)
         try:
             resource = session.lookup(match.group(2))
-            if resource is None or session.cancel.is_set() or self.path != session.route(resource.id):
+            composed_audio = self.path == session.continuous_route
+            if (resource is None or session.cancel.is_set()
+                    or (not composed_audio and self.path != session.route(resource.id))):
                 return self._reply(404)
             # Metadata lookup must not acquire/claim the stream, fetch, or observe cues.
-            if resource.kind == 'continuous':
+            if composed_audio:
+                headers = {'content-type': 'audio/aac'}
+            elif resource.kind == 'continuous':
                 headers = session.source.response.headers
-            elif resource.kind in ('hls', 'playlist'):
+            elif resource.kind in ('hls', 'playlist', 'audio_master'):
                 headers = {'content-type': 'application/vnd.apple.mpegurl'}
             elif resource.kind == 'cached':
                 ad = session.ad
@@ -148,28 +157,35 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label'):
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
         if self.path in ('/icy-marker/learn', '/icy-marker/label'):
             return self._learn_icy_marker()
+        if self.path in ('/fixture-launches', '/fixture-clock/qualify'):
+            return self._fixture_launch_control()
         try:
             lengths = self.headers.get_all('Content-Length', [])
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
                 return self._reply(400)
             body = self.rfile.read(int(lengths[0]))
             data = json.loads(body)
-            if not isinstance(data, dict) or set(data) != {'uuid', 'name', 'url', 'codec', 'hls'}:
+            fields = {'uuid', 'name', 'url', 'codec', 'hls'}
+            if not isinstance(data, dict) or set(data) not in (fields, fields | {'fixture_launch_nonce'}):
                 return self._reply(400)
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
+                return self._reply(400)
+            nonce = data.pop('fixture_launch_nonce', None)
+            if nonce is not None and (self.path != '/sessions' or not isinstance(nonce, str)
+                                      or re.fullmatch(r'[a-f0-9]{48}', nonce) is None):
                 return self._reply(400)
             station = Station(**data)
             if self.path == '/preview-sessions':
                 session = self.server.relay.manager.create_preview(station)
             else:
-                session = self.server.relay.manager.create(station)
+                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:
@@ -179,8 +195,36 @@ class _Handler(BaseHTTPRequestHandler):
                 else session.source.response.headers.get('content-type', '').split(';', 1)[0].strip().lower())
         if len(mime) > 128 or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', mime):
             mime = 'application/octet-stream'
-        self._reply(201, {'id': session.id, 'playback_url': session.playback_url,
-                          'mime_type': mime})
+        result = {'id': session.id, 'playback_url': session.playback_url, 'mime_type': mime}
+        if session.adaptive_playback_url is not None:
+            result['adaptive_playback_url'] = session.adaptive_playback_url
+        if session.continuous_playback_url is not None:
+            result['continuous_playback_url'] = session.continuous_playback_url
+        self._reply(201, result)
+
+    def _fixture_launch_control(self):
+        try:
+            lengths = self.headers.get_all('Content-Length', [])
+            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 512:
+                return self._reply(400)
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
+            data = json.loads(body)
+            fields = {'fixture_id'} if self.path == '/fixture-launches' else {'session_id', 'nonce'}
+            if not isinstance(data, dict) or set(data) != fields or any(
+                    not isinstance(data[key], str) for key in fields):
+                return self._reply(400)
+            manager = self.server.relay.manager
+            if self.path == '/fixture-launches':
+                nonce = manager.reserve_fixture_launch(data['fixture_id'])
+                return self._reply(201, {'nonce': nonce})
+            if any(re.fullmatch(r'[a-f0-9]{48}', data[key]) is None for key in fields):
+                return self._reply(400)
+            qualified = manager.qualify_fixture_clock(data['session_id'], data['nonce'])
+        except (ValueError, UnicodeError, RecursionError):
+            return self._reply(400)
+        return self._reply(204 if qualified else 409)
 
     def _learn_icy_marker(self):
         try:
@@ -209,6 +253,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(204 if learned else 409)
 
     def do_DELETE(self):
+        launch = _FIXTURE_LAUNCH.fullmatch(self.path) if self._valid_target() else None
+        if launch is not None:
+            if not self._authorized():
+                return self._reply(401)
+            self.server.relay.manager.cancel_fixture_launch(launch.group(1))
+            return self._reply(204)
         match = _SESSION.fullmatch(self.path) if self._valid_target() else None
         if match is None:
             return self._reply(404)
@@ -236,9 +286,23 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(404)
         try:
             with session.acquire(match.group(2)) as resource:
-                if self.path != session.route(resource.id):
+                composed_audio = self.path == session.continuous_route
+                if not composed_audio and self.path != session.route(resource.id):
                     return self._reply(404)
-                if resource.kind == 'continuous':
+                if composed_audio:
+                    ranges = self.headers.get_all('Range', [])
+                    if len(ranges) > 1 or (ranges and ranges[0] != 'bytes=0-'):
+                        return self._reply(416)
+                    if not session.claim_continuous():
+                        return self._reply(409)
+                    try:
+                        self._composed_audio(session, resource)
+                        if not self._started:
+                            self._reply(503 if session.cancel.is_set() else 502)
+                    finally:
+                        session.finish_continuous_audio()
+                        manager.stop(session.id)
+                elif resource.kind == 'continuous':
                     if self.headers.get('Range') not in (None, 'bytes=0-'):
                         return self._reply(416)
                     if not session.claim_continuous():
@@ -247,15 +311,18 @@ class _Handler(BaseHTTPRequestHandler):
                         self._continuous(session)
                     finally:
                         manager.stop(session.id)
-                elif resource.kind in ('hls', 'playlist'):
+                elif resource.kind in ('hls', 'playlist', 'audio_master'):
                     # Fetch order and observation order agree within one rendition.
+                    audio_master = resource.kind == 'audio_master'
+                    if audio_master:
+                        resource = session.lookup(session.playback_url)
                     with resource.playlist_lock:
                         if session.cancel.is_set():
                             return self._reply(404)
                         ad = session.ad
                         if ad is not None and ad.terminal:
                             return self._reply(503)
-                        self._resource(session, resource)
+                        self._resource(session, resource, audio_master=audio_master)
                 elif resource.kind == 'cached':
                     self._cached(session, resource)
                 else:
@@ -358,7 +425,123 @@ class _Handler(BaseHTTPRequestHandler):
         self._headers(status, headers, end - start + 1)
         self.wfile.write(data[start:end + 1])
 
-    def _resource(self, session, resource):
+    def _observe_playlist(self, session, resource, response):
+        body = read_bounded(response, BODY_BYTES)
+        playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
+        if playlist.segments:
+            # A backwards window that still overlaps is not a restart.
+            if (resource.first_sequence is not None
+                    and playlist.segments[-1].sequence < resource.first_sequence):
+                resource.epoch += 1
+            resource.first_sequence = playlist.segments[0].sequence
+        session.tracker.observe(playlist, resource.id, resource.epoch)
+        return playlist
+
+    def _reload_composition(self, session, resource, ad):
+        # The caller owns the same lock as native/Adaptive manifest requests.
+        with self.server.relay.manager.client.open(
+                resource.url, {'User-Agent': USER_AGENT}, session.cancel,
+                allowed_origin=session.source.final_url) as response:
+            self._check_encoding(response)
+            if response.status != 200:
+                raise SourceUnavailable('source_unavailable')
+            playlist = self._observe_playlist(session, resource, response)
+            ad.render(playlist, session.cached_route)
+            session.retire_cached()
+
+    def _composed_audio(self, session, resource):
+        """Send one immutable AAC segment at a time, starting at sample zero.
+
+        Only bounded output metadata survives each iteration. The next payload
+        is copied while the root playlist lock prevents retirement, then sent
+        without that lock. Socket writes establish delivery bounds, never a
+        playback clock or an advertising success event.
+        """
+        ad = session.ad
+        if ad is None:
+            raise CompositionFailure('composition_unavailable')
+        sequence = sample = 0
+        known = {}
+        reloaded_at = None
+        reload_failures = 0
+        while not session.cancel.is_set():
+            audio = None
+            with resource.playlist_lock:
+                if session.cancel.is_set():
+                    return
+                if session.ad is not ad or ad.terminal:
+                    raise CompositionFailure('composition_unavailable')
+                presentation = ad.presentation()
+                segments = presentation.segments
+                if len(segments) > session.resource_limit:
+                    raise CompositionFailure('continuous_output_limit')
+                current = {}
+                previous = None
+                for item in segments:
+                    if (item.samples <= 0 or item.samples % 1024
+                            or item.sequence in current
+                            or (previous is not None and
+                                (item.sequence != previous.sequence + 1
+                                 or item.start_sample != previous.start_sample + previous.samples))):
+                        raise CompositionFailure('continuous_output_gap')
+                    if item.sequence in known and known[item.sequence] != item:
+                        raise CompositionFailure('continuous_output_changed')
+                    current[item.sequence] = item
+                    previous = item
+                known = current
+                item = current.get(sequence)
+                if item is not None:
+                    if item.start_sample != sample:
+                        raise CompositionFailure('continuous_output_gap')
+                    info, audio = extract_adts(bytes(ad.read(item.resource_id)))
+                    if (info.samples != item.samples or info.sample_rate != 48000
+                            or info.channels != 2 or info.codec != 'aac'):
+                        raise CompositionFailure('continuous_output_changed')
+                elif segments and segments[0].sequence > sequence:
+                    raise CompositionFailure('continuous_output_retired')
+                elif presentation.ended:
+                    if not segments or segments[-1].sequence + 1 != sequence:
+                        raise CompositionFailure('continuous_output_gap')
+                    return
+                elif not segments and sequence:
+                    raise CompositionFailure('continuous_output_retired')
+                elif reloaded_at is None or time.monotonic() - reloaded_at >= _AD_RELOAD_INTERVAL:
+                    try:
+                        self._reload_composition(session, resource, ad)
+                    except (SourceUnavailable, OSError):
+                        if session.cancel.is_set():
+                            return
+                        reload_failures += 1
+                        reloaded_at = time.monotonic()
+                        if reload_failures >= _MAX_COMPOSITION_RELOAD_FAILURES:
+                            raise
+                    else:
+                        reload_failures = 0
+                        reloaded_at = time.monotonic()
+                    continue
+            if audio is not None:
+                if session.cancel.is_set():
+                    return
+                if not self._started:
+                    self._headers(200, {'content-type': 'audio/aac'})
+                self.wfile.write(audio)
+                del audio
+                if not session.record_continuous_delivery(item):
+                    return
+                sequence += 1
+                sample += item.samples
+                continue
+            # Cancellation interrupts idle waits. A closed consumer must not
+            # leave a worker polling a stalled source indefinitely.
+            if select.select([self.connection], [], [], 0)[0]:
+                if not self.connection.recv(1, socket.MSG_PEEK):
+                    return
+            remaining = _AD_RELOAD_INTERVAL - (time.monotonic() - reloaded_at)
+            session.cancel.wait(max(0, min(.1, remaining)))
+
+    def _resource(self, session, resource, audio_master=False):
+        if audio_master and session.ad is None:
+            return self._reply(502)
         headers = {'User-Agent': USER_AGENT}
         value = self.headers.get('Range')
         if value:
@@ -387,16 +570,8 @@ class _Handler(BaseHTTPRequestHandler):
             if is_playlist:
                 if response.status != 200:
                     raise ValueError('Partial playlist unsupported')
-                body = read_bounded(response, BODY_BYTES)
-                playlist = parse_playlist(body.decode('utf-8-sig'), response.final_url)
+                playlist = self._observe_playlist(session, resource, response)
                 ad = session.ad
-                if playlist.segments:
-                    # A backwards window that still overlaps is not a restart.
-                    if (resource.first_sequence is not None
-                            and playlist.segments[-1].sequence < resource.first_sequence):
-                        resource.epoch += 1
-                    resource.first_sequence = playlist.segments[0].sequence
-                session.tracker.observe(playlist, resource.id, resource.epoch)
                 if ad is not None and resource.kind == 'hls' and not playlist.is_master:
                     try:
                         rendered = ad.render(playlist, session.cached_route)
@@ -417,9 +592,22 @@ class _Handler(BaseHTTPRequestHandler):
                             session.ad = None
                     else:
                         session.retire_cached()
+                        if audio_master:
+                            # render() has verified every source and creative as
+                            # clear AAC-LC, 48 kHz stereo MPEG-TS. Never apply this
+                            # codec declaration to the native fallback below.
+                            segments = ad.presentation().segments
+                            bandwidth = max((len(ad.read(segment.resource_id)) * 8 * 48000
+                                             + segment.samples - 1) // segment.samples
+                                            for segment in segments)
+                            rendered = ('#EXTM3U\n#EXT-X-VERSION:3\n'
+                                        '#EXT-X-STREAM-INF:BANDWIDTH=%d,CODECS="mp4a.40.2"\n'
+                                        '%s\n' % (bandwidth, session.playback_url)).encode('utf-8')
                         self._headers(200, {'content-type': 'application/vnd.apple.mpegurl'}, len(rendered))
                         self.wfile.write(rendered)
                         return
+                if audio_master:
+                    return self._reply(502)
                 routes = session.register_many([ref.url for ref in playlist.uri_references],
                                                [ref.kind for ref in playlist.uri_references])
                 registered = dict(zip([ref.url for ref in playlist.uri_references], routes))

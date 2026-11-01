@@ -1,0 +1,42 @@
+{
+  "v1_sha256": "8784711981dba4a1ef627e897e61a94262cc2dbbb53ad052fae274d0ec8c690c",
+  "v2_sha256": "7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87",
+  "comparison": "Exact output dictionary equality at every native clock row, no waveform input",
+  "ledgers": [
+    {
+      "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-first/hls-clock-ledger.jsonl",
+      "ledger_sha256": "5d07563d97410b551f5207ca7b758f3332433bd3b5ebdb389c0f76f134e3f014",
+      "clock_rows": 10371,
+      "identical": true,
+      "timeline_sha256": "984281d24f46e11604615a459be4ef8a1adace8ac1fb70c2651c0acceb2f5b00"
+    },
+    {
+      "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-reader/hls-clock-ledger.jsonl",
+      "ledger_sha256": "0f75f5fa096a9fae3e27aa70d118fb2dba90593df1fbe1468935f6b9d92671f5",
+      "clock_rows": 11209,
+      "identical": true,
+      "timeline_sha256": "52b446af0e7f17950dd2515162b0452e4153a9c999bd037aa6ae71f9bb20dc30"
+    },
+    {
+      "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-independent-pauses/hls-clock-ledger.jsonl",
+      "ledger_sha256": "c1a772d092fbc2bb97d88a5e171e74fa63ba583a5190965b8d6734be99fe59c9",
+      "clock_rows": 10345,
+      "identical": true,
+      "timeline_sha256": "14f6732656884fd9b0f8513f7e551a424a42b94207286b226b4426d96a70b53f"
+    },
+    {
+      "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/capture-host-silence/hls-clock-ledger.jsonl",
+      "ledger_sha256": "a2fa4659a52afc3fb788aa7d79b81cc377e030885b1d6751d02ba2fed132e16b",
+      "clock_rows": 10652,
+      "identical": true,
+      "timeline_sha256": "e8f86a50ebc4b77b5926bc3fc2203925e6c75e6d2b33cb146d48e7eb8c450a83"
+    },
+    {
+      "ledger": "/private/tmp/kodi-audio-validation-20261027/owned-hls-validation/debug-host-silence/hls-clock-ledger.jsonl",
+      "ledger_sha256": "3e3c3431a82be716cce087afe6d465f807e4c60cc267efc5a93d0c4e60d737e1",
+      "clock_rows": 5028,
+      "identical": true,
+      "timeline_sha256": "d74c5ed356572511840525c63f1466e35b341ad9c3728d46efb706d134e1b222"
+    }
+  ]
+}

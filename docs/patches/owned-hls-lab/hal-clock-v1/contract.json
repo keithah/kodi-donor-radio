@@ -1,0 +1,23 @@
+{
+  "schema": "owned-hal-clock-v1",
+  "version": 1,
+  "scope": "loopback-controlled-fixture-only",
+  "backend": "hal_callback_v1",
+  "phase": "clock",
+  "native_query_interval_ns": 20000000,
+  "native_query_width_max_ns": 5000000,
+  "callback_freshness_max_ns": 40000000,
+  "query_freshness_max_ns": 100000000,
+  "initial_source_frame_strictly_gt": 1024,
+  "initial_deadline_after_s0_ns": 120000000,
+  "authorization_request_action_max_ns": 20000000,
+  "authorization_native_bracket_max_ns": 5000000,
+  "authorization_action_after_check_max_ns": 5000000,
+  "authorization_requests_max": 32768,
+  "authorization_record_bytes_max": 4096,
+  "segment_cache_rows": 64,
+  "query_cache_rows": 64,
+  "clock_authority": false,
+  "beacons_enabled": false,
+  "production_eligible": false
+}

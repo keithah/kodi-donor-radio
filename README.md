@@ -3,17 +3,21 @@
 A GPL-2.0-or-later Kodi radio and controlled monetization POC. Search Radio
 Browser, browse countries and tags, save places and favorites, and play supported
 stations through a Python relay embedded in the addon service. Native Kodi
-listings, sequential setup dialogs, and a shared schematic radio map are implemented.
+listings, sequential setup dialogs, and a shared offline radio map are implemented.
 Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
 restricted to configured loopback HLS fixtures; general Radio Browser stations
-remain ad-free. Fixture success beacons use an experimental Kodi media-clock
-anchor and must not be treated as production-validated tracking.
+remain ad-free. Experimental success beacons require a qualified controlled
+fixture launch; ordinary live playback remains diagnostic. This is not
+production-validated or billable tracking.
 
-**Playback tested in Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
+**Earlier playback validation: Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
 workaround for a Kodi USB initialization hang. Advancing player time and cue
 logs were verified; audible output was not independently confirmed. See
 [the validation record](docs/testing.md) for evidence and remaining limits.
+The later Kodi-master owned-renderer experiment has captured audio and real
+loopback beacons, but its runtime gate **failed**; see the
+[2026-10-29 checkpoint](docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md).
 
 ## Build and install
 
@@ -77,8 +81,13 @@ and service credentials are excluded.
 **Open the map** and **Show on map** launch the same custom window. It displays
 up to 60 city pins from a maximum 200-row discovery seed and up to 50 stations in
 the selected city's rail. Directional navigation is intended to move between
-cities without wrapping, with rail, Preview, and Back controls. The map is a
-schematic pin view; the themed Home, Now playing, and other themed screens,
+cities without wrapping, with rail, Preview, and Back controls. The map renders
+bundled Natural Earth land polygons locally for the current view behind geographically aligned pins and a graticule. It needs no map tile
+service or extra imaging dependency. Generated 1680×840 PNGs display in a
+1030×515 viewport; profile storage retains at most 20 generated textures, each
+at most 2 MiB, with atomic writes and Kodi image-cache bypass. Image failures
+leave station navigation and playback available. The themed Home, Now playing,
+and other themed screens,
 `interface` selector, and `theme_open_on` setting are deferred.
 
 Map previews do not report Radio Browser clicks. A deliberate Play reports one
@@ -106,6 +115,43 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |
 | Encrypted HLS/DRM, low latency HLS, content steering, variable substitution, unsupported URI-bearing extensions | Fail closed; no direct upstream playback fallback |
 | Non-HTTP(S), credential-bearing, private/loopback station URLs | Reject; developer fixtures have a separate exact-origin test-mode exception |
+
+## Controlled VAST status
+
+Ad insertion is an opt-in development feature. `test_mode`, `ad_enabled`,
+`ad_preroll`, and `ad_midroll` default off, and the VAST URL defaults empty.
+The current implementation accepts only the configured numeric loopback fixture
+origin; it does not request production ads and does not monetize ordinary Radio
+Browser stations. The supported insertion fixture is clear, single-rendition
+AAC-LC in MPEG-TS at 48 kHz stereo. Preroll is prepared before playback; midroll
+replacement requires a complete, explicitly marked HLS break and an exact
+measured sample-count match. No-fill, unsupported media, or mismatch preserves
+the station's original break.
+
+The controlled test menu's **Test ad tracking** context action uses the legacy
+continuous AAC adapter. It explicitly selects Kodi VideoPlayer and qualifies that
+exact route with already-enabled FFmpegDirect 22.2.10. A short-lived, single-use
+launch ticket binds that selection
+to one fixture session. Tracking also requires owned AV startup, consecutive
+clock progress, and matching session and URL observations. Paused/interrupted ads,
+seeks and ambiguous clocks cannot report completion. Zero-start prerolls on this
+legacy path suppress all success beacons.
+Buffering after established playback revokes that session’s qualification. Ordinary
+playback does not acquire this qualification. Adaptive/native fallbacks remain
+available, but do not acquire the continuous clock contract.
+
+The separate owned-renderer experiment uses a precomposed controlled HLS fixture
+and a session-bound native clock. It has sent actual loopback preroll and midroll
+beacons, but has not passed captured-audio acceptance. The latest complete run
+contains an unexpected 19.354 ms silence gap; an earlier run also qualified a
+clock query inside silence. See the
+[current checkpoint](docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md)
+for the failed gate and remaining work. Neither path is claimed seamless. The
+[earlier continuous-path report](docs/testing-continuous-clock.md) retains its
+observed pause/resume omission. No Kodi-core audio or pause change is included.
+These checks are release gates; the current build is not a production ad system.
+See the [monetization roadmap](docs/monetization-roadmap.md) and
+[validation record](docs/testing.md).
 
 A directory entry is a hint, not proof of codec or protocol support. Broken,
 geo-restricted, certificate-invalid and unavailable stations can fail independently

@@ -1,0 +1,753 @@
+diff --git a/src/StreamManager.cpp b/src/StreamManager.cpp
+index 17ebfe2..eef5449 100644
+--- a/src/StreamManager.cpp
++++ b/src/StreamManager.cpp
+@@ -6,6 +6,12 @@
+  */
+ 
+ #include "StreamManager.h"
++#include <fstream>
++#include <chrono>
++#include <algorithm>
++#include <cstring>
++#include <cmath>
++#include <limits>
+ 
+ #include "stream/FFmpegCatchupStream.h"
+ #include "stream/TimeshiftStream.h"
+@@ -18,6 +24,24 @@
+ using namespace ffmpegdirect;
+ using namespace kodi::tools;
+ 
++namespace
++{
++bool ParseAacLc48kStereoAdtsFrame(const uint8_t* data,
++                                 size_t remaining,
++                                 size_t& frameLength)
++{
++  if (!data || remaining < 7 || data[0] != 0xff || (data[1] & 0xf6) != 0xf0 ||
++      ((data[2] >> 6) & 0x03) != 1 || ((data[2] >> 2) & 0x0f) != 3 ||
++      (((data[2] & 0x01) << 2) | ((data[3] >> 6) & 0x03)) != 2)
++    return false;
++
++  const size_t headerLength = (data[1] & 0x01) ? 7 : 9;
++  frameLength = ((static_cast<size_t>(data[3] & 0x03) << 11) |
++                 (static_cast<size_t>(data[4]) << 3) | (data[5] >> 5));
++  return remaining >= headerLength && frameLength >= headerLength && frameLength <= remaining;
++}
++} // namespace
++
+ /***********************************************************
+ * InputSteam Client AddOn specific public library functions
+ ***********************************************************/
+@@ -59,6 +83,7 @@ InputStreamFFmpegDirect::InputStreamFFmpegDirect(const kodi::addon::IInstanceInf
+ 
+ InputStreamFFmpegDirect::~InputStreamFFmpegDirect()
+ {
++  StopOwnedRenderer();
+ }
+ 
+ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props)
+@@ -224,14 +249,510 @@ bool InputStreamFFmpegDirect::Open(const kodi::addon::InputstreamProperty& props
+ 
+   m_opened = m_stream->Open(m_streamUrl, m_mimeType, m_properties.IsRealTimeStream(), m_properties.m_programProperty);
+ 
++  // Lab-only renderer. This exact loopback fixture, the old probe marker, and
++  // a second opt-in marker must all be present before replacing programme AAC.
++  const bool uniqueLoopbackFixture =
++      m_streamUrl == "http://127.0.0.1:18789/long-unique.aac";
++  const bool oldProbeMarker = std::ifstream(
++      "/private/tmp/kodi-audio-validation-20261027/native-pause-probe/enable").good();
++  const bool ownedRendererMarker = std::ifstream(
++      "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/enable").good();
++  const bool ownedRendererOptIn = uniqueLoopbackFixture && oldProbeMarker && ownedRendererMarker;
++  if (m_opened && ownedRendererOptIn && !StartOwnedRenderer())
++  {
++    // Never fall back to audible source packets when a requested lab renderer
++    // could not be initialized.
++    StopOwnedRenderer();
++    m_stream->Close();
++    m_stream.reset();
++    m_opened = false;
++    return false;
++  }
+   return m_opened;
+ }
+ 
++bool InputStreamFFmpegDirect::StartOwnedRenderer()
++{
++  constexpr size_t frameBytes = sizeof(float) * 2;
++  constexpr size_t maxSeconds = 64;
++  const std::string root =
++      "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/";
++
++  auto* ffmpegStream = dynamic_cast<ffmpegdirect::FFmpegStream*>(m_stream.get());
++  if (!ffmpegStream || !ffmpegStream->m_pFormatContext)
++  {
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: FFmpeg format context unavailable");
++    return false;
++  }
++
++  AVStream* audioStream = nullptr;
++  for (unsigned int index = 0; index < ffmpegStream->m_pFormatContext->nb_streams; ++index)
++  {
++    AVStream* candidate = ffmpegStream->m_pFormatContext->streams[index];
++    const AVCodecParameters* parameters = candidate ? candidate->codecpar : nullptr;
++    if (parameters && parameters->codec_type == AVMEDIA_TYPE_AUDIO &&
++        parameters->codec_id == AV_CODEC_ID_AAC)
++    {
++      audioStream = candidate;
++      m_ownedAudioStreamId = static_cast<int>(index);
++      break;
++    }
++  }
++  if (!audioStream || audioStream->codecpar->sample_rate != 48000 ||
++      audioStream->codecpar->ch_layout.nb_channels != 2 ||
++      (audioStream->codecpar->profile != AV_PROFILE_UNKNOWN &&
++       audioStream->codecpar->profile != AV_PROFILE_AAC_LOW))
++  {
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: source is not controlled AAC-LC 48 kHz stereo");
++    return false;
++  }
++
++  const AVCodec* decoder = avcodec_find_decoder(AV_CODEC_ID_AAC);
++  m_ownedDecoder = decoder ? avcodec_alloc_context3(decoder) : nullptr;
++  if (!m_ownedDecoder ||
++      avcodec_parameters_to_context(m_ownedDecoder, audioStream->codecpar) < 0)
++  {
++    if (m_ownedDecoder)
++      avcodec_free_context(&m_ownedDecoder);
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: could not initialize AAC decoder parameters");
++    return false;
++  }
++  m_ownedDecoder->pkt_timebase = audioStream->time_base;
++  m_ownedDecoder->thread_count = 1;
++  if (avcodec_open2(m_ownedDecoder, decoder, nullptr) < 0)
++  {
++    avcodec_free_context(&m_ownedDecoder);
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: could not open AAC decoder");
++    return false;
++  }
++  m_ownedDecodeFrame = av_frame_alloc();
++  if (!m_ownedDecodeFrame)
++  {
++    avcodec_free_context(&m_ownedDecoder);
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: could not allocate AAC decode frame");
++    return false;
++  }
++
++  std::ifstream silence(root + "silence-frame.aac", std::ios::binary | std::ios::ate);
++  if (!silence || silence.tellg() != 13)
++  {
++    av_frame_free(&m_ownedDecodeFrame);
++    avcodec_free_context(&m_ownedDecoder);
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: one-frame AAC silence fixture must be 13 bytes");
++    return false;
++  }
++  m_silenceAdtsFrame.resize(13);
++  silence.seekg(0);
++  silence.read(reinterpret_cast<char*>(m_silenceAdtsFrame.data()), 13);
++  size_t silenceLength = 0;
++  if (silence.gcount() != 13 ||
++      !ParseAacLc48kStereoAdtsFrame(m_silenceAdtsFrame.data(), m_silenceAdtsFrame.size(),
++                                    silenceLength) ||
++      silenceLength != m_silenceAdtsFrame.size())
++  {
++    m_silenceAdtsFrame.clear();
++    av_frame_free(&m_ownedDecodeFrame);
++    avcodec_free_context(&m_ownedDecoder);
++    Log(LOGLEVEL_WARNING, "OWNED_RENDERER: invalid single-frame ADTS silence fixture");
++    return false;
++  }
++
++  m_ownedQueueCapacityFrames = 48000 * maxSeconds;
++  m_ownedPcmQueue.assign(m_ownedQueueCapacityFrames * 2, 0.0f);
++  m_ownedQueueReadFrame = 0;
++  m_ownedQueueWriteFrame = 0;
++  m_ownedQueuedFrames = 0;
++  m_ownedTotalDecodedFrames = 0;
++  m_ownedSyntheticFrames = 0;
++  m_ownedNextPts = 0.0;
++  m_ownedPtsValid = false;
++  m_ownedFrameDuration = STREAM_SEC_TO_TIME(1024.0 / 48000.0);
++  m_ownedDecodeArmed = false;
++  m_ownedSourceEnded = false;
++  m_ownedDecoderFlushed = false;
++  m_ownedDrainStarted.store(false);
++  m_ownedDemuxerId = 0;
++
++  kodi::audioengine::AudioEngineFormat format;
++  format.SetDataFormat(AUDIOENGINE_FMT_FLOAT);
++  format.SetSampleRate(48000);
++  format.SetChannelLayout({AUDIOENGINE_CH_FL, AUDIOENGINE_CH_FR});
++  format.SetFrameSize(frameBytes);
++  format.SetFramesAmount(1024);
++  m_ownedStream = std::make_unique<kodi::audioengine::CAEStream>(format, AUDIO_STREAM_AUTOSTART);
++  m_ownedStop = false;
++  m_ownedRendererReady = false;
++  m_ownedPlaybackStarted = false;
++  m_ownedDrained = false;
++  m_ownedFailed = false;
++  m_ownedRendererActive = true;
++  m_ownedThread = std::thread([this]() { RunOwnedRenderer(); });
++  Log(LOGLEVEL_INFO, "OWNED_RENDERER: AAC packet decoder enabled for exact loopback fixture; queue capped at 64 seconds");
++  return true;
++}
++
++bool InputStreamFFmpegDirect::DecodeOwnedAdtsFrame(const uint8_t* data, size_t size)
++{
++  AVPacket* packet = av_packet_alloc();
++  if (!packet || size > static_cast<size_t>(std::numeric_limits<int>::max()) ||
++      av_new_packet(packet, static_cast<int>(size)) < 0)
++  {
++    av_packet_free(&packet);
++    return false;
++  }
++  std::memcpy(packet->data, data, size);
++
++  int result = avcodec_send_packet(m_ownedDecoder, packet);
++  if (result == AVERROR(EAGAIN))
++  {
++    av_packet_free(&packet);
++    while ((result = avcodec_receive_frame(m_ownedDecoder, m_ownedDecodeFrame)) == 0)
++    {
++      if (!AppendOwnedFrame(m_ownedDecodeFrame))
++      {
++        av_frame_unref(m_ownedDecodeFrame);
++        return false;
++      }
++      av_frame_unref(m_ownedDecodeFrame);
++    }
++    if (result != AVERROR(EAGAIN) && result != AVERROR_EOF)
++      return false;
++    packet = av_packet_alloc();
++    if (!packet || av_new_packet(packet, static_cast<int>(size)) < 0)
++    {
++      av_packet_free(&packet);
++      return false;
++    }
++    std::memcpy(packet->data, data, size);
++    result = avcodec_send_packet(m_ownedDecoder, packet);
++  }
++  av_packet_free(&packet);
++  if (result < 0)
++    return false;
++
++  while ((result = avcodec_receive_frame(m_ownedDecoder, m_ownedDecodeFrame)) == 0)
++  {
++    if (!AppendOwnedFrame(m_ownedDecodeFrame))
++    {
++      av_frame_unref(m_ownedDecodeFrame);
++      return false;
++    }
++    av_frame_unref(m_ownedDecodeFrame);
++  }
++  return result == AVERROR(EAGAIN) || result == AVERROR_EOF;
++}
++
++bool InputStreamFFmpegDirect::AppendOwnedFrame(const AVFrame* frame)
++{
++  if (!frame || frame->sample_rate != 48000 || frame->ch_layout.nb_channels != 2 ||
++      (frame->format != AV_SAMPLE_FMT_FLTP && frame->format != AV_SAMPLE_FMT_FLT) ||
++      frame->nb_samples < 0 || !frame->extended_data || !frame->extended_data[0] ||
++      (frame->format == AV_SAMPLE_FMT_FLTP && !frame->extended_data[1]) ||
++      m_ownedQueueCapacityFrames == 0)
++    return false;
++
++  const size_t frames = static_cast<size_t>(frame->nb_samples);
++  constexpr size_t maxTotalFrames = 64 * 48000;
++  if (frames > m_ownedQueueCapacityFrames - m_ownedQueuedFrames ||
++      frames > maxTotalFrames - m_ownedTotalDecodedFrames)
++    return false;
++
++  const float* left = reinterpret_cast<const float*>(frame->extended_data[0]);
++  const float* right = frame->format == AV_SAMPLE_FMT_FLTP
++                           ? reinterpret_cast<const float*>(frame->extended_data[1])
++                           : nullptr;
++  for (size_t i = 0; i < frames; ++i)
++  {
++    const size_t write = (m_ownedQueueWriteFrame + i) % m_ownedQueueCapacityFrames;
++    if (right)
++    {
++      m_ownedPcmQueue[write * 2] = left[i];
++      m_ownedPcmQueue[write * 2 + 1] = right[i];
++    }
++    else
++    {
++      m_ownedPcmQueue[write * 2] = left[i * 2];
++      m_ownedPcmQueue[write * 2 + 1] = left[i * 2 + 1];
++    }
++  }
++  m_ownedQueueWriteFrame = (m_ownedQueueWriteFrame + frames) % m_ownedQueueCapacityFrames;
++  m_ownedQueuedFrames += frames;
++  m_ownedTotalDecodedFrames += frames;
++  return true;
++}
++
++bool InputStreamFFmpegDirect::DecodeOwnedPacket(const DEMUX_PACKET* packet)
++{
++  if (!packet || !packet->pData || packet->iSize <= 0 ||
++      packet->iStreamId != m_ownedAudioStreamId)
++    return false;
++
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (!m_ownedRendererActive.load() || !m_ownedDecoder || !m_ownedDecodeFrame)
++    return false;
++  size_t offset = 0;
++  size_t frameCount = 0;
++  while (offset < static_cast<size_t>(packet->iSize))
++  {
++    size_t frameLength = 0;
++    if (!ParseAacLc48kStereoAdtsFrame(packet->pData + offset,
++                                      static_cast<size_t>(packet->iSize) - offset,
++                                      frameLength) ||
++        !DecodeOwnedAdtsFrame(packet->pData + offset, frameLength))
++      return false;
++    offset += frameLength;
++    ++frameCount;
++  }
++  if (frameCount == 0 || offset != static_cast<size_t>(packet->iSize))
++    return false;
++
++  m_ownedDemuxerId = packet->demuxerId;
++  if (packet->pts != STREAM_NOPTS_VALUE)
++  {
++    m_ownedPtsValid = true;
++    m_ownedNextPts = packet->pts +
++                     (packet->duration > 0 ? packet->duration
++                                           : m_ownedFrameDuration * frameCount);
++  }
++  return true;
++}
++
++bool InputStreamFFmpegDirect::FlushOwnedDecoder()
++{
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (m_ownedDecoderFlushed)
++    return true;
++  if (!m_ownedRendererActive.load() || !m_ownedDecoder || !m_ownedDecodeFrame)
++    return false;
++
++  int result = avcodec_send_packet(m_ownedDecoder, nullptr);
++  if (result < 0 && result != AVERROR_EOF && result != AVERROR(EAGAIN))
++    return false;
++  while ((result = avcodec_receive_frame(m_ownedDecoder, m_ownedDecodeFrame)) == 0)
++  {
++    if (!AppendOwnedFrame(m_ownedDecodeFrame))
++    {
++      av_frame_unref(m_ownedDecodeFrame);
++      return false;
++    }
++    av_frame_unref(m_ownedDecodeFrame);
++  }
++  if (result != AVERROR_EOF && result != AVERROR(EAGAIN))
++    return false;
++  m_ownedDecoderFlushed = true;
++  m_ownedSourceEnded = true;
++  return true;
++}
++
++void InputStreamFFmpegDirect::RunOwnedRenderer()
++{
++  if (!m_ownedStream || m_ownedPcmQueue.empty())
++    return;
++
++  std::chrono::steady_clock::time_point readyDeadline{};
++  bool readyDeadlineArmed = false;
++  std::string previousControl;
++  size_t acceptedFrames = 0;
++  while (!m_ownedStop.load())
++  {
++    std::ifstream control(
++        "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
++    std::string state;
++    if (control)
++      control >> state;
++
++    // The addon monitor writes play from onAVStarted, after demux probing.
++    if ((state == "play" || state == "resume") && !readyDeadlineArmed)
++    {
++      m_ownedPlaybackStarted = true;
++      readyDeadlineArmed = true;
++      readyDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++    }
++    const bool shouldFeed = m_ownedPlaybackStarted.load() &&
++                            (state == "play" || state == "resume");
++    if (state != previousControl)
++    {
++      size_t decodedFrames = 0;
++      size_t queuedFrames = 0;
++      {
++        std::lock_guard<std::mutex> lock(m_ownedMutex);
++        decodedFrames = m_ownedTotalDecodedFrames;
++        queuedFrames = m_ownedQueuedFrames;
++      }
++      Log(LOGLEVEL_INFO,
++          "OWNED_RENDERER: control state=%s accepted_cursor_frames=%zu decoded_frames=%zu queued_frames=%zu",
++          state.empty() ? "unset" : state.c_str(), acceptedFrames, decodedFrames, queuedFrames);
++      previousControl = state;
++    }
++    if (m_ownedFailed.load())
++      return;
++
++    const size_t availableFrames = m_ownedStream->GetSpace() / (sizeof(float) * 2);
++    if (shouldFeed && availableFrames != 0)
++      m_ownedRendererReady = true;
++    else if (readyDeadlineArmed && !m_ownedRendererReady.load() &&
++             std::chrono::steady_clock::now() >= readyDeadline)
++    {
++      m_ownedFailed = true;
++      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: Kodi audio stream did not become ready; aborting lab playback");
++      return;
++    }
++
++    bool sourceEnded = false;
++    if (shouldFeed && m_ownedRendererReady.load() && availableFrames != 0)
++    {
++      std::lock_guard<std::mutex> lock(m_ownedMutex);
++      if (m_ownedQueuedFrames != 0)
++      {
++        const size_t contiguousFrames = m_ownedQueueCapacityFrames - m_ownedQueueReadFrame;
++        const size_t frames = std::min({size_t{1024}, availableFrames,
++                                        m_ownedQueuedFrames, contiguousFrames});
++        uint8_t* planes[] = {reinterpret_cast<uint8_t*>(m_ownedPcmQueue.data())};
++        const unsigned int consumed = m_ownedStream->AddData(
++            planes, static_cast<unsigned int>(m_ownedQueueReadFrame),
++            static_cast<unsigned int>(frames));
++        m_ownedQueueReadFrame = (m_ownedQueueReadFrame + consumed) % m_ownedQueueCapacityFrames;
++        m_ownedQueuedFrames -= consumed;
++        acceptedFrames += consumed;
++      }
++    }
++
++    {
++      std::lock_guard<std::mutex> lock(m_ownedMutex);
++      sourceEnded = m_ownedSourceEnded && m_ownedQueuedFrames == 0;
++      if (sourceEnded && !m_ownedDrainStarted.load())
++      {
++        m_ownedStream->Drain(false);
++        m_ownedDrainStarted.store(true);
++        Log(LOGLEVEL_INFO,
++            "OWNED_RENDERER: decoded source ended; waiting for AudioEngine drain; decoded_frames=%zu accepted_cursor_frames=%zu",
++            m_ownedTotalDecodedFrames, acceptedFrames);
++      }
++    }
++    if (m_ownedDrainStarted.load() && m_ownedStream->IsDrained())
++    {
++      m_ownedDrained = true;
++      size_t decodedFrames = 0;
++      {
++        std::lock_guard<std::mutex> lock(m_ownedMutex);
++        decodedFrames = m_ownedTotalDecodedFrames;
++      }
++      Log(LOGLEVEL_INFO,
++          "OWNED_RENDERER: decoded source drained; decoded_frames=%zu accepted_cursor_frames=%zu",
++          decodedFrames, acceptedFrames);
++      return;
++    }
++
++    std::this_thread::sleep_for(std::chrono::milliseconds(5));
++  }
++}
++
++void InputStreamFFmpegDirect::StopOwnedRenderer()
++{
++  m_ownedRendererActive = false;
++  m_ownedRendererReady = false;
++  m_ownedStop = true;
++  if (m_ownedThread.joinable())
++    m_ownedThread.join();
++  m_ownedStream.reset();
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (m_ownedDecodeFrame)
++    av_frame_free(&m_ownedDecodeFrame);
++  if (m_ownedDecoder)
++    avcodec_free_context(&m_ownedDecoder);
++  m_ownedPcmQueue.clear();
++  m_ownedQueueCapacityFrames = 0;
++  m_ownedQueuedFrames = 0;
++  m_ownedQueueReadFrame = 0;
++  m_ownedQueueWriteFrame = 0;
++  m_silenceAdtsFrame.clear();
++}
++
++bool InputStreamFFmpegDirect::OwnedPlaybackStarted()
++{
++  if (m_ownedPlaybackStarted.load())
++    return true;
++  std::ifstream control(
++      "/private/tmp/kodi-audio-validation-20261027/native-pause-repair/owned-renderer/control");
++  std::string state;
++  if (control)
++    control >> state;
++  if (state == "play" || state == "resume")
++    m_ownedPlaybackStarted = true;
++  return m_ownedPlaybackStarted.load();
++}
++
++void InputStreamFFmpegDirect::ResetOwnedTimeline()
++{
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (m_ownedDecoder)
++    avcodec_flush_buffers(m_ownedDecoder);
++  m_ownedQueueReadFrame = 0;
++  m_ownedQueueWriteFrame = 0;
++  m_ownedQueuedFrames = 0;
++  m_ownedTotalDecodedFrames = 0;
++  m_ownedSyntheticFrames = 0;
++  m_ownedNextPts = 0.0;
++  m_ownedPtsValid = false;
++  m_ownedSourceEnded = false;
++  m_ownedDecoderFlushed = false;
++  m_ownedDrainStarted.store(false);
++  m_ownedDrained = false;
++  m_ownedFailed = false;
++}
++
++DEMUX_PACKET* InputStreamFFmpegDirect::MakeOwnedSilentPacket()
++{
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  constexpr size_t maxSyntheticFrames = (64 * 48000) / 1024;
++  if (!m_ownedRendererActive.load() || m_ownedDrained.load())
++    return nullptr;
++  if (!m_ownedPtsValid || !std::isfinite(m_ownedNextPts) ||
++      m_ownedSyntheticFrames >= maxSyntheticFrames || m_ownedAudioStreamId < 0 ||
++      m_silenceAdtsFrame.empty())
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: cannot maintain finite silent AAC tail; aborting lab playback");
++    return nullptr;
++  }
++
++  DEMUX_PACKET* packet = AllocateDemuxPacketFromInputStreamAPI(
++      static_cast<int>(m_silenceAdtsFrame.size()));
++  if (!packet)
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: could not allocate silent AAC tail packet");
++    return nullptr;
++  }
++  std::memcpy(packet->pData, m_silenceAdtsFrame.data(), m_silenceAdtsFrame.size());
++  packet->iSize = static_cast<int>(m_silenceAdtsFrame.size());
++  packet->iStreamId = m_ownedAudioStreamId;
++  packet->demuxerId = m_ownedDemuxerId;
++  packet->iGroupId = 0;
++  packet->pSideData = nullptr;
++  packet->iSideDataElems = 0;
++  packet->pts = m_ownedNextPts;
++  packet->dts = m_ownedNextPts;
++  packet->duration = m_ownedFrameDuration;
++  packet->dispTime = -1;
++  packet->recoveryPoint = false;
++  packet->cryptoInfo = nullptr;
++  m_ownedNextPts += m_ownedFrameDuration;
++  ++m_ownedSyntheticFrames;
++  return packet;
++}
++
+ void InputStreamFFmpegDirect::Close()
+ {
++  StopOwnedRenderer();
++  Log(LOGLEVEL_INFO, "OWNED_RENDERER: auxiliary stream released");
+   m_opened = false;
+ 
+-  m_stream->Close();
++  if (m_stream)
++  {
++    m_stream->Close();
++    m_stream.reset();
++  }
+ }
+ 
+ void InputStreamFFmpegDirect::GetCapabilities(kodi::addon::InputstreamCapabilities &caps)
+@@ -278,12 +799,126 @@ void InputStreamFFmpegDirect::DemuxFlush()
+ 
+ DEMUX_PACKET* InputStreamFFmpegDirect::DemuxRead()
+ {
+-  return m_stream->DemuxRead();
++  DEMUX_PACKET* packet = m_stream->DemuxRead();
++  if (!m_ownedRendererActive.load())
++    return packet;
++
++  OwnedPlaybackStarted();
++  if (m_ownedFailed.load())
++  {
++    if (packet)
++      FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++
++  if (!packet)
++  {
++    if (!m_properties.m_terminalEof || !m_ownedDecodeArmed)
++      return nullptr;
++    if (!FlushOwnedDecoder())
++    {
++      m_ownedFailed = true;
++      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: AAC decoder flush failed at finite EOF");
++      return nullptr;
++    }
++    if (m_ownedDrained.load())
++      return nullptr;
++    return MakeOwnedSilentPacket();
++  }
++
++  if (packet->iSize <= 0 || !packet->pData || packet->iStreamId < 0 ||
++      packet->iStreamId != m_ownedAudioStreamId)
++    return packet;
++
++  if (!m_ownedDecodeArmed)
++  {
++    if (m_ownedPlaybackStarted.load())
++    {
++      m_ownedFailed = true;
++      Log(LOGLEVEL_ERROR, "OWNED_RENDERER: playback started before a successful seek-to-zero; aborting");
++      FreeDemuxPacketFromInputStreamAPI(packet);
++      return nullptr;
++    }
++    return packet; // Kodi's pre-play format probe; the successful Seek(0) arms decoding.
++  }
++
++  kodi::addon::InputstreamInfo info;
++  if (!m_stream->GetStream(packet->iStreamId, info) ||
++      info.GetStreamType() != INPUTSTREAM_TYPE_AUDIO || info.GetCodecName() != "aac" ||
++      info.GetSampleRate() != 48000 || info.GetChannels() != 2)
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: stream format changed outside the controlled AAC fixture");
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++
++  if (!DecodeOwnedPacket(packet))
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: packet decode or bounded PCM queue failed; aborting lab playback");
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++  if (!m_ownedRendererActive.load())
++  {
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++
++  size_t sourceOffset = 0;
++  size_t sourceFrameCount = 0;
++  while (sourceOffset < static_cast<size_t>(packet->iSize))
++  {
++    size_t sourceFrameLength = 0;
++    if (!ParseAacLc48kStereoAdtsFrame(packet->pData + sourceOffset,
++                                     static_cast<size_t>(packet->iSize) - sourceOffset,
++                                     sourceFrameLength))
++      break;
++    sourceOffset += sourceFrameLength;
++    ++sourceFrameCount;
++  }
++
++  const size_t replacementBytes = sourceFrameCount * m_silenceAdtsFrame.size();
++  if (sourceOffset != static_cast<size_t>(packet->iSize) || sourceFrameCount == 0 ||
++      replacementBytes > static_cast<size_t>(packet->iSize))
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: source packet is not replaceable AAC-LC ADTS; aborting lab playback");
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++
++  std::lock_guard<std::mutex> lock(m_ownedMutex);
++  if (m_silenceAdtsFrame.empty())
++  {
++    FreeDemuxPacketFromInputStreamAPI(packet);
++    return nullptr;
++  }
++  for (size_t frame = 0; frame < sourceFrameCount; ++frame)
++    std::memcpy(packet->pData + frame * m_silenceAdtsFrame.size(), m_silenceAdtsFrame.data(),
++                m_silenceAdtsFrame.size());
++  packet->iSize = static_cast<int>(replacementBytes);
++  return packet;
+ }
+ 
+ bool InputStreamFFmpegDirect::DemuxSeekTime(double time, bool backwards, double& startpts)
+ {
+-  return m_stream->DemuxSeekTime(time, backwards, startpts);
++  if (m_ownedRendererActive.load() && OwnedPlaybackStarted())
++  {
++    m_ownedFailed = true;
++    Log(LOGLEVEL_ERROR, "OWNED_RENDERER: seek after AVStarted is unsupported; aborting lab qualification");
++    return false;
++  }
++
++  const bool succeeded = m_stream->DemuxSeekTime(time, backwards, startpts);
++  if (m_ownedRendererActive.load() && succeeded && std::abs(time) < 0.001)
++  {
++    ResetOwnedTimeline();
++    m_ownedDecodeArmed = true;
++    Log(LOGLEVEL_INFO, "OWNED_RENDERER: successful pre-play Seek(0) reset and armed AAC decode");
++  }
++  return succeeded;
+ }
+ 
+ void InputStreamFFmpegDirect::DemuxSetSpeed(int speed)
+diff --git a/src/StreamManager.h b/src/StreamManager.h
+index 4b3dea6..54dc85a 100644
+--- a/src/StreamManager.h
++++ b/src/StreamManager.h
+@@ -12,6 +12,12 @@
+ #include "utils/Properties.h"
+ 
+ #include <memory>
++#include <atomic>
++#include <mutex>
++#include <thread>
++#include <vector>
++#include <cstddef>
++#include <kodi/AudioEngine.h>
+ #include <string>
+ 
+ #include <kodi/addon-instance/Inputstream.h>
+@@ -84,6 +90,44 @@ public:
+ protected:
+ 
+ private:
++  void StopOwnedRenderer();
++  void RunOwnedRenderer();
++  bool StartOwnedRenderer();
++  bool DecodeOwnedPacket(const DEMUX_PACKET* packet);
++  bool DecodeOwnedAdtsFrame(const uint8_t* data, size_t size);
++  bool AppendOwnedFrame(const AVFrame* frame);
++  bool FlushOwnedDecoder();
++  void ResetOwnedTimeline();
++  bool OwnedPlaybackStarted();
++  DEMUX_PACKET* MakeOwnedSilentPacket();
++  std::atomic<bool> m_ownedStop{false};
++  std::atomic<bool> m_ownedRendererActive{false};
++  std::atomic<bool> m_ownedRendererReady{false};
++  std::atomic<bool> m_ownedPlaybackStarted{false};
++  std::atomic<bool> m_ownedDrained{false};
++  std::atomic<bool> m_ownedFailed{false};
++  std::thread m_ownedThread;
++  std::unique_ptr<kodi::audioengine::CAEStream> m_ownedStream;
++  std::mutex m_ownedMutex;
++  std::vector<float> m_ownedPcmQueue;
++  size_t m_ownedQueueCapacityFrames{0};
++  size_t m_ownedQueueReadFrame{0};
++  size_t m_ownedQueueWriteFrame{0};
++  size_t m_ownedQueuedFrames{0};
++  size_t m_ownedTotalDecodedFrames{0};
++  size_t m_ownedSyntheticFrames{0};
++  AVCodecContext* m_ownedDecoder{nullptr};
++  AVFrame* m_ownedDecodeFrame{nullptr};
++  int m_ownedAudioStreamId{-1};
++  double m_ownedNextPts{0.0};
++  double m_ownedFrameDuration{0.0};
++  bool m_ownedPtsValid{false};
++  int64_t m_ownedDemuxerId{0};
++  std::atomic<bool> m_ownedDecodeArmed{false};
++  bool m_ownedSourceEnded{false};
++  bool m_ownedDecoderFlushed{false};
++  std::atomic<bool> m_ownedDrainStarted{false};
++  std::vector<uint8_t> m_silenceAdtsFrame;
+   bool m_opened;
+ 
+   std::string m_streamUrl;

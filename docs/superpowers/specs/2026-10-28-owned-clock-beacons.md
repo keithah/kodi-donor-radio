@@ -1,0 +1,28 @@
+# Controlled owned-HLS clock mapping and success beacons
+
+Continue the user's approved implementation, addon-only and without a new approval loop. The existing runtime estimator and two captured audio passes establish a controlled clock candidate; this increment binds it to the native session and uses it to authorize real loopback VAST tracking. It does not promote public Kodi time or arbitrary stations.
+
+## Required behavior
+
+- Normal Kodi Pause/Resume; preserve source samples, no added gaps or replay, natural EOF. No Kodi core changes. Leave unrelated jobs running and unchanged. Keep the signed recorder unchanged.
+- Keep frozen V2 estimator bytes and constants unchanged (SHA256 7002aa99fb5a24159b25e19783a177b3c97a73d3777d6350eb2957d5bfa46f87). Never fit a clock offset to capture. Query freshness remains 100 ms, query width 5 ms, nine observations over at least 120 ms after acknowledged controls.
+- Each launched session receives a fresh 128-bit nonce, private directory, immutable timeline identity and independent native incarnation. Bind before tracking; every native row identifies its owner, source origin, sequence and applied control. A same-URL restart cannot reuse eligibility.
+- Pause immediately invalidates Python evidence. Preserve sequential native control transitions and acknowledge after the feeder state is applied. Pause tail and resume acquisition remain uncertain. Do not call native Pause/Flush/Seek or alter the tested audio feeding algorithm merely to implement ownership.
+- Wrong owner, route, timeline, native incarnation, source epoch, format/rate, counter rewind, malformed/replaced transport, seek/stop/error/drain and stale or future samples cannot emit success. Retirement is permanent. No fallback to getTime or cached last-valid time.
+- Bind the actual first decoded raw AAC packet and sample-zero source to an immutable bounded fixture manifest. Keep the complete fixture Presentation (up to 128 segments, 8 placements) for the launch so sliding-window publication cannot evict an ad ahead of audible playback.
+- Use existing AdTracker, BeaconWorker, Placement and ResolvedAd. Sample time is native query Mach time; success authorization and network receipt are separate evidence. Recheck Python callback generation immediately before tracker/queue decisions under one lock; network IO stays outside it. No retrospective milestone backfill.
+- Scope is precomposed controlled AAC-LC 48 kHz stereo HLS, exact http://127.0.0.1:18789/live/index.m3u8, buffered macOS profile. Source PTS starts at zero and remains continuous. Beacons only target that loopback origin. General Radio Browser, arbitrary relay creative splices, physical speaker timing and production VAST remain unqualified.
+- Observe default-device identity/rate/alive/stream changes conservatively in native macOS code; any change or failed observation retires qualification. Require the known default-output/buffered profile at launch. This is fixture device-change observation, not proof of Kodi internal same-format sink reopen or general output ownership. Report that distinction.
+- Preroll may start only with a real first qualified sample within the existing 250 ms near-start tolerance and proven sample zero; no injected zero/replay or relaxed acquisition. Legacy raw-Kodi preroll suppression remains unchanged. If acquisition misses this bound, no preroll success is allowed.
+
+## Locked controlled presentation
+
+Use the already preserved 180.032 s raw AAC/fMP4 fixture (8,641,536 source frames, 8,439 AAC packets). Declare actual creative subsets of that identical encoded source, expose synthetic VAST and distinct loopback tracking endpoints, verify asset/packet identities, and retain metadata independent from clock calculations. This tests mapping and actual beacon delivery on precomposed media; it is not new general-purpose insertion.
+
+All positions below are AAC access units of 1024 samples: preroll [0,96), clean A [768,1152), intentionally paused B [1536,2304), clean C [2688,3072), clean D [5280,5664), clean E [7296,7680). Four normal pauses after Open: (8 s,1 s), (45 s,3 s), (90 s,20 s), (160 s,3 s). Confirm actual source/control overlap from capture, never move intervals after seeing outcomes. A/C/D/E and, if onset qualifies, preroll must emit exactly one impression/start/firstQuartile/midpoint/thirdQuartile/complete. B must not backfill uncertain milestones after its pause; later clean ads must still track.
+
+## Evidence and release gate
+
+Capture two whole runs of the final candidate with independent waveform matching across source prefix/tail, pause seams and dense stereo windows. No extra silence, missing/replayed source, capture timestamp discontinuity or EOF hang. All qualified runtime points must meet unchanged 1024/48000 s (21.333 ms) tolerance. Every emitted event must bind to its native input row, generation, source position and tracker decision. Measure threshold-to-decision and decision-to-HTTP-receipt independently; 100 ms freshness plus one observation tick and 21.333 ms clock tolerance is the predeclared decision bound, not a network timing guarantee. Report early events and uncertain intervals explicitly. No EOF-manufactured completion.
+
+Unit/integration tests must exercise old-session replay, wrong media origin, malformed or out-of-order commands, rapid pause/resume, retired owner revival, terminal rows with bad numeric fields, stale publication, queued-event revocation, interrupted-ad suppression, and rolling-window retention. Preserve all failures and source/build/config identities. Clear exact-head Steward primary/adversarial and CodeRabbit before pushing existing PR #4.

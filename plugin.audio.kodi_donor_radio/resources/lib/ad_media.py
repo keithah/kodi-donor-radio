@@ -83,6 +83,22 @@ def _frames(data):
 
 def inspect_ts(data: bytes, _check=None) -> MediaInfo:
     """Inspect one complete single-program, AAC-LC MPEG-TS segment."""
+    return _inspect_ts(data, _check)
+
+
+def extract_adts(data: bytes):
+    """Return (MediaInfo, immutable ADTS bytes) after validating the whole segment.
+
+    Transport timestamps are retained in MediaInfo; the unchanged AAC frames
+    remain in their original order. Extraction uses the same strict validation
+    as inspect_ts, and never returns a partial payload on failure.
+    """
+    audio = bytearray()
+    info = _inspect_ts(data, _adts=audio)
+    return info, bytes(audio)
+
+
+def _inspect_ts(data: bytes, _check=None, _adts=None) -> MediaInfo:
     if not data or len(data) % 188:
         _bad('Truncated transport stream')
     payloads = {}
@@ -112,7 +128,10 @@ def inspect_ts(data: bytes, _check=None) -> MediaInfo:
                 timestamp += PTS_MOD
             if timestamp != expected_next:
                 _bad('Audio timestamps are discontinuous')
-        count = _frames(pes[14:])
+        payload = memoryview(pes)[14:]
+        count = _frames(payload)
+        if _adts is not None:
+            _adts.extend(payload)
         if first_pts is None:
             first_pts = timestamp
         last_pts = timestamp + (count - 1) * FRAME_PTS

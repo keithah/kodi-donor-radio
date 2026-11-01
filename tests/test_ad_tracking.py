@@ -3,6 +3,8 @@
 import threading
 import time
 
+import pytest
+
 from ad_models import AdError, OutputSegment, Placement, Presentation, ResolvedAd, TrackingUrl
 from ad_tracking import AdTracker, BeaconWorker, PlaybackSample, _CancelOrStop, enqueue_ad_error
 
@@ -48,6 +50,14 @@ def test_prefetch_and_first_late_sample_do_not_count_as_playback():
     instance, _, queued = tracker()
     view = presentation()
     instance.observe(view, sample(1.0, 10))
+    assert queued == []
+
+
+def test_caching_sample_cannot_start_or_advance_an_ad():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(0.0, 10.0, caching=True))
+    instance.observe(view, sample(0.3, 10.3, caching=True))
     assert queued == []
 
 
@@ -98,6 +108,98 @@ def test_short_stationary_sample_does_not_taint_continuous_playback():
     assert [event for _, event, _ in queued] == list(EVENTS)
 
 
+@pytest.mark.parametrize("stationary_ticks, expected_events", (
+    (2, EVENTS),
+    (3, ("impression", "start")),
+    (5, ("impression", "start")),
+))
+def test_stationary_clock_across_intermittent_unavailable_reads_taints_only_current_ad(
+        stationary_ticks, expected_events):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    for tick in range(1, stationary_ticks + 1):
+        if tick % 2:
+            instance.observe(view, sample(.05, tick * .25))
+        else:
+            instance.observe(view, sample(0, tick * .25, mapped=False,
+                                          playing=False, caching=True))
+        assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(37):
+        instance.observe(view, sample(.10 + tick * .25,
+                                      (stationary_ticks + 1 + tick) * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
+
+
+def test_mapped_clock_movement_resets_stationary_evidence_across_unavailable_reads():
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    for cycle in range(3):
+        position = .05 + cycle * .05
+        instance.observe(view, sample(position, cycle * .75 + .25))
+        instance.observe(view, sample(0, cycle * .75 + .5, mapped=False, playing=False))
+        instance.observe(view, sample(position + .05, (cycle + 1) * .75))
+    for tick in range(17):
+        instance.observe(view, sample(.20 + tick * .25, 2.5 + tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
+@pytest.mark.parametrize("transition, expected_events", (
+    ({"mapped": False, "paused": True}, EVENTS),
+    ({"mapped": False, "seeking": True}, EVENTS),
+    ({"mapped": False, "speed_changed": True}, ("impression", "start")),
+    ({"mapped": False, "speed": .5}, ("impression", "start")),
+    ({"paused": True}, EVENTS),
+    ({"seeking": True}, ("impression", "start")),
+    ({"playing": False}, EVENTS),
+    ({"position_seconds": float("nan")}, EVENTS),
+    ({"monotonic_seconds": float("nan")}, EVENTS),
+))
+def test_explicit_transition_or_unusable_mapped_clock_resets_stationary_evidence(
+        transition, expected_events):
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(.05, .25))
+    instance.observe(view, sample(.05, .5, **transition))
+    assert instance._stationary_since is None
+    instance.observe(view, sample(.05, .75))
+    instance.observe(view, sample(.05, 1))
+    for tick in range(17):
+        instance.observe(view, sample(.10 + tick * .25, 1.25 + tick * .25))
+    assert [event for _, event, _ in queued] == list(expected_events)
+
+
+@pytest.mark.parametrize("recovery_cached", (False, True))
+@pytest.mark.parametrize("gap_seconds, expected_events", (
+    (.75, EVENTS),
+    (1.0, ("impression", "start")),
+))
+def test_advancing_cache_gap_taints_only_intersected_ad_after_close_recovery(
+        gap_seconds, expected_events, recovery_cached):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.05, .25, caching=True))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    # The retained clock advances only 50 ms after a gap. The played-sample
+    # proximity guard alone would accept recovery even after a full second.
+    instance.observe(view, sample(.10, .25 + gap_seconds, caching=recovery_cached))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.15, .5 + gap_seconds))
+    for tick in range(1, 37):
+        instance.observe(view, sample(.15 + tick * .25, .5 + gap_seconds + tick * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
+
+
 def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():
     instance, _, queued = tracker()
     view = presentation()
@@ -108,6 +210,75 @@ def test_pause_buffering_and_unmapped_samples_break_crossing_evidence():
     instance.observe(view, sample(3, 3, mapped=False))
     instance.observe(view, sample(4, 4))
     assert [event for _, event, _ in queued] == ["impression", "start"]
+
+
+@pytest.mark.parametrize("unavailable_count", (1, 3))
+@pytest.mark.parametrize("gap_seconds, expected_events", (
+    (.5, EVENTS),
+    (.75, EVENTS),
+    (1.0, ("impression", "start")),
+))
+def test_unavailable_clock_gap_taints_only_intersected_ad_after_close_recovery(
+        gap_seconds, expected_events, unavailable_count):
+    instance, _, queued = tracker()
+    first = presentation()
+    later = presentation(start=5, placement_id="later")
+    view = Presentation(first.segments, first.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(1, unavailable_count + 1):
+        instance.observe(view, sample(0, gap_seconds * tick / (unavailable_count + 1),
+                                      playing=False, mapped=False, caching=True))
+        assert [event for _, event, _ in queued] == ["impression", "start"]
+    # Recovery advances only 50 ms, inside the played-position proximity guard.
+    instance.observe(view, sample(.10, gap_seconds))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    for tick in range(1, 37):
+        instance.observe(view, sample(.10 + tick * .25, gap_seconds + tick * .25))
+    assert [event for placement, event, _ in queued if placement == "p1"] == list(expected_events)
+    assert [event for placement, event, _ in queued if placement == "later"] == list(EVENTS)
+
+
+@pytest.mark.parametrize("transition, expected_events", (
+    ({"paused": True}, EVENTS),
+    ({"seeking": True}, EVENTS),
+    ({"speed_changed": True}, ("impression", "start")),
+))
+def test_unmapped_explicit_transition_preserves_applicable_ambiguity(transition, expected_events):
+    instance, _, queued = tracker()
+    view = presentation()
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(0, .25, playing=False, mapped=False, caching=True))
+    instance.observe(view, sample(0, .5, playing=False, mapped=False, **transition))
+    instance.observe(view, sample(0, .75, playing=False, mapped=False, caching=True))
+    assert [event for _, event, _ in queued] == ["impression", "start"]
+    instance.observe(view, sample(.10, 1.0))
+    for tick in range(1, 17):
+        instance.observe(view, sample(.10 + tick * .25, 1.0 + tick * .25))
+    assert [event for _, event, _ in queued] == list(expected_events)
+
+
+def test_unmapped_speed_transition_taints_intersected_ads_on_cached_recovery():
+    instance, _, queued = tracker()
+    first = presentation(duration=1)
+    crossed = presentation(start=1.2, duration=.1, placement_id='crossed')
+    later = presentation(start=2, duration=1, placement_id='later')
+    view = Presentation(first.segments, first.placements + crossed.placements + later.placements, False)
+    instance.observe(view, sample(.05, 0))
+    instance.observe(view, sample(0, .25, mapped=False, speed_changed=True))
+    instance.observe(view, sample(0, .5, mapped=False, paused=True))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    # Mapped cache evidence locates the unresolved interval without proving
+    # playback. It must also taint an ad entirely crossed during the gap.
+    instance.observe(view, sample(1.5, .75, caching=True))
+    assert instance._progress['p1'].ambiguous is True
+    assert instance._progress['crossed'].ambiguous is True
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    for tick in range(7):
+        instance.observe(view, sample(1.5 + tick * .25, 1 + tick * .25))
+    assert [event for placement, event, _ in queued if placement == 'p1'] == ['impression', 'start']
+    assert [event for placement, event, _ in queued if placement == 'crossed'] == []
+    assert [event for placement, event, _ in queued if placement == 'later'] == list(EVENTS)
 
 
 def test_unmapped_clock_jump_taints_ad_before_tracking_resumes():
@@ -346,3 +517,52 @@ def test_tracker_diagnostics_contain_only_opaque_ids_and_fixed_reason():
         assert len(diagnostic["placement_id"]) == 16
         assert len(diagnostic["creative_id"]) == 16
         assert "secret" not in repr(diagnostic)
+
+
+# Removing the speed gate would allow these plausible clock advances to succeed.
+def test_non_normal_speed_cannot_start_advance_or_complete():
+    for speed in (0, .5, 1.000001, 2, -1, float('nan'), float('inf'), None):
+        instance, _, queued = tracker()
+        view = presentation(duration=1)
+        for tick in range(5):
+            instance.observe(view, sample(tick * .25, tick * .25, speed=speed))
+        assert queued == [], speed
+
+        instance, _, queued = tracker()
+        instance.observe(view, sample(0, 0))
+        for tick in range(1, 5):
+            instance.observe(view, sample(tick * .25, tick * .25, speed=speed))
+        assert [event for _, event, _ in queued] == ['impression', 'start'], speed
+
+
+def test_speed_round_trip_breaks_continuity_without_backfilling():
+    instance, _, queued = tracker()
+    view = presentation(duration=1)
+    instance.observe(view, sample(0, 0))
+    # Both callbacks occurred between polls; observed rate alone is normal.
+    instance.observe(view, sample(.25, .25, speed=1, speed_changed=True))
+    for tick in range(2, 5):
+        instance.observe(view, sample(tick * .25, tick * .25))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+
+
+def test_speed_transition_does_not_taint_later_normal_speed_ad():
+    instance, _, queued = tracker()
+    view = presentation(start=1, duration=1)
+    instance.observe(view, sample(0, 0, speed=.5))
+    instance.observe(view, sample(.25, .25, speed_changed=True))
+    for tick in range(2, 9):
+        instance.observe(view, sample(tick * .25, tick * .25))
+    assert [event for _, event, _ in queued] == list(EVENTS)
+
+
+def test_first_normal_rate_after_non_normal_sample_cannot_backfill():
+    instance, _, queued = tracker()
+    view = presentation(duration=1)
+    instance.observe(view, sample(0, 0))
+    instance.observe(view, sample(.125, .25, speed=.5))
+    instance.observe(view, sample(.25, .5))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
+    for tick in range(2, 5):
+        instance.observe(view, sample(tick * .25, .5 + tick * .25))
+    assert [event for _, event, _ in queued] == ['impression', 'start']
