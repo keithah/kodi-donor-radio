@@ -266,7 +266,7 @@ def test_actual_native_file_protocol_rechecks_unseen_fences(tmp_path,mode):
     from owned_clock import mach_host_ns
     from test_owned_hal_clock import segment,query,raw,digest
     executable=os.environ.get('HAL_AUTH_HARNESS')
-    if not executable:pytest.skip('compile hal_authorization_harness.cpp and set HAL_AUTH_HARNESS')
+    if not executable:pytest.skip('set HAL_AUTH_HARNESS; see docs/patches/owned-hls-lab/README.md (Owned HAL component harness)')
     p,_,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,mach_host_ns)
     native=subprocess.Popen([executable,str(tmp_path),mode],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     until=time.monotonic()+1

@@ -275,7 +275,7 @@ def test_hal_initial_tracker_queue_dispatch_real_native_files(tmp_path):
     from test_owned_hal_clock import binding as hb,segment as hs,query as hq,raw as hr,digest as hd
     from test_owned_hal_gain import hal_hello
     executable=os.environ.get('HAL_AUTH_HARNESS')
-    if not executable:pytest.skip('compile hal_authorization_harness.cpp and set HAL_AUTH_HARNESS')
+    if not executable:pytest.skip('set HAL_AUTH_HARNESS; see docs/patches/owned-hls-lab/README.md (Owned HAL component harness)')
     transport=HalAuthorizationTransport(tmp_path,clock.mach_host_ns)
     native=subprocess.Popen([executable,str(tmp_path),'bridge'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     deadline=time.monotonic()+1

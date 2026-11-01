@@ -409,10 +409,10 @@ Generate once; existing `owned-beacons` outputs are never overwritten:
 ```sh
 python3 docs/patches/owned-hls-lab/fixture_beacons.py \
   --root /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture \
-  --repo /Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio
+  --repo "$PWD"
 python3 docs/patches/owned-hls-lab/serve_fixture.py \
   --root /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture \
-  --repo /Users/hermes/.codex/worktrees/radio-poc/kodi-donor-radio --owned-beacons
+  --repo "$PWD" --owned-beacons
 ```
 
 Generation verifies the pinned metadata, all 92 assets, original ADTS access
@@ -471,10 +471,10 @@ After the parent's unchanged recorder/normal-pause driver completes, run the
 existing whole-audio analyzer with the owned native ledger. For its optional
 callback annotation, convert `owned_callback` records to `event` and
 `monotonic_ns=issued_mach_ns`; this does not alter the native or owned logs.
-Then run the new evaluator with the NumPy-enabled analysis runtime:
+Then run the new evaluator with a NumPy-enabled Python (set `NUMPY_PYTHON` to it):
 
 ```sh
-/Users/hermes/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+"$NUMPY_PYTHON" \
   docs/patches/owned-hls-lab/evaluate_owned_beacons.py \
   --capture /absolute/path/to/capture \
   --reference-pcm /private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture/reference-from-fmp4.f32 \
@@ -794,6 +794,18 @@ for HAL_FLAGS in '' '-DNDEBUG' '-DNDEBUG -O2'; do
     -framework CoreAudio -framework CoreFoundation -o "$HAL_OUT/mismatch.dylib"
   "$HAL_OUT/dyld" "$HAL_OUT/mismatch.dylib" mismatch
 done
+```
+
+The Python authorization tests in `tests/test_owned_hal_authorization.py` and
+`tests/test_owned_ad_playback.py` include six native file-protocol cases that
+skip unless `HAL_AUTH_HARNESS` names a built harness. Build it from the same
+patched source and run them:
+
+```sh
+clang++ -std=c++14 -Wall -Wextra -Werror -pthread -I"$HAL_SRC" \
+  "$HAL_LAB/hal_authorization_harness.cpp" -o "$HAL_OUT/hal-auth"
+HAL_AUTH_HARNESS="$HAL_OUT/hal-auth" python3 -m pytest -q \
+  tests/test_owned_hal_authorization.py tests/test_owned_ad_playback.py
 ```
 
 Use a POSIX shell for this example (`sh`/`bash`), so the flag variable splits as

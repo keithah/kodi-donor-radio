@@ -21,7 +21,9 @@ continuous adapter's zero-start suppression remains unchanged. Neither result
 qualifies general stations, arbitrary creative splices, or production billing.
 That checkpoint predates the opt-in HAL lab output path now implemented by the
 experimental fixture patch; captured acceptance remains incomplete. Steward and
-CodeRabbit were **NOT RUN** on that checkpoint and had not passed; pushing was blocked.
+CodeRabbit were **NOT RUN** on that checkpoint. The branch was later pushed to PR #4
+on 2026-11-01 after a separate local review of the 57 previously unpushed commits
+found no merge blocker; hosted CodeRabbit review of those commits is still pending.
 Earlier dated test and review results below remain historical evidence.
 
 ## Directory cache, map, and review-fix follow-up — 2026-10-26

@@ -4,6 +4,10 @@ import sys
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
+try:
+    import numpy  # noqa: F401
+except ImportError:
+    raise unittest.SkipTest('NumPy-enabled analysis runtime required')
 import analyze_hls_capture as analyzer
 
 

@@ -52,7 +52,8 @@ sample-dependent configurations or platforms.
 
 ## Reproduction on this Mac
 
-Run commands from this directory:
+Run commands from this directory. `build_probe.py` needs `KODI_DEPENDS_TARGET`
+(the Kodi depends target prefix) and `KODI_DEPENDS_NATIVE` (its host tools prefix).
 
 ```sh
 python3 tests/generate_fixture.py

@@ -352,10 +352,13 @@ class DirectoryCacheStore(_Store):
             except ValueError:
                 # This cache contains display-only data; recover from old or corrupt schemas.
                 current = []
+            now = self.clock()
             items = [item for item in current if item.identity != identity]
             items.append(entry)
-            # Retain the newest pages, including on backdated writes.
-            items.sort(key=lambda item: (item.stored_at, item.identity == identity), reverse=True)
+            # Retain the newest pages, including on backdated writes. Pages dated after the
+            # current clock (e.g. after it steps back) are never fresh, so they are evicted first.
+            items.sort(key=lambda item: (item.stored_at <= now, item.stored_at, item.identity == identity),
+                       reverse=True)
             items = items[:self.limit]
             while True:
                 try:

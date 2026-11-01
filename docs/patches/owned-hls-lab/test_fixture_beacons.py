@@ -130,8 +130,16 @@ class FixtureBeaconTests(unittest.TestCase):
             finally:
                 server.shutdown();server.server_close();thread.join();service.close()
 
+def _preserved_fixture_ready(root=Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture')):
+    try:
+        metadata=json.loads((root/'metadata.json').read_text())
+        required=[root/'owned-beacons'/'proof.json',Path(metadata['source']),Path(metadata['source_packet_map'])]
+    except (OSError,ValueError,KeyError,TypeError):
+        return False
+    return all(path.exists() for path in required)
+
 class PreservedFixtureIntegrationTests(unittest.TestCase):
-    @unittest.skipUnless(Path('/private/tmp/kodi-audio-validation-20261027/owned-clock-beacons-validation/fixture/owned-beacons/proof.json').exists(),'preserved controlled source fixture required')
+    @unittest.skipUnless(_preserved_fixture_ready(),'preserved controlled source fixture and its ADTS source required')
     def test_actual_server_source_and_creative_resolution_then_proof_mutation(self):
         import shutil,subprocess,time
         from urllib.error import URLError

@@ -7,14 +7,18 @@ import shlex
 import subprocess
 import sys
 root = Path(__file__).resolve().parent.parent
-prefix = Path('/Users/hermes/kodi-usb-depends/macosx26.5_arm64-target-debug')
+# Kodi depends tree: KODI_DEPENDS_TARGET is the target prefix, KODI_DEPENDS_NATIVE the host tools prefix.
+try:
+    prefix = Path(os.environ['KODI_DEPENDS_TARGET'])
+    pkg = str(Path(os.environ['KODI_DEPENDS_NATIVE']) / 'bin/pkg-config')
+except KeyError as error:
+    raise SystemExit(f'Set {error.args[0]} to the Kodi depends prefix')
 archive = Path(sys.argv[1]).resolve()
 output = Path(sys.argv[2]).resolve()
 if not archive.is_relative_to(root):
     raise ValueError('Archive must be inside the isolated experiment directory')
 (root / 'logs').mkdir(parents=True, exist_ok=True)
 output.parent.mkdir(parents=True, exist_ok=True)
-pkg = '/Users/hermes/kodi-usb-depends/aarch64-darwin25.6.0-native/bin/pkg-config'
 flags = shlex.split(subprocess.check_output([pkg, '--static', '--libs', str(prefix/'lib/pkgconfig/libavformat.pc')], text=True, env={**os.environ, "PKG_CONFIG_PATH": str(prefix/"lib/pkgconfig")}))
 # Pin the format library to this copied archive. Other immutable dependencies are read-only.
 flags = [str(archive) if flag == '-lavformat' else flag for flag in flags]

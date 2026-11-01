@@ -4,6 +4,7 @@ import unittest
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+pytest.importorskip('numpy', reason='NumPy-enabled analysis runtime required')
 from analyze_hls_capture import endpoint_anchors, heldout_clock_indices, validate_capture_integrity
 
 

@@ -4,6 +4,10 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parent))
+try:
+    import numpy  # noqa: F401
+except ImportError:
+    raise unittest.SkipTest('NumPy-enabled analysis runtime required')
 import evaluate_owned_beacons as e
 
 class OwnedEvaluatorTests(unittest.TestCase):

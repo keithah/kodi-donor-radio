@@ -24,6 +24,9 @@ import Testing
 @Test func launchOptionsIgnoreCocoaDefaultArguments() throws {
     let options = try CaptureOptions(arguments: ["-AppleLanguages", "(en)", "-NSDocumentRevisionsDebugMode", "YES"])
     #expect(options.duration == 30)
+    #expect(throws: (any Error).self) { try CaptureOptions(arguments: ["-pid", "123"]) }
+    #expect(throws: (any Error).self) { try CaptureOptions(arguments: ["-Foo", "--bogus"]) }
+    #expect(throws: (any Error).self) { try CaptureOptions(arguments: ["-Foo"]) }
 }
 
 @Test func pcmCopyOwnsSamplesAndRejectsWrongFrameCount() throws {

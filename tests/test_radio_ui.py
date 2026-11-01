@@ -513,6 +513,18 @@ def test_directory_cache_future_timestamps_are_stale_and_repairable(tmp_path):
     assert store.get('tags', 'new', 60).rows == ('rock',)
 
 
+def test_directory_cache_full_of_future_pages_still_keeps_new_writes(tmp_path):
+    store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 2000)
+    for index in range(store.limit):
+        store.put('tags', f'old-{index}', ['jazz'], continuation=False)
+    store.clock = lambda: 1000
+
+    store.put('tags', 'new', ['rock'], continuation=False)
+
+    assert store.get('tags', 'new', 60).rows == ('rock',)
+    assert len(store.list()) == store.limit
+
+
 def test_directory_cache_unrepresentably_future_timestamp_is_stale(tmp_path):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000.0)
     store.put('tags', 'all', ['jazz'], continuation=False, stored_at=10 ** 400)
@@ -577,7 +589,7 @@ def test_directory_cache_invalid_values_never_write(tmp_path, kind, rows, contin
 
 @pytest.mark.parametrize('corruption', ['duplicate-key', 'duplicate-entry', 'version', 'extra',
                                        'unsafe-row', 'kind', 'hash', 'too-many', 'oversized', 'json'])
-def test_directory_cache_rejects_corruption_without_rewriting(tmp_path, corruption):
+def test_directory_cache_rejects_corruption_and_replaces_on_write(tmp_path, corruption):
     store = ui().DirectoryCacheStore(tmp_path, clock=lambda: 1000)
     store.put('place', 'key', [ui().StationSummary('a', 'A')])
     document = json.loads(store.path.read_text())
