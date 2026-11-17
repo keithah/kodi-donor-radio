@@ -772,6 +772,25 @@ def test_late_stop_callback_does_not_stop_current_playback(kodi):
     player.playing=False; player.onPlayBackStopped(); assert stopped==['a'*48,'c'*48]
 
 
+def test_late_stop_callback_does_not_end_the_next_network_ad(kodi):
+    runtime,_,_=kodi
+    base='http://127.0.0.1:32123/network-ads/'
+    finished=[]
+    network=SimpleNamespace(
+        token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
+        finish=lambda token, reason: finished.append((token, reason)) or None,
+        observe=lambda *args: None)
+    player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
+    player.playing=True
+    player.file=base+'a'*48+'.mp3'; player.onAVStarted()
+    player.file=base+'b'*48+'.mp3'; player.onAVStarted()
+    assert finished==[('a'*48,'switched')]
+    player.onPlayBackStopped()  # Late callback for ad A while B plays.
+    assert finished==[('a'*48,'switched')] and player.network_token=='b'*48
+    player.playing=False; player.onPlayBackStopped()
+    assert finished[-1]==('b'*48,'stopped')
+
+
 @pytest.mark.parametrize('recover', [True, False])
 def test_service_error_remains_responsive_without_modal_dialog(kodi,monkeypatch,recover):
     runtime,state,profile=kodi

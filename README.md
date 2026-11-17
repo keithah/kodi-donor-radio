@@ -130,7 +130,10 @@ When a Radio Browser station is chosen, the service requests the tag, keeps the
 returned MP3 creatives in memory, and gives Kodi a loopback
 `/network-ads/<token>.mp3` URL. After each creative ends naturally the next one
 plays, then the station. No fill, a VAST/transport error, or a bad creative plays
-the station directly. Stopping during an ad stops; the station does not start.
+the station directly, and a creative Kodi cannot play is skipped. Stopping during
+an ad stops; the station does not start. Preparing a break has a 30 s budget for
+the tag and all downloads, at most two breaks prepare at once, and finished
+creatives are dropped from memory (at most 8 are kept).
 
 Every parameter in the partner's integration guide that applies to a radio app is
 sent, URL encoded. Values already present in the configured tag are never
@@ -159,7 +162,8 @@ quartiles, within 1.5 s of the duration. A forward seek or backward jump stops
 further events for that creative. Stop or error never sends later events; a
 playback error before start sends the Error URL with code 405. Fetching or
 caching a creative never counts as an impression. Each event is sent once,
-without retries. With diagnostics on, `events.jsonl` records each beacon's
+without retries, from the listener's device with Kodi's `User-Agent`; the
+`X-Device-*` headers go only to the ad request and its wrappers. With diagnostics on, `events.jsonl` records each beacon's
 target, observed player position, HTTP outcome and latency (never its URL).
 
 ## Controlled VAST status

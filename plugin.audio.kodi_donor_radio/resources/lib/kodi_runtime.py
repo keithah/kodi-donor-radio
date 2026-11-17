@@ -1466,6 +1466,8 @@ class RelayPlayer(xbmc.Player):
     def _network_finished(self, reason):
         if self.network_ads is None or self.network_token is None:
             return False
+        if self.isPlaying() and self.network_ads.token_for(self._playing_file()) == self.network_token:
+            return True  # Late callback for the previous item; the tracked ad still plays.
         token, self.network_token = self.network_token, None
         follow = self.network_ads.finish(token, reason)
         if follow:

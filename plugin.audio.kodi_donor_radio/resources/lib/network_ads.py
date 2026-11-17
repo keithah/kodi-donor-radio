@@ -39,6 +39,8 @@ _MAX_WRAPPERS = 5
 _MAX_DURATION = 180
 _RETAIN_SECONDS = 15 * 60
 _MAX_RETAINED = 8
+_PREPARE_SECONDS = 30.0  # Below the plugin's 35 s control timeout.
+_MAX_PREPARING = 2
 _MEDIA_TYPES = ('audio/mpeg', 'audio/mp3', 'audio/x-mpeg')
 _DURATION = re.compile(r'^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?$')
 _MACRO = re.compile(r'\[([A-Za-z][A-Za-z0-9_]*)\]|%5[Bb]([A-Za-z][A-Za-z0-9_]*)%5[Dd]')
@@ -423,6 +425,7 @@ class _Beacons:
                 outcome = type(error).__name__
             self.emit(dict(record, outcome=outcome,
                            latency_ms=int((time.monotonic() - started) * 1000)))
+            self.queue.task_done()
 
     def close(self, wait=True):
         try:
@@ -459,6 +462,7 @@ class NetworkAdService:
         self.config = NetworkAdConfig()
         self._lock = threading.Lock()
         self._items = {}
+        self._preparing = threading.BoundedSemaphore(_MAX_PREPARING)
         self._beacons = _Beacons(client, self._emit)
 
     def _emit(self, details):
@@ -476,12 +480,9 @@ class NetworkAdService:
         return '%s/network-ads/%s.mp3' % (self.base_url, token)
 
     def _headers(self):
-        try:
-            _url, headers = build_request(self.config, object())
-        except ValueError:
-            return {}
-        headers.pop('Accept', None)
-        return headers
+        # Trackers see the listener's own request; X-Device-* stays on the ad request.
+        user_agent = self.config.user_agent
+        return {'User-Agent': user_agent} if user_agent else {}
 
     def _fire_errors(self, urls, code, token='', station=''):
         headers = self._headers()
@@ -494,6 +495,16 @@ class NetworkAdService:
         config = self.config
         if not config.enabled:
             return []
+        if not self._preparing.acquire(blocking=False):
+            self._emit({'event': 'vast_busy', 'station': station.uuid})
+            return []
+        try:
+            return self._prepare(config, station, cancel, follow_url)
+        finally:
+            self._preparing.release()
+
+    def _prepare(self, config, station, cancel, follow_url):
+        deadline = time.monotonic() + _PREPARE_SECONDS
         url, headers = build_request(config, station)
         resolver = NetworkVastResolver(self.client)
         started = self.clock()
@@ -513,8 +524,10 @@ class NetworkAdService:
                 self._fire_errors(ad.error_urls, ad.code, station=station.uuid)
                 continue
             try:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Pre-roll budget spent')
                 with self.client.open(ad.media_url, media_headers, cancel,
-                                      deadline=time.monotonic() + 15) as response:
+                                      deadline=min(deadline, time.monotonic() + 15)) as response:
                     if response.status != 200:
                         raise NetworkAdError(401, 'Creative unavailable')
                     data = read_bounded(response, _MAX_MEDIA)
@@ -533,18 +546,18 @@ class NetworkAdService:
         for index, item in enumerate(prepared):
             item.next_url = prepared[index + 1].token if index + 1 < len(prepared) else follow_url
         with self._lock:
-            self._expire_locked()
+            self._expire_locked(len(prepared))
             for item in prepared:
                 self._items[item.token] = item
         return [{'token': item.token, 'url': self.route(item.token), 'title': item.ad.title,
                  'duration': item.ad.duration_seconds} for item in prepared]
 
-    def _expire_locked(self):
+    def _expire_locked(self, incoming=0):
         now = self.clock()
         for token, item in list(self._items.items()):
-            if now - item.created > _RETAIN_SECONDS:
+            if item.finished or now - item.created > _RETAIN_SECONDS:
                 del self._items[token]
-        while len(self._items) >= _MAX_RETAINED:
+        while self._items and len(self._items) + incoming > _MAX_RETAINED:
             oldest = min(self._items.values(), key=lambda item: item.created)
             del self._items[oldest.token]
 
@@ -629,8 +642,8 @@ class NetworkAdService:
         self._emit({'token': item.token, 'station': item.station_uuid, 'event': 'finished',
                     'reason': reason, 'position': round(item.max_position, 3),
                     'tainted': item.tainted})
-        if not natural:
-            return None
+        if reason not in ('ended', 'error'):
+            return None  # A user stop or skip never starts anything else.
         nxt = item.next_url
         if _TOKEN.fullmatch(nxt or ''):
             return self.route(nxt)

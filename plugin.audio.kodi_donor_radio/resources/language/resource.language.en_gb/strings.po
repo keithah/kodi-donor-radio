@@ -589,7 +589,7 @@ msgid "Break length (seconds)"
 msgstr ""
 
 msgctxt "#30199"
-msgid "Sent as duration in milliseconds. 0 means no limit."
+msgid "Enter seconds; the add-on sends it to the ad server as milliseconds. 0 means no limit."
 msgstr ""
 
 msgctxt "#30200"

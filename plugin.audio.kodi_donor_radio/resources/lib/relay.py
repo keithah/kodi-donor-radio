@@ -243,7 +243,8 @@ class _Handler(BaseHTTPRequestHandler):
         if data is None:
             return self._reply(404)
         start, end, status = 0, len(data) - 1, 200
-        ranges = self.headers.get_all('Range', [])
+        # RFC 9110: Range applies to GET only; HEAD describes the full representation.
+        ranges = self.headers.get_all('Range', []) if self.command == 'GET' else []
         if len(ranges) > 1:
             return self._reply(416)
         if ranges:

@@ -173,16 +173,11 @@ def service(*ads, media=MP3):
     return svc, client, clock, events
 
 
-def beacons(client):
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        with client.lock:
-            hits = [url for url, _ in client.requests if url.startswith('https://t.example')]
-        time.sleep(.05)
-        with client.lock:
-            if hits == [url for url, _ in client.requests if url.startswith('https://t.example')]:
-                return hits
-    return hits
+def beacons(svc, client):
+    """Return tracker hits once every queued beacon has been sent."""
+    svc._beacons.queue.join()
+    with client.lock:
+        return [url for url, _ in client.requests if url.startswith('https://t.example')]
 
 
 def play(svc, clock, token, until, step=.25):
@@ -198,12 +193,12 @@ def test_prepare_never_fires_tracking_and_chains_pod_then_station():
     items = svc.prepare(STATION, threading.Event(), 'plugin://plugin.audio.kodi_donor_radio/?mode=play')
     assert len(items) == 2 and svc.media(items[0]['token']) == MP3
     assert svc.token_for(items[0]['url']) == items[0]['token']
-    assert beacons(client) == []
+    assert beacons(svc, client) == []
     play(svc, clock, items[0]['token'], 30)
     assert svc.finish(items[0]['token'], 'ended') == items[1]['url']
     play(svc, clock, items[1]['token'], 30)
     assert svc.finish(items[1]['token'], 'ended').startswith('plugin://')
-    hits = beacons(client)
+    hits = beacons(svc, client)
     for ad in ('a', 'b'):
         assert 'https://t.example/imp?a=%s' % ad in hits
     assert hits.count('https://t.example/e?e=complete') == 2
@@ -216,7 +211,7 @@ def test_quartiles_follow_observed_time_and_stop_never_completes():
     [item] = svc.prepare(STATION, threading.Event())
     play(svc, clock, item['token'], 16)
     assert svc.finish(item['token'], 'stopped') is None
-    hits = beacons(client)
+    hits = beacons(svc, client)
     assert 'https://t.example/e?e=midpoint' in hits
     assert 'https://t.example/e?e=thirdQuartile' not in hits
     assert 'https://t.example/e?e=complete' not in hits
@@ -235,7 +230,7 @@ def test_forward_seek_taints_and_blocks_later_events():
     clock.now += .25
     svc.observe(item['token'], 29.5)  # Jump to the end.
     svc.finish(item['token'], 'ended')
-    hits = beacons(client)
+    hits = beacons(svc, client)
     assert 'https://t.example/e?e=start' in hits
     assert not any(e in url for url in hits for e in ('Quartile', 'midpoint', 'complete'))
     svc.close()
@@ -244,7 +239,7 @@ def test_forward_seek_taints_and_blocks_later_events():
 def test_creative_failure_fires_error_and_is_skipped():
     svc, client, clock, events = service(inline('a', '1'), media=b'<html>')
     assert svc.prepare(STATION, threading.Event()) == []
-    assert 'https://t.example/err?c=403&a=a' in beacons(client)
+    assert 'https://t.example/err?c=403&a=a' in beacons(svc, client)
     svc.close()
 
 
@@ -267,10 +262,10 @@ def relay(svc):
         svc.close()
 
 
-def get(port, path, headers=None):
+def get(port, path, headers=None, method='GET'):
     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
     try:
-        conn.request('GET', path, headers=headers or {})
+        conn.request(method, path, headers=headers or {})
         response = conn.getresponse()
         return response.status, dict(response.getheaders()), response.read()
     finally:
@@ -290,6 +285,8 @@ def test_relay_prepares_through_control_and_serves_ranges():
         assert status == 206 and body == MP3[10:14]
         assert headers['Content-Range'] == 'bytes 10-13/%d' % len(MP3)
         assert get(descriptor.port, path, {'Range': 'bytes=99999-'})[0] == 416
+        status, headers, _ = get(descriptor.port, path, {'Range': 'bytes=99999-'}, 'HEAD')
+        assert status == 200 and headers['Content-Length'] == str(len(MP3))
         assert get(descriptor.port, '/network-ads/' + 'a' * 48 + '.mp3')[0] == 404
         with pytest.raises(OSError):
             control.prepare_network_ads(STATION, 'https://elsewhere.example/')
@@ -297,3 +294,47 @@ def test_relay_prepares_through_control_and_serves_ranges():
                                                       '0' * 64))
         with pytest.raises(OSError):
             unauthorized.prepare_network_ads(STATION, '')
+
+
+def test_beacons_carry_only_kodi_user_agent():
+    svc, client, clock, events = service(inline('a', '1'))
+    [item] = svc.prepare(STATION, threading.Event())
+    play(svc, clock, item['token'], 1)
+    beacons(svc, client)
+    with client.lock:
+        sent = [h for url, h in client.requests if url.startswith('https://t.example')]
+    assert sent and all(h == {'User-Agent': 'Kodi/21.3'} for h in sent)
+    svc.close()
+
+
+def test_retention_stays_capped_and_drops_finished_items():
+    svc, client, clock, events = service(*(inline(str(n), str(n + 1)) for n in range(5)))
+    svc.config = config(max_ads=5)
+    first = svc.prepare(STATION, threading.Event())
+    svc.finish(first[0]['token'], 'stopped')
+    for _ in range(3):
+        clock.now += 1
+        svc.prepare(STATION, threading.Event())
+    assert len(svc._items) <= 8
+    assert svc.media(first[0]['token']) is None
+    svc.close()
+
+
+def test_concurrent_prepares_are_bounded():
+    svc, client, clock, events = service(inline('a', '1'))
+    for _ in range(2):
+        assert svc._preparing.acquire(blocking=False)
+    assert svc.prepare(STATION, threading.Event()) == []
+    assert [e.details['event'] for e in events] == ['vast_busy']
+    assert client.requests == []
+    svc.close()
+
+
+def test_playback_error_moves_on_but_user_stop_does_not():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play'
+    first, second = svc.prepare(STATION, threading.Event(), follow)
+    assert svc.finish(first['token'], 'error') == second['url']
+    assert 'https://t.example/err?c=405&a=a' in beacons(svc, client)
+    assert svc.finish(second['token'], 'switched') is None
+    svc.close()
