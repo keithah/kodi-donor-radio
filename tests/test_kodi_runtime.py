@@ -791,6 +791,46 @@ def test_late_stop_callback_does_not_end_the_next_network_ad(kodi):
     assert finished[-1]==('b'*48,'stopped')
 
 
+def test_chained_ad_that_fails_to_open_falls_through(kodi):
+    runtime,_,_=kodi
+    base='http://127.0.0.1:32123/network-ads/'
+    finished=[]
+    def finish(token, reason):
+        finished.append((token, reason))
+        return base+'b'*48+'.mp3' if token=='a'*48 else 'plugin://plugin.audio.kodi_donor_radio/?ads=0'
+    network=SimpleNamespace(
+        token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
+        finish=finish, observe=lambda *args: None)
+    player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
+    played=[]; player.play=lambda url, item=None: played.append(url)
+    player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
+    player.playing=False; player.onPlayBackEnded()
+    player.sample_ads(); assert played==[base+'b'*48+'.mp3']
+    player.onPlayBackError()  # B never started.
+    assert finished[-1]==('b'*48,'error')
+    player.sample_ads(); assert played[-1].startswith('plugin://')
+
+
+def test_user_action_drops_pending_chain(kodi):
+    runtime,_,_=kodi
+    base='http://127.0.0.1:32123/network-ads/'
+    seeks=[]
+    network=SimpleNamespace(
+        token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
+        finish=lambda token, reason: 'plugin://plugin.audio.kodi_donor_radio/?ads=0',
+        observe=lambda *args: None, seeked=seeks.append)
+    player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
+    played=[]; player.play=lambda url, item=None: played.append(url)
+    player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
+    player.onPlayBackSeek(5000, 1000); assert seeks==['a'*48]
+    player.playing=False; player.onPlayBackEnded()
+    player.playing=True; player.file='http://elsewhere.example/other.mp3'; player.onAVStarted()
+    player.sample_ads(); assert played==[]
+    player.playing=True; player.file=base+'b'*48+'.mp3'; player.onAVStarted()
+    player.playing=False; player.onPlayBackEnded(); player.onPlayBackStopped()
+    player.sample_ads(); assert played==[]
+
+
 @pytest.mark.parametrize('recover', [True, False])
 def test_service_error_remains_responsive_without_modal_dialog(kodi,monkeypatch,recover):
     runtime,state,profile=kodi

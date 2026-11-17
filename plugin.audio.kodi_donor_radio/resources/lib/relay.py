@@ -231,7 +231,7 @@ class _Handler(BaseHTTPRequestHandler):
         if network is None:
             return self._reply(200, {'ads': []})
         try:
-            ads = network.prepare(station, threading.Event(), follow_url)
+            ads = network.prepare(station, None, follow_url)
         except Exception:
             ads = []
         self._reply(200, {'ads': ads})

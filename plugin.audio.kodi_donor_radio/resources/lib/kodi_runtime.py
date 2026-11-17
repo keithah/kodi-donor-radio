@@ -1458,6 +1458,8 @@ class RelayPlayer(xbmc.Player):
         if self.network_ads is None:
             return
         token = self.network_ads.token_for(self._playing_file())
+        if self._network_next is not None:
+            self._network_next = None  # Something else started; drop the chain.
         if token != self.network_token and self.network_token is not None:
             # Kodi moved on (queued item or user skip) before an end callback.
             self.network_ads.finish(self.network_token, 'switched')
@@ -1479,6 +1481,9 @@ class RelayPlayer(xbmc.Player):
             return
         if self._network_next is not None:
             follow, self._network_next = self._network_next, None
+            # Track a chained creative now, so an open failure before any
+            # started callback still falls through to the next item.
+            self.network_token = self.network_ads.token_for(follow)
             item = xbmcgui.ListItem(path=follow)
             item.setProperty('IsPlayable', 'true')
             self.play(follow, item)
@@ -1538,6 +1543,8 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
+        if self._network_next is not None and not self.isPlaying():
+            self._network_next = None  # The user stopped before the chain continued.
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):
         if not self._network_finished('ended'): self._finished('source_end')
@@ -1577,10 +1584,14 @@ class RelayPlayer(xbmc.Player):
         if identity is not None: self.ads.on_speed_changed(speed, identity)
 
     def onPlayBackSeek(self, time, seek_offset):
+        if self.network_ads is not None and self.network_token is not None:
+            self.network_ads.seeked(self.network_token)
         identity = self._callback_session()
         if identity is not None: self.ads.on_seek(identity)
 
     def onPlayBackSeekChapter(self, chapter):
+        if self.network_ads is not None and self.network_token is not None:
+            self.network_ads.seeked(self.network_token)
         identity = self._callback_session()
         if identity is not None: self.ads.on_seek(identity)
 

@@ -412,6 +412,7 @@ class _Beacons:
             except queue.Empty:
                 continue
             if item is None:
+                self.queue.task_done()
                 return
             record, url, headers = item
             started = time.monotonic()
@@ -447,6 +448,7 @@ class _Playback:
     station_uuid: str = ''
     fired: set = field(default_factory=set)
     started: bool = False
+    live: bool = False  # Kodi is playing it or was just told to.
     tainted: bool = False
     finished: bool = False
     last_position: float = -1.0
@@ -463,6 +465,7 @@ class NetworkAdService:
         self._lock = threading.Lock()
         self._items = {}
         self._preparing = threading.BoundedSemaphore(_MAX_PREPARING)
+        self._closing = threading.Event()
         self._beacons = _Beacons(client, self._emit)
 
     def _emit(self, details):
@@ -490,11 +493,15 @@ class NetworkAdService:
             self._beacons.send({'token': token, 'station': station, 'event': 'error', 'code': code},
                                expand_macros(url, error_code=code), headers)
 
-    def prepare(self, station, cancel, follow_url=''):
-        """Resolve and download a pre-roll break; return playable items or []."""
+    def prepare(self, station, cancel=None, follow_url=''):
+        """Resolve and download a pre-roll break; return playable items or [].
+
+        Without a caller event, closing the service cancels the work.
+        """
         config = self.config
-        if not config.enabled:
+        if not config.enabled or self._closing.is_set():
             return []
+        cancel = cancel or self._closing
         if not self._preparing.acquire(blocking=False):
             self._emit({'event': 'vast_busy', 'station': station.uuid})
             return []
@@ -546,6 +553,8 @@ class NetworkAdService:
         for index, item in enumerate(prepared):
             item.next_url = prepared[index + 1].token if index + 1 < len(prepared) else follow_url
         with self._lock:
+            if self._closing.is_set():
+                return []
             self._expire_locked(len(prepared))
             for item in prepared:
                 self._items[item.token] = item
@@ -557,8 +566,20 @@ class NetworkAdService:
         for token, item in list(self._items.items()):
             if item.finished or now - item.created > _RETAIN_SECONDS:
                 del self._items[token]
-        while self._items and len(self._items) + incoming > _MAX_RETAINED:
-            oldest = min(self._items.values(), key=lambda item: item.created)
+        # Never evict the creative on air or the rest of its chain; the cap may
+        # then be exceeded by at most one pod.
+        protected = set()
+        for item in self._items.values():
+            if not item.live:
+                continue
+            while item is not None and item.token not in protected:
+                protected.add(item.token)
+                item = self._items.get(item.next_url)
+        while len(self._items) + incoming > _MAX_RETAINED:
+            spare = [item for item in self._items.values() if item.token not in protected]
+            if not spare:
+                break
+            oldest = min(spare, key=lambda item: item.created)
             del self._items[oldest.token]
 
     def media(self, token):
@@ -566,7 +587,14 @@ class NetworkAdService:
             return None
         with self._lock:
             item = self._items.get(token)
-            return item.data if item is not None else None
+            return item.data if item is not None and not item.finished else None
+
+    def seeked(self, token):
+        """An explicit seek ends tracking for that creative."""
+        with self._lock:
+            item = self._items.get(token)
+        if item is not None:
+            item.tainted = True
 
     def token_for(self, url):
         parts = urlsplit(url or '')
@@ -603,6 +631,7 @@ class NetworkAdService:
             item = self._items.get(token)
         if item is None or item.finished or not math.isfinite(position):
             return
+        item.live = True
         now = self.clock()
         if not playing or paused:
             item.last_wall = now
@@ -632,9 +661,10 @@ class NetworkAdService:
         if item is None or item.finished:
             return None
         item.finished = True
+        item.data = b''  # Free the creative now; the chain metadata stays.
         natural = reason == 'ended'
         if (natural and item.started and not item.tainted
-                and item.max_position >= item.ad.duration_seconds - 1.5
+                and abs(item.max_position - item.ad.duration_seconds) <= 1.5
                 and {'firstQuartile', 'midpoint', 'thirdQuartile'} <= item.fired):
             self._fire(item, 'complete', item.max_position)
         if reason == 'error' and not item.started:
@@ -646,10 +676,15 @@ class NetworkAdService:
             return None  # A user stop or skip never starts anything else.
         nxt = item.next_url
         if _TOKEN.fullmatch(nxt or ''):
+            with self._lock:
+                following = self._items.get(nxt)
+                if following is not None:
+                    following.live = True
             return self.route(nxt)
         return nxt or None
 
     def close(self, wait=True):
+        self._closing.set()
         self._beacons.close(wait)
         with self._lock:
             self._items.clear()

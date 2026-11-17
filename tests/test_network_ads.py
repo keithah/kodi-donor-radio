@@ -175,7 +175,10 @@ def service(*ads, media=MP3):
 
 def beacons(svc, client):
     """Return tracker hits once every queued beacon has been sent."""
-    svc._beacons.queue.join()
+    deadline = time.monotonic() + 5
+    while svc._beacons.queue.unfinished_tasks and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert not svc._beacons.queue.unfinished_tasks, 'beacon worker stalled'
     with client.lock:
         return [url for url, _ in client.requests if url.startswith('https://t.example')]
 
@@ -338,3 +341,47 @@ def test_playback_error_moves_on_but_user_stop_does_not():
     assert 'https://t.example/err?c=405&a=a' in beacons(svc, client)
     assert svc.finish(second['token'], 'switched') is None
     svc.close()
+
+
+def test_new_prepare_never_evicts_the_pod_on_air():
+    svc, client, clock, events = service(*(inline(str(n), str(n + 1)) for n in range(5)))
+    svc.config = config(max_ads=5)
+    follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play'
+    pod = svc.prepare(STATION, threading.Event(), follow)
+    play(svc, clock, pod[0]['token'], 1)
+    clock.now += 1
+    svc.prepare(STATION, threading.Event(), follow)  # Abandoned second break.
+    assert all(svc.media(item['token']) is not None for item in pod)
+    assert svc.finish(pod[0]['token'], 'ended') == pod[1]['url']
+    svc.close()
+
+
+def test_explicit_seek_ends_tracking_and_finish_frees_bytes():
+    svc, client, clock, events = service(inline('a', '1'))
+    [item] = svc.prepare(STATION, threading.Event())
+    play(svc, clock, item['token'], 1)
+    svc.seeked(item['token'])  # Small seek the clock check would tolerate.
+    play(svc, clock, item['token'], 30)
+    svc.finish(item['token'], 'ended')
+    hits = beacons(svc, client)
+    assert not any(e in url for url in hits for e in ('Quartile', 'midpoint', 'complete'))
+    assert svc.media(item['token']) is None
+    svc.close()
+
+
+def test_complete_needs_end_near_declared_duration_on_both_sides():
+    svc, client, clock, events = service(inline('a', '1'))
+    [item] = svc.prepare(STATION, threading.Event())
+    play(svc, clock, item['token'], 60)  # File runs twice the declared 30 s.
+    svc.finish(item['token'], 'ended')
+    hits = beacons(svc, client)
+    assert 'https://t.example/e?e=thirdQuartile' in hits
+    assert 'https://t.example/e?e=complete' not in hits
+    svc.close()
+
+
+def test_close_cancels_preparation_and_stores_nothing():
+    svc, client, clock, events = service(inline('a', '1'))
+    svc.close()
+    assert svc.prepare(STATION) == []
+    assert svc._items == {} and client.requests == []
