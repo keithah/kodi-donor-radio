@@ -25,6 +25,18 @@ provider's arrangements are separate from that assumption. Radio Browser is a
 directory, not an advertising-inventory grant. Preserve the monetization objective
 while settling those arrangements for any production rollout.
 
+## 0. Network pre-roll (Live365 VAST) — wired to the development test zone
+
+An opt-in, default-off path now requests a partner VAST tag before Radio Browser
+stations, plays progressive MP3 creatives as separate Kodi items, and fires
+Impression/start/quartile/complete tracking from Kodi player time. It is
+separate from the loopback HLS replacement below and does not relax that path's
+origin or beacon gates. Kodi timing against the test zone is recorded in
+`docs/testing.md` (2026-11-17). Before go-live: production zone and agreement,
+`ads.txt` on the publisher domain, a decision on `X-Device-IP` for NAT'd
+listeners, a consent source for GDPR listeners, and partner validation of the
+request data.
+
 ## 1. VAST audio and preroll — implemented for loopback fixtures; acceptance pending
 
 The current fixture implementation supports a bounded VAST audio subset, validates

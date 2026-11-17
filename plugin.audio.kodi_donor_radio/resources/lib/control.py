@@ -45,6 +45,24 @@ class ControlClient:
             payload['fixture_launch_nonce'] = fixture_launch_nonce
         return self._request('POST', '/sessions', payload)
 
+    def prepare_network_ads(self, station, follow_url):
+        """Ask the service for a pre-roll break; returns validated relay items."""
+        payload = {key: getattr(station, key) for key in (
+            'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language', 'tags')}
+        payload['follow_url'] = follow_url
+        result = self._request('POST', '/network-ads', payload)
+        ads = result.get('ads') if isinstance(result, dict) else None
+        if not isinstance(ads, list) or len(ads) > 5:
+            raise OSError('Invalid relay control response')
+        prefix = 'http://127.0.0.1:%d/network-ads/' % self.descriptor.port
+        for item in ads:
+            if (not isinstance(item, dict) or not isinstance(item.get('url'), str)
+                    or re.fullmatch(re.escape(prefix) + r'[a-f0-9]{48}\.mp3', item['url']) is None
+                    or not isinstance(item.get('title', ''), str)
+                    or not isinstance(item.get('duration'), (int, float))):
+                raise OSError('Invalid relay control response')
+        return ads
+
     def reserve_fixture_launch(self, fixture_id):
         result = self._request('POST', '/fixture-launches', {'fixture_id': fixture_id})
         nonce = result.get('nonce') if isinstance(result, dict) else None

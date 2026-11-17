@@ -722,15 +722,19 @@ def test_radio_settings_preserve_fixture_controls_and_defer_theme_selectors():
         'ad_midroll': ('boolean', 'false', 'toggle'),
         'ad_vast_url': ('string', '', 'edit'),
     }
-    assert set(controls) == set(expected) | {
+    network = {name for name in controls if name.startswith('network_')}
+    assert set(controls) == set(expected) | network | {
         'guided_setup', 'offer_setup_row', 'preview_on_browse', 'run_setup'}
+    assert controls['network_ads_enabled'].findtext('default') == 'false'
     for setting_id, (kind, default, control) in expected.items():
         setting = controls[setting_id]
         assert setting.get('type') == kind
         assert setting.findtext('default') == default
         assert setting.find('control').get('type') == control
     assert controls['ad_vast_url'].findtext('constraints/allowempty') == 'true'
-    assert not settings.findall('.//options')  # No interface/theme enums yet.
+    # No interface/theme enums yet; only the network GDPR signal is an enum.
+    assert [node.get('id') for node in settings.findall('.//setting')
+            if node.find('.//options') is not None] == ['network_gdpr']
 
 
 def test_radio_settings_labels_and_help_have_unique_nonempty_translations():

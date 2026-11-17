@@ -5,10 +5,12 @@ Browser, browse countries and tags, save places and favorites, and play supporte
 stations through a Python relay embedded in the addon service. Native Kodi
 listings, sequential setup dialogs, and a shared offline radio map are implemented.
 Optional diagnostics record ICY metadata and explicit HLS cue evidence. Opt-in VAST preroll and midroll replacement are
-restricted to configured loopback HLS fixtures; general Radio Browser stations
-remain ad-free. Experimental success beacons require a qualified controlled
-fixture launch; ordinary live playback remains diagnostic. This is not
-production-validated or billable tracking.
+restricted to configured loopback HLS fixtures. A separate, opt-in network
+pre-roll plays MP3 ads from a configured VAST tag (Live365 Audience Network)
+before Radio Browser stations and fires their tracking from observed Kodi
+player time; it is off by default and currently points at the partner's
+development test zone. Experimental fixture success beacons require a qualified
+controlled fixture launch. Neither path is production-validated or billable yet.
 
 **Earlier playback validation: Kodi 21.3 Omega on macOS ARM64**, including MP3, AAC,
 ICY and five controlled HLS cue scenarios. This host required a process-local
@@ -115,6 +117,50 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 | Explicit HLS CUE-OUT/CONT/IN and DATERANGE evidence | Observe and classify cautiously; receipt time is distinct from audible playback time |
 | Encrypted HLS/DRM, low latency HLS, content steering, variable substitution, unsupported URI-bearing extensions | Fail closed; no direct upstream playback fallback |
 | Non-HTTP(S), credential-bearing, private/loopback station URLs | Reject; developer fixtures have a separate exact-origin test-mode exception |
+
+## Network pre-roll (Live365 VAST)
+
+Turn on **Settings → Network pre-roll ads → Play a network pre-roll before
+stations**. The default tag is the always-on development zone
+`https://ssp.audiocdn.com/vast/tag?zoneId=ortb-test-zone&position=pre`, which
+fills every request; a production zone, agreement and partner validation are
+required before going live and will not fill every request.
+
+When a Radio Browser station is chosen, the service requests the tag, keeps the
+returned MP3 creatives in memory, and gives Kodi a loopback
+`/network-ads/<token>.mp3` URL. After each creative ends naturally the next one
+plays, then the station. No fill, a VAST/transport error, or a bad creative plays
+the station directly. Stopping during an ad stops; the station does not start.
+
+Every parameter in the partner's integration guide that applies to a radio app is
+sent, URL encoded. Values already present in the configured tag are never
+overridden.
+
+| Sent | Source |
+| --- | --- |
+| `X-Device-User-Agent` header | Kodi's user agent (also the request `User-Agent`) |
+| `X-Device-IP` header | Override setting, else this device's IPv4 when publicly routable; omitted behind NAT |
+| `zoneId`, `position` | The configured tag (`position=pre` added if missing) |
+| `content_genre` | First Radio Browser tag, else the fallback genre setting |
+| `content_language`, `content_country` | Station language mapped to ISO 639-1; station country code |
+| `publisher_name` | Setting, else the station name |
+| `publisher_domain`, `content_categories`, `blocked_categories`, `store_url`, `schain` | Settings, when set |
+| `maxAds`, `duration` | Settings (1-5 ads; break seconds × 1000, omitted when 0) |
+| `bundle_id` | `plugin.audio.kodi_donor_radio` |
+| `gdpr`, `consent` | GDPR setting (Unknown omits); consent only when GDPR applies |
+
+Kodi has no advertising ID, so `maid` is not sent.
+Podcast and out-of-home parameters do not apply.
+
+Tracking: Impression and `start` fire when the player clock first advances; the
+quartiles fire on the first 250 ms service sample at or after 25/50/75% of the
+VAST duration; `complete` fires when Kodi ends the creative naturally after all
+quartiles, within 1.5 s of the duration. A forward seek or backward jump stops
+further events for that creative. Stop or error never sends later events; a
+playback error before start sends the Error URL with code 405. Fetching or
+caching a creative never counts as an impression. Each event is sent once,
+without retries. With diagnostics on, `events.jsonl` records each beacon's
+target, observed player position, HTTP outcome and latency (never its URL).
 
 ## Controlled VAST status
 
