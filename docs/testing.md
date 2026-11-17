@@ -15,7 +15,7 @@ dispatch minus the event target.
 | --- | --- | --- |
 | 1 | SomaFM Secret Agent (MP3) | 1 × 60 s ad, then the station started 1.6 s after the ad ended |
 | 2 | 101 Smooth Jazz (MP3) | 2 × 30 s pod played in sequence (0.5 s gap), station started 2.4 s after the pod |
-| 3 | SomaFM Secret Agent, stop at 19 s of ad 2 | Ad 1 (15 s) completed; ad 2 sent impression/start/firstQuartile only; station did not start |
+| 3 | SomaFM Secret Agent, stopped 19.06 s into ad 2 | Ad 1 (15 s) completed; ad 2 (60 s, so firstQuartile at 15 s and midpoint at 30 s) sent impression/start/firstQuartile only; station did not start |
 
 Run 2 timing (both creatives, target → observed player position at dispatch):
 
@@ -32,6 +32,11 @@ beacon returned HTTP 2xx/3xx with 287-338 ms latency. Beacons share one worker
 queue, so `start` reaches the network about one request latency (~0.3 s) after
 the impression. The VAST request plus creative download took 0.35-2.4 s before
 the first item resolved.
+
+After the review fixes, runs 2 and 3 were repeated on the branch head: a 2 × 30 s
+pod again played both creatives (all five events each, lag 0.04-0.29 s) and the
+station started 1.8 s after the pod; stopping 20.25 s into a 60 s creative sent
+only impression/start/firstQuartile and started nothing.
 
 Limits: positions are Kodi's reported player clock, not independently measured
 audible output. The test zone always fills; with `maxAds=2` it returned one ad

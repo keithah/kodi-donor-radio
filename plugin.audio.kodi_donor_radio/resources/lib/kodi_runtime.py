@@ -1561,7 +1561,15 @@ class RelayPlayer(xbmc.Player):
     def onPlayBackEnded(self):
         if not self._network_finished('ended'): self._finished('source_end')
     def onPlayBackError(self):
-        if not self._network_finished('error'): self._finished('cancelled')
+        if self._network_finished('error'):
+            return
+        first = self.network_ads.unstarted_first() if self.network_ads is not None else None
+        if first is not None:
+            # The first creative failed to open before any started callback.
+            self.network_token = first
+            self._network_finished('error')
+            return
+        self._finished('cancelled')
     def _arm_current(self):
         if self.owned is None or not self.isPlaying():
             return

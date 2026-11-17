@@ -2856,3 +2856,17 @@ def test_chained_ad_that_never_starts_times_out(kodi, monkeypatch):
     now[0]+=5; player.sample_ads(); assert finished[-1]==('a'*48,'ended')
     now[0]+=6; player.sample_ads(); assert finished[-1]==('b'*48,'error')
     player.sample_ads(); assert played[-1].startswith('plugin://')
+
+
+def test_first_ad_open_failure_falls_through(kodi):
+    runtime,_,_=kodi
+    finished=[]; stopped=[]
+    network=SimpleNamespace(
+        token_for=lambda url: None, observe=lambda *args: None,
+        unstarted_first=lambda: 'a'*48,
+        finish=lambda token, reason: finished.append((token, reason)) or 'plugin://plugin.audio.kodi_donor_radio/?ads=0')
+    player=runtime.RelayPlayer(SimpleNamespace(stop=stopped.append),32123,network_ads=network)
+    played=[]; player.play=lambda url, item=None: played.append(url)
+    player.playing=False; player.onPlayBackError()
+    assert finished==[('a'*48,'error')]
+    player.sample_ads(); assert played==['plugin://plugin.audio.kodi_donor_radio/?ads=0']

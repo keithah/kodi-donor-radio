@@ -466,6 +466,7 @@ class NetworkAdService:
         self._items = {}
         self._preparing = threading.BoundedSemaphore(_MAX_PREPARING)
         self._closing = threading.Event()
+        self._first = None  # (token, prepared_at) of the newest break.
         self._beacons = _Beacons(client, self._emit)
 
     def _emit(self, details):
@@ -558,6 +559,8 @@ class NetworkAdService:
             self._expire_locked(len(prepared))
             for item in prepared:
                 self._items[item.token] = item
+            if prepared:
+                self._first = (prepared[0].token, self.clock())
         return [{'token': item.token, 'url': self.route(item.token), 'title': item.ad.title,
                  'duration': item.ad.duration_seconds} for item in prepared]
 
@@ -588,6 +591,21 @@ class NetworkAdService:
         with self._lock:
             item = self._items.get(token)
             return item.data if item is not None and not item.finished else None
+
+    def unstarted_first(self, within=15.0):
+        """Token of the newest break's first creative if Kodi never started it.
+
+        The plugin hands that creative to Kodi right after preparing, so an open
+        failure shortly afterwards belongs to it.
+        """
+        with self._lock:
+            token, prepared_at = self._first or (None, 0.0)
+            item = self._items.get(token)
+            if (item is None or item.live or item.finished
+                    or self.clock() - prepared_at > within):
+                return None
+            self._first = None
+            return token
 
     def seeked(self, token):
         """An explicit seek ends tracking for that creative."""

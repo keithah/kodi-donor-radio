@@ -2,7 +2,8 @@
 
 The branch implements Radio Browser discovery and controlled loopback-only VAST
 preparation, preroll, HLS midroll replacement and guarded fixture tracking.
-General Radio Browser playback remains outside ad insertion.
+General Radio Browser playback remains outside ad insertion, except for the
+opt-in, default-off network pre-roll in section 0.
 
 The separate native inputstream lab captured a complete 180.032-second HLS
 programme through four normal Kodi pauses without detected gaps or replay in the
