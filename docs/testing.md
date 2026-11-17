@@ -33,8 +33,9 @@ queue, so `start` reaches the network about one request latency (~0.3 s) after
 the impression. The VAST request plus creative download took 0.35-2.4 s before
 the first item resolved.
 
-After the review fixes, runs 2 and 3 were repeated on the branch head: a 2 × 30 s
-pod again played both creatives (all five events each, lag 0.04-0.29 s) and the
+After the review fixes, runs 2 and 3 were repeated at commit 02cca36: a 2 × 30 s
+pod again played both creatives (impression, start, three quartiles and complete
+each; quartile/start lag 0.04-0.29 s) and the
 station started 1.8 s after the pod; stopping 20.25 s into a 60 s creative sent
 only impression/start/firstQuartile and started nothing.
 

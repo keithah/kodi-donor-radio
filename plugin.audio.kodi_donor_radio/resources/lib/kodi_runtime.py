@@ -1461,6 +1461,8 @@ class RelayPlayer(xbmc.Player):
             return
         token = self.network_ads.token_for(self._playing_file())
         self._network_waiting = None
+        if token is None:
+            self.network_ads.forget_first()  # Another item owns the player now.
         if self._network_next is not None:
             # Something else started before the chain continued; drop it.
             follow, self._network_next = self._network_next, None
@@ -1557,6 +1559,8 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
+        if self.network_ads is not None:
+            self.network_ads.forget_first()
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):
         if not self._network_finished('ended'): self._finished('source_end')
@@ -1652,7 +1656,7 @@ class ServiceMonitor(xbmc.Monitor):
 def run_service():
     monitor = ServiceMonitor()
     while not monitor.abortRequested():
-        server, descriptor, player = None, None, None
+        server, descriptor, player, network_ads = None, None, None, None
         try:
             monitor.ad_changed = False
             profile = _private_profile(profile_path())
@@ -1668,10 +1672,11 @@ def run_service():
                 # A bad ad-only value must not prevent ordinary radio playback.
                 xbmcgui.Dialog().notification(text(30000), text(30068), xbmcgui.NOTIFICATION_ERROR, 5000)
                 config = AdConfig(False, False, False, '', '')
-            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
+            sink = event_sink(profile)  # One sink serializes events.jsonl rotation.
+            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=sink,
                                      ad_config=config, cache_root=profile,
                                      icy_marker_store=IcyMarkerStore(profile))
-            network_ads = NetworkAdService(HttpClient(policy=UrlPolicy()), sink=event_sink(profile))
+            network_ads = NetworkAdService(HttpClient(policy=UrlPolicy()), sink=sink)
             try:
                 network_ads.config = network_ad_settings()
             except ValueError:
@@ -1704,7 +1709,7 @@ def run_service():
         finally:
             if player is not None:
                 player.ads.close()
-                if player.network_ads is not None:
-                    player.network_ads.close(wait=False)
+            if network_ads is not None:
+                network_ads.close(wait=False)
             if server is not None: server.close()
             if descriptor is not None: remove_descriptor(profile, descriptor)

@@ -449,6 +449,7 @@ class _Playback:
     fired: set = field(default_factory=set)
     started: bool = False
     live: bool = False  # Kodi is playing it or was just told to.
+    requested: bool = False  # Kodi asked the relay for its bytes.
     tainted: bool = False
     finished: bool = False
     last_position: float = -1.0
@@ -590,22 +591,29 @@ class NetworkAdService:
             return None
         with self._lock:
             item = self._items.get(token)
-            return item.data if item is not None and not item.finished else None
+            if item is None or item.finished:
+                return None
+            item.requested = True
+            return item.data
 
     def unstarted_first(self, within=15.0):
         """Token of the newest break's first creative if Kodi never started it.
 
-        The plugin hands that creative to Kodi right after preparing, so an open
-        failure shortly afterwards belongs to it.
+        Only a creative Kodi already requested from the relay qualifies, so an
+        abandoned break never claims another item's error.
         """
         with self._lock:
             token, prepared_at = self._first or (None, 0.0)
             item = self._items.get(token)
-            if (item is None or item.live or item.finished
+            if (item is None or item.live or item.finished or not item.requested
                     or self.clock() - prepared_at > within):
                 return None
             self._first = None
             return token
+
+    def forget_first(self):
+        with self._lock:
+            self._first = None
 
     def seeked(self, token):
         """An explicit seek ends tracking for that creative."""

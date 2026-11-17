@@ -400,10 +400,13 @@ def test_unstarted_first_creative_is_claimed_once_and_only_soon():
     svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
     follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play'
     first, second = svc.prepare(STATION, threading.Event(), follow)
+    assert svc.unstarted_first() is None  # Never handed to Kodi.
+    svc.media(first['token'])
     assert svc.unstarted_first() == first['token']
     assert svc.unstarted_first() is None
     assert svc.finish(first['token'], 'error') == second['url']
     first, _ = svc.prepare(STATION, threading.Event(), follow)
+    svc.media(first['token'])
     clock.now += 16
     assert svc.unstarted_first() is None
     first, _ = svc.prepare(STATION, threading.Event(), follow)
