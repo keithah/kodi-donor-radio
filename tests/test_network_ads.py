@@ -385,3 +385,12 @@ def test_close_cancels_preparation_and_stores_nothing():
     svc.close()
     assert svc.prepare(STATION) == []
     assert svc._items == {} and client.requests == []
+
+
+def test_complete_allows_a_slightly_long_creative():
+    svc, client, clock, events = service(inline('a', '1'))
+    [item] = svc.prepare(STATION, threading.Event())
+    play(svc, clock, item['token'], 32)
+    svc.finish(item['token'], 'ended')
+    assert 'https://t.example/e?e=complete' in beacons(svc, client)
+    svc.close()

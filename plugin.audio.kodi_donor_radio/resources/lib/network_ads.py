@@ -664,7 +664,8 @@ class NetworkAdService:
         item.data = b''  # Free the creative now; the chain metadata stays.
         natural = reason == 'ended'
         if (natural and item.started and not item.tainted
-                and abs(item.max_position - item.ad.duration_seconds) <= 1.5
+                and item.ad.duration_seconds - 1.5 <= item.max_position
+                <= item.ad.duration_seconds * 1.1 + 1.5
                 and {'firstQuartile', 'midpoint', 'thirdQuartile'} <= item.fired):
             self._fire(item, 'complete', item.max_position)
         if reason == 'error' and not item.started:

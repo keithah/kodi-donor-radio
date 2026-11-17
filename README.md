@@ -158,8 +158,10 @@ Podcast and out-of-home parameters do not apply.
 Tracking: Impression and `start` fire when the player clock first advances; the
 quartiles fire on the first 250 ms service sample at or after 25/50/75% of the
 VAST duration; `complete` fires when Kodi ends the creative naturally after all
-quartiles, within 1.5 s of the duration. A forward seek or backward jump stops
-further events for that creative. Stop or error never sends later events; a
+quartiles, ending between 1.5 s before the declared duration and 10% + 1.5 s
+after it. A Kodi seek, a forward jump or a backward jump stops further events for
+that creative, and a chained creative that has not started within 10 s is
+skipped. Stop or error never sends later events; a
 playback error before start sends the Error URL with code 405. Fetching or
 caching a creative never counts as an impression. Each event is sent once,
 without retries, from the listener's device with Kodi's `User-Agent`; the

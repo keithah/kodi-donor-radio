@@ -814,10 +814,11 @@ def test_chained_ad_that_fails_to_open_falls_through(kodi):
 def test_user_action_drops_pending_chain(kodi):
     runtime,_,_=kodi
     base='http://127.0.0.1:32123/network-ads/'
-    seeks=[]
+    seeks=[]; finished=[]
     network=SimpleNamespace(
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
-        finish=lambda token, reason: 'plugin://plugin.audio.kodi_donor_radio/?ads=0',
+        finish=lambda token, reason: finished.append((token, reason)) or (
+            base+'b'*48+'.mp3' if token=='a'*48 else None),
         observe=lambda *args: None, seeked=seeks.append)
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
@@ -826,9 +827,7 @@ def test_user_action_drops_pending_chain(kodi):
     player.playing=False; player.onPlayBackEnded()
     player.playing=True; player.file='http://elsewhere.example/other.mp3'; player.onAVStarted()
     player.sample_ads(); assert played==[]
-    player.playing=True; player.file=base+'b'*48+'.mp3'; player.onAVStarted()
-    player.playing=False; player.onPlayBackEnded(); player.onPlayBackStopped()
-    player.sample_ads(); assert played==[]
+    assert finished==[('a'*48,'ended'),('b'*48,'switched')]  # Pending B is released.
 
 
 @pytest.mark.parametrize('recover', [True, False])
@@ -2835,3 +2834,25 @@ def test_favorite_refresh_shutdown_before_commit_keeps_local_records_and_retries
     state.abort = False
     route(runtime, mode='favorites')
     assert state.builtins == ['RunPlugin(plugin://plugin.audio.kodi_donor_radio?mode=favorites_refresh)']
+
+
+def test_chained_ad_that_never_starts_times_out(kodi, monkeypatch):
+    runtime,_,_=kodi
+    base='http://127.0.0.1:32123/network-ads/'
+    finished=[]
+    def finish(token, reason):
+        finished.append((token, reason))
+        return base+'b'*48+'.mp3' if token=='a'*48 else 'plugin://plugin.audio.kodi_donor_radio/?ads=0'
+    network=SimpleNamespace(
+        token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
+        finish=finish, observe=lambda *args: None)
+    player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
+    played=[]; player.play=lambda url, item=None: played.append(url)
+    now=[1000.0]; monkeypatch.setattr(runtime.time, 'monotonic', lambda: now[0])
+    player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
+    player.playing=False; player.onPlayBackEnded()
+    player.onPlayBackStopped()  # A trailing stop must not cancel the chain.
+    player.sample_ads(); assert played==[base+'b'*48+'.mp3']
+    now[0]+=5; player.sample_ads(); assert finished[-1]==('a'*48,'ended')
+    now[0]+=6; player.sample_ads(); assert finished[-1]==('b'*48,'error')
+    player.sample_ads(); assert played[-1].startswith('plugin://')

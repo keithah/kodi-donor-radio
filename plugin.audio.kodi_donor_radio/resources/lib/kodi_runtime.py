@@ -40,6 +40,7 @@ from url_policy import UrlPolicy
 STARTUP_TIMEOUT = 5.0
 AD_CREATE_TIMEOUT = 30.0
 NETWORK_AD_TIMEOUT = 35.0
+NETWORK_AD_START_SECONDS = 10.0  # A chained creative that never starts is skipped.
 PLUGIN_ROOT = 'plugin://plugin.audio.kodi_donor_radio/'
 ADAPTIVE_PREFLIGHT_TIMEOUT = 5.0
 PAGE_SIZE = 50
@@ -1443,6 +1444,7 @@ class RelayPlayer(xbmc.Player):
         self.network_ads = network_ads
         self.network_token = None
         self._network_next = None
+        self._network_waiting = None
         self._generation = 0
         self._armed_generation = None
         self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin,
@@ -1458,8 +1460,13 @@ class RelayPlayer(xbmc.Player):
         if self.network_ads is None:
             return
         token = self.network_ads.token_for(self._playing_file())
+        self._network_waiting = None
         if self._network_next is not None:
-            self._network_next = None  # Something else started; drop the chain.
+            # Something else started before the chain continued; drop it.
+            follow, self._network_next = self._network_next, None
+            pending = self.network_ads.token_for(follow)
+            if pending is not None:
+                self.network_ads.finish(pending, 'switched')
         if token != self.network_token and self.network_token is not None:
             # Kodi moved on (queued item or user skip) before an end callback.
             self.network_ads.finish(self.network_token, 'switched')
@@ -1471,6 +1478,7 @@ class RelayPlayer(xbmc.Player):
         if self.isPlaying() and self.network_ads.token_for(self._playing_file()) == self.network_token:
             return True  # Late callback for the previous item; the tracked ad still plays.
         token, self.network_token = self.network_token, None
+        self._network_waiting = None
         follow = self.network_ads.finish(token, reason)
         if follow:
             self._network_next = follow
@@ -1484,11 +1492,17 @@ class RelayPlayer(xbmc.Player):
             # Track a chained creative now, so an open failure before any
             # started callback still falls through to the next item.
             self.network_token = self.network_ads.token_for(follow)
+            if self.network_token is not None:
+                self._network_waiting = time.monotonic()
             item = xbmcgui.ListItem(path=follow)
             item.setProperty('IsPlayable', 'true')
             self.play(follow, item)
             return
         if self.network_token is None:
+            return
+        if (self._network_waiting is not None and not self.isPlaying()
+                and time.monotonic() - self._network_waiting > NETWORK_AD_START_SECONDS):
+            self._network_finished('error')  # Open failed without a callback.
             return
         if self.network_ads.token_for(self._playing_file()) != self.network_token:
             return
@@ -1543,8 +1557,6 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
-        if self._network_next is not None and not self.isPlaying():
-            self._network_next = None  # The user stopped before the chain continued.
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):
         if not self._network_finished('ended'): self._finished('source_end')
