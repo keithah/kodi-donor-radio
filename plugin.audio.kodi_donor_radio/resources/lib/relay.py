@@ -181,7 +181,12 @@ class _Handler(BaseHTTPRequestHandler):
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls'}
             if not isinstance(data, dict) or set(data) not in (
-                    fields, fields | {'fixture_launch_nonce'}, fields | {'continuation'}):
+                    fields, fields | {'fixture_launch_nonce'}, fields | {'continuation'},
+                    fields | {'selection'}):
+                return self._reply(400)
+            reserved = data.pop('selection', None)
+            if reserved is not None and (self.path != '/sessions' or type(reserved) is not int
+                                         or not 0 < reserved < 2 ** 53):
                 return self._reply(400)
             continuation = data.pop('continuation', None)
             if continuation is not None and (self.path != '/sessions' or not isinstance(continuation, str)
@@ -199,7 +204,8 @@ class _Handler(BaseHTTPRequestHandler):
                 session = self.server.relay.manager.create_preview(station)
             else:
                 session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce,
-                                                           continuation=continuation)
+                                                           continuation=continuation,
+                                                           reserved=reserved)
         except SelectionSuperseded:
             return self._reply(409)
         except (ValueError, UnicodeError):

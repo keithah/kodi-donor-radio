@@ -490,6 +490,15 @@ class SessionManager:
             self._selections += 1
             return self._selections
 
+    def _newer_than_locked(self, selection):
+        """True if a selection or fixture launch began after `selection`.
+
+        Any outstanding fixture launch is newer: every selection discards the
+        launches that existed before it.
+        """
+        self._expire_fixture_launches()
+        return selection != self._selections or bool(self._fixture_launches)
+
     def begin_selection(self, reserved=None):
         """Register a deliberate selection that is not a relay session yet.
 
@@ -502,7 +511,7 @@ class SessionManager:
         with self._lock:
             if self._closed:
                 raise RuntimeError('Manager closed')
-            if reserved is not None and reserved != self._selections:
+            if reserved is not None and self._newer_than_locked(reserved):
                 cancel = threading.Event()
                 cancel.set()
                 cancel.selection = reserved
@@ -537,7 +546,7 @@ class SessionManager:
                 self._continuations.popitem(last=False)
         return token
 
-    def create(self, station, fixture_launch_nonce=None, continuation=None):
+    def create(self, station, fixture_launch_nonce=None, continuation=None, reserved=None):
         # Register selection order before queuing behind an older resolver.
         # The event is also an ownership token: stale waiters cannot replace it.
         # A pre-roll continuation passes its break's selection number and
@@ -548,10 +557,12 @@ class SessionManager:
             # An unknown token (already used, from an earlier service run, or
             # long evicted) is a replay of the playing item: a plain choice.
             selection = self._continuations.pop(continuation, None) if continuation else None
-            if selection is not None:
-                self._expire_fixture_launches()
-                if selection != self._selections or self._fixture_launches:
-                    raise SelectionSuperseded('A newer selection owns playback')
+            if selection is not None and self._newer_than_locked(selection):
+                raise SelectionSuperseded('A newer selection owns playback')
+            # A station chosen after a reservation (the pre-roll had no fill)
+            # takes the reserved place, unless a newer choice has begun.
+            if reserved is not None and self._newer_than_locked(reserved):
+                raise SelectionSuperseded('A newer selection owns playback')
             launch = None
             if fixture_launch_nonce is not None:
                 self._expire_fixture_launches()
@@ -565,7 +576,8 @@ class SessionManager:
             if self._pending is not None:
                 self._pending.set()
             cancel = self._pending = threading.Event()
-            self._selections += 1
+            if reserved is None:
+                self._selections += 1
             if launch is not None:
                 launch.cancel = cancel
                 launch.deadline = time.monotonic() + _FIXTURE_LAUNCH_CREATE_TTL

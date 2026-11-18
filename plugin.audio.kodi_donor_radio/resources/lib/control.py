@@ -49,13 +49,16 @@ class ControlClient:
         finally:
             conn.close()
 
-    def create(self, station, fixture_launch_nonce=None, continuation=None):
+    def create(self, station, fixture_launch_nonce=None, continuation=None, selection=None):
         payload = {key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
         if fixture_launch_nonce is not None:
             payload['fixture_launch_nonce'] = fixture_launch_nonce
-        if continuation is None:
+        if continuation is None and selection is None:
             return self._request('POST', '/sessions', payload)
-        payload['continuation'] = continuation
+        if continuation is not None:
+            payload['continuation'] = continuation
+        else:
+            payload['selection'] = selection
         try:
             return self._request('POST', '/sessions', payload)
         except _Conflict:

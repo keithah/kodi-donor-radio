@@ -315,3 +315,14 @@ def test_fixture_reservation_cancels_an_in_flight_preroll(launches):
     selection = l.manager.begin_selection()
     l.manager.reserve_fixture_launch(l.station.uuid)
     assert l.manager.end_selection(selection) is True  # The pre-roll reply says superseded.
+
+
+def test_newer_fixture_launch_supersedes_a_reserved_selection(launches):
+    from sessions import SelectionSuperseded
+    l = launches
+    reserved = l.manager.reserve_selection()  # A station click, still looking up.
+    nonce = l.manager.reserve_fixture_launch(l.station.uuid)  # Then a fixture launch.
+    assert l.manager.begin_selection(reserved).is_set()  # A's pre-roll yields.
+    with pytest.raises(SelectionSuperseded):
+        l.manager.create(l.station, reserved=reserved)  # So does A's station.
+    assert nonce in l.manager._fixture_launches  # The launch survives.

@@ -649,3 +649,22 @@ def test_reserved_begin_selection_semantics():
     late = manager.begin_selection(1)  # Reserved before the newest selection: already lost.
     assert late.is_set() and manager.end_selection(late) is True
     manager.close()
+
+
+def test_no_fill_fallback_cannot_overtake_a_newer_reservation():
+    from sessions import SelectionSuperseded
+    manager = SessionManager()
+    manager.resolver = lambda url, client, cancel: (_ for _ in ()).throw(OSError('offline'))
+    a = manager.reserve_selection()
+    manager.end_selection(manager.begin_selection(a))  # A's pre-roll: no fill.
+    b = manager.reserve_selection()  # The listener picks B; its lookup is slow.
+    with pytest.raises(SelectionSuperseded):
+        manager.create(STATION, reserved=a)  # A's late station fallback yields.
+    assert manager.selection_count() == b
+    current = manager.begin_selection(b)  # B still owns its place.
+    assert not current.is_set()
+    manager.end_selection(current)
+    with pytest.raises(OSError):
+        manager.create(STATION, reserved=b)  # B's own fallback proceeds (stream offline here).
+    assert manager.selection_count() == b  # It took the reserved place, not a new one.
+    manager.close()

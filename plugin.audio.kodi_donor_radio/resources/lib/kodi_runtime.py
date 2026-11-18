@@ -1160,7 +1160,8 @@ def run_plugin(argv):
                     if client is None:
                         return
                     try:
-                        reserved = ControlClient(client.descriptor).reserve_selection()
+                        reserved = _operation(ControlClient(client.descriptor).reserve_selection,
+                                              monitor, cancel)
                     except Cancelled:
                         raise
                     except (OSError, ValueError, TypeError):
@@ -1212,7 +1213,8 @@ def run_plugin(argv):
                 raise ValueError('Invalid continuation')
             session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
                                  if launch_nonce is not None else client.create(station, continuation=continuation)
-                                 if continuation is not None else client.create(station),
+                                 if continuation is not None else client.create(station, selection=reserved)
+                                 if reserved is not None else client.create(station),
                                  monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')
