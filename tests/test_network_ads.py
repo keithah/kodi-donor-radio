@@ -593,3 +593,20 @@ def test_station_continuation_carries_and_checks_its_selection():
                 json.loads(json.dumps({k: getattr(STATION, k) for k in
                                        ('uuid', 'name', 'url', 'codec', 'hls')})), selection=True))
         assert not isinstance(caught.value, SelectionSuperseded)  # A bool selection is a 400.
+
+
+def test_replaying_a_station_continuation_is_a_plain_choice():
+    manager = SessionManager()
+    manager.resolver = lambda url, client, cancel: (_ for _ in ()).throw(OSError('offline'))
+    manager.end_selection(manager.begin_selection())  # The break: selection 1.
+    with pytest.raises(OSError):
+        manager.create(STATION, selection=1)  # Its hand-off runs (the stream is offline here).
+    with pytest.raises(OSError):
+        manager.create(STATION, selection=1)  # The listener replays that item: not refused.
+    with pytest.raises(OSError):
+        manager.create(STATION, selection=99)  # A URL from an earlier service run.
+    manager.end_selection(manager.begin_selection())
+    from sessions import SelectionSuperseded
+    with pytest.raises(SelectionSuperseded):
+        manager.create(STATION, selection=manager.selection_count() - 1)  # A stale hand-off.
+    manager.close()

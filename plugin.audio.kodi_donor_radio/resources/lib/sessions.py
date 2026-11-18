@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """One cancellable playback session with opaque, bounded media resources."""
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -400,6 +400,7 @@ class SessionManager:
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
         self._selections = 0  # Deliberate selections (creates and pre-rolls) so far.
+        self._continued = deque(maxlen=32)  # Continuations already run.
         self._fixture_launches = {}
 
     def _expire_fixture_launches(self):
@@ -507,8 +508,15 @@ class SessionManager:
         with self._lock:
             if self._closed:
                 raise RuntimeError('Manager closed')
-            if selection is not None and selection != self._selections:
-                raise SelectionSuperseded('A newer selection owns playback')
+            if selection is not None:
+                if selection in self._continued or selection > self._selections:
+                    # A replay of a station that already took over from its
+                    # break, or a URL from an earlier service run: a plain choice.
+                    selection = None
+                elif selection != self._selections:
+                    raise SelectionSuperseded('A newer selection owns playback')
+                else:
+                    self._continued.append(selection)
             launch = None
             if fixture_launch_nonce is not None:
                 self._expire_fixture_launches()
