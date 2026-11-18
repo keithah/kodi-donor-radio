@@ -155,6 +155,8 @@ def build_request(config, station, position='pre'):
     parts = urlsplit(base)
     pairs = parse_qsl(parts.query, keep_blank_values=True)
     present = {key for key, _value in pairs}
+    tag_gdpr = [value for key, value in pairs if key == 'gdpr']
+    effective_gdpr = tag_gdpr[-1] if tag_gdpr else config.gdpr
     country = (getattr(station, 'country_code', '') or '').strip().upper()
     derived = (
         ('position', position),
@@ -171,7 +173,7 @@ def build_request(config, station, position='pre'):
         ('store_url', config.store_url.strip()),
         ('maid', config.maid.strip()),
         ('gdpr', config.gdpr if config.gdpr in ('0', '1') else ''),
-        ('consent', config.consent.strip() if config.gdpr == '1' else ''),
+        ('consent', config.consent.strip() if effective_gdpr == '1' else ''),
         ('schain', config.schain.strip()),
     )
     pairs.extend((key, value) for key, value in derived if value and key not in present)
@@ -273,18 +275,30 @@ def _duration(text):
     return value if math.isfinite(value) and 0 < value <= _MAX_DURATION else None
 
 
-def _collect(container, base):
+def _linear_tracking(linear, base):
+    tracking = []
+    for events in _children(linear, 'TrackingEvents'):
+        for item in _children(events, 'Tracking'):
+            event = item.attrib.get('event', '')
+            if event in EVENTS and (u := _url(_text(item), base)):
+                tracking.append((event, u))
+    return tracking
+
+
+def _collect(container, base, linears=True):
+    """Ad-level impressions and errors; Linear tracking too unless linears is False.
+
+    An InLine passes linears=False: its tracking is taken from the one Linear
+    whose media plays, so an unplayed Linear never receives beacons.
+    """
     impressions = [u for item in _children(container, 'Impression') if (u := _url(_text(item), base))]
     errors = [u for item in _children(container, 'Error') if (u := _url(_text(item), base))]
     tracking = []
-    for creatives in _children(container, 'Creatives'):
-        for creative in _children(creatives, 'Creative'):
-            for linear in _children(creative, 'Linear'):
-                for events in _children(linear, 'TrackingEvents'):
-                    for item in _children(events, 'Tracking'):
-                        event = item.attrib.get('event', '')
-                        if event in EVENTS and (u := _url(_text(item), base)):
-                            tracking.append((event, u))
+    if linears:
+        for creatives in _children(container, 'Creatives'):
+            for creative in _children(creatives, 'Creative'):
+                for linear in _children(creative, 'Linear'):
+                    tracking.extend(_linear_tracking(linear, base))
     return impressions, errors, tracking
 
 
@@ -332,7 +346,7 @@ class NetworkVastResolver:
         container = inline if inline is not None else wrapper
         if container is None:
             raise NetworkAdError(101, 'VAST ad has no InLine or Wrapper', errors)
-        more_impressions, more_errors, more_tracking = _collect(container, base)
+        more_impressions, more_errors, more_tracking = _collect(container, base, inline is None)
         impressions, errors, tracking = (impressions + more_impressions, errors + more_errors,
                                          tracking + more_tracking)
         if inline is None:
@@ -371,7 +385,8 @@ class NetworkVastResolver:
                 return NetworkAd(
                     ad.attrib.get('id', '')[:128], sequence,
                     _text(_one(inline, 'AdTitle'))[:256], media_url, duration,
-                    tuple(dict.fromkeys(impressions)), tuple(dict.fromkeys(tracking)),
+                    tuple(dict.fromkeys(impressions)),
+                    tuple(dict.fromkeys(tracking + _linear_tracking(linear, base))),
                     tuple(dict.fromkeys(errors)))
         raise NetworkAdError(201, 'VAST ad has no Linear creative', errors)
 
@@ -568,9 +583,10 @@ class NetworkAdService:
     def _expire_locked(self, incoming=0):
         now = self.clock()
         for token, item in list(self._items.items()):
-            if item.finished or now - item.created > _RETAIN_SECONDS:
+            if item.finished:
                 del self._items[token]
-        # Never evict the creative on air or the rest of its chain; the cap may
+        # Never evict the creative on air or the rest of its chain, by age or by
+        # count (a paused ad may be older than _RETAIN_SECONDS); the cap may
         # then be exceeded by at most one pod.
         protected = set()
         for item in self._items.values():
@@ -579,6 +595,9 @@ class NetworkAdService:
             while item is not None and item.token not in protected:
                 protected.add(item.token)
                 item = self._items.get(item.next_url)
+        for token, item in list(self._items.items()):
+            if token not in protected and now - item.created > _RETAIN_SECONDS:
+                del self._items[token]
         while len(self._items) + incoming > _MAX_RETAINED:
             spare = [item for item in self._items.values() if item.token not in protected]
             if not spare:

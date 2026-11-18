@@ -413,3 +413,54 @@ def test_unstarted_first_creative_is_claimed_once_and_only_soon():
     svc.observe(first['token'], 0.1)
     assert svc.unstarted_first() is None
     svc.close()
+
+
+def test_consent_follows_the_gdpr_value_the_request_sends():
+    tag = TEST_TAG + '&gdpr=1'
+    query = parse_qs(urlsplit(build_request(config(tag_url=tag, gdpr='', consent='abc'),
+                                            STATION)[0]).query)
+    assert query['gdpr'] == ['1'] and query['consent'] == ['abc']
+    tag = TEST_TAG + '&gdpr=0'
+    query = parse_qs(urlsplit(build_request(config(tag_url=tag, gdpr='1', consent='abc'),
+                                            STATION)[0]).query)
+    assert query['gdpr'] == ['0'] and 'consent' not in query
+
+
+def test_only_the_played_linear_receives_tracking():
+    second = ('<Creative><Linear><TrackingEvents>'
+              '<Tracking event="start">https://t.example/unplayed</Tracking></TrackingEvents>'
+              '<Duration>00:00:15</Duration><MediaFiles><MediaFile delivery="progressive" '
+              'type="audio/mpeg">https://media.example/b.mp3</MediaFile></MediaFiles>'
+              '</Linear></Creative></Creatives>')
+    xml = inline('a', None).replace('</Creatives>', second, 1)
+    client = FakeClient({'https://ssp': (200, vast(xml))})
+    [ad] = NetworkVastResolver(client).resolve('https://ssp/tag', {}, threading.Event())
+    assert ad.media_url == 'https://media.example/a.mp3'
+    assert 'https://t.example/unplayed' not in [url for _, url in ad.tracking]
+    assert [event for event, _ in ad.tracking] == [
+        'start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete']
+
+
+def test_wrapper_tracking_survives_inline_scoping():
+    wrapper = ('<Ad id="w"><Wrapper><Impression>https://t.example/wrap-imp</Impression>'
+               '<Creatives><Creative><Linear><TrackingEvents>'
+               '<Tracking event="start">https://t.example/wrap-start</Tracking>'
+               '</TrackingEvents></Linear></Creative></Creatives>'
+               '<VASTAdTagURI>https://inner/vast</VASTAdTagURI></Wrapper></Ad>')
+    client = FakeClient({'https://ssp': (200, vast(wrapper)),
+                         'https://inner': (200, vast(inline('x', None)))})
+    [ad] = NetworkVastResolver(client).resolve('https://ssp/tag', {}, threading.Event())
+    urls = [url for _, url in ad.tracking]
+    assert 'https://t.example/wrap-start' in urls and 'https://t.example/e?e=start' in urls
+
+
+def test_paused_ad_on_air_outlives_the_age_limit():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play'
+    pod = svc.prepare(STATION, threading.Event(), follow)
+    play(svc, clock, pod[0]['token'], 1)
+    clock.now += 20 * 60  # Paused longer than the retention window.
+    svc.prepare(STATION, threading.Event(), follow)
+    assert all(svc.media(item['token']) is not None for item in pod)
+    assert svc.finish(pod[0]['token'], 'ended') == pod[1]['url']
+    svc.close()
