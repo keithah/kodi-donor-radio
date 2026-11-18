@@ -39,12 +39,12 @@ each; quartile/start lag 0.04-0.29 s) and the
 station started 1.8 s after the pod; stopping 20.25 s into a 60 s creative sent
 only impression/start/firstQuartile and started nothing.
 
-### Kodi 22.0 RC2 — 2026-11-17
+### Kodi 22.0 RC2 — 2026-11-17 and 2026-11-18
 
 Target: Kodi 22.0 RC2 Piers (`22.0.rc2`, macOS ARM64 build from
 mirrors.kodi.tv, Team ID QR7RHK8K4X), run from a scratch copy with `HOME`
 pointed at an isolated profile and the same sandbox profile and settings as
-above. Add-on built from commit 3391653, then 134062d for the last row.
+above. Add-on built from commit 3391653, then 134062d and 8df6aaf for the last rows.
 Station A is 101 Smooth Jazz, station B is SomaFM Secret Agent; "switch" means
 a second `Player.Open` of B while A's pre-roll plays.
 
@@ -57,6 +57,9 @@ a second `Player.Open` of B while A's pre-roll plays.
 | Stop 20.08 s into a 30 s ad | impression/start/firstQuartile/midpoint only; nothing else started |
 | Switch to B 1 s before A's first ad ended, at 3391653 | A's ad ended before B's request reached the service (B was still being looked up in Radio Browser), so A's second ad played for 0.9 s and sent impression/start before B's ad replaced it |
 | Same switch, at 134062d (selection reserved before the lookup), twice | A's second ad was dropped as `switched` without any beacon; B's ads, or B's station on no fill, followed; A's station never played |
+| Same switch to B (with pre-roll), at 8df6aaf | A's first ad ended normally with `complete`; A's second ad was dropped as `switched` at 0.0 s without any beacon; B's two ads played with all beacons |
+| Same switch to B (`ads=0`), at 8df6aaf | A's second ad was dropped as `switched` at 0.0 s without any beacon; B's station started 1.8 s after the switch |
+| A, no fill, three times, at 8df6aaf | A's station metadata arrived 0.4 s after each empty response |
 
 Limits: positions are Kodi's reported player clock, not independently measured
 audible output. The test zone does not always fill: on Kodi 22 it returned no
