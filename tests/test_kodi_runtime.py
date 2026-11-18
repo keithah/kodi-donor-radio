@@ -3132,8 +3132,8 @@ def test_invalid_continuation_is_rejected_before_any_preroll(kodi, monkeypatch):
         lambda self, station, follow, selection=None: calls.append(('prepare', selection)) or [
             {'url': 'http://127.0.0.1:32123/network-ads/' + 'c' * 48 + '.mp3', 'title': '', 'duration': 30}])
     route(runtime, mode='play', uuid='station-1', continuation='not-hex')
-    # the malformed request is rejected (30011, resolved False).
-    assert state.resolved and state.resolved[0][0] is False, (calls, state.resolved)
+    # The malformed request is rejected (resolved False) before any reservation or pre-roll.
+    assert state.resolved and state.resolved[0][0] is False and calls == [], (calls, state.resolved)
 
 
 def test_trailing_stop_of_replaced_station_keeps_first_ad_fallback(kodi):
@@ -3213,3 +3213,38 @@ def test_break_continuation_plays_the_kept_station_without_a_second_lookup(kodi,
         'uuid': 'station-1', 'name': 'Kept', 'url': 'https://radio.example/s', 'codec': 'MP3', 'hls': False})
     route(runtime, mode='play', uuid='station-1', ads='0', continuation='c' * 32)
     assert created == [('station-1', 'Kept', 'c' * 32)]
+
+
+def _first_ad_player(runtime, predecessor):
+    svc, client, clock, events = nt.service(nt.inline('a', '1'), nt.inline('b', '2'))
+    svc.base_url = 'http://127.0.0.1:32123'
+    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
+                                 32123, network_ads=svc)
+    player.file = predecessor; player.playing = True; player.onAVStarted()
+    first, second = svc.prepare(nt.STATION, threading.Event(),
+                                'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0')
+    svc.media(first['token'])  # Kodi asked for the first ad's bytes.
+    player.file = ''; player.playing = False
+    return svc, player, second
+
+
+def test_user_stop_while_first_ad_opens_does_not_resume_the_break(kodi):
+    runtime, state, _ = kodi
+    svc, player, _ = _first_ad_player(runtime, 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48)
+    player.onPlayBackStopped()  # The listener stopped; nothing is opening.
+    player.onPlayBackError()    # An unrelated item then fails to open.
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads(); svc.close()
+    assert played == []
+
+
+def test_trailing_stop_of_replaced_library_item_keeps_first_ad_fallback(kodi):
+    runtime, state, _ = kodi
+    svc, player, second = _first_ad_player(runtime, 'smb://nas/music/song.mp3')
+    state.player_caching = True
+    player.onPlayBackStopped()  # Stale stop for the song while the ad opens.
+    state.player_caching = False
+    player.onPlayBackError()
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads(); svc.close()
+    assert played == [second['url']]

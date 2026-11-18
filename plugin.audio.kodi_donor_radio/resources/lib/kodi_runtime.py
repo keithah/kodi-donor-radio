@@ -1644,10 +1644,11 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
-        # Kodi sends Stopped for the item a new pick replaces; that stop must not
-        # clear the new break's first-creative record, so clear it only when
-        # neither a relay station nor a tracked creative was playing.
-        if self.network_ads is not None and self.owned is None and self.network_token is None:
+        # Kodi sends Stopped for the item a new pick replaces while it is already
+        # opening the new one; that stale stop must not clear the new break's
+        # first-creative record. A real stop (nothing playing or opening) does.
+        stale = self.isPlaying() or xbmc.getCondVisibility('Player.Caching')
+        if self.network_ads is not None and not stale:
             self.network_ads.forget_first()
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):
