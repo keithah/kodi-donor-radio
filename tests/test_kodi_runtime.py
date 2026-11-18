@@ -2892,11 +2892,20 @@ def test_superseded_preroll_starts_neither_ad_nor_its_station(kodi, monkeypatch)
                              create=lambda station: created.append(station))
     monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
     monkeypatch.setattr(runtime, 'network_ad_settings', lambda: NetworkAdConfig(enabled=True))
-    def superseded(self, station, follow):
+    order = []
+    monkeypatch.setattr(runtime.ControlClient, 'reserve_selection',
+                        lambda self: order.append('reserve') or 5)
+    browser = directory(monkeypatch, runtime)
+    lookup = browser.by_uuid
+    browser.by_uuid = lambda uuid: order.append('lookup') or lookup(uuid)
+    def superseded(self, station, follow, selection=None):
+        order.append(('prepare', selection))
         raise SelectionSuperseded()
     monkeypatch.setattr(runtime.ControlClient, 'prepare_network_ads', superseded)
     route(runtime, mode='play', uuid='station-1')
     assert created == [] and state.resolved == [(False, state.resolved[0][1])]
+    # The selection is claimed before the slow station lookup and carried to prepare.
+    assert order == ['reserve', 'lookup', ('prepare', 5)]
 
 
 def test_newer_selection_drops_the_chain_even_before_it_starts(kodi):

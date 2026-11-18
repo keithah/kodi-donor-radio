@@ -61,11 +61,21 @@ class ControlClient:
         except _Conflict:
             raise SelectionSuperseded() from None
 
-    def prepare_network_ads(self, station, follow_url):
+    def reserve_selection(self):
+        """Claim the next place in selection order before a slow station lookup."""
+        result = self._request('POST', '/selections', {})
+        selection = result.get('selection') if isinstance(result, dict) else None
+        if type(selection) is not int or not 0 < selection < 2 ** 53:
+            raise OSError('Invalid relay control response')
+        return selection
+
+    def prepare_network_ads(self, station, follow_url, selection=None):
         """Ask the service for a pre-roll break; returns validated relay items."""
         payload = {key: getattr(station, key) for key in (
             'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language', 'tags')}
         payload['follow_url'] = follow_url
+        if selection is not None:
+            payload['selection'] = selection
         result = self._request('POST', '/network-ads', payload)
         if isinstance(result, dict) and result.get('superseded') is True:
             raise SelectionSuperseded()

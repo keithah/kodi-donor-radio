@@ -474,12 +474,12 @@ class SessionManager:
             self._session = None
         session.close('fixture_launch_cancelled')
 
-    def begin_selection(self):
-        """Register a deliberate selection that is not a relay session yet.
+    def reserve_selection(self):
+        """Claim the next place in selection order before the request is ready.
 
-        A network pre-roll request takes this place in selection order: a newer
-        create or pre-roll sets the returned event, and this one cancels any
-        older pending create. Pair every call with end_selection.
+        The plugin reserves as soon as the listener chooses, ahead of its slow
+        station lookup, so an older pre-roll break stops at its next item.
+        Anything pending is cancelled, as a new create would do.
         """
         with self._lock:
             if self._closed:
@@ -487,8 +487,32 @@ class SessionManager:
             self._discard_fixture_launches()
             if self._pending is not None:
                 self._pending.set()
-            cancel = self._pending = threading.Event()
             self._selections += 1
+            return self._selections
+
+    def begin_selection(self, reserved=None):
+        """Register a deliberate selection that is not a relay session yet.
+
+        A network pre-roll request takes this place in selection order: a newer
+        create or pre-roll sets the returned event, and this one cancels any
+        older pending create. With a reserved number it takes that place, and
+        its event is already set if a newer selection has begun since. Pair
+        every call with end_selection.
+        """
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Manager closed')
+            if reserved is not None and reserved != self._selections:
+                cancel = threading.Event()
+                cancel.set()
+                cancel.selection = reserved
+                return cancel
+            self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
+            cancel = self._pending = threading.Event()
+            if reserved is None:
+                self._selections += 1
             cancel.selection = self._selections  # This request's place in selection order.
             return cancel
 

@@ -615,3 +615,37 @@ def test_replaying_a_station_continuation_is_a_plain_choice():
     with pytest.raises(SelectionSuperseded):
         manager.create(STATION, continuation=stale)  # A hand-off behind a newer choice.
     manager.close()
+
+def test_reserved_selection_stops_an_older_break_before_the_preroll_request():
+    from control import SelectionSuperseded
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    with relay(svc) as (server, descriptor):
+        control = ControlClient(descriptor)
+        follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+        first, second = control.prepare_network_ads(STATION, follow)  # Break A: selection 1.
+        play(svc, clock, first['token'], 1)
+        reserved = control.reserve_selection()  # The listener picks B; lookup not done yet.
+        assert reserved == 2 and server.manager.selection_count() == 2
+        assert svc.media(second['token']) is None  # A's unstarted creative is refused already.
+        # B's pre-roll request takes the reserved place instead of a new one.
+        items = control.prepare_network_ads(STATION, follow, selection=reserved)
+        assert items and server.manager.selection_count() == 2
+        assert svc.selection_for(items[0]['token']) == 2
+        # A request whose reservation was overtaken is superseded.
+        stale = control.reserve_selection()
+        control.reserve_selection()
+        with pytest.raises(SelectionSuperseded):
+            control.prepare_network_ads(STATION, follow, selection=stale)
+
+
+def test_reserved_begin_selection_semantics():
+    manager = SessionManager()
+    pending = manager.begin_selection()
+    reserved = manager.reserve_selection()
+    assert pending.is_set() and reserved == 2  # A reservation cancels in-flight work.
+    current = manager.begin_selection(reserved)
+    assert not current.is_set() and current.selection == 2 and manager.selection_count() == 2
+    assert manager.end_selection(current) is False
+    late = manager.begin_selection(1)  # Reserved before the newest selection: already lost.
+    assert late.is_set() and manager.end_selection(late) is True
+    manager.close()

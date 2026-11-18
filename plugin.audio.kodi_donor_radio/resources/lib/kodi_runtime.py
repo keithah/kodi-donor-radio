@@ -1137,6 +1137,34 @@ def run_plugin(argv):
             if launch_nonce is not None and (action != 'play_fixture' or handle < 0
                     or not _HEX48.fullmatch(launch_nonce)):
                 raise ValueError('Invalid fixture launch')
+            def connect(timeout):
+                try:
+                    return _operation(lambda: _service(profile_path(), monitor, cancel, timeout),
+                                      monitor, cancel)
+                except OSError as error:
+                    if isinstance(error, Cancelled): raise
+                    _error(30010)
+                    if handle >= 0:
+                        xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+                    return None
+            network, reserved = NetworkAdConfig(), None
+            if action == 'play' and params.get('ads') != '0':
+                try:
+                    network = network_ad_settings()
+                except ValueError:
+                    network = NetworkAdConfig()
+                if network.enabled:
+                    # Claim selection order before the station lookup, which can
+                    # take seconds, so a break still playing stops at its next item.
+                    client = connect(10)
+                    if client is None:
+                        return
+                    try:
+                        reserved = ControlClient(client.descriptor).reserve_selection()
+                    except Cancelled:
+                        raise
+                    except (OSError, ValueError, TypeError):
+                        reserved = None  # The pre-roll request then registers itself.
             if action == 'play_fixture':
                 station = _fixture_station(params.get('id', ''))
             else:
@@ -1144,31 +1172,22 @@ def run_plugin(argv):
                 station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
                 if station.uuid != uuid:
                     raise ValueError('Invalid station lookup')
-            try:
+            if client is None:
                 # The service can still hold its previous valid ad config while
                 # Kodi settings are being edited, so use the longer bound for all
                 # controlled HLS fixtures regardless of the plugin's snapshot.
                 ad_create = station.uuid.startswith('fixture-') and station.hls
-                client = _operation(lambda: _service(profile_path(), monitor, cancel,
-                    AD_CREATE_TIMEOUT if ad_create else 10), monitor, cancel)
-            except OSError as error:
-                if isinstance(error, Cancelled): raise
-                _error(30010)
-                if handle >= 0:
-                    xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
-                return
+                client = connect(AD_CREATE_TIMEOUT if ad_create else 10)
+                if client is None:
+                    return
             if action == 'play' and params.get('ads') != '0':
-                try:
-                    network = network_ad_settings()
-                except ValueError:
-                    network = NetworkAdConfig()
                 ads = []
                 if network.enabled:
                     follow = PLUGIN_ROOT + '?' + urlencode({'mode': 'play', 'uuid': station.uuid, 'ads': '0'})
                     ads_client = ControlClient(client.descriptor, timeout=NETWORK_AD_TIMEOUT)
                     try:
-                        ads = _operation(lambda: ads_client.prepare_network_ads(station, follow),
-                                         monitor, cancel)
+                        ads = _operation(lambda: ads_client.prepare_network_ads(
+                            station, follow, selection=reserved), monitor, cancel)
                     except Cancelled:
                         raise
                     except SelectionSuperseded:

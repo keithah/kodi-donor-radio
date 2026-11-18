@@ -161,12 +161,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify', '/network-ads'):
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify', '/network-ads', '/selections'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
         if self.path == '/network-ads':
             return self._prepare_network_ads()
+        if self.path == '/selections':
+            return self._reserve_selection()
         if self.path in ('/icy-marker/learn', '/icy-marker/label'):
             return self._learn_icy_marker()
         if self.path in ('/fixture-launches', '/fixture-clock/qualify'):
@@ -226,9 +228,13 @@ class _Handler(BaseHTTPRequestHandler):
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language',
                       'tags', 'follow_url'}
-            if (not isinstance(data, dict) or set(data) != fields or not isinstance(data['hls'], bool)
+            if (not isinstance(data, dict) or set(data) not in (fields, fields | {'selection'})
+                    or not isinstance(data['hls'], bool)
                     or not all(isinstance(data[k], str) and len(data[k]) <= 4096
                                for k in fields - {'hls'})):
+                return self._reply(400)
+            reserved = data.pop('selection', None)
+            if reserved is not None and (type(reserved) is not int or not 0 < reserved < 2 ** 53):
                 return self._reply(400)
             follow_url = data.pop('follow_url')
             if follow_url and not follow_url.startswith('plugin://plugin.audio.kodi_donor_radio/'):
@@ -240,7 +246,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(200, {'ads': []})
         manager = self.server.relay.manager
         try:
-            cancel = manager.begin_selection()
+            cancel = manager.begin_selection(reserved)
         except RuntimeError:
             return self._reply(200, {'ads': [], 'superseded': True})
         try:
@@ -258,6 +264,21 @@ class _Handler(BaseHTTPRequestHandler):
             # A newer selection owns playback; the caller must not start anything.
             return self._reply(200, {'ads': [], 'superseded': True})
         self._reply(200, {'ads': ads})
+
+    def _reserve_selection(self):
+        lengths = self.headers.get_all('Content-Length', [])
+        if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 64:
+            return self._reply(400)
+        try:
+            if json.loads(self.rfile.read(int(lengths[0]))) != {}:
+                return self._reply(400)
+        except (ValueError, UnicodeError):
+            return self._reply(400)
+        try:
+            selection = self.server.relay.manager.reserve_selection()
+        except RuntimeError:
+            return self._reply(502)
+        self._reply(200, {'selection': selection})
 
     def _network_ad(self):
         network = self.server.relay.network_ads
