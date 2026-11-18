@@ -583,30 +583,35 @@ def test_station_continuation_carries_and_checks_its_selection():
         follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
         control.prepare_network_ads(STATION, follow)
         [item] = svc._items.values()
-        assert item.next_url == follow + '&selection=1'
-        server.manager.end_selection(server.manager.begin_selection())  # Newer choice: 2.
+        assert item.next_url.startswith(follow + '&continuation=')
+        token = parse_qs(urlsplit(item.next_url).query)['continuation'][0]
+        server.manager.end_selection(server.manager.begin_selection())  # Newer choice.
         with pytest.raises(SelectionSuperseded):
-            control.create(STATION, selection=1)
+            control.create(STATION, continuation=token)
         assert server.manager.selection_count() == 2  # The stale continuation did not count.
+        payload = {k: getattr(STATION, k) for k in ('uuid', 'name', 'url', 'codec', 'hls')}
         with pytest.raises(OSError) as caught:
-            ControlClient(descriptor)._request('POST', '/sessions', dict(
-                json.loads(json.dumps({k: getattr(STATION, k) for k in
-                                       ('uuid', 'name', 'url', 'codec', 'hls')})), selection=True))
-        assert not isinstance(caught.value, SelectionSuperseded)  # A bool selection is a 400.
+            control._request('POST', '/sessions', dict(payload, continuation='X' * 32))
+        assert not isinstance(caught.value, SelectionSuperseded)  # A malformed token is a 400.
 
 
 def test_replaying_a_station_continuation_is_a_plain_choice():
+    from sessions import SelectionSuperseded
     manager = SessionManager()
     manager.resolver = lambda url, client, cancel: (_ for _ in ()).throw(OSError('offline'))
-    manager.end_selection(manager.begin_selection())  # The break: selection 1.
+    first = manager.register_continuation(manager.begin_selection().selection)
+    manager.end_selection(manager._pending)
     with pytest.raises(OSError):
-        manager.create(STATION, selection=1)  # Its hand-off runs (the stream is offline here).
+        manager.create(STATION, continuation=first)  # Its hand-off runs (stream offline here).
+    for _ in range(3):
+        manager.end_selection(manager.begin_selection())  # Other stations, other breaks.
     with pytest.raises(OSError):
-        manager.create(STATION, selection=1)  # The listener replays that item: not refused.
+        manager.create(STATION, continuation=first)  # The listener replays that item.
     with pytest.raises(OSError):
-        manager.create(STATION, selection=99)  # A URL from an earlier service run.
+        manager.create(STATION, continuation='0' * 32)  # A URL from an earlier service run.
+    stale = manager.register_continuation(manager.begin_selection().selection)
+    manager.end_selection(manager._pending)
     manager.end_selection(manager.begin_selection())
-    from sessions import SelectionSuperseded
     with pytest.raises(SelectionSuperseded):
-        manager.create(STATION, selection=manager.selection_count() - 1)  # A stale hand-off.
+        manager.create(STATION, continuation=stale)  # A hand-off behind a newer choice.
     manager.close()

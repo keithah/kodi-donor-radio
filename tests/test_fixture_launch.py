@@ -293,8 +293,18 @@ def test_fixture_launch_nonce_rejects_malformed_control_response(monkeypatch, re
 def test_fixture_reservation_supersedes_a_pending_break_continuation(launches):
     from sessions import SelectionSuperseded
     l = launches
-    l.manager.end_selection(l.manager.begin_selection())  # A pre-roll break: selection 1.
+    selection = l.manager.begin_selection()
+    token = l.manager.register_continuation(selection.selection)
+    l.manager.end_selection(selection)
     nonce = l.manager.reserve_fixture_launch(l.station.uuid)  # The listener picks a fixture.
     with pytest.raises(SelectionSuperseded):
-        l.manager.create(l.station, selection=1)  # The break's hand-off yields.
+        l.manager.create(l.station, continuation=token)  # The break's hand-off yields.
     assert nonce in l.manager._fixture_launches  # The new ticket survives.
+
+
+def test_cancelled_fixture_launch_leaves_the_playing_break_alone(launches):
+    l = launches
+    selection = l.manager.begin_selection()
+    l.manager.end_selection(selection)
+    l.manager.cancel_fixture_launch(l.manager.reserve_fixture_launch(l.station.uuid))
+    assert l.manager.selection_count() == selection.selection  # The break still owns playback.

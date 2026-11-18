@@ -3036,20 +3036,20 @@ def test_station_continuation_passes_selection_and_yields_quietly(kodi, monkeypa
     runtime, state, _ = kodi
     directory(monkeypatch, runtime)
     calls = []
-    def create(station, selection=None):
-        calls.append(selection)
+    def create(station, continuation=None):
+        calls.append(continuation)
         raise SelectionSuperseded()
     client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64), create=create)
     monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
     errors = []
     monkeypatch.setattr(runtime, '_error', errors.append)
-    route(runtime, mode='play', uuid='station-1', ads='0', selection='7')
-    assert calls == [7] and errors == [] and state.resolved[0][0] is False
+    route(runtime, mode='play', uuid='station-1', ads='0', continuation='c' * 32)
+    assert calls == ['c' * 32] and errors == [] and state.resolved[0][0] is False
 
 
-@pytest.mark.parametrize('params', [{'selection': '7'}, {'ads': '0', 'selection': '07'},
-                                    {'ads': '0', 'selection': 'x'}])
-def test_selection_is_only_accepted_on_a_station_continuation(kodi, monkeypatch, params):
+@pytest.mark.parametrize('params', [{'continuation': 'c' * 32}, {'ads': '0', 'continuation': 'C' * 32},
+                                    {'ads': '0', 'continuation': 'c' * 31}])
+def test_continuation_is_only_accepted_on_a_station_continuation(kodi, monkeypatch, params):
     runtime, state, _ = kodi
     directory(monkeypatch, runtime)
     created = []

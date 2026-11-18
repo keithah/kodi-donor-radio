@@ -179,11 +179,11 @@ class _Handler(BaseHTTPRequestHandler):
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls'}
             if not isinstance(data, dict) or set(data) not in (
-                    fields, fields | {'fixture_launch_nonce'}, fields | {'selection'}):
+                    fields, fields | {'fixture_launch_nonce'}, fields | {'continuation'}):
                 return self._reply(400)
-            selection = data.pop('selection', None)
-            if selection is not None and (self.path != '/sessions' or type(selection) is not int
-                                          or not 0 < selection < 2 ** 53):
+            continuation = data.pop('continuation', None)
+            if continuation is not None and (self.path != '/sessions' or not isinstance(continuation, str)
+                                             or re.fullmatch(r'[a-f0-9]{32}', continuation) is None):
                 return self._reply(400)
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
@@ -197,7 +197,7 @@ class _Handler(BaseHTTPRequestHandler):
                 session = self.server.relay.manager.create_preview(station)
             else:
                 session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce,
-                                                           selection=selection)
+                                                           continuation=continuation)
         except SelectionSuperseded:
             return self._reply(409)
         except (ValueError, UnicodeError):
@@ -246,7 +246,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if follow_url:
                 # The station continuation yields if the listener chooses again.
-                follow_url += '&selection=%d' % cancel.selection
+                follow_url += '&continuation=' + manager.register_continuation(cancel.selection)
             ads = network.prepare(station, cancel, follow_url, selection=cancel.selection)
         except Exception:
             ads = []

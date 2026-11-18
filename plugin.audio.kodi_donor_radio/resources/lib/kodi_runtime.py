@@ -1187,14 +1187,13 @@ def run_plugin(argv):
                         player = xbmc.Player()
                         _playback_arbiter().start(lambda: player.play(ads[0]['url'], entry))
                     return
-            selection = params.get('selection')
-            if selection is not None:
-                if action != 'play' or params.get('ads') != '0' or not re.fullmatch(r'[1-9][0-9]{0,15}', selection):
-                    raise ValueError('Invalid selection')
-                selection = int(selection)
+            continuation = params.get('continuation')
+            if continuation is not None and (action != 'play' or params.get('ads') != '0'
+                                             or not re.fullmatch(r'[a-f0-9]{32}', continuation)):
+                raise ValueError('Invalid continuation')
             session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
-                                 if launch_nonce is not None else client.create(station, selection=selection)
-                                 if selection is not None else client.create(station),
+                                 if launch_nonce is not None else client.create(station, continuation=continuation)
+                                 if continuation is not None else client.create(station),
                                  monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')

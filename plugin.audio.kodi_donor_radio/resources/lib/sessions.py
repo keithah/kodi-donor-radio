@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """One cancellable playback session with opaque, bounded media resources."""
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -400,7 +400,7 @@ class SessionManager:
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
         self._selections = 0  # Deliberate selections (creates and pre-rolls) so far.
-        self._continued = deque(maxlen=32)  # Continuations already run.
+        self._continuations = OrderedDict()  # Outstanding break token -> its selection.
         self._fixture_launches = {}
 
     def _expire_fixture_launches(self):
@@ -432,7 +432,6 @@ class SessionManager:
             # A queued resolver from an older click cannot reclaim playback,
             # nor can a pre-roll break's pending station continuation.
             self._discard_fixture_launches()
-            self._selections += 1
             nonce = secrets.token_hex(24)
             self._fixture_launches[nonce] = _FixtureLaunch(
                 fixture_id, origin(config.fixture_origin), time.monotonic() + _FIXTURE_LAUNCH_QUEUE_TTL)
@@ -502,7 +501,16 @@ class SessionManager:
                 self._pending = None
             return cancel.is_set()
 
-    def create(self, station, fixture_launch_nonce=None, selection=None):
+    def register_continuation(self, selection):
+        """One-shot token for a pre-roll break's station continuation."""
+        token = secrets.token_hex(16)
+        with self._lock:
+            self._continuations[token] = selection
+            while len(self._continuations) > 32:
+                self._continuations.popitem(last=False)
+        return token
+
+    def create(self, station, fixture_launch_nonce=None, continuation=None):
         # Register selection order before queuing behind an older resolver.
         # The event is also an ownership token: stale waiters cannot replace it.
         # A pre-roll continuation passes its break's selection number and
@@ -510,15 +518,13 @@ class SessionManager:
         with self._lock:
             if self._closed:
                 raise RuntimeError('Manager closed')
+            # An unknown token (already used, from an earlier service run, or
+            # long evicted) is a replay of the playing item: a plain choice.
+            selection = self._continuations.pop(continuation, None) if continuation else None
             if selection is not None:
-                if selection in self._continued or selection > self._selections:
-                    # A replay of a station that already took over from its
-                    # break, or a URL from an earlier service run: a plain choice.
-                    selection = None
-                elif selection != self._selections:
+                self._expire_fixture_launches()
+                if selection != self._selections or self._fixture_launches:
                     raise SelectionSuperseded('A newer selection owns playback')
-                else:
-                    self._continued.append(selection)
             launch = None
             if fixture_launch_nonce is not None:
                 self._expire_fixture_launches()
