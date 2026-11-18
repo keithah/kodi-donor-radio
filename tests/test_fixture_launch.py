@@ -308,3 +308,10 @@ def test_cancelled_fixture_launch_leaves_the_playing_break_alone(launches):
     l.manager.end_selection(selection)
     l.manager.cancel_fixture_launch(l.manager.reserve_fixture_launch(l.station.uuid))
     assert l.manager.selection_count() == selection.selection  # The break still owns playback.
+
+
+def test_fixture_reservation_cancels_an_in_flight_preroll(launches):
+    l = launches
+    selection = l.manager.begin_selection()
+    l.manager.reserve_fixture_launch(l.station.uuid)
+    assert l.manager.end_selection(selection) is True  # The pre-roll reply says superseded.

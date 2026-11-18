@@ -430,8 +430,11 @@ class SessionManager:
                 raise ValueError('Fixture launch unavailable')
             # One outstanding launch is also the latest explicit selection.
             # A queued resolver from an older click cannot reclaim playback,
-            # nor can a pre-roll break's pending station continuation.
+            # nor can a pre-roll break's pending station continuation, and an
+            # in-flight pre-roll or station request is cancelled.
             self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
             nonce = secrets.token_hex(24)
             self._fixture_launches[nonce] = _FixtureLaunch(
                 fixture_id, origin(config.fixture_origin), time.monotonic() + _FIXTURE_LAUNCH_QUEUE_TTL)
