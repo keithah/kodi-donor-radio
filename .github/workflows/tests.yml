@@ -34,12 +34,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       # FFmpeg and eSpeak let the generated-ad-audio and decoder tests run
-      # instead of skipping.
+      # instead of skipping. Homebrew's `espeak` formula is disabled; espeak-ng
+      # installs an `espeak` executable.
       - name: Install audio tools
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: brew install ffmpeg espeak
+        run: brew install ffmpeg espeak-ng
       - name: Install pytest
         run: python -m pip install "pytest>=7,<9"
       - name: Run tests
