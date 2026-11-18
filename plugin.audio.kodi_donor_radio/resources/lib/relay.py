@@ -240,8 +240,9 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception:
             ads = []
         finally:
-            superseded = cancel.is_set()
-            manager.end_selection(cancel)
+            # Read the flag and release under one lock, so a newer selection
+            # cannot slip in between and leave stale ads looking current.
+            superseded = manager.end_selection(cancel)
         if superseded:
             # A newer selection owns playback; the caller must not start anything.
             return self._reply(200, {'ads': [], 'superseded': True})

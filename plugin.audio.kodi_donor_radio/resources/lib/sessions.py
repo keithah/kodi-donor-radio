@@ -486,9 +486,11 @@ class SessionManager:
             return self._pending is not None
 
     def end_selection(self, cancel):
+        """Release a selection; True if a newer one superseded it first."""
         with self._lock:
             if self._pending is cancel:
                 self._pending = None
+            return cancel.is_set()
 
     def create(self, station, fixture_launch_nonce=None):
         # Register selection order before queuing behind an older resolver.

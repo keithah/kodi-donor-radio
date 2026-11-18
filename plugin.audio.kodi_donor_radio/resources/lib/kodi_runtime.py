@@ -164,6 +164,16 @@ def ad_settings():
     return AdConfig(True, bool(preroll), bool(midroll), value, fixture)
 
 
+def _load_network_ads(service):
+    """Apply network pre-roll settings; an invalid tag disables pre-roll visibly."""
+    try:
+        service.config = network_ad_settings()
+    except ValueError:
+        service.config = NetworkAdConfig()
+        service._emit({'event': 'network_config_invalid'})
+        xbmcgui.Dialog().notification(text(30000), text(30213), xbmcgui.NOTIFICATION_ERROR, 5000)
+
+
 def network_ad_settings():
     """Snapshot the opt-in network pre-roll settings; invalid tags raise."""
     addon = xbmcaddon.Addon()
@@ -1691,10 +1701,7 @@ def run_service():
                                      ad_config=config, cache_root=profile,
                                      icy_marker_store=IcyMarkerStore(profile))
             network_ads = NetworkAdService(HttpClient(policy=UrlPolicy()), sink=sink)
-            try:
-                network_ads.config = network_ad_settings()
-            except ValueError:
-                network_ads.config = NetworkAdConfig()
+            _load_network_ads(network_ads)
             server = RelayServer(manager=manager, network_ads=network_ads)
             descriptor = server.start()
             player = RelayPlayer(manager, descriptor.port, fixture_origin(), network_ads)
@@ -1707,10 +1714,7 @@ def run_service():
                     except ValueError:
                         # An incomplete edit must not retire the playing session.
                         pass
-                    try:
-                        network_ads.config = network_ad_settings()
-                    except ValueError:
-                        network_ads.config = NetworkAdConfig()
+                    _load_network_ads(network_ads)
                 manager.expire()
                 player.sample_ads()
                 if monitor.waitForAbort(.25): break

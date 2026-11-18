@@ -2917,3 +2917,16 @@ def test_pending_selection_drops_the_chain_instead_of_claiming_order(kodi):
     player.sample_ads()
     assert played==[] and player.network_token is None
     assert finished==[('a'*48,'ended'),('b'*48,'switched')]
+
+
+def test_invalid_network_tag_disables_preroll_visibly(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    emitted = []
+    service = SimpleNamespace(config=None, _emit=emitted.append)
+    def invalid():
+        raise ValueError('tag')
+    monkeypatch.setattr(runtime, 'network_ad_settings', invalid)
+    runtime._load_network_ads(service)
+    assert service.config.enabled is False
+    assert emitted == [{'event': 'network_config_invalid'}]
+    assert any('30213' in str(note) for note in state.notifications)

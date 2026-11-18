@@ -518,3 +518,12 @@ def test_preroll_selection_cancels_an_older_pending_create():
     manager.end_selection(newer)
     assert manager._pending is None
     manager.close()
+
+
+def test_release_reports_a_supersession_that_lands_before_it():
+    manager = SessionManager()
+    mine = manager.begin_selection()
+    newer = manager.begin_selection()
+    assert manager.end_selection(mine) is True and manager._pending is newer
+    assert manager.end_selection(newer) is False and manager._pending is None
+    manager.close()

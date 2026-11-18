@@ -643,3 +643,7 @@ msgstr ""
 msgctxt "#30212"
 msgid "Yes"
 msgstr ""
+
+msgctxt "#30213"
+msgid "The network pre-roll tag is invalid; network pre-roll is off."
+msgstr ""
