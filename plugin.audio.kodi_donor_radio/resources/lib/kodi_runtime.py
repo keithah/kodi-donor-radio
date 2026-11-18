@@ -202,6 +202,23 @@ def network_ad_settings():
         gdpr=gdpr, consent=value('network_consent'), schain=value('network_schain'))
 
 
+def _drop_queued_listing():
+    """Clear the music queue Kodi built from one of this add-on's listings.
+
+    Clicking a station queues every row; a finite ad would end and Kodi would
+    advance to the next station, past the break, which chains its own items.
+    A queue whose current row is not this add-on's play URL is left alone.
+    """
+    playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+    try:
+        position = playlist.getposition()
+        current = playlist[position].getPath() if 0 <= position < playlist.size() else ''
+    except (RuntimeError, IndexError):
+        return
+    if current.startswith(PLUGIN_ROOT + '?') and 'mode=play' in current:
+        playlist.clear()
+
+
 def _network_entry(item, station, index, count):
     label = text(30180) if count == 1 else '%s %d/%d' % (text(30180), index, count)
     entry = xbmcgui.ListItem(label='%s · %s' % (label, station.name), path=item['url'])
@@ -1531,12 +1548,7 @@ class RelayPlayer(xbmc.Player):
         if token is None:
             self.network_ads.forget_first()  # Another item owns the player now.
         else:
-            # Clicking a station in a listing queues the whole listing; a finite
-            # ad would end and Kodi would advance to the next station, past this
-            # break. The break chains its own items, so drop the queue.
-            playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
-            if playlist.size() > 1:
-                playlist.clear()
+            _drop_queued_listing()
         if self._network_next is not None:
             # Something else started before the chain continued; drop it.
             follow, self._network_next = self._network_next, None
@@ -1678,6 +1690,7 @@ class RelayPlayer(xbmc.Player):
         first = self.network_ads.unstarted_first() if self.network_ads is not None else None
         if first is not None:
             # The first creative failed to open before any started callback.
+            _drop_queued_listing()
             self._track(first)
             self._network_finished('error')
             return

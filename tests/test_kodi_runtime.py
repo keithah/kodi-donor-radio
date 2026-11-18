@@ -3266,31 +3266,56 @@ def test_other_item_replacing_an_opening_first_ad_clears_its_fallback(kodi):
     assert played == []
 
 
-def test_a_starting_ad_drops_the_listing_kodi_queued(kodi):
-    # Kodi queues every row of a listing when one station is clicked; a finite
-    # ad must not let Kodi advance to the next station.
-    runtime, state, _ = kodi
-    svc, client, clock, events = nt.service(nt.inline('a', '1'))
+_ROW = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid='
+
+
+def _queue_player(runtime, state, rows, *ads):
+    svc, client, clock, events = nt.service(*(ads or (nt.inline('a', '1'),)))
     svc.base_url = 'http://127.0.0.1:32123'
-    [ad] = svc.prepare(nt.STATION, threading.Event(), '')
+    prepared = svc.prepare(nt.STATION, threading.Event(), '')
     player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
                                  32123, network_ads=svc)
-    state.playlist[:] = ['station-1', 'station-2', 'station-3']
+    state.playlist[:] = rows
+    return svc, player, prepared
+
+
+@pytest.mark.parametrize('rows', [[_ROW + 's1', _ROW + 's2', _ROW + 's3'], [_ROW + 's1']])
+def test_a_starting_ad_drops_the_listing_kodi_queued(kodi, rows):
+    # Kodi queues every row of a listing when one station is clicked (a single
+    # row repeats with repeat-all); a finite ad must not let Kodi advance.
+    runtime, state, _ = kodi
+    svc, player, [ad] = _queue_player(runtime, state, rows)
     player.file = ad['url']; player.playing = True; player.onAVStarted()
     svc.close()
     assert state.playlist == []
 
 
+def test_an_ad_keeps_a_queue_that_is_not_this_addons_listing(kodi):
+    runtime, state, _ = kodi
+    svc, player, [ad] = _queue_player(runtime, state, ['/music/a.mp3', '/music/b.mp3'])
+    player.file = ad['url']; player.playing = True; player.onAVStarted()
+    svc.close()
+    assert state.playlist == ['/music/a.mp3', '/music/b.mp3']
+
+
 def test_a_station_start_keeps_the_queue(kodi):
     runtime, state, _ = kodi
-    svc, *_ = nt.service(nt.inline('a', '1'))
-    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
-                                 32123, network_ads=svc)
-    state.playlist[:] = ['station-1', 'station-2']
+    svc, player, _ = _queue_player(runtime, state, [_ROW + 's1', _ROW + 's2'])
     player.file = 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48
     player.playing = True; player.onAVStarted()
     svc.close()
-    assert state.playlist == ['station-1', 'station-2']
+    assert state.playlist == [_ROW + 's1', _ROW + 's2']
+
+
+def test_a_first_ad_open_failure_also_drops_the_queued_listing(kodi):
+    runtime, state, _ = kodi
+    svc, player, (first, second) = _queue_player(runtime, state, [_ROW + 's1', _ROW + 's2'],
+                                                 nt.inline('a', '1'), nt.inline('b', '2'))
+    svc.media(first['token'])  # Kodi asked for its bytes, then failed to open it.
+    player.onPlayBackError()
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads(); svc.close()
+    assert played == [second['url']] and state.playlist == []
 
 
 def test_a_chained_ad_is_labelled_and_skips_content_lookup(kodi):

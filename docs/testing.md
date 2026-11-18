@@ -62,7 +62,7 @@ a second `Player.Open` of B while A's pre-roll plays.
 | Same switch to B (`ads=0`), at 8df6aaf | A's second ad was dropped as `switched` at 0.0 s without any beacon; B's station started 1.8 s after the switch |
 | A, no fill, three times, at 8df6aaf | A's station metadata arrived 0.4 s after each empty response |
 | Click a station in a 50-row search listing (GUI `Input.Select`), at 8b0f676 | Kodi queued the whole listing; when the first ad ended Kodi advanced to the next row, which played its own pre-roll, and so on down the list |
-| Same click, with the queue cleared when an ad starts | Ad 1 (15 s) then ad 2 (60 s, labelled Advertisement) with all 10 beacons, then the clicked station 2.7 s later; Kodi did not advance |
+| Same click, with the queue cleared when an ad starts (only when the queue's current row is this add-on's play URL, which Kodi still reports after the resolve) | Ad 1 (15 s) then ad 2 (60 s, labelled Advertisement) with all 10 beacons, then the clicked station 2.7 s later; Kodi did not advance |
 
 Limits: positions are Kodi's reported player clock, not independently measured
 audible output. The test zone does not always fill: on Kodi 22 it returned no
