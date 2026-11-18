@@ -429,8 +429,10 @@ class SessionManager:
                     or not 1 <= urlsplit(config.fixture_origin).port <= 65535):
                 raise ValueError('Fixture launch unavailable')
             # One outstanding launch is also the latest explicit selection.
-            # A queued resolver from an older click cannot reclaim playback.
+            # A queued resolver from an older click cannot reclaim playback,
+            # nor can a pre-roll break's pending station continuation.
             self._discard_fixture_launches()
+            self._selections += 1
             nonce = secrets.token_hex(24)
             self._fixture_launches[nonce] = _FixtureLaunch(
                 fixture_id, origin(config.fixture_origin), time.monotonic() + _FIXTURE_LAUNCH_QUEUE_TTL)
