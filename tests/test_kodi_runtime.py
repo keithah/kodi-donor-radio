@@ -3231,20 +3231,36 @@ def _first_ad_player(runtime, predecessor):
 def test_user_stop_while_first_ad_opens_does_not_resume_the_break(kodi):
     runtime, state, _ = kodi
     svc, player, _ = _first_ad_player(runtime, 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48)
-    player.onPlayBackStopped()  # The listener stopped; nothing is opening.
+    player.onPlayBackStopped()  # The replaced station's stop.
+    player.onPlayBackStopped()  # The listener stopped the opening ad.
     player.onPlayBackError()    # An unrelated item then fails to open.
     played = []; player.play = lambda url, item=None: played.append(url)
     player.sample_ads(); svc.close()
     assert played == []
 
 
-def test_trailing_stop_of_replaced_library_item_keeps_first_ad_fallback(kodi):
+@pytest.mark.parametrize('predecessor', ['smb://nas/music/song.mp3',
+                                         'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48])
+def test_late_stop_of_replaced_item_keeps_first_ad_fallback(kodi, predecessor):
+    # Kodi may deliver the replaced item's Stopped after the first ad already
+    # failed, when nothing is playing or opening any more.
     runtime, state, _ = kodi
-    svc, player, second = _first_ad_player(runtime, 'smb://nas/music/song.mp3')
-    state.player_caching = True
-    player.onPlayBackStopped()  # Stale stop for the song while the ad opens.
-    state.player_caching = False
+    svc, player, second = _first_ad_player(runtime, predecessor)
+    player.onPlayBackStopped()
     player.onPlayBackError()
     played = []; player.play = lambda url, item=None: played.append(url)
     player.sample_ads(); svc.close()
     assert played == [second['url']]
+
+
+def test_other_item_replacing_an_opening_first_ad_clears_its_fallback(kodi):
+    runtime, state, _ = kodi
+    svc, player, _ = _first_ad_player(runtime, 'smb://nas/music/song.mp3')
+    player.onPlayBackStopped()  # The song the break replaced.
+    state.player_caching = True
+    player.onPlayBackStopped()  # The opening ad, replaced by another item.
+    state.player_caching = False
+    player.onPlayBackError()    # That other item fails.
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads(); svc.close()
+    assert played == []

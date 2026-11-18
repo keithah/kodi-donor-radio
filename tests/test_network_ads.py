@@ -833,3 +833,9 @@ def test_non_ascii_sequence_does_not_discard_the_pod():
     resolver, _ = _resolver(vast(inline('a', '1'), inline('b', '²')))
     ads = resolver.resolve(TEST_TAG, {}, threading.Event(), 2)
     assert [ad.ad_id for ad in ads] == ['a']
+
+
+def test_token_for_ignores_a_url_urlsplit_rejects():
+    svc, *_ = service(inline('a', '1'))
+    assert svc.token_for('http://[bad/x.mp3') is None
+    svc.close()

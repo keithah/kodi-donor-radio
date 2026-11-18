@@ -1506,6 +1506,7 @@ class RelayPlayer(xbmc.Player):
     def __init__(self, manager, port, fixture_origin=None, network_ads=None):
         super().__init__()
         self.manager, self.port, self.owned = manager, port, None
+        self._item_active = False
         self.network_ads = network_ads
         self.network_token = None
         self._network_generation = None  # Selection count when network_token was set.
@@ -1601,6 +1602,7 @@ class RelayPlayer(xbmc.Player):
                                  xbmc.getCondVisibility('Player.Paused'))
 
     def _started(self, av_started):
+        self._item_active = True  # Kodi's next Stopped/Ended/Error ends this item.
         self._network_started()
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
@@ -1644,16 +1646,20 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
-        # Kodi sends Stopped for the item a new pick replaces while it is already
-        # opening the new one; that stale stop must not clear the new break's
-        # first-creative record. A real stop (nothing playing or opening) does.
-        stale = self.isPlaying() or xbmc.getCondVisibility('Player.Caching')
-        if self.network_ads is not None and not stale:
+        # Kodi sends Stopped for the item a new pick replaces, possibly after the
+        # new item already failed, so the player's state at this callback says
+        # nothing. A stop that ends an item that started is that replaced item's
+        # and keeps the new break's first-creative record; a stop with nothing
+        # started since (the opening first ad itself was stopped) clears it.
+        replaced, self._item_active = self._item_active, False
+        if self.network_ads is not None and not replaced:
             self.network_ads.forget_first()
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):
+        self._item_active = False
         if not self._network_finished('ended'): self._finished('source_end')
     def onPlayBackError(self):
+        self._item_active = False
         if self._network_finished('error'):
             return
         first = self.network_ads.unstarted_first() if self.network_ads is not None else None

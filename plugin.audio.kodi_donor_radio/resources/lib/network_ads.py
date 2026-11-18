@@ -339,7 +339,7 @@ class NetworkVastResolver:
             return []
         ads = _children(root, 'Ad')
         # ASCII digits only: str.isdigit() accepts characters int() rejects.
-        pod = sorted((a for a in ads if re.fullmatch(r'[0-9]+', a.attrib.get('sequence', ''))),
+        pod = sorted((a for a in ads if re.fullmatch(r'[0-9]{1,18}', a.attrib.get('sequence', ''))),
                      key=lambda a: int(a.attrib['sequence']))
         # A pod wins; otherwise standalone ads form a buffet and we take the first ones.
         chosen = (pod or [a for a in ads if not a.attrib.get('sequence')])[:max(1, min(max_ads, _MAX_ADS))]
@@ -674,7 +674,10 @@ class NetworkAdService:
             return item.selection if item is not None else None
 
     def token_for(self, url):
-        parts = urlsplit(url or '')
+        try:
+            parts = urlsplit(url or '')
+        except ValueError:
+            return None  # Another item's malformed URL is simply not ours.
         match = re.fullmatch(r'/network-ads/([0-9a-f]{48})\.mp3', parts.path)
         if not match or '%s://%s' % (parts.scheme, parts.netloc) != self.base_url or parts.query:
             return None
