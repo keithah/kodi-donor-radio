@@ -216,7 +216,7 @@ def test_private_file_exchange_echoes_bytes_and_has_no_directory_scan(tmp_path,m
     transport.close()
 
 
-@pytest.mark.parametrize('fault',['symlink','oversize','wrong_hash','wrong_stage','future','late'])
+@pytest.mark.parametrize('fault',['symlink','oversize','wrong_hash','wrong_stage','future','late','readable','empty'])
 def test_bad_response_retires_without_retry(tmp_path,fault):
     import os,threading,time,json
     p,now,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
@@ -229,7 +229,8 @@ def test_bad_response_retires_without_retry(tmp_path,fault):
         if fault=='future':response['check_start_ns']+=1;response['check_end_ns']+=1
         if fault=='late':now[0]+=20_000_001
         name=transport.path/'response-000001.json';temp=transport.path/'.reply'
-        temp.write_bytes(b'x'*4097 if fault=='oversize' else auth.canonical(response));temp.chmod(0o600)
+        temp.write_bytes(b'x'*4097 if fault=='oversize' else b'' if fault=='empty' else auth.canonical(response))
+        temp.chmod(0o644 if fault=='readable' else 0o600)
         if fault=='symlink':name.symlink_to(temp)
         else:temp.rename(name)
     worker=threading.Thread(target=responder);worker.start()
