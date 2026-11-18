@@ -527,3 +527,23 @@ def test_release_reports_a_supersession_that_lands_before_it():
     assert manager.end_selection(mine) is True and manager._pending is newer
     assert manager.end_selection(newer) is False and manager._pending is None
     manager.close()
+
+
+def test_a_preview_is_not_a_pending_selection():
+    manager = SessionManager()
+    gate = threading.Event()
+    def resolver(url, client, cancel):
+        gate.wait(5)
+        raise OSError('offline')
+    manager.resolver = resolver
+    worker = threading.Thread(target=lambda: pytest.raises(Exception, manager.create_preview, STATION))
+    worker.start()
+    deadline = time.monotonic() + 5
+    while manager._pending is None and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert manager._pending is not None and not manager.selection_pending()
+    gate.set(); worker.join(5)
+    selection = manager.begin_selection()
+    assert manager.selection_pending()
+    manager.end_selection(selection)
+    manager.close()

@@ -1506,15 +1506,13 @@ class RelayPlayer(xbmc.Player):
         if self.network_ads is None:
             return
         if self._network_next is not None:
-            follow, self._network_next = self._network_next, None
             if self.manager.selection_pending():
-                # The listener chose another station meanwhile; continuing this
-                # break would claim selection order over that newer choice.
-                token = self.network_ads.token_for(follow)
-                if token is not None:
-                    self.network_ads.finish(token, 'switched')
-                self.network_token = None
+                # The listener chose another station meanwhile. Continuing now
+                # would claim selection order over that choice, so wait: if it
+                # starts playback, the switch drops this chain; if it fails or
+                # is abandoned, the break carries on.
                 return
+            follow, self._network_next = self._network_next, None
             # Track a chained creative now, so an open failure before any
             # started callback still falls through to the next item.
             self.network_token = self.network_ads.token_for(follow)

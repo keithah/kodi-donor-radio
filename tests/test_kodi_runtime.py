@@ -2899,7 +2899,7 @@ def test_superseded_preroll_starts_neither_ad_nor_its_station(kodi, monkeypatch)
     assert created == [] and state.resolved == [(False, state.resolved[0][1])]
 
 
-def test_pending_selection_drops_the_chain_instead_of_claiming_order(kodi):
+def test_pending_selection_defers_the_chain_instead_of_claiming_order(kodi):
     runtime,_,_=kodi
     base='http://127.0.0.1:32123/network-ads/'
     finished=[]; pending=[False]
@@ -2914,9 +2914,34 @@ def test_pending_selection_drops_the_chain_instead_of_claiming_order(kodi):
     player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
     pending[0]=True  # The listener picked another station; its request is in flight.
     player.playing=False; player.onPlayBackEnded()
+    player.sample_ads(); player.sample_ads()
+    assert played==[] and finished==[('a'*48,'ended')]  # Waits; claims nothing.
+    pending[0]=False  # That selection failed or was abandoned: the break carries on.
     player.sample_ads()
-    assert played==[] and player.network_token is None
-    assert finished==[('a'*48,'ended'),('b'*48,'switched')]
+    assert played==[base+'b'*48+'.mp3']
+
+
+def test_newer_selection_that_starts_drops_the_waiting_chain(kodi):
+    runtime,_,_=kodi
+    base='http://127.0.0.1:32123/network-ads/'
+    finished=[]; pending=[False]
+    network=SimpleNamespace(
+        token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
+        finish=lambda token, reason: finished.append((token, reason)) or (
+            base+'b'*48+'.mp3' if token=='a'*48 else None),
+        observe=lambda *args: None, forget_first=lambda: None)
+    manager=SimpleNamespace(stop=lambda _: None, selection_pending=lambda: pending[0])
+    player=runtime.RelayPlayer(manager,32123,network_ads=network)
+    played=[]; player.play=lambda url, item=None: played.append(url)
+    player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
+    pending[0]=True
+    player.playing=False; player.onPlayBackEnded()
+    player.sample_ads()
+    pending[0]=False
+    player.playing=True; player.file='http://127.0.0.1:32123/media/'+'c'*48+'/'+'d'*48
+    player.onAVStarted()  # The newer station starts.
+    player.sample_ads()
+    assert played==[] and finished==[('a'*48,'ended'),('b'*48,'switched')]
 
 
 def test_invalid_network_tag_disables_preroll_visibly(kodi, monkeypatch):
