@@ -18,7 +18,7 @@ from hls import parse_playlist, rewrite_playlist
 from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse, read_bounded
 from icy import IcyDecoder
 from models import Event, Station
-from sessions import ResourceLimit, SessionManager
+from sessions import ResourceLimit, SelectionSuperseded, SessionManager
 from ad_session import CompositionFailure, SourceUnavailable
 from ad_media import extract_adts
 
@@ -178,7 +178,12 @@ class _Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(int(lengths[0]))
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls'}
-            if not isinstance(data, dict) or set(data) not in (fields, fields | {'fixture_launch_nonce'}):
+            if not isinstance(data, dict) or set(data) not in (
+                    fields, fields | {'fixture_launch_nonce'}, fields | {'selection'}):
+                return self._reply(400)
+            selection = data.pop('selection', None)
+            if selection is not None and (self.path != '/sessions' or type(selection) is not int
+                                          or not 0 < selection < 2 ** 53):
                 return self._reply(400)
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
@@ -191,7 +196,10 @@ class _Handler(BaseHTTPRequestHandler):
             if self.path == '/preview-sessions':
                 session = self.server.relay.manager.create_preview(station)
             else:
-                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce)
+                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce,
+                                                           selection=selection)
+        except SelectionSuperseded:
+            return self._reply(409)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:
@@ -236,6 +244,9 @@ class _Handler(BaseHTTPRequestHandler):
         except RuntimeError:
             return self._reply(200, {'ads': [], 'superseded': True})
         try:
+            if follow_url:
+                # The station continuation yields if the listener chooses again.
+                follow_url += '&selection=%d' % cancel.selection
             ads = network.prepare(station, cancel, follow_url, selection=cancel.selection)
         except Exception:
             ads = []
@@ -737,6 +748,9 @@ class RelayServer:
             raise ValueError('Worker limit must be between one and eight')
         self.manager, self.worker_limit = manager or SessionManager(), worker_limit
         self.network_ads = network_ads
+        if network_ads is not None:
+            # Creatives of a superseded selection stop being served before they start.
+            network_ads.current_selection = self.manager.selection_count
         self.client_timeout = client_timeout
         self._server, self._thread = None, None
         self.descriptor = None

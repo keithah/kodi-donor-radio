@@ -559,3 +559,37 @@ def test_every_deliberate_create_counts_as_a_selection():
     manager.end_selection(manager.begin_selection())
     assert manager.selection_count() == 2
     manager.close()
+
+
+def test_newer_selection_stops_serving_unstarted_creatives():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    with relay(svc) as (server, descriptor):
+        follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+        first, second = ControlClient(descriptor).prepare_network_ads(STATION, follow)
+        assert svc.media(first['token']) == MP3
+        play(svc, clock, first['token'], 1)  # The first creative is on air.
+        server.manager.end_selection(server.manager.begin_selection())  # The listener chose again.
+        assert svc.media(first['token']) == MP3  # On air: keeps streaming.
+        assert svc.media(second['token']) is None  # Never started: refused.
+        status = get(descriptor.port, urlsplit(second['url']).path)[0]
+        assert status == 404
+
+
+def test_station_continuation_carries_and_checks_its_selection():
+    from control import SelectionSuperseded
+    svc, client, clock, events = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        control = ControlClient(descriptor)
+        follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+        control.prepare_network_ads(STATION, follow)
+        [item] = svc._items.values()
+        assert item.next_url == follow + '&selection=1'
+        server.manager.end_selection(server.manager.begin_selection())  # Newer choice: 2.
+        with pytest.raises(SelectionSuperseded):
+            control.create(STATION, selection=1)
+        assert server.manager.selection_count() == 2  # The stale continuation did not count.
+        with pytest.raises(OSError) as caught:
+            ControlClient(descriptor)._request('POST', '/sessions', dict(
+                json.loads(json.dumps({k: getattr(STATION, k) for k in
+                                       ('uuid', 'name', 'url', 'codec', 'hls')})), selection=True))
+        assert not isinstance(caught.value, SelectionSuperseded)  # A bool selection is a 400.

@@ -3029,3 +3029,34 @@ def test_break_abandoned_newer_selection_drops_chain(kodi):
     _newer_selection_fails(m)
     player.playing = False; player.onPlayBackEnded(); player.sample_ads(); player.sample_ads()
     assert played == [] and (_B, 'switched') in finished
+
+
+def test_station_continuation_passes_selection_and_yields_quietly(kodi, monkeypatch):
+    from control import SelectionSuperseded
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    calls = []
+    def create(station, selection=None):
+        calls.append(selection)
+        raise SelectionSuperseded()
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64), create=create)
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    errors = []
+    monkeypatch.setattr(runtime, '_error', errors.append)
+    route(runtime, mode='play', uuid='station-1', ads='0', selection='7')
+    assert calls == [7] and errors == [] and state.resolved[0][0] is False
+
+
+@pytest.mark.parametrize('params', [{'selection': '7'}, {'ads': '0', 'selection': '07'},
+                                    {'ads': '0', 'selection': 'x'}])
+def test_selection_is_only_accepted_on_a_station_continuation(kodi, monkeypatch, params):
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    created = []
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64),
+                             create=lambda *a, **kw: created.append(kw))
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    from network_ads import NetworkAdConfig
+    monkeypatch.setattr(runtime, 'network_ad_settings', lambda: NetworkAdConfig())
+    route(runtime, mode='play', uuid='station-1', **params)
+    assert created == [] and state.resolved[0][0] is False

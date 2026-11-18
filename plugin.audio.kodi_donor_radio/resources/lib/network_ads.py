@@ -488,6 +488,7 @@ class NetworkAdService:
         self._items = {}
         self._preparing = threading.BoundedSemaphore(_MAX_PREPARING)
         self._closing = threading.Event()
+        self.current_selection = None  # Callable: the session manager's selection count.
         self._first = None  # (token, prepared_at) of the newest break.
         self._beacons = _Beacons(client, self._emit)
 
@@ -614,10 +615,14 @@ class NetworkAdService:
     def media(self, token):
         if not _TOKEN.fullmatch(token or ''):
             return None
+        current = self.current_selection() if self.current_selection is not None else None
         with self._lock:
             item = self._items.get(token)
             if item is None or item.finished:
                 return None
+            if (current is not None and item.selection is not None
+                    and current != item.selection and not item.live):
+                return None  # The listener chose again before this creative started.
             item.requested = True
             return item.data
 

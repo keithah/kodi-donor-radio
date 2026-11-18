@@ -1187,8 +1187,14 @@ def run_plugin(argv):
                         player = xbmc.Player()
                         _playback_arbiter().start(lambda: player.play(ads[0]['url'], entry))
                     return
+            selection = params.get('selection')
+            if selection is not None:
+                if action != 'play' or params.get('ads') != '0' or not re.fullmatch(r'[1-9][0-9]{0,15}', selection):
+                    raise ValueError('Invalid selection')
+                selection = int(selection)
             session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
-                                 if launch_nonce is not None else client.create(station),
+                                 if launch_nonce is not None else client.create(station, selection=selection)
+                                 if selection is not None else client.create(station),
                                  monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')
@@ -1258,6 +1264,10 @@ def run_plugin(argv):
                 player = xbmc.Player()
                 _playback_arbiter().start(
                     lambda: player.play(playback_url, entry))
+        except SelectionSuperseded:
+            # A break's station continuation lost to a newer choice: say nothing.
+            if handle >= 0:
+                xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)

@@ -17,6 +17,10 @@ class SelectionSuperseded(Exception):
     """A newer station selection took over while this one was being prepared."""
 
 
+class _Conflict(OSError):
+    """HTTP 409 from the relay; callers that ignore it see an ordinary OSError."""
+
+
 class ControlClient:
     def __init__(self, descriptor, timeout=10):
         self.descriptor, self.timeout = descriptor, timeout
@@ -30,6 +34,8 @@ class ControlClient:
                               'Content-Type': 'application/json'})
                 response = conn.getresponse()
                 body = response.read(16385)
+                if response.status == 409:
+                    raise _Conflict('Relay control request conflicted')
                 if len(body) > 16384 or response.status not in (200, 201, 204):
                     raise OSError('Relay control request failed')
                 if not body:
@@ -43,11 +49,17 @@ class ControlClient:
         finally:
             conn.close()
 
-    def create(self, station, fixture_launch_nonce=None):
+    def create(self, station, fixture_launch_nonce=None, selection=None):
         payload = {key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
         if fixture_launch_nonce is not None:
             payload['fixture_launch_nonce'] = fixture_launch_nonce
-        return self._request('POST', '/sessions', payload)
+        if selection is None:
+            return self._request('POST', '/sessions', payload)
+        payload['selection'] = selection
+        try:
+            return self._request('POST', '/sessions', payload)
+        except _Conflict:
+            raise SelectionSuperseded() from None
 
     def prepare_network_ads(self, station, follow_url):
         """Ask the service for a pre-roll break; returns validated relay items."""

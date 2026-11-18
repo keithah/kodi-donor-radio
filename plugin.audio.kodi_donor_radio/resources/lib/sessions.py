@@ -29,6 +29,10 @@ _FIXTURE_LAUNCH_QUALIFY_TTL = 30.0
 _LAUNCH_NONCE = re.compile(r'^[a-f0-9]{48}$')
 
 
+class SelectionSuperseded(RuntimeError):
+    """A newer deliberate selection began after the one this request continues."""
+
+
 @dataclass
 class _FixtureLaunch:
     fixture_id: str
@@ -495,12 +499,16 @@ class SessionManager:
                 self._pending = None
             return cancel.is_set()
 
-    def create(self, station, fixture_launch_nonce=None):
+    def create(self, station, fixture_launch_nonce=None, selection=None):
         # Register selection order before queuing behind an older resolver.
         # The event is also an ownership token: stale waiters cannot replace it.
+        # A pre-roll continuation passes its break's selection number and
+        # yields if the listener has chosen again since.
         with self._lock:
             if self._closed:
                 raise RuntimeError('Manager closed')
+            if selection is not None and selection != self._selections:
+                raise SelectionSuperseded('A newer selection owns playback')
             launch = None
             if fixture_launch_nonce is not None:
                 self._expire_fixture_launches()
