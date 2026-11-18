@@ -480,6 +480,11 @@ class SessionManager:
             cancel = self._pending = threading.Event()
             return cancel
 
+    def selection_pending(self):
+        """True while a deliberate create or pre-roll request is in flight."""
+        with self._lock:
+            return self._pending is not None
+
     def end_selection(self, cancel):
         with self._lock:
             if self._pending is cancel:

@@ -154,11 +154,13 @@ def build_request(config, station, position='pre'):
     """
     base = validate_tag_url(config.tag_url)
     parts = urlsplit(base)
-    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    # A tag gdpr other than 0 or 1 is dropped so the configured value is sent.
+    pairs = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+             if key != 'gdpr' or value in ('0', '1')]
     present = {key for key, _value in pairs}
     # A valid gdpr in the tag decides consent; any gdpr=1 counts, so a server
     # reading either copy of a duplicated key never sees gdpr=1 without it.
-    tag_gdpr = {value for key, value in pairs if key == 'gdpr'} & {'0', '1'}
+    tag_gdpr = {value for key, value in pairs if key == 'gdpr'}
     effective_gdpr = ('1' if '1' in tag_gdpr else '0') if tag_gdpr else config.gdpr
     country = (getattr(station, 'country_code', '') or '').strip().upper()
     derived = (

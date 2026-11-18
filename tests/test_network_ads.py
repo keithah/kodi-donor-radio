@@ -472,7 +472,11 @@ def test_paused_ad_on_air_outlives_the_age_limit():
     ('&gdpr=0&gdpr=0', '1', False)])
 def test_consent_ignores_invalid_tag_gdpr_and_honours_any_gdpr_1(suffix, gdpr, consent):
     url = build_request(config(tag_url=TEST_TAG + suffix, gdpr=gdpr, consent='abc'), STATION)[0]
-    assert ('consent' in parse_qs(urlsplit(url).query)) is consent
+    query = parse_qs(urlsplit(url).query, keep_blank_values=True)
+    assert ('consent' in query) is consent
+    assert all(value in ('0', '1') for value in query.get('gdpr', []))
+    if suffix in ('&gdpr=', '&gdpr=true'):
+        assert query['gdpr'] == [gdpr]  # The configured value replaces an invalid one.
 
 
 def test_newer_selection_supersedes_a_preroll_in_flight():
