@@ -5,13 +5,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull-request runs are cancelled; every main commit is tested.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pytest:
@@ -33,8 +35,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      # FFmpeg and eSpeak let the generated-ad-audio and decoder tests run
-      # instead of skipping. Homebrew's `espeak` formula is disabled; espeak-ng
+      # FFmpeg and eSpeak let the generated-audio, generated-ad-audio and
+      # decoder tests run instead of skipping. Homebrew's `espeak` formula is disabled; espeak-ng
       # installs an `espeak` executable.
       - name: Install audio tools
         env:
@@ -43,9 +45,11 @@ jobs:
         run: brew install ffmpeg espeak-ng
       - name: Install pytest
         run: python -m pip install "pytest>=7,<9"
+      - name: Generate test audio fixtures
+        run: python tools/generate_audio.py
       - name: Run tests
         run: python -m pytest -q -rs
       - name: Build and check the add-on package
         run: |
           python tools/package_addon.py --output dist
-          python tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
+          python tools/check_package.py dist/plugin.audio.kodi_donor_radio-*.zip
