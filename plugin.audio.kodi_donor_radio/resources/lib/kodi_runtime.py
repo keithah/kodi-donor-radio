@@ -20,7 +20,7 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
-from control import ControlClient, ServiceDescriptor
+from control import ControlClient, SelectionSuperseded, ServiceDescriptor
 from ad_models import AdConfig
 from ad_media import CreativeCache
 from kodi_ad_player import KodiAdPlayback
@@ -1161,6 +1161,12 @@ def run_plugin(argv):
                                          monitor, cancel)
                     except Cancelled:
                         raise
+                    except SelectionSuperseded:
+                        # A newer selection owns playback; neither the ad nor this
+                        # station may replace it.
+                        if handle >= 0:
+                            xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+                        return
                     except (OSError, ValueError, TypeError):
                         ads = []  # No fill or ad failure must never block the station.
                 if ads:

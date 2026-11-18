@@ -230,10 +230,21 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(400)
         if network is None:
             return self._reply(200, {'ads': []})
+        manager = self.server.relay.manager
         try:
-            ads = network.prepare(station, None, follow_url)
+            cancel = manager.begin_selection()
+        except RuntimeError:
+            return self._reply(200, {'ads': [], 'superseded': True})
+        try:
+            ads = network.prepare(station, cancel, follow_url)
         except Exception:
             ads = []
+        finally:
+            superseded = cancel.is_set()
+            manager.end_selection(cancel)
+        if superseded:
+            # A newer selection owns playback; the caller must not start anything.
+            return self._reply(200, {'ads': [], 'superseded': True})
         self._reply(200, {'ads': ads})
 
     def _network_ad(self):

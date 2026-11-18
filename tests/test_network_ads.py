@@ -473,3 +473,44 @@ def test_paused_ad_on_air_outlives_the_age_limit():
 def test_consent_ignores_invalid_tag_gdpr_and_honours_any_gdpr_1(suffix, gdpr, consent):
     url = build_request(config(tag_url=TEST_TAG + suffix, gdpr=gdpr, consent='abc'), STATION)[0]
     assert ('consent' in parse_qs(urlsplit(url).query)) is consent
+
+
+def test_newer_selection_supersedes_a_preroll_in_flight():
+    from control import SelectionSuperseded
+    gate, entered = threading.Event(), threading.Event()
+    svc, client, clock, events = service(inline('a', '1'))
+    original = client.open
+    def slow(url, headers, cancel, deadline=None, allowed_origin=None):
+        if url.startswith('https://ssp'):
+            entered.set()
+            gate.wait(5)
+        return original(url, headers, cancel, deadline, allowed_origin)
+    client.open = slow
+    with relay(svc) as (server, descriptor):
+        control = ControlClient(descriptor)
+        outcome = []
+        def ask():
+            try:
+                outcome.append(control.prepare_network_ads(STATION, ''))
+            except SelectionSuperseded as error:
+                outcome.append(error)
+        worker = threading.Thread(target=ask)
+        worker.start()
+        assert entered.wait(5)
+        newer = server.manager.begin_selection()  # The listener picks another station.
+        gate.set()
+        worker.join(10)
+        assert isinstance(outcome[0], SelectionSuperseded)
+        server.manager.end_selection(newer)
+
+
+def test_preroll_selection_cancels_an_older_pending_create():
+    manager = SessionManager()
+    older = manager.begin_selection()
+    newer = manager.begin_selection()
+    assert older.is_set() and not newer.is_set()
+    manager.end_selection(older)  # A stale owner never clears the newer one.
+    assert manager._pending is newer
+    manager.end_selection(newer)
+    assert manager._pending is None
+    manager.close()

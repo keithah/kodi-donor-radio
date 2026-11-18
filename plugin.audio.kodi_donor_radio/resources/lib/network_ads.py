@@ -23,6 +23,7 @@ import time
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
+from ad_tracking import _CancelOrStop
 from http_client import Cancelled, ResponseTooLarge, read_bounded
 from models import Event
 
@@ -515,12 +516,12 @@ class NetworkAdService:
     def prepare(self, station, cancel=None, follow_url=''):
         """Resolve and download a pre-roll break; return playable items or [].
 
-        Without a caller event, closing the service cancels the work.
+        Closing the service cancels the work, as does the caller's event.
         """
         config = self.config
         if not config.enabled or self._closing.is_set():
             return []
-        cancel = cancel or self._closing
+        cancel = self._closing if cancel is None else _CancelOrStop(cancel, self._closing)
         if not self._preparing.acquire(blocking=False):
             self._emit({'event': 'vast_busy', 'station': station.uuid})
             return []

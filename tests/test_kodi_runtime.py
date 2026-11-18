@@ -2880,3 +2880,20 @@ def test_other_item_start_forgets_pending_first_ad(kodi):
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None),32123,network_ads=network)
     player.playing=True; player.file='http://elsewhere.example/b.mp3'; player.onAVStarted()
     assert forgotten
+
+
+def test_superseded_preroll_starts_neither_ad_nor_its_station(kodi, monkeypatch):
+    from control import SelectionSuperseded
+    from network_ads import NetworkAdConfig
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    created = []
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64),
+                             create=lambda station: created.append(station))
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    monkeypatch.setattr(runtime, 'network_ad_settings', lambda: NetworkAdConfig(enabled=True))
+    def superseded(self, station, follow):
+        raise SelectionSuperseded()
+    monkeypatch.setattr(runtime.ControlClient, 'prepare_network_ads', superseded)
+    route(runtime, mode='play', uuid='station-1')
+    assert created == [] and state.resolved == [(False, state.resolved[0][1])]

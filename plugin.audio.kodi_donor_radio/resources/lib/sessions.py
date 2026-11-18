@@ -464,6 +464,27 @@ class SessionManager:
             self._session = None
         session.close('fixture_launch_cancelled')
 
+    def begin_selection(self):
+        """Register a deliberate selection that is not a relay session yet.
+
+        A network pre-roll request takes this place in selection order: a newer
+        create or pre-roll sets the returned event, and this one cancels any
+        older pending create. Pair every call with end_selection.
+        """
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Manager closed')
+            self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
+            cancel = self._pending = threading.Event()
+            return cancel
+
+    def end_selection(self, cancel):
+        with self._lock:
+            if self._pending is cancel:
+                self._pending = None
+
     def create(self, station, fixture_launch_nonce=None):
         # Register selection order before queuing behind an older resolver.
         # The event is also an ownership token: stale waiters cannot replace it.

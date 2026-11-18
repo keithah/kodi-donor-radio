@@ -13,6 +13,10 @@ class ServiceDescriptor:
     control_token: str
 
 
+class SelectionSuperseded(Exception):
+    """A newer station selection took over while this one was being prepared."""
+
+
 class ControlClient:
     def __init__(self, descriptor, timeout=10):
         self.descriptor, self.timeout = descriptor, timeout
@@ -51,6 +55,8 @@ class ControlClient:
             'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language', 'tags')}
         payload['follow_url'] = follow_url
         result = self._request('POST', '/network-ads', payload)
+        if isinstance(result, dict) and result.get('superseded') is True:
+            raise SelectionSuperseded()
         ads = result.get('ads') if isinstance(result, dict) else None
         if not isinstance(ads, list) or len(ads) > 5:
             raise OSError('Invalid relay control response')
