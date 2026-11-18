@@ -1494,7 +1494,11 @@ class RelayPlayer(xbmc.Player):
     def _track(self, token):
         self.network_token = token
         if token is not None:
-            self._network_generation = self.manager.selection_count()
+            # Compare against the break's own selection, fixed when it was
+            # prepared, so later callbacks cannot absorb a newer choice.
+            selection = self.network_ads.selection_for(token)
+            self._network_generation = (self.manager.selection_count()
+                                        if selection is None else selection)
 
     def _network_finished(self, reason):
         if self.network_ads is None or self.network_token is None:

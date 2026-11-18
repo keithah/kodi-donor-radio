@@ -281,6 +281,7 @@ def test_relay_prepares_through_control_and_serves_ranges():
         control = ControlClient(descriptor)
         [item] = control.prepare_network_ads(
             STATION, 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0')
+        assert svc.selection_for(item['token']) == server.manager.selection_count() == 1
         path = urlsplit(item['url']).path
         status, headers, body = get(descriptor.port, path)
         assert status == 200 and body == MP3 and headers['Content-Type'] == 'audio/mpeg'

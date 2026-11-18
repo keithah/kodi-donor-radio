@@ -475,6 +475,7 @@ class _Playback:
     last_position: float = -1.0
     last_wall: float = 0.0
     max_position: float = 0.0
+    selection: object = None  # Session-manager selection number of its break.
 
 
 class NetworkAdService:
@@ -515,7 +516,7 @@ class NetworkAdService:
             self._beacons.send({'token': token, 'station': station, 'event': 'error', 'code': code},
                                expand_macros(url, error_code=code), headers)
 
-    def prepare(self, station, cancel=None, follow_url=''):
+    def prepare(self, station, cancel=None, follow_url='', selection=None):
         """Resolve and download a pre-roll break; return playable items or [].
 
         Closing the service cancels the work, as does the caller's event.
@@ -528,11 +529,11 @@ class NetworkAdService:
             self._emit({'event': 'vast_busy', 'station': station.uuid})
             return []
         try:
-            return self._prepare(config, station, cancel, follow_url)
+            return self._prepare(config, station, cancel, follow_url, selection)
         finally:
             self._preparing.release()
 
-    def _prepare(self, config, station, cancel, follow_url):
+    def _prepare(self, config, station, cancel, follow_url, selection=None):
         deadline = time.monotonic() + _PREPARE_SECONDS
         url, headers = build_request(config, station)
         resolver = NetworkVastResolver(self.client)
@@ -571,7 +572,7 @@ class NetworkAdService:
                 self._fire_errors(ad.error_urls, code, station=station.uuid)
                 continue
             prepared.append(_Playback(secrets.token_hex(24), ad, data, self.clock(),
-                                      station_uuid=station.uuid))
+                                      station_uuid=station.uuid, selection=selection))
         for index, item in enumerate(prepared):
             item.next_url = prepared[index + 1].token if index + 1 < len(prepared) else follow_url
         with self._lock:
@@ -645,6 +646,12 @@ class NetworkAdService:
             item = self._items.get(token)
         if item is not None:
             item.tainted = True
+
+    def selection_for(self, token):
+        """Selection number the token's break was prepared under, or None."""
+        with self._lock:
+            item = self._items.get(token)
+            return item.selection if item is not None else None
 
     def token_for(self, url):
         parts = urlsplit(url or '')

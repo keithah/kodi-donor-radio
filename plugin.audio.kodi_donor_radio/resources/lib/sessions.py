@@ -480,6 +480,7 @@ class SessionManager:
                 self._pending.set()
             cancel = self._pending = threading.Event()
             self._selections += 1
+            cancel.selection = self._selections  # This request's place in selection order.
             return cancel
 
     def selection_count(self):

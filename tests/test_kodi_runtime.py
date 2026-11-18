@@ -779,7 +779,7 @@ def test_late_stop_callback_does_not_end_the_next_network_ad(kodi):
     network=SimpleNamespace(
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
         finish=lambda token, reason: finished.append((token, reason)) or None,
-        observe=lambda *args: None, forget_first=lambda: None)
+        observe=lambda *args: None, forget_first=lambda: None, selection_for=lambda token: None)
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),32123,network_ads=network)
     player.playing=True
     player.file=base+'a'*48+'.mp3'; player.onAVStarted()
@@ -800,7 +800,7 @@ def test_chained_ad_that_fails_to_open_falls_through(kodi):
         return base+'b'*48+'.mp3' if token=='a'*48 else 'plugin://plugin.audio.kodi_donor_radio/?ads=0'
     network=SimpleNamespace(
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
-        finish=finish, observe=lambda *args: None, forget_first=lambda: None)
+        finish=finish, observe=lambda *args: None, forget_first=lambda: None, selection_for=lambda token: None)
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
     player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
@@ -819,7 +819,7 @@ def test_user_action_drops_pending_chain(kodi):
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
         finish=lambda token, reason: finished.append((token, reason)) or (
             base+'b'*48+'.mp3' if token=='a'*48 else None),
-        observe=lambda *args: None, seeked=seeks.append, forget_first=lambda: None)
+        observe=lambda *args: None, seeked=seeks.append, forget_first=lambda: None, selection_for=lambda token: None)
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
     player.playing=True; player.file=base+'a'*48+'.mp3'; player.onAVStarted()
@@ -2845,7 +2845,7 @@ def test_chained_ad_that_never_starts_times_out(kodi, monkeypatch):
         return base+'b'*48+'.mp3' if token=='a'*48 else 'plugin://plugin.audio.kodi_donor_radio/?ads=0'
     network=SimpleNamespace(
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
-        finish=finish, observe=lambda *args: None, forget_first=lambda: None)
+        finish=finish, observe=lambda *args: None, forget_first=lambda: None, selection_for=lambda token: None)
     player=runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
     now=[1000.0]; monkeypatch.setattr(runtime.time, 'monotonic', lambda: now[0])
@@ -2863,7 +2863,7 @@ def test_first_ad_open_failure_falls_through(kodi):
     finished=[]; stopped=[]
     network=SimpleNamespace(
         token_for=lambda url: None, observe=lambda *args: None,
-        unstarted_first=lambda: 'a'*48, forget_first=lambda: None,
+        unstarted_first=lambda: 'a'*48, forget_first=lambda: None, selection_for=lambda token: None,
         finish=lambda token, reason: finished.append((token, reason)) or 'plugin://plugin.audio.kodi_donor_radio/?ads=0')
     player=runtime.RelayPlayer(SimpleNamespace(stop=stopped.append, selection_count=lambda: 0),32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
@@ -2907,7 +2907,7 @@ def test_newer_selection_drops_the_chain_even_before_it_starts(kodi):
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
         finish=lambda token, reason: finished.append((token, reason)) or (
             base+'b'*48+'.mp3' if token=='a'*48 else None),
-        observe=lambda *args: None, forget_first=lambda: None)
+        observe=lambda *args: None, forget_first=lambda: None, selection_for=lambda token: None)
     manager=SimpleNamespace(stop=lambda _: None, selection_count=lambda: count[0])
     player=runtime.RelayPlayer(manager,32123,network_ads=network)
     played=[]; player.play=lambda url, item=None: played.append(url)
@@ -2925,7 +2925,7 @@ def test_unchanged_selection_lets_the_break_continue(kodi):
     network=SimpleNamespace(
         token_for=lambda url: url[len(base):len(base)+48] if url.startswith(base) else None,
         finish=lambda token, reason: base+'b'*48+'.mp3' if token=='a'*48 else 'plugin://plugin.audio.kodi_donor_radio/?ads=0',
-        observe=lambda *args: None, forget_first=lambda: None)
+        observe=lambda *args: None, forget_first=lambda: None, selection_for=lambda token: None)
     count=[3]
     manager=SimpleNamespace(stop=lambda _: None, selection_count=lambda: count[0])
     player=runtime.RelayPlayer(manager,32123,network_ads=network)
@@ -2949,3 +2949,83 @@ def test_invalid_network_tag_disables_preroll_visibly(kodi, monkeypatch):
     assert service.config.enabled is False
     assert emitted == [{'event': 'network_config_invalid'}]
     assert any('30213' in str(note) for note in state.notifications)
+
+
+_BREAK_BASE = 'http://127.0.0.1:32123/network-ads/'
+_A, _B, _C = 'a'*48, 'b'*48, 'c'*48
+_BREAK_FOLLOW = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+_BREAK_CHAIN = {_A: _BREAK_BASE+_B+'.mp3', _B: _BREAK_BASE+_C+'.mp3', _C: _BREAK_FOLLOW}
+
+def _break_net(finished, first=None):
+    return SimpleNamespace(
+        token_for=lambda url: url[len(_BREAK_BASE):len(_BREAK_BASE)+48] if (url or '').startswith(_BREAK_BASE) else None,
+        finish=lambda t, r: finished.append((t, r)) or (_BREAK_CHAIN[t] if r in ('ended', 'error') else None),
+        observe=lambda *a: None, forget_first=lambda: None,
+        unstarted_first=lambda: first,
+        selection_for=lambda t: 1)  # Every break here was prepared as selection 1.
+
+def _break_manager():
+    m = SessionManager(resolver=lambda *a: (_ for _ in ()).throw(RuntimeError('x')),
+                       sink=SimpleNamespace(emit=lambda e: None))
+    m.stop = lambda _: None
+    return m
+
+def _newer_selection_fails(m):
+    # Listener picks station _B; its pre-roll request/create runs and fails/abandons.
+    c = m.begin_selection(); m.end_selection(c)
+
+def test_break_first_ad_error_after_newer_selection_is_dropped(kodi):
+    m = _break_manager(); finished = []
+    m.end_selection(m.begin_selection())  # the break's own prepare
+    player = kodi[0].RelayPlayer(m, 32123, network_ads=_break_net(finished, first=_A))
+    played = []; player.play = lambda url, item=None: played.append(url)
+    _newer_selection_fails(m)               # listener chose again while _A opens
+    player.playing = False; player.onPlayBackError()
+    player.sample_ads()
+    assert played == [], played
+
+def test_break_second_start_callback_cannot_absorb_newer_selection(kodi):
+    m = _break_manager(); finished = []
+    m.end_selection(m.begin_selection())
+    player = kodi[0].RelayPlayer(m, 32123, network_ads=_break_net(finished))
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.playing = True; player.file = _BREAK_BASE+_A+'.mp3'; player.onPlayBackStarted()
+    _newer_selection_fails(m)
+    player.onAVStarted()                   # same creative, later callback
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+    assert played == [], played
+
+def test_break_chained_start_cannot_absorb_newer_selection(kodi):
+    m = _break_manager(); finished = []
+    m.end_selection(m.begin_selection())
+    player = kodi[0].RelayPlayer(m, 32123, network_ads=_break_net(finished))
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.playing = True; player.file = _BREAK_BASE+_A+'.mp3'; player.onAVStarted()
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+    assert played == [_BREAK_BASE+_B+'.mp3']
+    _newer_selection_fails(m)               # while _B is opening
+    player.playing = True; player.file = _BREAK_BASE+_B+'.mp3'; player.onAVStarted()
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+    assert played == [_BREAK_BASE+_B+'.mp3'], played
+
+def test_break_without_newer_selection_runs_to_station(kodi):
+    m = _break_manager(); finished = []
+    m.end_selection(m.begin_selection())
+    player = kodi[0].RelayPlayer(m, 32123, network_ads=_break_net(finished))
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.playing = True; player.file = _BREAK_BASE+_A+'.mp3'; player.onPlayBackStarted(); player.onAVStarted()
+    for nxt in (_B, _C):
+        player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+        player.playing = True; player.file = _BREAK_BASE+nxt+'.mp3'; player.onPlayBackStarted(); player.onAVStarted()
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+    assert played == [_BREAK_BASE+_B+'.mp3', _BREAK_BASE+_C+'.mp3', _BREAK_FOLLOW]
+
+def test_break_abandoned_newer_selection_drops_chain(kodi):
+    m = _break_manager(); finished = []
+    m.end_selection(m.begin_selection())
+    player = kodi[0].RelayPlayer(m, 32123, network_ads=_break_net(finished))
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.playing = True; player.file = _BREAK_BASE+_A+'.mp3'; player.onAVStarted()
+    _newer_selection_fails(m)
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads(); player.sample_ads()
+    assert played == [] and (_B, 'switched') in finished

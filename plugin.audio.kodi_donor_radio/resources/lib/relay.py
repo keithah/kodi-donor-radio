@@ -236,7 +236,7 @@ class _Handler(BaseHTTPRequestHandler):
         except RuntimeError:
             return self._reply(200, {'ads': [], 'superseded': True})
         try:
-            ads = network.prepare(station, cancel, follow_url)
+            ads = network.prepare(station, cancel, follow_url, selection=cancel.selection)
         except Exception:
             ads = []
         finally:
