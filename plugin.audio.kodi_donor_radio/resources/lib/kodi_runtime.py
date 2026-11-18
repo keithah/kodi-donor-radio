@@ -202,21 +202,27 @@ def network_ad_settings():
         gdpr=gdpr, consent=value('network_consent'), schain=value('network_schain'))
 
 
+def _is_play_row(path):
+    parts = urlsplit(path or '')
+    return (parts.scheme == 'plugin' and parts.netloc == 'plugin.audio.kodi_donor_radio'
+            and parse_qs(parts.query).get('mode') == ['play'])
+
+
 def _drop_queued_listing():
-    """Clear the music queue Kodi built from one of this add-on's listings.
+    """Clear a music queue Kodi built from one of this add-on's listings.
 
     Clicking a station queues every row; a finite ad would end and Kodi would
     advance to the next station, past the break, which chains its own items.
-    A queue whose current row is not this add-on's play URL is left alone.
+    Only a queue made entirely of this add-on's play rows is cleared, so a
+    listener's own queue is never lost.
     """
-    playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
     try:
-        position = playlist.getposition()
-        current = playlist[position].getPath() if 0 <= position < playlist.size() else ''
-    except (RuntimeError, IndexError):
-        return
-    if current.startswith(PLUGIN_ROOT + '?') and 'mode=play' in current:
-        playlist.clear()
+        playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+        size = playlist.size()
+        if size and all(_is_play_row(playlist[index].getPath()) for index in range(size)):
+            playlist.clear()
+    except (RuntimeError, IndexError, AttributeError):
+        pass
 
 
 def _network_entry(item, station, index, count):

@@ -3333,3 +3333,33 @@ def test_a_chained_ad_is_labelled_and_skips_content_lookup(kodi):
     assert url == second['url'] and item.label == 'localized-30180'
     assert item.music_info.title == 'localized-30180'
     assert item.mime == 'audio/mpeg' and item.lookup is False
+
+
+def test_an_ad_keeps_a_listeners_mixed_queue(kodi):
+    runtime, state, _ = kodi
+    rows = ['/music/a.mp3', _ROW + 's1', '/music/b.mp3']
+    svc, player, [ad] = _queue_player(runtime, state, list(rows))
+    state.playlist_position = 1  # Kodi is playing this add-on's row.
+    player.file = ad['url']; player.playing = True; player.onAVStarted()
+    svc.close()
+    assert state.playlist == rows
+
+
+def test_a_queue_of_rows_without_the_root_slash_is_still_this_addons(kodi):
+    runtime, state, _ = kodi
+    svc, player, [ad] = _queue_player(runtime, state, [
+        'plugin://plugin.audio.kodi_donor_radio?mode=play&uuid=s1', _ROW + 's2'])
+    player.file = ad['url']; player.playing = True; player.onAVStarted()
+    svc.close()
+    assert state.playlist == []
+
+
+def test_a_playlist_api_error_does_not_break_the_ad_start(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    svc, player, [ad] = _queue_player(runtime, state, [_ROW + 's1'])
+    def broken(_playlist_id):
+        raise RuntimeError('playlist unavailable')
+    monkeypatch.setattr(runtime.xbmc, 'PlayList', broken)
+    player.file = ad['url']; player.playing = True; player.onAVStarted()
+    svc.close()
+    assert player.network_token == ad['token']
