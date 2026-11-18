@@ -27,7 +27,8 @@ Run 2 timing (both creatives, target → observed player position at dispatch):
 | thirdQuartile | 22.50 | 0.23 / 0.19 |
 | complete (at Kodi end) | 30.00 | last observed 29.47, sent on `onPlayBackEnded` |
 
-All quartile/start lags were 0.01-0.29 s (one 250 ms sample interval). Every
+All quartile/start lags were 0.01-0.29 s. The service samples Kodi's clock,
+then waits 250 ms, so the gap between samples is 250 ms plus processing time. Every
 beacon returned HTTP 2xx/3xx with 287-338 ms latency. Beacons share one worker
 queue, so `start` reaches the network about one request latency (~0.3 s) after
 the impression. The VAST request plus creative download took 0.35-2.4 s before

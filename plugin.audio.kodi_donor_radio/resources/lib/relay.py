@@ -29,7 +29,7 @@ _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|m
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
 _FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
 _NETWORK_AD = re.compile(r'^/network-ads/([a-f0-9]{48})\.mp3$')
-_RANGE = re.compile(r'^bytes=(\d{0,12})-(\d{0,12})$')
+_RANGE = re.compile(r'^bytes=(\d{0,12})-(\d{0,12})$', re.IGNORECASE)
 _AD_RELOAD_INTERVAL = .5
 _MAX_COMPOSITION_RELOAD_FAILURES = 3
 
@@ -178,6 +178,8 @@ class _Handler(BaseHTTPRequestHandler):
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
                 return self._reply(400)
             body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls'}
             if not isinstance(data, dict) or set(data) not in (
@@ -231,6 +233,8 @@ class _Handler(BaseHTTPRequestHandler):
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
                 return self._reply(400)
             body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language',
                       'tags', 'follow_url'}
@@ -276,7 +280,8 @@ class _Handler(BaseHTTPRequestHandler):
         if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 64:
             return self._reply(400)
         try:
-            if json.loads(self.rfile.read(int(lengths[0]))) != {}:
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]) or json.loads(body) != {}:
                 return self._reply(400)
         except (ValueError, UnicodeError):
             return self._reply(400)

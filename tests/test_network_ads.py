@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 import http.client
 import json
+import socket
 import threading
 import time
 from contextlib import contextmanager
@@ -668,3 +669,148 @@ def test_no_fill_fallback_cannot_overtake_a_newer_reservation():
         manager.create(STATION, reserved=b)  # B's own fallback proceeds (stream offline here).
     assert manager.selection_count() == b  # It took the reserved place, not a new one.
     manager.close()
+
+
+_FOLLOW_ADS0 = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+
+
+def _short_post(descriptor, path, body, declared):
+    """Declare `declared` bytes, send only `body`, then half-close the request."""
+    sock = socket.create_connection(('127.0.0.1', descriptor.port), timeout=5)
+    try:
+        sock.sendall(('POST %s HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer %s\r\n'
+                      'Content-Type: application/json\r\nContent-Length: %d\r\n\r\n'
+                      % (path, descriptor.control_token, declared)).encode() + body)
+        sock.shutdown(socket.SHUT_WR)
+        data = b''
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        return int(data.split(b' ', 2)[1])
+    finally:
+        sock.close()
+
+
+def test_range_unit_is_case_insensitive():
+    svc, *_ = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        [item] = ControlClient(descriptor).prepare_network_ads(STATION, _FOLLOW_ADS0)
+        status, _, body = get(descriptor.port, urlsplit(item['url']).path, {'Range': 'Bytes=10-13'})
+        assert status == 206 and body == MP3[10:14]
+
+
+def test_short_selection_body_reserves_nothing():
+    svc, *_ = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        assert _short_post(descriptor, '/selections', b'{}', 3) == 400
+        assert server.manager.selection_count() == 0
+
+
+@pytest.mark.parametrize('path', ['/network-ads', '/sessions'])
+def test_short_body_starts_no_selection(path):
+    svc, *_ = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        payload = {key: getattr(STATION, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
+        if path == '/network-ads':
+            payload.update({key: getattr(STATION, key) for key in ('country_code', 'language', 'tags')})
+            payload['follow_url'] = _FOLLOW_ADS0
+        body = json.dumps(payload).encode()
+        assert _short_post(descriptor, path, body, len(body) + 1) == 400
+        assert server.manager.selection_count() == 0
+
+
+# CodeRabbit round on 9cc2d6a.
+
+
+def test_tag_with_invalid_port_is_rejected():
+    with pytest.raises(ValueError):
+        validate_tag_url('https://ssp.audiocdn.com:abc/vast/tag?zoneId=z&position=pre')
+
+
+def test_unstarted_follower_of_superseded_break_is_not_served():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    count = [1]
+    svc.current_selection = lambda: count[0]
+    items = svc.prepare(STATION, threading.Event(), 'plugin://x', selection=1)
+    assert len(items) == 2
+    first, second = items[0]['token'], items[1]['token']
+    assert svc.media(first)
+    svc.observe(first, .5)
+    svc.finish(first, 'ended')  # marks second live for retention
+    count[0] = 2  # listener picks again before Kodi opens the second creative
+    assert svc.media(second) is None
+
+
+def test_stopped_pod_releases_unplayed_creatives():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    items = svc.prepare(STATION, threading.Event(), 'plugin://x', selection=1)
+    first, second = items[0]['token'], items[1]['token']
+    svc.observe(first, .5)
+    svc.finish(first, 'stopped')
+    clock.now += 3600
+    held = svc._items.get(second)
+    assert held is None or held.data == b''
+
+
+def _resolver(body):
+    client = FakeClient({'https://ssp': (200, body), 'https://wrap.example': (200, body)})
+    return NetworkVastResolver(client), client
+
+
+def test_later_https_mp3_rendition_is_used():
+    ad = inline('a', '1', media='http://media.example/a.mp3').replace(
+        '</MediaFiles>',
+        '<MediaFile delivery="progressive" type="audio/mpeg">'
+        '<![CDATA[https://media.example/b.mp3]]></MediaFile></MediaFiles>')
+    resolver, _ = _resolver(vast(ad))
+    ads = resolver.resolve(TEST_TAG, {}, threading.Event(), 1)
+    assert ads and not isinstance(ads[0], NetworkAdError)
+    assert ads[0].media_url == 'https://media.example/b.mp3'
+
+
+def test_malformed_tracking_url_does_not_discard_pod():
+    bad = inline('a', '1').replace('<![CDATA[https://t.example/e?e=midpoint]]>',
+                                   '<![CDATA[http://[bad/track]]>')
+    resolver, _ = _resolver(vast(bad, inline('b', '2')))
+    ads = resolver.resolve(TEST_TAG, {}, threading.Event(), 2)
+    assert len(ads) == 2 and not isinstance(ads[1], NetworkAdError)
+
+
+def test_wrapper_no_ad_fires_root_error_url():
+    wrapper = ('<?xml version="1.0"?><VAST version="4.2"><Ad id="w" sequence="1"><Wrapper>'
+               '<AdSystem>S</AdSystem><Error><![CDATA[https://t.example/werr]]></Error>'
+               '<VASTAdTagURI><![CDATA[https://wrap.example/next]]></VASTAdTagURI>'
+               '</Wrapper></Ad></VAST>').encode()
+    empty = ('<?xml version="1.0"?><VAST version="4.3">'
+             '<Error><![CDATA[https://t.example/noad]]></Error></VAST>').encode()
+    client = FakeClient({'https://ssp': (200, wrapper), 'https://wrap.example': (200, empty)})
+    with pytest.raises(NetworkAdError) as info:
+        NetworkVastResolver(client).resolve(TEST_TAG, {}, threading.Event(), 1)
+    assert info.value.code == 303
+    assert 'https://t.example/noad' in info.value.error_urls
+
+
+def test_prepare_cancelled_before_publishing_stores_nothing():
+    svc, client, clock, events = service(inline('a', '1'), inline('b', '2'))
+    cancel = threading.Event()
+    real_open = client.open
+    def open_then_cancel(url, headers, c, deadline=None, allowed_origin=None):
+        r = real_open(url, headers, c, deadline, allowed_origin)
+        if 'b.mp3' in url or url.endswith('a.mp3') and False:
+            pass
+        return r
+    client.open = open_then_cancel
+    # Cancel after the last download but before publish: simulate via clock hook.
+    orig_lock = svc._lock
+    class Hook:
+        def __enter__(self):
+            cancel.set()
+            return orig_lock.__enter__()
+        def __exit__(self, *a):
+            return orig_lock.__exit__(*a)
+    svc._lock = Hook()
+    items = svc.prepare(STATION, cancel, 'plugin://x', selection=1)
+    svc._lock = orig_lock
+    assert items == [] and not svc._items

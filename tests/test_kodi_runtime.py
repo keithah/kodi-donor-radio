@@ -3110,3 +3110,87 @@ def test_only_a_break_continuation_skips_the_reservation(kodi, monkeypatch, para
                         lambda self: order.append('reserve') or 4)
     route(runtime, mode='play', uuid='station-1', **params)
     assert order == expected and state.resolved[0][0] is True
+
+
+# CodeRabbit round on 9cc2d6a.
+import test_network_ads as nt  # noqa: E402
+from network_ads import NetworkAdConfig as _NetCfg  # noqa: E402
+
+
+def test_invalid_continuation_is_rejected_before_any_preroll(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64),
+                             create=lambda *a, **k: {})
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    monkeypatch.setattr(runtime, 'network_ad_settings', lambda: _NetCfg(enabled=True))
+    monkeypatch.setattr(runtime, '_network_entry', lambda item, *a: item['url'])
+    calls = []
+    monkeypatch.setattr(runtime.ControlClient, 'reserve_selection',
+                        lambda self: calls.append('reserve') or 5)
+    monkeypatch.setattr(runtime.ControlClient, 'prepare_network_ads',
+        lambda self, station, follow, selection=None: calls.append(('prepare', selection)) or [
+            {'url': 'http://127.0.0.1:32123/network-ads/' + 'c' * 48 + '.mp3', 'title': '', 'duration': 30}])
+    route(runtime, mode='play', uuid='station-1', continuation='not-hex')
+    # the malformed request is rejected (30011, resolved False).
+    assert state.resolved and state.resolved[0][0] is False, (calls, state.resolved)
+
+
+def test_trailing_stop_of_replaced_station_keeps_first_ad_fallback(kodi):
+    runtime, state, _ = kodi
+    svc, client, clock, events = nt.service(nt.inline('a', '1'), nt.inline('b', '2'))
+    follow = 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0'
+    svc.base_url = 'http://127.0.0.1:32123'
+    manager = SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0)
+    player = runtime.RelayPlayer(manager, 32123, network_ads=svc)
+    # Old station is on air through the relay; then the listener picks again.
+    player.file = 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48
+    player.playing = True; player.onAVStarted()
+    first, second = svc.prepare(nt.STATION, threading.Event(), follow)
+    # Plugin resolved ad A; Kodi replaces the station and requests A's bytes.
+    svc.media(first['token'])
+    player.file = ''; player.playing = False; state.player_caching = True
+    player.onPlayBackStopped()          # trailing stop for the replaced station
+    state.player_caching = False
+    player.onPlayBackError()            # ad A fails to open, no started callback
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads()
+    svc.close()
+    # the break falls through to creative B.
+    assert played == [second['url']], played
+
+
+def test_clock_read_after_kodi_switches_items_is_ignored(kodi):
+    runtime, state, _ = kodi
+    svc, client, clock, events = nt.service(nt.inline('a', '1'))
+    svc.base_url = 'http://127.0.0.1:32123'
+    [a] = svc.prepare(nt.STATION, threading.Event(), '')
+    manager = SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0)
+    player = runtime.RelayPlayer(manager, 32123, network_ads=svc)
+    player.file = a['url']; player.playing = True; player.onAVStarted()
+    for step in range(1, 60):          # A plays to 14.75 s of 30 s
+        clock.now += .25; player.getTime = lambda p=step * .25: p; player.sample_ads()
+    clock.now += .25
+    def switched():
+        player.file = 'http://other.example/x.mp3'  # Kodi switched between the reads
+        return 15.8
+    hits0 = nt.beacons(svc, client)
+    assert 'https://t.example/e?e=firstQuartile' in hits0 and 'https://t.example/e?e=midpoint' not in hits0
+    player.getTime = switched
+    player.sample_ads()
+    hits = nt.beacons(svc, client)
+    svc.close()
+    assert 'https://t.example/e?e=midpoint' not in hits, hits
+
+
+def test_F16_control_without_trailing_stop_falls_through(kodi):
+    runtime, state, _ = kodi
+    svc, client, clock, events = nt.service(nt.inline('a', '1'), nt.inline('b', '2'))
+    svc.base_url = 'http://127.0.0.1:32123'
+    first, second = svc.prepare(nt.STATION, threading.Event(), 'plugin://plugin.audio.kodi_donor_radio/?ads=0')
+    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0), 32123, network_ads=svc)
+    svc.media(first['token'])
+    player.onPlayBackError()
+    played = []; player.play = lambda url, item=None: played.append(url)
+    player.sample_ads(); svc.close()
+    assert played == [second['url']]

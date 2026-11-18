@@ -122,9 +122,11 @@ See [the live GUI follow-up](docs/testing.md#live-gui-follow-up--2026-10-24).
 
 Turn on **Settings → Network pre-roll ads → Play a network pre-roll before
 stations**. The default tag is the always-on development zone
-`https://ssp.audiocdn.com/vast/tag?zoneId=ortb-test-zone&position=pre`, which
-fills every request; a production zone, agreement and partner validation are
-required before going live and will not fill every request.
+`https://ssp.audiocdn.com/vast/tag?zoneId=ortb-test-zone&position=pre`. It
+usually returns ads but sometimes returns none, so a station can start without
+a pre-roll even when the tag is correct. A production zone, agreement and
+partner validation are required before going live, and production will not fill
+every request either.
 
 When a Radio Browser station is chosen, the service requests the tag, keeps the
 returned MP3 creatives in memory, and gives Kodi a loopback
@@ -133,7 +135,9 @@ plays, then the station. No fill, a VAST/transport error, or a bad creative play
 the station directly, and a creative Kodi cannot play is skipped. Stopping during
 an ad stops; the station does not start. Preparing a break has a 30 s budget for
 the tag and all downloads, at most two breaks prepare at once, and finished
-creatives are dropped from memory (at most 8 are kept).
+creatives are dropped from memory. The service keeps about 8 creatives; the
+pod that is playing is never dropped, so a new pod that arrives during it can
+briefly push the total above 8.
 
 Every parameter in the partner's integration guide that applies to a radio app is
 sent, URL encoded. Values already present in the configured tag are never

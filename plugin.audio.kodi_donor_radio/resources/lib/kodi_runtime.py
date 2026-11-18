@@ -1147,6 +1147,10 @@ def run_plugin(argv):
                     if handle >= 0:
                         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
                     return None
+            continuation = params.get('continuation')
+            if continuation is not None and (action != 'play' or params.get('ads') != '0'
+                                             or not re.fullmatch(r'[a-f0-9]{32}', continuation)):
+                raise ValueError('Invalid continuation')
             network, reserved = NetworkAdConfig(), None
             if action == 'play':
                 try:
@@ -1156,7 +1160,7 @@ def run_plugin(argv):
                 # A break's own continuation keeps that break's place; every other
                 # pick claims selection order before the station lookup, which can
                 # take seconds, so a break still playing stops at its next item.
-                if network.enabled and params.get('continuation') is None:
+                if network.enabled and continuation is None:
                     client = connect(10)
                     if client is None:
                         return
@@ -1208,10 +1212,6 @@ def run_plugin(argv):
                         player = xbmc.Player()
                         _playback_arbiter().start(lambda: player.play(ads[0]['url'], entry))
                     return
-            continuation = params.get('continuation')
-            if continuation is not None and (action != 'play' or params.get('ads') != '0'
-                                             or not re.fullmatch(r'[a-f0-9]{32}', continuation)):
-                raise ValueError('Invalid continuation')
             session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
                                  if launch_nonce is not None else client.create(station, continuation=continuation)
                                  if continuation is not None else client.create(station, selection=reserved)
@@ -1577,6 +1577,8 @@ class RelayPlayer(xbmc.Player):
             position = self.getTime()
         except RuntimeError:
             return
+        if self.network_ads.token_for(self._playing_file()) != self.network_token:
+            return  # Kodi moved to another item between the two reads.
         self.network_ads.observe(self.network_token, position, self.isPlaying(),
                                  xbmc.getCondVisibility('Player.Paused'))
 
@@ -1624,7 +1626,10 @@ class RelayPlayer(xbmc.Player):
             self.manager.stop(old)
 
     def onPlayBackStopped(self):
-        if self.network_ads is not None:
+        # Kodi sends Stopped for the item a new pick replaces; that stop must not
+        # clear the new break's first-creative record, so clear it only when
+        # neither a relay station nor a tracked creative was playing.
+        if self.network_ads is not None and self.owned is None and self.network_token is None:
             self.network_ads.forget_first()
         if not self._network_finished('stopped'): self._finished('cancelled')
     def onPlayBackEnded(self):

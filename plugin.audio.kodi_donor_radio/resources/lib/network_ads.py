@@ -106,7 +106,11 @@ def validate_tag_url(value):
     value = (value or '').strip()
     parts = urlsplit(value)
     params = dict(parse_qsl(parts.query, keep_blank_values=True))
-    if (parts.scheme != 'https' or not parts.hostname or parts.username or parts.password
+    try:
+        port = parts.port
+    except ValueError:
+        raise ValueError('Invalid network VAST tag') from None
+    if (parts.scheme != 'https' or port == 0 or not parts.hostname or parts.username or parts.password
             or parts.fragment or len(value) > _MAX_URL or not params.get('zoneId')
             or params.get('position', 'pre') not in ('pre', 'mid', 'post')
             or any(ord(char) < 33 or ord(char) == 127 for char in value)):
@@ -238,8 +242,11 @@ def _url(value, base):
     value = (value or '').strip()
     if not value or len(value) > _MAX_URL:
         return None
-    resolved = urljoin(base, value)
-    parts = urlsplit(resolved)
+    try:
+        resolved = urljoin(base, value)
+        parts = urlsplit(resolved)
+    except ValueError:
+        return None  # e.g. a malformed bracketed host; treat as an invalid URL.
     if (parts.scheme not in ('http', 'https') or not parts.hostname or parts.username
             or parts.password or any(ord(char) < 33 or ord(char) == 127 for char in resolved)):
         return None
@@ -370,6 +377,9 @@ class NetworkVastResolver:
                 raise NetworkAdError(301, 'VAST wrapper transport failed', errors) from None
             inner = _children(root, 'Ad') if root is not None else []
             if not inner:
+                if root is not None:
+                    errors = errors + [u for u in (_url(_text(e), next_base)
+                                                   for e in _children(root, 'Error')) if u]
                 raise NetworkAdError(303, 'VAST wrapper returned no ad', errors)
             return self._ad(inner[0], next_base, headers, cancel, deadline, sequence,
                             impressions, errors, tracking, depth + 1)
@@ -384,8 +394,9 @@ class NetworkVastResolver:
                 media = [m for m in _children(_one(linear, 'MediaFiles'), 'MediaFile')
                          if m.attrib.get('type', '').lower() in _MEDIA_TYPES
                          and m.attrib.get('delivery', 'progressive').lower() == 'progressive']
-                media_url = _url(_text(media[0]), base) if media else None
-                if media_url is None or urlsplit(media_url).scheme != 'https':
+                media_url = next((u for u in (_url(_text(m), base) for m in media)
+                                  if u and urlsplit(u).scheme == 'https'), None)
+                if media_url is None:
                     raise NetworkAdError(403, 'No supported MP3 media file', errors)
                 return NetworkAd(
                     ad.attrib.get('id', '')[:128], sequence,
@@ -468,7 +479,8 @@ class _Playback:
     station_uuid: str = ''
     fired: set = field(default_factory=set)
     started: bool = False
-    live: bool = False  # Kodi is playing it or was just told to.
+    live: bool = False  # Kodi started playing it.
+    retained: bool = False  # Its chain is about to play it; never evict it.
     requested: bool = False  # Kodi asked the relay for its bytes.
     tainted: bool = False
     finished: bool = False
@@ -577,7 +589,9 @@ class NetworkAdService:
         for index, item in enumerate(prepared):
             item.next_url = prepared[index + 1].token if index + 1 < len(prepared) else follow_url
         with self._lock:
-            if self._closing.is_set():
+            # A newer selection cancels this one before it can reach the lock,
+            # so a superseded break never reaches the cache.
+            if self._closing.is_set() or cancel.is_set():
                 return []
             self._expire_locked(len(prepared))
             for item in prepared:
@@ -597,7 +611,7 @@ class NetworkAdService:
         # then be exceeded by at most one pod.
         protected = set()
         for item in self._items.values():
-            if not item.live:
+            if not (item.live or item.retained):
                 continue
             while item is not None and item.token not in protected:
                 protected.add(item.token)
@@ -621,7 +635,7 @@ class NetworkAdService:
             if item is None or item.finished:
                 return None
             if (current is not None and item.selection is not None
-                    and current != item.selection and not item.live):
+                    and current != item.selection and not (item.live or item.requested)):
                 return None  # The listener chose again before this creative started.
             item.requested = True
             return item.data
@@ -736,13 +750,18 @@ class NetworkAdService:
                     'reason': reason, 'position': round(item.max_position, 3),
                     'tainted': item.tainted})
         if reason not in ('ended', 'error'):
+            with self._lock:  # Release the rest of the pod; it will never play.
+                nxt = self._items.get(item.next_url)
+                while nxt is not None and not (nxt.finished or nxt.live or nxt.requested):
+                    nxt.finished, nxt.data = True, b''
+                    nxt = self._items.get(nxt.next_url)
             return None  # A user stop or skip never starts anything else.
         nxt = item.next_url
         if _TOKEN.fullmatch(nxt or ''):
             with self._lock:
                 following = self._items.get(nxt)
                 if following is not None:
-                    following.live = True
+                    following.retained = True
             return self.route(nxt)
         return nxt or None
 
