@@ -814,3 +814,16 @@ def test_prepare_cancelled_before_publishing_stores_nothing():
     items = svc.prepare(STATION, cancel, 'plugin://x', selection=1)
     svc._lock = orig_lock
     assert items == [] and not svc._items
+
+
+def test_relay_keeps_the_break_station_until_its_continuation_is_used():
+    svc, *_ = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        control = ControlClient(descriptor)
+        [item] = control.prepare_network_ads(
+            STATION, 'plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=x&ads=0')
+        token = next(reversed(server.manager._continuations))
+        kept = control.continuation_station(token)
+        assert kept == {key: getattr(STATION, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
+        assert control.continuation_station('f' * 32) is None
+        assert get(descriptor.port, '/continuations/' + token)[0] == 401

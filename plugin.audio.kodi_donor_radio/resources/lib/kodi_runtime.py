@@ -1175,7 +1175,25 @@ def run_plugin(argv):
                 station = _fixture_station(params.get('id', ''))
             else:
                 uuid = _real_station_uuid(params.get('uuid', ''))
-                station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
+                station = None
+                if continuation is not None:
+                    # The relay kept the break's station, so the ads never end in
+                    # a failed second directory lookup; an unknown token (an old
+                    # or replayed URL) looks the station up as a plain choice.
+                    if client is None:
+                        client = connect(10)
+                        if client is None:
+                            return
+                    try:
+                        kept = _operation(lambda: ControlClient(client.descriptor).continuation_station(
+                            continuation), monitor, cancel)
+                        station = Station(**kept) if kept is not None else None
+                    except Cancelled:
+                        raise
+                    except (OSError, ValueError, TypeError):
+                        station = None
+                if station is None:
+                    station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
                 if station.uuid != uuid:
                     raise ValueError('Invalid station lookup')
             if client is None:

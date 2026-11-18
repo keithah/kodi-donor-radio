@@ -400,7 +400,7 @@ class SessionManager:
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
         self._selections = 0  # Deliberate selections (creates and pre-rolls) so far.
-        self._continuations = OrderedDict()  # Outstanding break token -> its selection.
+        self._continuations = OrderedDict()  # Outstanding break token -> (selection, station).
         self._fixture_launches = {}
 
     def _expire_fixture_launches(self):
@@ -537,14 +537,23 @@ class SessionManager:
                 self._pending = None
             return cancel.is_set()
 
-    def register_continuation(self, selection):
-        """One-shot token for a pre-roll break's station continuation."""
+    def register_continuation(self, selection, station=None):
+        """One-shot token for a pre-roll break's station continuation.
+
+        The break's station is kept with it, so the continuation does not
+        depend on a second directory lookup when the ads end.
+        """
         token = secrets.token_hex(16)
         with self._lock:
-            self._continuations[token] = selection
+            self._continuations[token] = (selection, station)
             while len(self._continuations) > 32:
                 self._continuations.popitem(last=False)
         return token
+
+    def continuation_station(self, token):
+        """The station a pending continuation will play, or None if unknown."""
+        with self._lock:
+            return (self._continuations.get(token) or (None, None))[1]
 
     def create(self, station, fixture_launch_nonce=None, continuation=None, reserved=None):
         # Register selection order before queuing behind an older resolver.
@@ -556,7 +565,7 @@ class SessionManager:
                 raise RuntimeError('Manager closed')
             # An unknown token (already used, from an earlier service run, or
             # long evicted) is a replay of the playing item: a plain choice.
-            selection = self._continuations.pop(continuation, None) if continuation else None
+            selection = (self._continuations.pop(continuation, None) or (None, None))[0] if continuation else None
             if selection is not None and self._newer_than_locked(selection):
                 raise SelectionSuperseded('A newer selection owns playback')
             # A station chosen after a reservation (the pre-roll had no fill)

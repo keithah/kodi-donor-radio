@@ -29,6 +29,7 @@ _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|m
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
 _FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
 _NETWORK_AD = re.compile(r'^/network-ads/([a-f0-9]{48})\.mp3$')
+_CONTINUATION = re.compile(r'^/continuations/([a-f0-9]{32})$')
 _RANGE = re.compile(r'^bytes=(\d{0,12})-(\d{0,12})$', re.IGNORECASE)
 _AD_RELOAD_INTERVAL = .5
 _MAX_COMPOSITION_RELOAD_FAILURES = 3
@@ -262,7 +263,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if follow_url:
                 # The station continuation yields if the listener chooses again.
-                follow_url += '&continuation=' + manager.register_continuation(cancel.selection)
+                follow_url += '&continuation=' + manager.register_continuation(cancel.selection, station)
             ads = network.prepare(station, cancel, follow_url, selection=cancel.selection)
         except Exception:
             ads = []
@@ -412,6 +413,14 @@ class _Handler(BaseHTTPRequestHandler):
             if not self._authorized():
                 return self._reply(401)
             return self._reply(200, self.server.relay.manager.current_icy_candidate())
+        match = _CONTINUATION.fullmatch(self.path)
+        if match is not None:
+            if not self._authorized():
+                return self._reply(401)
+            station = self.server.relay.manager.continuation_station(match.group(1))
+            if station is None:
+                return self._reply(404)
+            return self._reply(200, {key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
         if self.path == '/health':
             return self._reply(200, {'status': 'ok', 'instance_id': self.server.relay.descriptor.instance_id})
         if _NETWORK_AD.fullmatch(self.path):

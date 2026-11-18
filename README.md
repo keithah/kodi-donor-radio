@@ -154,7 +154,7 @@ overridden.
 | `publisher_domain`, `content_categories`, `blocked_categories`, `store_url`, `schain` | Settings, when set |
 | `maxAds`, `duration` | Settings (1-5 ads; break seconds × 1000, omitted when 0) |
 | `bundle_id` | `plugin.audio.kodi_donor_radio` |
-| `gdpr`, `consent` | GDPR setting (Unknown omits); consent only when GDPR applies |
+| `gdpr`, `consent` | GDPR setting (Unknown omits); the setting's consent only when GDPR applies. A `gdpr` or `consent` already in the tag is sent as written, so changing the setting does not remove it |
 
 Kodi has no advertising ID, so `maid` is not sent.
 Podcast and out-of-home parameters do not apply.
@@ -167,8 +167,9 @@ after it. A Kodi seek, a forward jump or a backward jump stops further events fo
 that creative, and a chained creative that has not started within 10 s is
 skipped. Stop or error never sends later events; a
 playback error before start sends the Error URL with code 405. Fetching or
-caching a creative never counts as an impression. Each event is sent once,
-without retries, from the listener's device with Kodi's `User-Agent`; the
+caching a creative never counts as an impression. Each beacon is attempted at
+most once, without retries; if the beacon queue is full it is dropped (recorded
+as `dropped` with diagnostics on). Beacons go from the listener's device with Kodi's `User-Agent`; the
 `X-Device-*` headers go only to the ad request and its wrappers. With diagnostics on, `events.jsonl` records each beacon's
 target, observed player position, HTTP outcome and latency (never its URL).
 

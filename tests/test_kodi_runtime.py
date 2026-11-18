@@ -3194,3 +3194,22 @@ def test_F16_control_without_trailing_stop_falls_through(kodi):
     played = []; player.play = lambda url, item=None: played.append(url)
     player.sample_ads(); svc.close()
     assert played == [second['url']]
+
+
+def test_break_continuation_plays_the_kept_station_without_a_second_lookup(kodi, monkeypatch):
+    runtime, state, _ = kodi
+    class Down:
+        def by_uuid(self, uuid):
+            raise OSError('Radio Browser unavailable')
+    monkeypatch.setattr(runtime, 'RadioBrowser', lambda cancel=None: Down())
+    created = []
+    def create(station, continuation=None):
+        created.append((station.uuid, station.name, continuation))
+        return {'id': 'd' * 48, 'playback_url': 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48,
+                'mime_type': 'audio/mpeg'}
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64), create=create)
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    monkeypatch.setattr(runtime.ControlClient, 'continuation_station', lambda self, token: {
+        'uuid': 'station-1', 'name': 'Kept', 'url': 'https://radio.example/s', 'codec': 'MP3', 'hls': False})
+    route(runtime, mode='play', uuid='station-1', ads='0', continuation='c' * 32)
+    assert created == [('station-1', 'Kept', 'c' * 32)]

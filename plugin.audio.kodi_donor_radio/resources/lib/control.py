@@ -21,6 +21,10 @@ class _Conflict(OSError):
     """HTTP 409 from the relay; callers that ignore it see an ordinary OSError."""
 
 
+class _NotFound(OSError):
+    """HTTP 404 from the relay."""
+
+
 class ControlClient:
     def __init__(self, descriptor, timeout=10):
         self.descriptor, self.timeout = descriptor, timeout
@@ -36,6 +40,8 @@ class ControlClient:
                 body = response.read(16385)
                 if response.status == 409:
                     raise _Conflict('Relay control request conflicted')
+                if response.status == 404:
+                    raise _NotFound('Relay control request found nothing')
                 if len(body) > 16384 or response.status not in (200, 201, 204):
                     raise OSError('Relay control request failed')
                 if not body:
@@ -63,6 +69,19 @@ class ControlClient:
             return self._request('POST', '/sessions', payload)
         except _Conflict:
             raise SelectionSuperseded() from None
+
+    def continuation_station(self, token):
+        """Fields of the station a break continues to; None if the relay forgot it."""
+        try:
+            result = self._request('GET', '/continuations/' + token)
+        except _NotFound:
+            return None
+        fields = ('uuid', 'name', 'url', 'codec', 'hls')
+        if (not isinstance(result, dict) or set(result) != set(fields)
+                or not all(isinstance(result[key], str) for key in fields[:4])
+                or not isinstance(result['hls'], bool)):
+            raise OSError('Invalid relay control response')
+        return result
 
     def reserve_selection(self):
         """Claim the next place in selection order before a slow station lookup."""
