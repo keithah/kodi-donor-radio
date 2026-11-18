@@ -10,10 +10,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels its older run. Every other run gets
+# its own group, because a shared group keeps only one pending run and would
+# drop a queued main commit.
 concurrency:
-  group: tests-${{ github.ref }}
-  # Superseded pull-request runs are cancelled; every main commit is tested.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   pytest:
