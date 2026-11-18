@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python }})
+    # macOS: the owned-HAL transport under test needs macOS (exclusive rename),
+    # and macOS is where the add-on is validated with Kodi.
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9: macOS's system Python and the oldest tested; 3.11: Kodi 21/22
+        # builds; 3.13: newest.
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # FFmpeg and eSpeak let the generated-ad-audio and decoder tests run
+      # instead of skipping.
+      - name: Install audio tools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: brew install ffmpeg espeak
+      - name: Install pytest
+        run: python -m pip install "pytest>=7,<9"
+      - name: Run tests
+        run: python -m pytest -q -rs
+      - name: Build and check the add-on package
+        run: |
+          python tools/package_addon.py --output dist
+          python tools/check_package.py dist/plugin.audio.kodi_donor_radio-0.1.0.zip
