@@ -1530,6 +1530,13 @@ class RelayPlayer(xbmc.Player):
         self._network_waiting = None
         if token is None:
             self.network_ads.forget_first()  # Another item owns the player now.
+        else:
+            # Clicking a station in a listing queues the whole listing; a finite
+            # ad would end and Kodi would advance to the next station, past this
+            # break. The break chains its own items, so drop the queue.
+            playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+            if playlist.size() > 1:
+                playlist.clear()
         if self._network_next is not None:
             # Something else started before the chain continued; drop it.
             follow, self._network_next = self._network_next, None
@@ -1582,6 +1589,12 @@ class RelayPlayer(xbmc.Player):
                 self._network_waiting = time.monotonic()
             item = xbmcgui.ListItem(path=follow)
             item.setProperty('IsPlayable', 'true')
+            if self.network_token is not None:
+                # Label a chained creative like the first one, not by its token file.
+                item.setLabel(text(30180))
+                item.getMusicInfoTag().setTitle(text(30180))
+                item.setMimeType('audio/mpeg')
+                item.setContentLookup(False)
             self.play(follow, item)
             return
         if self.network_token is None:

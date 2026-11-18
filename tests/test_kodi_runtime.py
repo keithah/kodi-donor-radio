@@ -3264,3 +3264,47 @@ def test_other_item_replacing_an_opening_first_ad_clears_its_fallback(kodi):
     played = []; player.play = lambda url, item=None: played.append(url)
     player.sample_ads(); svc.close()
     assert played == []
+
+
+def test_a_starting_ad_drops_the_listing_kodi_queued(kodi):
+    # Kodi queues every row of a listing when one station is clicked; a finite
+    # ad must not let Kodi advance to the next station.
+    runtime, state, _ = kodi
+    svc, client, clock, events = nt.service(nt.inline('a', '1'))
+    svc.base_url = 'http://127.0.0.1:32123'
+    [ad] = svc.prepare(nt.STATION, threading.Event(), '')
+    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
+                                 32123, network_ads=svc)
+    state.playlist[:] = ['station-1', 'station-2', 'station-3']
+    player.file = ad['url']; player.playing = True; player.onAVStarted()
+    svc.close()
+    assert state.playlist == []
+
+
+def test_a_station_start_keeps_the_queue(kodi):
+    runtime, state, _ = kodi
+    svc, *_ = nt.service(nt.inline('a', '1'))
+    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
+                                 32123, network_ads=svc)
+    state.playlist[:] = ['station-1', 'station-2']
+    player.file = 'http://127.0.0.1:32123/media/' + 'd' * 48 + '/' + 'e' * 48
+    player.playing = True; player.onAVStarted()
+    svc.close()
+    assert state.playlist == ['station-1', 'station-2']
+
+
+def test_a_chained_ad_is_labelled_and_skips_content_lookup(kodi):
+    runtime, state, _ = kodi
+    svc, client, clock, events = nt.service(nt.inline('a', '1'), nt.inline('b', '2'))
+    svc.base_url = 'http://127.0.0.1:32123'
+    first, second = svc.prepare(nt.STATION, threading.Event(), '')
+    player = runtime.RelayPlayer(SimpleNamespace(stop=lambda _: None, selection_count=lambda: 0),
+                                 32123, network_ads=svc)
+    played = []; player.play = lambda url, item=None: played.append((url, item))
+    player.file = first['url']; player.playing = True; player.onAVStarted()
+    player.playing = False; player.onPlayBackEnded(); player.sample_ads()
+    svc.close()
+    [(url, item)] = played
+    assert url == second['url'] and item.label == 'localized-30180'
+    assert item.music_info.title == 'localized-30180'
+    assert item.mime == 'audio/mpeg' and item.lookup is False

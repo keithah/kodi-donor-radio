@@ -627,7 +627,7 @@ class NetworkAdService:
             oldest = min(spare, key=lambda item: item.created)
             del self._items[oldest.token]
 
-    def media(self, token):
+    def media(self, token, claim=True):
         if not _TOKEN.fullmatch(token or ''):
             return None
         current = self.current_selection() if self.current_selection is not None else None
@@ -638,7 +638,8 @@ class NetworkAdService:
             if (current is not None and item.selection is not None
                     and current != item.selection and not (item.live or item.requested)):
                 return None  # The listener chose again before this creative started.
-            item.requested = True
+            if claim:
+                item.requested = True
             return item.data
 
     def unstarted_first(self, within=15.0):

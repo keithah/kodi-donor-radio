@@ -295,7 +295,8 @@ class _Handler(BaseHTTPRequestHandler):
     def _network_ad(self):
         network = self.server.relay.network_ads
         token = _NETWORK_AD.fullmatch(self.path).group(1)
-        data = network.media(token) if network is not None else None
+        # Only a GET marks the creative as requested; a HEAD probe is not an open.
+        data = network.media(token, claim=self.command == 'GET') if network is not None else None
         if data is None:
             return self._reply(404)
         start, end, status = 0, len(data) - 1, 200

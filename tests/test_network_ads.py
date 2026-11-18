@@ -839,3 +839,14 @@ def test_token_for_ignores_a_url_urlsplit_rejects():
     svc, *_ = service(inline('a', '1'))
     assert svc.token_for('http://[bad/x.mp3') is None
     svc.close()
+
+
+def test_head_probe_does_not_mark_a_creative_requested():
+    svc, *_ = service(inline('a', '1'))
+    with relay(svc) as (server, descriptor):
+        [item] = ControlClient(descriptor).prepare_network_ads(STATION, _FOLLOW_ADS0)
+        path = urlsplit(item['url']).path
+        assert get(descriptor.port, path, method='HEAD')[0] == 200
+        assert svc.unstarted_first() is None
+        assert get(descriptor.port, path)[0] == 200
+        assert svc.unstarted_first() is not None
