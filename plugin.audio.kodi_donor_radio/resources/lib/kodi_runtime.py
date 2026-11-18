@@ -1148,14 +1148,15 @@ def run_plugin(argv):
                         xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
                     return None
             network, reserved = NetworkAdConfig(), None
-            if action == 'play' and params.get('ads') != '0':
+            if action == 'play':
                 try:
                     network = network_ad_settings()
                 except ValueError:
                     network = NetworkAdConfig()
-                if network.enabled:
-                    # Claim selection order before the station lookup, which can
-                    # take seconds, so a break still playing stops at its next item.
+                # A break's own continuation keeps that break's place; every other
+                # pick claims selection order before the station lookup, which can
+                # take seconds, so a break still playing stops at its next item.
+                if network.enabled and params.get('continuation') is None:
                     client = connect(10)
                     if client is None:
                         return

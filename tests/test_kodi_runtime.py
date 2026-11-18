@@ -3088,3 +3088,25 @@ def test_no_fill_station_takes_the_reserved_selection(kodi, monkeypatch):
                         lambda self, station, follow, selection=None: [])
     route(runtime, mode='play', uuid='station-1')
     assert calls == [9] and state.resolved[0][0] is True
+
+
+@pytest.mark.parametrize('params,expected', [
+    ({'ads': '0'}, ['reserve', ('create', 4)]),  # A deliberate pick without a pre-roll.
+    ({'ads': '0', 'continuation': 'c' * 32}, [('create', None)]),  # A break's own hand-off.
+])
+def test_only_a_break_continuation_skips_the_reservation(kodi, monkeypatch, params, expected):
+    from network_ads import NetworkAdConfig
+    runtime, state, _ = kodi
+    directory(monkeypatch, runtime)
+    order = []
+    def create(station, selection=None, continuation=None):
+        order.append(('create', selection))
+        return {'id': 'c' * 48, 'playback_url': 'http://127.0.0.1:32123/media/' + 'c' * 48 + '/' + 'd' * 48,
+                'mime_type': 'audio/mpeg'}
+    client = SimpleNamespace(descriptor=ServiceDescriptor(32123, 'a' * 48, 'b' * 64), create=create)
+    monkeypatch.setattr(runtime, '_service', lambda *a, **kw: client)
+    monkeypatch.setattr(runtime, 'network_ad_settings', lambda: NetworkAdConfig(enabled=True))
+    monkeypatch.setattr(runtime.ControlClient, 'reserve_selection',
+                        lambda self: order.append('reserve') or 4)
+    route(runtime, mode='play', uuid='station-1', **params)
+    assert order == expected and state.resolved[0][0] is True
