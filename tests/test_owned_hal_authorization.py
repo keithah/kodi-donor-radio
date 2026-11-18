@@ -139,7 +139,9 @@ def test_close_racing_probe_release_closes_authorization_descriptor(tmp_path,mon
         while not path.exists() and time.monotonic()<until:time.sleep(.0005)
         raw=path.read_bytes();request=json.loads(raw)
         response=response_for(request,request_sha256=auth.sha(raw))
-        name=transport.path/'response-000001.json';name.write_bytes(auth.canonical(response));name.chmod(0o600)
+        # Publish atomically: the probe must never see an empty or 0644 file.
+        temp=transport.path/'.response-000001.tmp';temp.write_bytes(auth.canonical(response));temp.chmod(0o600)
+        temp.rename(transport.path/'response-000001.json')
     server=threading.Thread(target=responder);server.start()
     probe=threading.Thread(target=lambda:proofs.append(transport.probe(
         p.binding,ev,p.generation,'tracker',decision_id='e'*64,
@@ -203,7 +205,9 @@ def test_private_file_exchange_echoes_bytes_and_has_no_directory_scan(tmp_path,m
         until=time.monotonic()+1
         while not path.exists() and time.monotonic()<until:time.sleep(.0005)
         raw=path.read_bytes();request=json.loads(raw);response=response_for(request,request_sha256=auth.sha(raw))
-        name=transport.path/'response-000001.json';name.write_bytes(auth.canonical(response));name.chmod(0o600)
+        # Publish atomically: the probe must never see an empty or 0644 file.
+        temp=transport.path/'.response-000001.tmp';temp.write_bytes(auth.canonical(response));temp.chmod(0o600)
+        temp.rename(transport.path/'response-000001.json')
     worker=threading.Thread(target=responder);worker.start()
     proof=transport.probe(p.binding,ev,p.generation,'tracker',decision_id='e'*64,lease_expiry_ns=now[0]+500_000_000)
     worker.join();assert proof and proof.response['authorized'] and not transport.failed

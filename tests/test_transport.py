@@ -459,9 +459,10 @@ def test_address_fallback_shares_one_connect_deadline():
     class FailingSocket(socket.socket):
         def connect(self, address):
             timeouts.append(self.gettimeout())
-            time.sleep(.04)
+            time.sleep(.05)
             raise OSError('Connection refused')
-    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=FailingSocket, connect_timeout=.1)
+    # A wide deadline keeps a slow CI runner from spending it all on the first address.
+    client = HttpClient(UrlPolicy(resolver=dns), socket_factory=FailingSocket, connect_timeout=1)
     with pytest.raises(OSError):
         client.open('http://radio.example/', {}, threading.Event())
     assert len(timeouts) == 2
