@@ -39,9 +39,29 @@ each; quartile/start lag 0.04-0.29 s) and the
 station started 1.8 s after the pod; stopping 20.25 s into a 60 s creative sent
 only impression/start/firstQuartile and started nothing.
 
+### Kodi 22.0 RC2 — 2026-11-17
+
+Target: Kodi 22.0 RC2 Piers (`22.0.rc2`, macOS ARM64 build from
+mirrors.kodi.tv, Team ID QR7RHK8K4X), run from a scratch copy with `HOME`
+pointed at an isolated profile and the same sandbox profile and settings as
+above. Add-on built from commit 3391653, then 134062d for the last row.
+Station A is 101 Smooth Jazz, station B is SomaFM Secret Agent; "switch" means
+a second `Player.Open` of B while A's pre-roll plays.
+
+| Run | Result |
+| --- | --- |
+| A, uninterrupted | 2 × 30 s pod, station started 2.5 s after the pod; all 14 beacons sent, start/quartile lag 0.04-0.23 s, complete 0.45-0.49 s before the declared end |
+| Switch to B (with pre-roll) 5 s into A's ad | A's ad finished as stopped; B's 60 s ad played with all beacons, then B's station; A's second ad and A's station never played |
+| Switch to B (`ads=0`) 5 s into A's ad | B's station started 2.3 s later; A's break did not resume |
+| A, no fill | A's station played directly |
+| Stop 20.08 s into a 30 s ad | impression/start/firstQuartile/midpoint only; nothing else started |
+| Switch to B 1 s before A's first ad ended, at 3391653 | A's ad ended before B's request reached the service (B was still being looked up in Radio Browser), so A's second ad played for 0.9 s and sent impression/start before B's ad replaced it |
+| Same switch, at 134062d (selection reserved before the lookup), twice | A's second ad was dropped as `switched` without any beacon; B's ads, or B's station on no fill, followed; A's station never played |
+
 Limits: positions are Kodi's reported player clock, not independently measured
-audible output. The test zone always fills; with `maxAds=2` it returned one ad
-in run 1 and two in runs 2-3. `X-Device-IP` was omitted because the
+audible output. The test zone does not always fill: on Kodi 22 it returned no
+ad on several consecutive requests and needed spaced retries; with `maxAds=2`
+it returned one or two ads. `X-Device-IP` was omitted because the
 test host is behind NAT. Live365 still needs to validate request data before
 production, and a production zone, agreement and `ads.txt` entries are pending.
 
