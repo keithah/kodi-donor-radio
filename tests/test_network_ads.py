@@ -827,3 +827,9 @@ def test_relay_keeps_the_break_station_until_its_continuation_is_used():
         assert kept == {key: getattr(STATION, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')}
         assert control.continuation_station('f' * 32) is None
         assert get(descriptor.port, '/continuations/' + token)[0] == 401
+
+
+def test_non_ascii_sequence_does_not_discard_the_pod():
+    resolver, _ = _resolver(vast(inline('a', '1'), inline('b', '²')))
+    ads = resolver.resolve(TEST_TAG, {}, threading.Event(), 2)
+    assert [ad.ad_id for ad in ads] == ['a']

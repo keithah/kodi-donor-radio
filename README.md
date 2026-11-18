@@ -154,7 +154,7 @@ overridden.
 | `publisher_domain`, `content_categories`, `blocked_categories`, `store_url`, `schain` | Settings, when set |
 | `maxAds`, `duration` | Settings (1-5 ads; break seconds × 1000, omitted when 0) |
 | `bundle_id` | `plugin.audio.kodi_donor_radio` |
-| `gdpr`, `consent` | GDPR setting (Unknown omits); the setting's consent only when GDPR applies. A `gdpr` or `consent` already in the tag is sent as written, so changing the setting does not remove it |
+| `gdpr`, `consent` | GDPR setting (Unknown omits); the setting's consent only when GDPR applies. A `gdpr` of `0` or `1` or a `consent` already in the tag is sent as written, so changing the setting does not remove it (edit the tag instead); any other tag `gdpr` value is dropped and the setting's value is sent |
 
 Kodi has no advertising ID, so `maid` is not sent.
 Podcast and out-of-home parameters do not apply.

@@ -621,7 +621,7 @@ msgid "Consent string"
 msgstr ""
 
 msgctxt "#30207"
-msgid "Sent as consent when GDPR applies."
+msgid "Sent as consent when GDPR applies. A consent or gdpr value already in the VAST tag is always sent; edit the tag to remove it."
 msgstr ""
 
 msgctxt "#30208"

@@ -338,7 +338,8 @@ class NetworkVastResolver:
         if root is None:
             return []
         ads = _children(root, 'Ad')
-        pod = sorted((a for a in ads if a.attrib.get('sequence', '').isdigit()),
+        # ASCII digits only: str.isdigit() accepts characters int() rejects.
+        pod = sorted((a for a in ads if re.fullmatch(r'[0-9]{1,9}', a.attrib.get('sequence', ''))),
                      key=lambda a: int(a.attrib['sequence']))
         # A pod wins; otherwise standalone ads form a buffet and we take the first ones.
         chosen = (pod or [a for a in ads if not a.attrib.get('sequence')])[:max(1, min(max_ads, _MAX_ADS))]
