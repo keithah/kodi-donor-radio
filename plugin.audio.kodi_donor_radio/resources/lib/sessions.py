@@ -395,7 +395,7 @@ class SessionManager:
         self.base_url = ''
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
-        self._preview_pending = None  # The _pending event when a preview owns it.
+        self._selections = 0  # Deliberate selections (creates and pre-rolls) so far.
         self._fixture_launches = {}
 
     def _expire_fixture_launches(self):
@@ -479,13 +479,13 @@ class SessionManager:
             if self._pending is not None:
                 self._pending.set()
             cancel = self._pending = threading.Event()
+            self._selections += 1
             return cancel
 
-    def selection_pending(self):
-        """True while a deliberate create or pre-roll request is in flight."""
+    def selection_count(self):
+        """How many deliberate selections have begun; previews do not count."""
         with self._lock:
-            pending = self._pending
-            return pending is not None and pending is not self._preview_pending
+            return self._selections
 
     def end_selection(self, cancel):
         """Release a selection; True if a newer one superseded it first."""
@@ -513,6 +513,7 @@ class SessionManager:
             if self._pending is not None:
                 self._pending.set()
             cancel = self._pending = threading.Event()
+            self._selections += 1
             if launch is not None:
                 launch.cancel = cancel
                 launch.deadline = time.monotonic() + _FIXTURE_LAUNCH_CREATE_TTL
@@ -580,7 +581,6 @@ class SessionManager:
                     raise RuntimeError('Preview unavailable while a station is selected')
                 self._session = None
                 cancel = self._pending = threading.Event()
-                self._preview_pending = cancel
                 ad_config = self.ad_config
             source = None
             try:

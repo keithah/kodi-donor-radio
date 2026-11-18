@@ -1459,6 +1459,7 @@ class RelayPlayer(xbmc.Player):
         self.manager, self.port, self.owned = manager, port, None
         self.network_ads = network_ads
         self.network_token = None
+        self._network_generation = None  # Selection count when network_token was set.
         self._network_next = None
         self._network_waiting = None
         self._generation = 0
@@ -1488,7 +1489,12 @@ class RelayPlayer(xbmc.Player):
         if token != self.network_token and self.network_token is not None:
             # Kodi moved on (queued item or user skip) before an end callback.
             self.network_ads.finish(self.network_token, 'switched')
+        self._track(token)
+
+    def _track(self, token):
         self.network_token = token
+        if token is not None:
+            self._network_generation = self.manager.selection_count()
 
     def _network_finished(self, reason):
         if self.network_ads is None or self.network_token is None:
@@ -1506,16 +1512,18 @@ class RelayPlayer(xbmc.Player):
         if self.network_ads is None:
             return
         if self._network_next is not None:
-            if self.manager.selection_pending():
-                # The listener chose another station meanwhile. Continuing now
-                # would claim selection order over that choice, so wait: if it
-                # starts playback, the switch drops this chain; if it fails or
-                # is abandoned, the break carries on.
-                return
             follow, self._network_next = self._network_next, None
+            if self.manager.selection_count() != self._network_generation:
+                # The listener chose again while this creative played. Whether
+                # that choice is still opening, playing, failed or abandoned,
+                # continuing the break would override it, so drop the chain.
+                pending = self.network_ads.token_for(follow)
+                if pending is not None:
+                    self.network_ads.finish(pending, 'switched')
+                return
             # Track a chained creative now, so an open failure before any
             # started callback still falls through to the next item.
-            self.network_token = self.network_ads.token_for(follow)
+            self._track(self.network_ads.token_for(follow))
             if self.network_token is not None:
                 self._network_waiting = time.monotonic()
             item = xbmcgui.ListItem(path=follow)
@@ -1592,7 +1600,7 @@ class RelayPlayer(xbmc.Player):
         first = self.network_ads.unstarted_first() if self.network_ads is not None else None
         if first is not None:
             # The first creative failed to open before any started callback.
-            self.network_token = first
+            self._track(first)
             self._network_finished('error')
             return
         self._finished('cancelled')

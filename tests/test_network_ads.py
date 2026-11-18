@@ -529,7 +529,7 @@ def test_release_reports_a_supersession_that_lands_before_it():
     manager.close()
 
 
-def test_a_preview_is_not_a_pending_selection():
+def test_a_preview_is_not_a_deliberate_selection():
     manager = SessionManager()
     gate = threading.Event()
     def resolver(url, client, cancel):
@@ -541,9 +541,20 @@ def test_a_preview_is_not_a_pending_selection():
     deadline = time.monotonic() + 5
     while manager._pending is None and time.monotonic() < deadline:
         time.sleep(.01)
-    assert manager._pending is not None and not manager.selection_pending()
+    assert manager._pending is not None and manager.selection_count() == 0
     gate.set(); worker.join(5)
     selection = manager.begin_selection()
-    assert manager.selection_pending()
+    assert manager.selection_count() == 1
     manager.end_selection(selection)
+    manager.close()
+
+
+def test_every_deliberate_create_counts_as_a_selection():
+    manager = SessionManager()
+    manager.resolver = lambda url, client, cancel: (_ for _ in ()).throw(OSError('offline'))
+    with pytest.raises(OSError):
+        manager.create(STATION)
+    assert manager.selection_count() == 1
+    manager.end_selection(manager.begin_selection())
+    assert manager.selection_count() == 2
     manager.close()
