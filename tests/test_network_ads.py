@@ -464,3 +464,12 @@ def test_paused_ad_on_air_outlives_the_age_limit():
     assert all(svc.media(item['token']) is not None for item in pod)
     assert svc.finish(pod[0]['token'], 'ended') == pod[1]['url']
     svc.close()
+
+
+@pytest.mark.parametrize('suffix,gdpr,consent', [
+    ('&gdpr=', '1', True), ('&gdpr=true', '1', True),
+    ('&gdpr=1&gdpr=0', '0', True), ('&gdpr=0&gdpr=1', '', True),
+    ('&gdpr=0&gdpr=0', '1', False)])
+def test_consent_ignores_invalid_tag_gdpr_and_honours_any_gdpr_1(suffix, gdpr, consent):
+    url = build_request(config(tag_url=TEST_TAG + suffix, gdpr=gdpr, consent='abc'), STATION)[0]
+    assert ('consent' in parse_qs(urlsplit(url).query)) is consent

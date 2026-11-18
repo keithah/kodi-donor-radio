@@ -155,8 +155,10 @@ def build_request(config, station, position='pre'):
     parts = urlsplit(base)
     pairs = parse_qsl(parts.query, keep_blank_values=True)
     present = {key for key, _value in pairs}
-    tag_gdpr = [value for key, value in pairs if key == 'gdpr']
-    effective_gdpr = tag_gdpr[-1] if tag_gdpr else config.gdpr
+    # A valid gdpr in the tag decides consent; any gdpr=1 counts, so a server
+    # reading either copy of a duplicated key never sees gdpr=1 without it.
+    tag_gdpr = {value for key, value in pairs if key == 'gdpr'} & {'0', '1'}
+    effective_gdpr = ('1' if '1' in tag_gdpr else '0') if tag_gdpr else config.gdpr
     country = (getattr(station, 'country_code', '') or '').strip().upper()
     derived = (
         ('position', position),
