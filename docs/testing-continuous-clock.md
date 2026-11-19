@@ -7,8 +7,9 @@ sample positions survive retirement of older HLS segments. This path is offered
 only for loopback fixture compositions, never ordinary Radio Browser stations.
 
 An already-enabled FFmpegDirect 22+ is selected with its timeshift buffer and
-the video-default player. FFmpegDirect 22.2.10 is detected at runtime; it is not
-declared as a package dependency. Kodi master
+the video-default player. Clock qualification additionally requires exactly
+22.2.10 or 22.2.11, detected at runtime; FFmpegDirect is not declared as a
+package dependency. Kodi master
 also needs an explicit music playlist hint when JSON-RPC retains a video tag on
 the original plugin item. Without FFmpegDirect, the existing Adaptive/native
 fallback remains. The service does not install inputstreams.
@@ -37,7 +38,7 @@ guards. Ordinary launches retain `candidate_only=true` and
 `tracking_enabled=false`. The explicit **Test ad tracking** context action uses
 a single-use service ticket and names VideoPlayer instead of relying on the
 user's default player rules. Only its exact continuous route with enabled
-FFmpegDirect 22.2.10 can qualify; the adapter still requires an owned AV start
+FFmpegDirect 22.2.10 or 22.2.11 can qualify; the adapter still requires an owned AV start
 and checks route/session identity around bounded clock reads. Public Python APIs
 do not provide an atomic renderer/clock attestation, and none of these fixtures
 establish production or billable tracking. Terminal delivery ends mapping before
@@ -102,6 +103,15 @@ The continuous transport therefore does not require a Kodi core patch. The
 optional FFmpegDirect change addresses its startup buffering policy separately.
 Stock startup still exhibits resampling/correction behavior; the private patch
 is not represented as a released dependency.
+
+## Kodi 22 end of stream — 2026-11-19
+
+On Kodi 22 RC2 the bounded late-break fixture stalls at its end with stock
+FFmpegDirect 22.2.10 and 22.2.11: timeshift never reports end of stream, so the
+player stays in caching at about 260.4 seconds. With the `timeshift-startup-eof`
+patch the same add-on route ends with `Player.OnStop` `end: true` and continuous
+audio through the last segment. The add-on cannot fix this on stock builds. See
+[the report](superpowers/reports/kodi-22-hls-eof-2026-11-19.md).
 
 ## Reproducing the measurements
 

@@ -90,8 +90,9 @@ def test_failed_player_open_revokes_reserved_launch(launch):
     assert launch.state.messages
 
 
-@pytest.mark.parametrize('version,enabled', [('22.2.11', True), ('23.0.0', True),
-                                           ('22.2.10', False)])
+@pytest.mark.parametrize('version,enabled', [('22.2.12', True), ('22.2.9', True),
+                                           ('23.0.0', True), ('22.2.10', False),
+                                           ('22.2.11', False)])
 def test_launcher_rejects_unqualified_inputstream_versions(launch, version, enabled):
     launch.behavior.version, launch.behavior.enabled = version, enabled
     launch.run()
@@ -111,6 +112,18 @@ def test_resolver_qualifies_only_exact_selected_aac_after_preflight(launch):
     assert not launch.calls.cancelled and not launch.calls.stopped
 
 
+@pytest.mark.parametrize('version', ['22.2.10', '22.2.11'])
+def test_qualified_ffmpegdirect_releases_launch_and_qualify(launch, version):
+    # 22.2.11 changed only build dependencies and its version string; its
+    # src/ tree is identical to 22.2.10, and Kodi 22's repository serves it.
+    launch.behavior.version = version
+    launch.run()
+    assert launch.calls.reserved
+    assert any(item['method'] == 'Player.Open' for item in launch.calls.rpc)
+    launch.run(mode='play_fixture', handle=7, nonce=NONCE)
+    assert launch.calls.qualified == [('c' * 48, NONCE)]
+
+
 def test_ordinary_fixture_resolution_cannot_qualify(launch):
     launch.run(mode='play_fixture', handle=7)
     assert launch.calls.created == [('fixture-30045', None)]
@@ -125,7 +138,7 @@ def test_fallback_never_qualifies_launch(launch, failure):
     elif failure == 'disabled':
         launch.behavior.enabled = False
     elif failure == 'version':
-        launch.behavior.version = '22.2.11'
+        launch.behavior.version = '22.2.12'
     else:
         launch.result.pop('adaptive_playback_url')
     launch.run(mode='play_fixture', handle=7, nonce=NONCE)

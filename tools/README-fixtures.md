@@ -104,7 +104,7 @@ reachability, or parser failure, and 130 for Ctrl-C.
 ## Explicit continuous-clock tracking checks
 
 Use the controlled test entry's **Test ad tracking** context menu action to request
-VideoPlayer explicitly. It requires enabled FFmpegDirect 22.2.10 and an exact
+VideoPlayer explicitly. It requires enabled FFmpegDirect 22.2.10 or 22.2.11 and an exact
 continuous AAC route; selecting the ordinary row leaves tracking diagnostic.
 The single-use launch has bounded queue/preparation/qualification phases of
 30/40/30 seconds and cannot qualify a replacement

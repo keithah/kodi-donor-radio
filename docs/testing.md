@@ -1,5 +1,16 @@
 # Validation record
 
+## Kodi 22 HLS end of stream and seek checks — 2026-11-19
+
+Six Kodi 22 RC2 captures of the late-break fixture through the add-on's
+**Test ad tracking** launch. Stock FFmpegDirect 22.2.10 and 22.2.11 stalled at
+player time 260.4 seconds; patched builds of both reached natural EOF with no
+gap. The midroll and all six loopback events were placed correctly across the
+moving window and both ad discontinuities; backward and in-ad forward seeks
+suppressed later events. The qualified launch now also accepts 22.2.11, which
+Kodi 22's repository serves. Details:
+[`kodi-22-hls-eof-2026-11-19.md`](superpowers/reports/kodi-22-hls-eof-2026-11-19.md).
+
 ## Continuous-stream frame splice — 2026-11-19
 
 Design and contract: [continuous-splice-design.md](continuous-splice-design.md).

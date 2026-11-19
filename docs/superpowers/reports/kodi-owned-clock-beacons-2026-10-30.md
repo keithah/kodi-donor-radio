@@ -2,6 +2,11 @@
 
 **Controlled midroll correlation observed in this fixture. Full HLS runtime acceptance: FAILED. Production success beacons: DISABLED.**
 
+> Follow-up 2026-11-19: reproduced on Kodi 22 RC2 with stock FFmpegDirect
+> 22.2.10 and 22.2.11, and fixed with the `timeshift-startup-eof` patch
+> (natural EOF, no gap). See
+> [kodi-22-hls-eof-2026-11-19.md](kodi-22-hls-eof-2026-11-19.md).
+
 This was a captured Kodi process-audio run using Kodi master revision
 `20261026-8091c14861`, the extended local HLS fixture, and the local synthetic
 VAST tag. It does not test a public station, production VAST inventory, or

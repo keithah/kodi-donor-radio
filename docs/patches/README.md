@@ -16,7 +16,10 @@ The isolated diagnostic entries set it for finite controlled fixtures, and the
 shipped radio addon sets it on the buffered composed-fixture route, which closes
 only when the source playlist ends or fails. Stock 22.2.10 ignores the property,
 so without this patch that route still stalls in caching after the final
-segment (see the 2026-10-30 owned clock beacon report).
+segment (see the 2026-10-30 owned clock beacon report). Both patches also apply
+cleanly to 22.2.11-Piers, whose `src/` is identical to 22.2.10. On Kodi 22 RC2
+the patched 22.2.10 and 22.2.11 builds reached natural EOF with no gap; stock
+builds of both stalled (see `kodi-22-hls-eof-2026-11-19.md`).
 
 Official FFmpegDirect 22.2.10 reports every timeshift stream as realtime, even
 when `inputstream.ffmpegdirect.is_realtime_stream=false` is supplied. Kodi's
