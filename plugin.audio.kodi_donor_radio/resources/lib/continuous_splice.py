@@ -8,6 +8,7 @@ every source byte passes through unchanged. See
 docs/continuous-splice-design.md for the contract this module implements.
 """
 from collections import namedtuple
+from fractions import Fraction
 import time
 
 from http_client import Cancelled
@@ -304,10 +305,14 @@ class ContinuousSplicer:
         if self.state == DISABLED:
             return
         # Every signal is kept in order: a repeat can matter after a timeout,
-        # and _apply ignores the ones that do not. One 64 KiB read holds fewer than 4096 metadata blocks, so a synced
-        # stream never reaches this bound; it only limits an unsynced one.
+        # and _apply ignores the ones that do not. Signals wait until a frame
+        # at or after their offset is released, so a frame held across many
+        # reads can collect them from all of those reads. Dropping one could
+        # lose a pending end and replace programme audio, so overflowing the
+        # bound gives the listener the source instead.
         if len(self._signals) >= MAX_SIGNALS:
-            self._signals.pop(0)
+            self._disable('signal_overflow')
+            return
         self._signals.append((kind, offset, duration_ms))
 
     def observe_metadata(self, metadata, offset):
@@ -348,7 +353,7 @@ class ContinuousSplicer:
         if self.state != REPLACING:
             output.extend(held)
         if self.state == REPLACING:
-            self._end('stopped', None)
+            self._end('stopped')
         self._flush_rejoin(None)
         self.creative = None
         self._signals.clear()
@@ -357,15 +362,27 @@ class ContinuousSplicer:
 
     def _disable(self, reason):
         if self.state == REPLACING:
-            self._end(reason, None)
+            self._end(reason)
         self._flush_rejoin(None)
         self.state = DISABLED
         self._signals.clear()
         self._emit('continuous_splice_disabled', {'reason': reason})
 
-    def _limit_samples(self, duration_ms, sample_rate):
-        seconds = (duration_ms / 1000 + BREAK_GRACE_SECONDS) if duration_ms else DEFAULT_BREAK_SECONDS
-        return int(seconds * sample_rate)
+    def _limit_seconds(self, duration_ms):
+        if duration_ms:
+            return Fraction(duration_ms, 1000) + BREAK_GRACE_SECONDS
+        return Fraction(DEFAULT_BREAK_SECONDS)
+
+    def _advance_break(self, header):
+        """Count one frame against the open break; True once it reaches its bound.
+
+        The bound is media time: each frame adds its own duration, so a source
+        sample-rate change inside the break cannot stretch or shrink it.
+        """
+        record = self._break
+        record['samples'] += header.samples  # Diagnostics only.
+        record['elapsed'] += Fraction(header.samples, header.sample_rate)
+        return record['elapsed'] >= record['limit']
 
     def _unit(self, unit, output):
         header = unit.header
@@ -378,7 +395,7 @@ class ContinuousSplicer:
                 # The break began on a locked frame, so raw bytes mean the
                 # source lost sync: give the listener the source back.
                 self.state = BREAK_SOURCE
-                self._end('sync_lost', None)
+                self._end('sync_lost')
                 output.extend(unit.data)
                 self._disable('sync_lost')
                 return
@@ -387,29 +404,27 @@ class ContinuousSplicer:
         if self.state == REPLACING:
             if header.format != self.creative.format:
                 self.state = BREAK_SOURCE
-                self._end('format_change', None)
+                self._end('format_change')
                 output.extend(unit.data)
                 self._disable('format_change')
                 return
             index = self._break['index']
             output.extend(self.creative.frames[index])
             self._break['index'] = index + 1
-            self._break['samples'] += header.samples
             self._sample += header.samples
-            if self._break['samples'] >= self._break['limit']:
-                self._end('timeout', None)
+            if self._advance_break(header):
+                self._end('timeout')
                 self._break = None
                 self.state = PROGRAMME
             elif self._break['index'] == len(self.creative.frames):
-                self._end('creative_exhausted', None)
+                self._end('creative_exhausted')
                 self.state = BREAK_SOURCE
             return
         self._flush_rejoin(unit)
         output.extend(unit.data)
         self._sample += header.samples
         if self.state == BREAK_SOURCE and self._break is not None:
-            self._break['samples'] += header.samples
-            if self._break['samples'] >= self._break['limit']:
+            if self._advance_break(header):
                 self._break = None
                 self.state = PROGRAMME
                 self._emit('continuous_break_unresolved', {'reason': 'timeout'})
@@ -427,8 +442,8 @@ class ContinuousSplicer:
                        'boundary_error_bytes': unit.offset - offset,
                        'start_sample': self._sample, 'codec': self.codec,
                        'sample_rate': header.sample_rate}
-            limit = self._limit_samples(duration_ms, header.sample_rate)
-            self._break = {'index': 0, 'samples': 0, 'limit': limit, 'start': details}
+            self._break = {'index': 0, 'samples': 0, 'elapsed': Fraction(0),
+                           'limit': self._limit_seconds(duration_ms), 'start': details}
             if self.creative is None:
                 self.state = BREAK_SOURCE
                 self._emit('continuous_replacement_skipped', dict(details, reason=self.skip_reason))
@@ -441,11 +456,13 @@ class ContinuousSplicer:
             return
         if self.state == REPLACING:
             # Exhaustion leaves REPLACING at once, so creative frames remain.
-            self._end('truncated', unit)
+            # A new start may still claim this same frame, so the rejoin is
+            # reported only once _unit actually forwards a source frame.
+            self._end('truncated')
         self._break = None
         self.state = PROGRAMME
 
-    def _end(self, reason, rejoin_unit):
+    def _end(self, reason):
         record = self._break
         details = {'reason': reason, 'frames_replaced': record['index'],
                    'samples_replaced': record['samples'],
@@ -453,9 +470,9 @@ class ContinuousSplicer:
                    'splice_offset': record['start']['splice_offset'],
                    'signal_offset': record['start']['signal_offset']}
         self._rejoin = details
-        if rejoin_unit is not None or reason in ('stopped', 'format_change', 'sync_lost',
-                                                 'splicer_error'):
-            self._flush_rejoin(rejoin_unit)
+        if reason in ('stopped', 'format_change', 'sync_lost', 'splicer_error',
+                      'signal_overflow'):
+            self._flush_rejoin(None)
 
     def _flush_rejoin(self, unit):
         details, self._rejoin = self._rejoin, None
