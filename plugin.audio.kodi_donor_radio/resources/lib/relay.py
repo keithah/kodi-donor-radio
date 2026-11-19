@@ -520,31 +520,46 @@ class _Handler(BaseHTTPRequestHandler):
     def _continuous(self, session):
         response = session.source.response
         self._check_encoding(response)
-        decoder = None
+        decoder = splicer = None
         metaint = response.headers.get('icy-metaint')
         if metaint is not None:
             if not re.fullmatch('[0-9]{1,10}', metaint):
                 raise ValueError('Invalid ICY interval')
             def metadata(value):
+                if splicer is not None:
+                    # The boundary is the audio byte right after this block.
+                    # Record it first: a diagnostics failure must not lose it.
+                    splicer.observe_metadata(value, decoder.audio_position)
                 session.observe_icy_metadata(value, datetime.now(timezone.utc).isoformat(),
                                              time.monotonic())
             # A zero interval denotes an unframed audio body (no metadata).
             if int(metaint) > 0:
                 decoder = IcyDecoder(int(metaint), metadata)
+                # Default off: None unless the guarded fixture splice is enabled.
+                splicer = session.continuous_splicer(response.headers.get('content-type', ''))
         self._headers(response.status, response.headers)
         block = session.source.initial_bytes
         try:
             while not session.cancel.is_set():
                 if block:
                     audio = decoder.feed(block) if decoder is not None else block
+                    if splicer is not None:
+                        audio = splicer.feed(audio)
                     if audio:
                         self.wfile.write(audio)
                 block = response.read(CHUNK_BYTES)
                 if not block:
+                    if splicer is not None and not session.cancel.is_set():
+                        # Clean EOF: held programme bytes are still deliverable.
+                        tail = splicer.finish()
+                        if tail:
+                            self.wfile.write(tail)
                     break
         finally:
             if decoder is not None:
                 decoder.finish()
+            if splicer is not None:
+                splicer.finish()  # Stop, switch, disconnect or failure: release state.
 
     def _cached(self, session, resource):
         ad = session.ad

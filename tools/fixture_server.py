@@ -3,13 +3,18 @@
 """Developer-only playable origin; generated assets never belong in the addon.
 
 URLs: /continuous.mp3, /continuous.aac, /icy.mp3,
-/hls/{scenario}/index.m3u8, /expected/{scenario}.json, /stats.
+/hls/{scenario}/index.m3u8, /expected/{scenario}.json, /stats,
+/splice/source.{mp3,aac} (real-time ICY repeating the source SPLICE_LOOPS times,
+with AdsWizz adw_ad breaks) and
+/splice/creative-{short,long,mismatch}.{mp3,aac}. Generate splice assets with
+continuous_splice_fixtures.py.
 Each HLS scenario advances every four seconds from its first manifest request.
 Restart the server to reset clocks and connection counters.
 """
 import argparse
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -17,6 +22,17 @@ import threading
 import time
 
 
+def _splice_fixtures():
+    """Load the sibling splice helper however this file itself was loaded."""
+    spec = importlib.util.spec_from_file_location(
+        'continuous_splice_fixtures', Path(__file__).with_name('continuous_splice_fixtures.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SPLICE_LOOPS = 6
+SPLICE_BURST_INTERVALS = 2
 SCENARIOS = ('normal', 'mid-break', 'missing-end', 'malformed-cue', 'no-cue')
 ICY_METAINT = 4096
 ICY_SCENARIOS = ('explicit', 'tildeats', 'wrapped', 'return-to-track',
@@ -229,6 +245,19 @@ def make_server(assets, host='127.0.0.1', port=8765):
                 except OSError:
                     pass
                 return
+            match = re.fullmatch(r'/splice/(source|creative-short|creative-long|creative-mismatch)\.(mp3|aac)',
+                                 self.path)
+            if match:
+                name, codec = match.groups()
+                path = assets / 'continuous' / ('%s.%s' % (name, codec))
+                if not path.is_file():
+                    return self.respond(b'Generate splice assets first\n', 'text/plain', 404)
+                mime = 'audio/mpeg' if codec == 'mp3' else 'audio/aac'
+                if name != 'source':
+                    return self.respond(path.read_bytes(), mime)
+                stream, _, rate = _splice_fixtures().looped_icy_stream(
+                    codec, path.read_bytes(), SPLICE_LOOPS)
+                return self.splice_stream(stream, mime, rate)
             match = re.fullmatch('/hls/([^/]+)/index.m3u8', self.path)
             if match and match.group(1) in SCENARIOS:
                 scenario = match.group(1)
@@ -275,6 +304,34 @@ def make_server(assets, host='127.0.0.1', port=8765):
                 if path.is_file():
                     return self.respond(path.read_bytes(), 'video/mp2t', ranges=True)
             self.respond(b'', 'text/plain', 404)
+
+        def splice_stream(self, stream, mime, audio_rate):
+            """Send ICY intervals in real time after a short connect burst."""
+            metaint = _splice_fixtures().METAINT
+            self.send_response(200)
+            self.send_header('Content-Type', mime)
+            self.send_header('icy-metaint', str(metaint))
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.close_connection = True
+            started = time.monotonic()
+            position = audio = 0
+            try:
+                while position < len(stream) and not self.server.stopping.is_set():
+                    chunk = stream[position:position + metaint]
+                    position += len(chunk)
+                    audio += len(chunk)
+                    if position < len(stream):
+                        length = stream[position] * 16 + 1
+                        chunk += stream[position:position + length]
+                        position += length
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                    due = started + max(0, audio / audio_rate
+                                        - SPLICE_BURST_INTERVALS * metaint / audio_rate)
+                    self.server.stopping.wait(max(0, due - time.monotonic()))
+            except OSError:
+                pass
 
         def respond(self, body, mime, status=200, ranges=False):
             send_fixture_response(self, body, mime, status, ranges)

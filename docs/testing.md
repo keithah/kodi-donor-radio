@@ -11,6 +11,107 @@ suppressed later events. The qualified launch now also accepts 22.2.11, which
 Kodi 22's repository serves. Details:
 [`kodi-22-hls-eof-2026-11-19.md`](superpowers/reports/kodi-22-hls-eof-2026-11-19.md).
 
+## Continuous-stream frame splice — 2026-11-19
+
+Design and contract: [continuous-splice-design.md](continuous-splice-design.md).
+The splice is default-off and fixture-only; no tracking is parsed or sent.
+
+### Fixtures
+
+`tools/continuous_splice_fixtures.py` (FFmpeg, developer-only, output in the
+ignored `tests/generated-audio/continuous/`) encodes one continuous source per
+codec at 44.1 kHz stereo, 128 kb/s: 440 Hz programme for 10 s, a 1000 Hz
+"source ad" for 8 s, then 660 Hz programme for 10 s. Creatives are 1500 Hz: 6 s
+(short), 12 s (long) and a 6 s 48 kHz mismatch. MP3 uses LAME without a
+Xing/Info frame. The ICY builder places `adw_ad='true'` / `'false'` (with
+`durationMilliseconds`, `insertionType`, `StreamTitle`) at the first 16000-byte
+`icy-metaint` boundary at or after each source transition, as an ICY server
+would, and empty blocks elsewhere. `tools/fixture_server.py` serves
+`/splice/source.{mp3,aac}` as real-time ICY (two-interval connect burst, six
+loops) and the creatives. Fixture stations 30218 (MP3) and 30219 (AAC) point at
+those streams.
+
+### Automated tests
+
+`tests/test_continuous_splice.py` (64 tests) covers:
+
+- header parsing for MPEG-1/2/2.5 Layer III and ADTS, and rejection of Layer
+  I/II, free-format, reserved values, PCE channel configurations and short frames;
+- the frame assembler: byte-exact reassembly at random split points, two-header
+  sync, resync after a format change, and the 16 KiB pending bound under
+  false-sync noise;
+- the splice state machine: byte-identical pass-through with no or non-AdsWizz
+  signals at read sizes 1–65536; one-for-one frame swap with the splice at the
+  first frame at or after the signalled byte; ICY metadata split at every
+  tested read size; creative exhaustion, truncation, no-fill, format mismatch,
+  repeated starts, a second break replaying the creative from frame 0,
+  duration-bounded timeout, source format change, sync loss inside a break,
+  metadata bursts that must not crowd out the end signal, back-to-back breaks,
+  CRC-protected MP3 headers split mid-header, finish/stop semantics and fault
+  fallback;
+- the relay: a real loopback upstream, relay and session manager; MP3 and AAC
+  splices; default-off, non-fixture and foreign-origin sessions byte-identical
+  to the de-framed source (observation still logged); 404, unparseable and
+  mismatched creatives as no-fill; stop and switch mid-break (worker exits,
+  `stopped` end event, creative released) followed by a restart that replaces
+  from creative frame 0; an upstream body cut short mid-break (`stream_error`,
+  session removed); no creative fetch for non-ICY or unsupported-codec sources;
+- decoded audio (FFmpeg): for both codecs and both creative lengths, bytes
+  before the splice and after the rejoin equal the source, FFmpeg reports no
+  decode error, and the decoded tone sequence and boundary positions match
+  the splice events.
+
+`tests/test_icy.py` checks `IcyDecoder.audio_position` at every split point;
+`tests/test_kodi_runtime.py` checks the settings guard and fixture routes.
+
+Measured offline boundaries (same fixtures, 10 ms Goertzel windows):
+
+| Codec | Splice vs signalled byte | Heard splice vs splice frame | Rejoin unclear audio |
+| --- | --- | --- | --- |
+| MP3 | 12–78 bytes later (next frame) | +25 ms (LAME/decoder delay, 1105 samples + window) | 40–60 ms (MP3 bit reservoir: rejoin frame borrows 396–424 dropped bytes, plus MDCT overlap) |
+| AAC | 35 bytes later | +23 ms | ≤ 10 ms (MDCT overlap only) |
+
+The signal itself trails the source's own ad start by up to one metadata
+interval (here 0.01–0.30 s for MP3 and 0.30 s for AAC, because `adw_ad` can
+only be placed at an `icy-metaint` boundary); that source-ad audio is heard
+before the creative.
+
+### Kodi 22.0 RC2 captured audio — 2026-11-19
+
+Target: Kodi 22.0 RC2 (`20261109-d686683a55`, macOS ARM64), ad-hoc re-signed
+scratch copy launched through LaunchServices with an isolated `HOME`, the USB
+sandbox profile above and JSON-RPC moved to port 9095 (another Kodi was running
+on the same Mac). Add-on packaged from this branch; settings `test_mode`,
+`test_origin=http://127.0.0.1:8775`, `ad_enabled`, `ad_continuous`, the creative
+URL below, and `network_ads_enabled=false`. Fixture server:
+`tools/fixture_server.py --port 8775`. Each run opened
+`plugin://plugin.audio.kodi_donor_radio/?mode=play_fixture&id=<fixture>` over
+JSON-RPC after `KodiAudioCapture` (installed signed helper, launched with
+`open -n -W … --auto-record --exit-after-recording`) reported `recording`.
+Analysis: `tools/analyze_splice_capture.py CAPTURE CODEC CREATIVE LOOPS`, which
+decodes the exact relay output offline and aligns it to the capture on
+programme-only transitions (10 ms windows).
+
+| Run | Result |
+| --- | --- |
+| MP3, `creative-short.mp3`, 100 s (fixture 30218) | Capture `completed`, 4,808,704 frames at 48 kHz. Four breaks spliced in the relay (`boundary_error_bytes` 12–116, `creative_exhausted`, rejoin reservoir 396–424 bytes). 16 heard transitions; all 7 splice transitions within one 10 ms window of the reference (0 ms six times, −10 ms once); programme alignment spread 10 ms. Unclear audio at each splice equals the offline decode (0–10 ms in, 40–60 ms at the MP3 rejoin); no Kodi-only dropouts between the first and last transition |
+| AAC, `creative-long.aac`, stop 14.16 s into the first break, reopen at 20.02 s, 75 s (fixture 30219) | Relay ended the first break as `stopped` after 295 frames; Kodi output went silent 0.7 s after `Player.Stop`. The reopened session replaced from creative frame 0 (`start_sample` 476160 again). Heard creative spans 7.87 s and 7.83 s against 7.86 s and 7.85 s from the relay's `truncated` events; programme 660 Hz followed directly with no source-ad tail. One 130 ms dropout occurred 0.4 s after the restart, away from any boundary |
+
+The first MP3 attempt was discarded: with Kodi's default "best match" output,
+the two Kodi instances switched the shared device between 44.1 and 48 kHz and
+the capture contained 300 ms zero runs every ~0.4 s (`CActiveAESink::OutputSamples -
+failed` in the log). Setting `audiooutput.config` to fixed 48 kHz removed the
+switching; the runs above use that setting. An earlier attempt that started
+the helper as a child process recorded only zeros (macOS attributed the audio
+permission to the parent); launching it through LaunchServices fixed that.
+
+Limits: the capture is Kodi's process audio, not the physical speakers. Event
+wall times trail the boundary by the fixture server's one-second write cadence
+and are not boundary measurements; sample positions are. The splice remains
+fixture-only and default-off. No real AdsWizz stream, demand source or beacon
+was exercised, and the MP3 rejoin transient (≤ 60 ms heard) is a codec property
+this design records rather than removes.
+
 ## Network pre-roll against the Live365 test zone — 2026-11-17
 
 Target: Kodi 21.3 Omega (macOS ARM64, launched with the process-local USB

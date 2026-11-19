@@ -46,6 +46,13 @@
           <constraints><allowempty>true</allowempty></constraints>
           <level>0</level><default></default><control type="edit" format="string"/>
         </setting>
+        <setting id="ad_continuous" type="boolean" label="30214" help="30215">
+          <level>0</level><default>false</default><control type="toggle"/>
+        </setting>
+        <setting id="ad_continuous_creative" type="string" label="30216" help="30217">
+          <constraints><allowempty>true</allowempty></constraints>
+          <level>0</level><default></default><control type="edit" format="string"/>
+        </setting>
       </group>
       <group id="5" label="30181">
         <setting id="network_ads_enabled" type="boolean" label="30182" help="30183">

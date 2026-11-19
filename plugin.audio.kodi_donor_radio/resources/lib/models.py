@@ -13,6 +13,10 @@ _DETAIL_FIELDS = frozenset({
     "paused", "seeking", "caching",
     # Network pre-roll tracking diagnostics (no URLs).
     "position", "target", "outcome", "latency_ms", "code", "ads", "elapsed_ms", "tainted",
+    # Continuous-stream frame splice diagnostics (offsets and counts only).
+    "signal_offset", "splice_offset", "boundary_error_bytes", "start_sample", "codec",
+    "sample_rate", "frames_replaced", "samples_replaced", "rejoin_offset", "rejoin_sample",
+    "rejoin_reservoir_bytes",
 })
 
 

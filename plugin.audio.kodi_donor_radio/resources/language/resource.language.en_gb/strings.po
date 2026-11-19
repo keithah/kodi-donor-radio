@@ -647,3 +647,27 @@ msgstr ""
 msgctxt "#30213"
 msgid "The network pre-roll tag is invalid; network pre-roll is off."
 msgstr ""
+
+msgctxt "#30214"
+msgid "Splice continuous fixture breaks"
+msgstr ""
+
+msgctxt "#30215"
+msgid "Replace AdsWizz-signalled breaks in continuous ICY fixture streams with whole frames of a fixture creative. Requires test mode and a loopback fixture station. No tracking is sent."
+msgstr ""
+
+msgctxt "#30216"
+msgid "Continuous fixture creative URL"
+msgstr ""
+
+msgctxt "#30217"
+msgid "MP3 or ADTS AAC creative on the exact configured fixture origin, matching the station's sample rate and channels."
+msgstr ""
+
+msgctxt "#30218"
+msgid "Continuous MP3 splice fixture"
+msgstr ""
+
+msgctxt "#30219"
+msgid "Continuous AAC splice fixture"
+msgstr ""
