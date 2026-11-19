@@ -105,7 +105,8 @@ two decoder-state effects remain and are measured rather than hidden:
 
 - **MP3 bit reservoir.** A Layer III frame may borrow up to 511 bytes of main
   data from earlier frames (`main_data_begin`). The first creative frame comes
-  from the creative's start, where `main_data_begin` is 0. The first source frame
+  from the creative's start, and a creative whose first frame has a non-zero
+  `main_data_begin` is rejected as no-fill (`creative_reservoir`). The first source frame
   after rejoin may reference reservoir bytes that were dropped. The decoder then
   cannot reconstruct that one frame, and FFmpeg outputs it as silence or
   concealment. The splicer records `main_data_begin` of the rejoin frame
@@ -188,7 +189,8 @@ AdsWizz context:
   `rejoin_sample` and, for MP3, `rejoin_reservoir_bytes`. `stopped` covers stop,
   switch, client disconnect and upstream EOF or failure; it has no rejoin.
 - `continuous_replacement_skipped`: `reason` (`no_fill`, `format_mismatch`,
-  `creative_unparseable`, `creative_too_large`, `creative_mixed_format`).
+  `creative_unparseable`, `creative_too_large`, `creative_mixed_format`,
+  `creative_reservoir`).
 - `continuous_break_unresolved`: a pass-through break reached its bound.
 - `continuous_splice_disabled`: `reason` (`unsupported_codec`,
   `format_change`, `sync_lost`, `splicer_error`).

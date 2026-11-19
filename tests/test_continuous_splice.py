@@ -239,6 +239,10 @@ def test_prepare_creative_validates_and_strips_tags():
         assert caught.value.reason == reason
     with pytest.raises(cs.CreativeRejected):
         cs.prepare_creative('ogg', b'x')
+    borrowed = mp3_frame(b'X', reservoir=200) + b''.join(frames(cs.MP3, b'YZ'))
+    with pytest.raises(cs.CreativeRejected) as caught:
+        cs.prepare_creative(cs.MP3, borrowed)
+    assert caught.value.reason == 'creative_reservoir'
 
 
 # ---------------------------------------------------------------------------

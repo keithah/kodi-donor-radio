@@ -214,6 +214,10 @@ def prepare_creative(codec, data):
     formats = {unit.header.format for unit in frames}
     if len(formats) != 1:
         raise CreativeRejected('creative_mixed_format')
+    if frames[0].header.reservoir:
+        # The splice-in frame follows unrelated source data, so it must not
+        # borrow MP3 bit-reservoir bytes from frames that are never sent.
+        raise CreativeRejected('creative_reservoir')
     return Creative(formats.pop(), tuple(unit.data for unit in frames),
                     sum(unit.header.samples for unit in frames))
 
