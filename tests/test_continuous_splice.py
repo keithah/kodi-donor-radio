@@ -754,6 +754,19 @@ def test_lost_sync_during_break_returns_source_and_disables():
     assert events[1][1]['reason'] == 'sync_lost'
 
 
+def test_many_alternating_breaks_in_one_read_are_all_kept():
+    source = frames(cs.AAC, b'P' * 200)
+    frame = len(source[0])
+    creative = creative_of(cs.AAC, b'xy')
+    splicer = cs.ContinuousSplicer(cs.AAC, creative, Events())
+    for index in range(100):  # 100 one-frame breaks queued before any audio.
+        splicer.observe_metadata(START, (2 * index) * frame)
+        splicer.observe_metadata(END, (2 * index + 1) * frame)
+    output = splicer.feed(b''.join(source)) + splicer.finish()
+    expected = b''.join(creative.frames[0] + source[i] for i in range(1, 200, 2))
+    assert output == expected
+
+
 def test_metadata_burst_cannot_crowd_out_the_end_signal():
     source = frames(cs.AAC, b'AABBCC')
     splicer = cs.ContinuousSplicer(cs.AAC, creative_of(cs.AAC, b'xyzxyz'), Events())

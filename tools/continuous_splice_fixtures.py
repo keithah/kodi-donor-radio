@@ -115,6 +115,10 @@ def icy_interleave(audio, metaint, signals):
     (stream bytes, {fields index: audio offset where it was placed}).
     """
     pending = sorted(signals.items())
+    boundaries = [-(-offset // metaint) for offset, _ in pending]
+    if len(set(boundaries)) != len(boundaries):
+        # One metadata block cannot carry two transitions; do not invent a break.
+        raise ValueError('Two signals share one metadata boundary')
     out = bytearray()
     placed = []
     position = 0

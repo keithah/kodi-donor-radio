@@ -22,7 +22,7 @@ those streams.
 
 ### Automated tests
 
-`tests/test_continuous_splice.py` (61 tests) covers:
+`tests/test_continuous_splice.py` (62 tests) covers:
 
 - header parsing for MPEG-1/2/2.5 Layer III and ADTS, and rejection of Layer
   I/II, free-format, reserved values, PCE channel configurations and short frames;

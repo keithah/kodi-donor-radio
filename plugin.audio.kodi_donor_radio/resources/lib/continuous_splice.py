@@ -15,6 +15,7 @@ from http_client import Cancelled
 
 MP3, AAC = 'mp3', 'aac'
 MAX_PENDING_BYTES = 16 * 1024
+MAX_SIGNALS = 4096
 CREATIVE_BYTES = 4 * 1024 * 1024
 CREATIVE_SECONDS = 5
 DEFAULT_BREAK_SECONDS = 300
@@ -305,7 +306,9 @@ class ContinuousSplicer:
         # the queue then alternates start/end and stays small.
         if self._signals and self._signals[-1][0] == kind:
             return
-        if len(self._signals) >= 64:
+        # One 64 KiB read holds fewer than 4096 metadata blocks, so a synced
+        # stream never reaches this bound; it only limits an unsynced one.
+        if len(self._signals) >= MAX_SIGNALS:
             self._signals.pop(0)
         self._signals.append((kind, offset, duration_ms))
 

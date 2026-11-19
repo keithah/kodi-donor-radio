@@ -69,7 +69,7 @@ def main():
     ref = classify(F.transitions(ref_track))
     cap = classify(F.transitions(cap_track))
     # Align on the first programme transition present in both, then match in order.
-    matched, unmatched = [], []
+    matched, unmatched, missing = [], [], []
     j = 0
     for start, a, b, kind in cap:
         k = j
@@ -79,6 +79,10 @@ def main():
             # Keep the cursor: one extra capture transition must not end the comparison.
             unmatched.append({'capture_s': round(start / RATE, 3), 'from': a, 'to': b})
             continue
+        if matched:
+            # Reference transitions skipped between two matches were not heard.
+            missing.extend({'reference_s': round(r[0] / RATE, 3), 'from': r[1], 'to': r[2],
+                            'kind': r[3]} for r in ref[j:k])
         matched.append((kind, a, b, start, ref[k][0]))
         j = k + 1
     programme = [c - r for kind, _, _, c, r in matched if kind == 'programme']
@@ -94,7 +98,10 @@ def main():
     ref_gaps = F.gaps(ref_track)
     cap_gaps = [(start - offset, windows) for start, windows in F.gaps(cap_track)]
     def near(gaps, at):
-        return sum(w for s, w in gaps if abs(s - at) < 3 * 1152) * WINDOW / RATE * 1000
+        """Milliseconds of unclear audio overlapping +/- 3 MP3 frames of a boundary."""
+        low, high = at - 3 * 1152, at + 3 * 1152
+        overlap = sum(max(0, min(high, s + w * WINDOW) - max(low, s)) for s, w in gaps)
+        return overlap / RATE * 1000
     boundary = []
     for kind, a, b, c, r in matched:
         if kind == 'splice':
@@ -112,6 +119,7 @@ def main():
         'alignment_offset_s': round(offset / RATE, 3),
         'programme_alignment_spread_ms': round((max(programme) - min(programme)) / RATE * 1000, 1),
         'transitions': rows, 'unmatched_capture_transitions': unmatched,
+        'missing_reference_transitions': missing,
         'splice_boundary_unclear_audio': boundary,
         'kodi_only_unclear_runs_between_first_and_last_transition': kodi_only,
         'relay_reference_events': [(k, {x: d.get(x) for x in ('reason', 'start_sample', 'rejoin_sample',
