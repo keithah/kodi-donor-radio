@@ -806,3 +806,30 @@ def test_back_to_back_breaks_without_programme_frame_keep_event_pairs():
     splicer.finish()
     assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
                               'continuous_replacement_start', 'continuous_replacement_end']
+
+
+def test_start_after_an_unanswered_break_times_out_is_kept():
+    codec = cs.MP3
+    source = frames(codec, b'P' * 30)
+    frame = len(source[0])
+    creative = creative_of(codec, b'xyxyxyxyxy')
+    old = cs.BREAK_GRACE_SECONDS
+    cs.BREAK_GRACE_SECONDS = 0
+    try:
+        events = Events()
+        splicer = cs.ContinuousSplicer(codec, creative, events)
+        splicer.observe_metadata(dict(START, durationMilliseconds='50'), 2 * frame)
+        splicer.observe_metadata(dict(START, durationMilliseconds='50'), 20 * frame)
+        splicer.feed(b''.join(source))
+        splicer.finish()
+    finally:
+        cs.BREAK_GRACE_SECONDS = old
+    assert events.kinds().count('continuous_replacement_start') == 2
+
+
+def test_fixture_builder_rejects_signals_sharing_a_metadata_block():
+    fixture = _tools('continuous_splice_fixtures')
+    with pytest.raises(ValueError):
+        fixture.icy_interleave(b'a' * 64, 16, {0: START, 16: END})
+    stream, placed = fixture.icy_interleave(b'a' * 64, 16, {16: START, 32: END})
+    assert [p[1] for p in placed] == [16, 32]

@@ -71,8 +71,8 @@ Only AdsWizz ICY metadata is a splice signal, and only its `adw_ad` field:
   (unsynchronised) bytes right after the boundary pass through as programme and
   can push the splice later; `boundary_error_bytes` reports the actual distance.
 - A repeated `true` while a break is open, or a `false` with no open break, is
-  ignored. Repeated signals are coalesced before the frames that follow them are
-  processed, so a burst of metadata cannot crowd out a boundary.
+  ignored. Up to 4096 queued signals are kept in order, more than one 64 KiB
+  read can carry, so a burst of metadata cannot crowd out a boundary.
 - `durationMilliseconds`, when present and valid (1–300000), bounds the break:
   if no `false` arrives within that duration plus 10 seconds, the break is
   closed as unresolved. Without it, the bound is 300 seconds.

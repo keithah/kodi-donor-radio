@@ -302,11 +302,8 @@ class ContinuousSplicer:
             raise ValueError('Invalid boundary signal')
         if self.state == DISABLED:
             return
-        # Coalesce repeats so a burst of metadata cannot crowd out a boundary;
-        # the queue then alternates start/end and stays small.
-        if self._signals and self._signals[-1][0] == kind:
-            return
-        # One 64 KiB read holds fewer than 4096 metadata blocks, so a synced
+        # Every signal is kept in order: a repeat can matter after a timeout,
+        # and _apply ignores the ones that do not. One 64 KiB read holds fewer than 4096 metadata blocks, so a synced
         # stream never reaches this bound; it only limits an unsynced one.
         if len(self._signals) >= MAX_SIGNALS:
             self._signals.pop(0)

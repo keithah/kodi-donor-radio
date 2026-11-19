@@ -106,7 +106,7 @@ def main():
     for kind, a, b, c, r in matched:
         if kind == 'splice':
             boundary.append({'from': a, 'to': b, 'reference_unclear_ms': round(near(ref_gaps, r), 1),
-                             'kodi_unclear_ms': round(near(cap_gaps, r), 1)})
+                             'kodi_unclear_ms': round(near(cap_gaps, c - offset), 1)})
     first = matched[0][3] if matched else 0
     last = matched[-1][3] if matched else 0
     kodi_only = []
