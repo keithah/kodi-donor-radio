@@ -18,7 +18,7 @@ from hls import parse_playlist, rewrite_playlist
 from http_client import BODY_BYTES, CHUNK_BYTES, USER_AGENT, IncompleteResponse, read_bounded
 from icy import IcyDecoder
 from models import Event, Station
-from sessions import ResourceLimit, SessionManager
+from sessions import ResourceLimit, SelectionSuperseded, SessionManager
 from ad_session import CompositionFailure, SourceUnavailable
 from ad_media import extract_adts
 
@@ -28,6 +28,9 @@ _HEADERS = frozenset({'content-type', 'content-range', 'accept-ranges', 'cache-c
 _MEDIA = re.compile(r'^/media/([a-f0-9]{48})/([a-f0-9]{48})(?:\.(?:m3u8|ts|aac|mp3|mp4|m4s|m4a|ac3|ec3))?$')
 _SESSION = re.compile(r'^/sessions/([a-f0-9]{48})$')
 _FIXTURE_LAUNCH = re.compile(r'^/fixture-launches/([a-f0-9]{48})$')
+_NETWORK_AD = re.compile(r'^/network-ads/([a-f0-9]{48})\.mp3$')
+_CONTINUATION = re.compile(r'^/continuations/([a-f0-9]{32})$')
+_RANGE = re.compile(r'^bytes=(\d{0,12})-(\d{0,12})$', re.IGNORECASE)
 _AD_RELOAD_INTERVAL = .5
 _MAX_COMPOSITION_RELOAD_FAILURES = 3
 
@@ -121,6 +124,8 @@ class _Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if not self._valid_target():
             return self._reply(404)
+        if _NETWORK_AD.fullmatch(self.path):
+            return self._network_ad()
         match = _MEDIA.fullmatch(self.path)
         if match is None:
             return self._reply(405 if not self.path.startswith('/media/') else 404)
@@ -157,10 +162,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(502)
 
     def do_POST(self):
-        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify'):
+        if not self._valid_target() or self.path not in ('/sessions', '/preview-sessions', '/icy-marker/learn', '/icy-marker/label', '/fixture-launches', '/fixture-clock/qualify', '/network-ads', '/selections'):
             return self._reply(404)
         if not self._authorized():
             return self._reply(401)
+        if self.path == '/network-ads':
+            return self._prepare_network_ads()
+        if self.path == '/selections':
+            return self._reserve_selection()
         if self.path in ('/icy-marker/learn', '/icy-marker/label'):
             return self._learn_icy_marker()
         if self.path in ('/fixture-launches', '/fixture-clock/qualify'):
@@ -170,9 +179,21 @@ class _Handler(BaseHTTPRequestHandler):
             if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
                 return self._reply(400)
             body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
             data = json.loads(body)
             fields = {'uuid', 'name', 'url', 'codec', 'hls'}
-            if not isinstance(data, dict) or set(data) not in (fields, fields | {'fixture_launch_nonce'}):
+            if not isinstance(data, dict) or set(data) not in (
+                    fields, fields | {'fixture_launch_nonce'}, fields | {'continuation'},
+                    fields | {'selection'}):
+                return self._reply(400)
+            reserved = data.pop('selection', None)
+            if reserved is not None and (self.path != '/sessions' or type(reserved) is not int
+                                         or not 0 < reserved < 2 ** 53):
+                return self._reply(400)
+            continuation = data.pop('continuation', None)
+            if continuation is not None and (self.path != '/sessions' or not isinstance(continuation, str)
+                                             or re.fullmatch(r'[a-f0-9]{32}', continuation) is None):
                 return self._reply(400)
             if (not all(isinstance(data[k], str) and len(data[k]) <= 4096 for k in ('uuid', 'name', 'url', 'codec'))
                     or not isinstance(data['hls'], bool)):
@@ -185,7 +206,11 @@ class _Handler(BaseHTTPRequestHandler):
             if self.path == '/preview-sessions':
                 session = self.server.relay.manager.create_preview(station)
             else:
-                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce)
+                session = self.server.relay.manager.create(station, fixture_launch_nonce=nonce,
+                                                           continuation=continuation,
+                                                           reserved=reserved)
+        except SelectionSuperseded:
+            return self._reply(409)
         except (ValueError, UnicodeError):
             return self._reply(400)
         except Exception:
@@ -201,6 +226,120 @@ class _Handler(BaseHTTPRequestHandler):
         if session.continuous_playback_url is not None:
             result['continuous_playback_url'] = session.continuous_playback_url
         self._reply(201, result)
+
+    def _prepare_network_ads(self):
+        network = self.server.relay.network_ads
+        try:
+            lengths = self.headers.get_all('Content-Length', [])
+            if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 16384:
+                return self._reply(400)
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]):
+                return self._reply(400)
+            data = json.loads(body)
+            fields = {'uuid', 'name', 'url', 'codec', 'hls', 'country_code', 'language',
+                      'tags', 'follow_url'}
+            if (not isinstance(data, dict) or set(data) not in (fields, fields | {'selection'})
+                    or not isinstance(data['hls'], bool)
+                    or not all(isinstance(data[k], str) and len(data[k]) <= 4096
+                               for k in fields - {'hls'})):
+                return self._reply(400)
+            reserved = data.pop('selection', None)
+            if reserved is not None and (type(reserved) is not int or not 0 < reserved < 2 ** 53):
+                return self._reply(400)
+            follow_url = data.pop('follow_url')
+            if follow_url and not follow_url.startswith('plugin://plugin.audio.kodi_donor_radio/'):
+                return self._reply(400)
+            station = Station(**data)
+        except (ValueError, UnicodeError, RecursionError):
+            return self._reply(400)
+        if network is None:
+            return self._reply(200, {'ads': []})
+        manager = self.server.relay.manager
+        try:
+            cancel = manager.begin_selection(reserved)
+        except RuntimeError:
+            return self._reply(200, {'ads': [], 'superseded': True})
+        try:
+            if follow_url:
+                # The station continuation yields if the listener chooses again.
+                follow_url += '&continuation=' + manager.register_continuation(cancel.selection, station)
+            ads = network.prepare(station, cancel, follow_url, selection=cancel.selection)
+        except Exception:
+            ads = []
+        finally:
+            # Read the flag and release under one lock, so a newer selection
+            # cannot slip in between and leave stale ads looking current.
+            superseded = manager.end_selection(cancel)
+        if superseded:
+            # A newer selection owns playback; the caller must not start anything.
+            return self._reply(200, {'ads': [], 'superseded': True})
+        self._reply(200, {'ads': ads})
+
+    def _reserve_selection(self):
+        lengths = self.headers.get_all('Content-Length', [])
+        if len(lengths) != 1 or not lengths[0].isdigit() or not 0 < int(lengths[0]) <= 64:
+            return self._reply(400)
+        try:
+            body = self.rfile.read(int(lengths[0]))
+            if len(body) != int(lengths[0]) or json.loads(body) != {}:
+                return self._reply(400)
+        except (ValueError, UnicodeError):
+            return self._reply(400)
+        try:
+            selection = self.server.relay.manager.reserve_selection()
+        except RuntimeError:
+            return self._reply(502)
+        self._reply(200, {'selection': selection})
+
+    def _network_ad(self):
+        network = self.server.relay.network_ads
+        token = _NETWORK_AD.fullmatch(self.path).group(1)
+        # Only a GET marks the creative as requested; a HEAD probe is not an open.
+        data = network.media(token, claim=self.command == 'GET') if network is not None else None
+        if data is None:
+            return self._reply(404)
+        start, end, status = 0, len(data) - 1, 200
+        # RFC 9110: Range applies to GET only; HEAD describes the full representation.
+        ranges = self.headers.get_all('Range', []) if self.command == 'GET' else []
+        if len(ranges) > 1:
+            return self._reply(416)
+        if ranges:
+            match = _RANGE.fullmatch(ranges[0].strip())
+            if match is None or match.group(1) == match.group(2) == '':
+                return self._reply(416)
+            if match.group(1) == '':
+                start = max(0, len(data) - int(match.group(2)))
+            else:
+                start = int(match.group(1))
+                if match.group(2):
+                    end = min(end, int(match.group(2)))
+            if start > end or start >= len(data):
+                self.send_response(416)
+                self.send_header('Content-Range', 'bytes */%d' % len(data))
+                self.send_header('Content-Length', '0')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.close_connection = True
+                return
+            status = 206
+        self.send_response(status)
+        self.send_header('Content-Type', 'audio/mpeg')
+        self.send_header('Accept-Ranges', 'bytes')
+        self.send_header('Cache-Control', 'no-store')
+        if status == 206:
+            self.send_header('Content-Range', 'bytes %d-%d/%d' % (start, end, len(data)))
+        self.send_header('Content-Length', str(end - start + 1))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+        if self.command == 'GET':
+            try:
+                view = memoryview(data)[start:end + 1]
+                for offset in range(0, len(view), CHUNK_BYTES):
+                    self.wfile.write(view[offset:offset + CHUNK_BYTES])
+            except OSError:
+                pass
 
     def _fixture_launch_control(self):
         try:
@@ -275,8 +414,18 @@ class _Handler(BaseHTTPRequestHandler):
             if not self._authorized():
                 return self._reply(401)
             return self._reply(200, self.server.relay.manager.current_icy_candidate())
+        match = _CONTINUATION.fullmatch(self.path)
+        if match is not None:
+            if not self._authorized():
+                return self._reply(401)
+            station = self.server.relay.manager.continuation_station(match.group(1))
+            if station is None:
+                return self._reply(404)
+            return self._reply(200, {key: getattr(station, key) for key in ('uuid', 'name', 'url', 'codec', 'hls')})
         if self.path == '/health':
             return self._reply(200, {'status': 'ok', 'instance_id': self.server.relay.descriptor.instance_id})
+        if _NETWORK_AD.fullmatch(self.path):
+            return self._network_ad()
         match = _MEDIA.fullmatch(self.path)
         if match is None:
             return self._reply(404)
@@ -636,10 +785,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class RelayServer:
-    def __init__(self, manager=None, worker_limit=8, client_timeout=10):
+    def __init__(self, manager=None, worker_limit=8, client_timeout=10, network_ads=None):
         if not 1 <= worker_limit <= 8:
             raise ValueError('Worker limit must be between one and eight')
         self.manager, self.worker_limit = manager or SessionManager(), worker_limit
+        self.network_ads = network_ads
+        if network_ads is not None:
+            # Creatives of a superseded selection stop being served before they start.
+            network_ads.current_selection = self.manager.selection_count
         self.client_timeout = client_timeout
         self._server, self._thread = None, None
         self.descriptor = None
@@ -650,6 +803,8 @@ class RelayServer:
         self._server = _Server(self)
         self.descriptor = ServiceDescriptor(self._server.server_port, secrets.token_hex(24), secrets.token_hex(32))
         self.manager.base_url = 'http://127.0.0.1:%s' % self.descriptor.port
+        if self.network_ads is not None:
+            self.network_ads.base_url = self.manager.base_url
         self._thread = threading.Thread(target=self._server.serve_forever,
                                         kwargs={'poll_interval': .1}, daemon=True)
         self._thread.start()

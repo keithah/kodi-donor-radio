@@ -76,7 +76,7 @@ def kodi(monkeypatch, tmp_path):
                             player_paused=False, player_caching=False, selections=[], confirmations=[],
                             dialog_choices=None, dialog_inputs=None, builtins=[], contents=[],
                             selection=-1, remember=False, memory_selection=None, on_select=None, on_confirm=None,
-                            window_properties={})
+                            window_properties={}, playlist=[], playlist_position=0)
     class Item:
         def __init__(self, label='', path=''):
             self.label, self.path, self.props = label, path, {}
@@ -84,6 +84,8 @@ def kodi(monkeypatch, tmp_path):
             self.music_info = MusicInfoTag()
         def addContextMenuItems(self, values): self.context.extend(values)
         def getMusicInfoTag(self): return self.music_info
+        def setLabel(self, value): self.label = value
+        def getPath(self): return self.path
         def setLabel2(self, value): self.label2 = value
         def setArt(self, value): self.art = value
         def setInfo(self, kind, value): self.info[kind] = value
@@ -141,6 +143,13 @@ def kodi(monkeypatch, tmp_path):
         def getPlayingFile(self): return self.file
         def isPlaying(self): return self.playing
         def play(self, path, listitem): self.file = path; self.playing = True; self.item = listitem
+    class PlayList:
+        def __init__(self, playlist_id): self.playlist_id = playlist_id
+        def _rows(self): return state.playlist if self.playlist_id == 0 else []
+        def size(self): return len(self._rows())
+        def getposition(self): return state.playlist_position if self._rows() else -1
+        def __getitem__(self, index): return Item(path=self._rows()[index])
+        def clear(self): self._rows().clear()
     class Addon:
         def getAddonInfo(self, key): return {'profile': str(tmp_path), 'name': 'Kodi Donor Radio', 'path': str(ADDON)}[key]
         def getLocalizedString(self, key): return 'localized-%d' % key
@@ -153,7 +162,7 @@ def kodi(monkeypatch, tmp_path):
         def setProperty(self, key, value): state.window_properties[key] = value
         def clearProperty(self, key): state.window_properties.pop(key, None)
     modules = {
-        'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, LOGDEBUG=0,
+        'xbmc': SimpleNamespace(Monitor=Monitor, Player=Player, PlayList=PlayList, PLAYLIST_MUSIC=0, LOGDEBUG=0,
                                 getCondVisibility=lambda condition: state.player_paused if condition == 'Player.Paused' else state.player_caching,
                                 executebuiltin=lambda value: state.builtins.append(value),
                                 log=lambda value, level: state.logs.append(value)),

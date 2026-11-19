@@ -11,6 +11,8 @@ _DETAIL_FIELDS = frozenset({
     "insertion_type", "raw_clock", "mapped_position", "mapped",
     "tracking_enabled", "playing", "candidate_only",
     "paused", "seeking", "caching",
+    # Network pre-roll tracking diagnostics (no URLs).
+    "position", "target", "outcome", "latency_ms", "code", "ads", "elapsed_ms", "tainted",
 })
 
 

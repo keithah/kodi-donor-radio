@@ -288,3 +288,41 @@ def test_fixture_launch_nonce_rejects_malformed_control_response(monkeypatch, re
 
     with pytest.raises(OSError):
         client.reserve_fixture_launch('fixture')
+
+
+def test_fixture_reservation_supersedes_a_pending_break_continuation(launches):
+    from sessions import SelectionSuperseded
+    l = launches
+    selection = l.manager.begin_selection()
+    token = l.manager.register_continuation(selection.selection)
+    l.manager.end_selection(selection)
+    nonce = l.manager.reserve_fixture_launch(l.station.uuid)  # The listener picks a fixture.
+    with pytest.raises(SelectionSuperseded):
+        l.manager.create(l.station, continuation=token)  # The break's hand-off yields.
+    assert nonce in l.manager._fixture_launches  # The new ticket survives.
+
+
+def test_cancelled_fixture_launch_leaves_the_playing_break_alone(launches):
+    l = launches
+    selection = l.manager.begin_selection()
+    l.manager.end_selection(selection)
+    l.manager.cancel_fixture_launch(l.manager.reserve_fixture_launch(l.station.uuid))
+    assert l.manager.selection_count() == selection.selection  # The break still owns playback.
+
+
+def test_fixture_reservation_cancels_an_in_flight_preroll(launches):
+    l = launches
+    selection = l.manager.begin_selection()
+    l.manager.reserve_fixture_launch(l.station.uuid)
+    assert l.manager.end_selection(selection) is True  # The pre-roll reply says superseded.
+
+
+def test_newer_fixture_launch_supersedes_a_reserved_selection(launches):
+    from sessions import SelectionSuperseded
+    l = launches
+    reserved = l.manager.reserve_selection()  # A station click, still looking up.
+    nonce = l.manager.reserve_fixture_launch(l.station.uuid)  # Then a fixture launch.
+    assert l.manager.begin_selection(reserved).is_set()  # A's pre-roll yields.
+    with pytest.raises(SelectionSuperseded):
+        l.manager.create(l.station, reserved=reserved)  # So does A's station.
+    assert nonce in l.manager._fixture_launches  # The launch survives.

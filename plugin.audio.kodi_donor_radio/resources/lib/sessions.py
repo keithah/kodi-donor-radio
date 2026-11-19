@@ -29,6 +29,10 @@ _FIXTURE_LAUNCH_QUALIFY_TTL = 30.0
 _LAUNCH_NONCE = re.compile(r'^[a-f0-9]{48}$')
 
 
+class SelectionSuperseded(RuntimeError):
+    """A newer deliberate selection began after the one this request continues."""
+
+
 @dataclass
 class _FixtureLaunch:
     fixture_id: str
@@ -395,6 +399,8 @@ class SessionManager:
         self.base_url = ''
         self._lock, self._create_lock = threading.RLock(), threading.Lock()
         self._session, self._pending, self._closed = None, None, False
+        self._selections = 0  # Deliberate selections (creates and pre-rolls) so far.
+        self._continuations = OrderedDict()  # Outstanding break token -> (selection, station).
         self._fixture_launches = {}
 
     def _expire_fixture_launches(self):
@@ -423,8 +429,12 @@ class SessionManager:
                     or not 1 <= urlsplit(config.fixture_origin).port <= 65535):
                 raise ValueError('Fixture launch unavailable')
             # One outstanding launch is also the latest explicit selection.
-            # A queued resolver from an older click cannot reclaim playback.
+            # A queued resolver from an older click cannot reclaim playback,
+            # nor can a pre-roll break's pending station continuation, and an
+            # in-flight pre-roll or station request is cancelled.
             self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
             nonce = secrets.token_hex(24)
             self._fixture_launches[nonce] = _FixtureLaunch(
                 fixture_id, origin(config.fixture_origin), time.monotonic() + _FIXTURE_LAUNCH_QUEUE_TTL)
@@ -464,12 +474,104 @@ class SessionManager:
             self._session = None
         session.close('fixture_launch_cancelled')
 
-    def create(self, station, fixture_launch_nonce=None):
-        # Register selection order before queuing behind an older resolver.
-        # The event is also an ownership token: stale waiters cannot replace it.
+    def reserve_selection(self):
+        """Claim the next place in selection order before the request is ready.
+
+        The plugin reserves as soon as the listener chooses, ahead of its slow
+        station lookup, so an older pre-roll break stops at its next item.
+        Anything pending is cancelled, as a new create would do.
+        """
         with self._lock:
             if self._closed:
                 raise RuntimeError('Manager closed')
+            self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
+            self._selections += 1
+            return self._selections
+
+    def _newer_than_locked(self, selection):
+        """True if a selection or fixture launch began after `selection`.
+
+        Any outstanding fixture launch is newer: every selection discards the
+        launches that existed before it.
+        """
+        self._expire_fixture_launches()
+        return selection != self._selections or bool(self._fixture_launches)
+
+    def begin_selection(self, reserved=None):
+        """Register a deliberate selection that is not a relay session yet.
+
+        A network pre-roll request takes this place in selection order: a newer
+        create or pre-roll sets the returned event, and this one cancels any
+        older pending create. With a reserved number it takes that place, and
+        its event is already set if a newer selection has begun since. Pair
+        every call with end_selection.
+        """
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Manager closed')
+            if reserved is not None and self._newer_than_locked(reserved):
+                cancel = threading.Event()
+                cancel.set()
+                cancel.selection = reserved
+                return cancel
+            self._discard_fixture_launches()
+            if self._pending is not None:
+                self._pending.set()
+            cancel = self._pending = threading.Event()
+            if reserved is None:
+                self._selections += 1
+            cancel.selection = self._selections  # This request's place in selection order.
+            return cancel
+
+    def selection_count(self):
+        """How many deliberate selections have begun; previews do not count."""
+        with self._lock:
+            return self._selections
+
+    def end_selection(self, cancel):
+        """Release a selection; True if a newer one superseded it first."""
+        with self._lock:
+            if self._pending is cancel:
+                self._pending = None
+            return cancel.is_set()
+
+    def register_continuation(self, selection, station=None):
+        """One-shot token for a pre-roll break's station continuation.
+
+        The break's station is kept with it, so the continuation does not
+        depend on a second directory lookup when the ads end.
+        """
+        token = secrets.token_hex(16)
+        with self._lock:
+            self._continuations[token] = (selection, station)
+            while len(self._continuations) > 32:
+                self._continuations.popitem(last=False)
+        return token
+
+    def continuation_station(self, token):
+        """The station a pending continuation will play, or None if unknown."""
+        with self._lock:
+            return (self._continuations.get(token) or (None, None))[1]
+
+    def create(self, station, fixture_launch_nonce=None, continuation=None, reserved=None):
+        # Register selection order before queuing behind an older resolver.
+        # The event is also an ownership token: stale waiters cannot replace it.
+        # A pre-roll continuation passes its break's selection number and
+        # yields if the listener has chosen again since.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError('Manager closed')
+            # An unknown token (already used, from an earlier service run, or
+            # long evicted) is a replay of the playing item: a plain choice.
+            selection = (self._continuations.pop(continuation, None) or (None, None))[0] if continuation else None
+            if selection is not None and self._newer_than_locked(selection):
+                raise SelectionSuperseded('A newer selection owns playback')
+            # A station chosen after a reservation (the pre-roll had no fill)
+            # takes the reserved place, unless a newer choice has begun.
+            if reserved is not None and self._newer_than_locked(reserved):
+                raise SelectionSuperseded('A newer selection owns playback')
             launch = None
             if fixture_launch_nonce is not None:
                 self._expire_fixture_launches()
@@ -483,6 +585,8 @@ class SessionManager:
             if self._pending is not None:
                 self._pending.set()
             cancel = self._pending = threading.Event()
+            if reserved is None:
+                self._selections += 1
             if launch is not None:
                 launch.cancel = cancel
                 launch.deadline = time.monotonic() + _FIXTURE_LAUNCH_CREATE_TTL

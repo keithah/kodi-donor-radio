@@ -1,5 +1,76 @@
 # Validation record
 
+## Network pre-roll against the Live365 test zone — 2026-11-17
+
+Target: Kodi 21.3 Omega (macOS ARM64, launched with the process-local USB
+sandbox profile described below), service and plugin from this branch, settings
+`network_ads_enabled=true`, test tag `zoneId=ortb-test-zone&position=pre`,
+`maxAds=2`, 60-second break, `gdpr=0`. Each run opened
+`plugin://plugin.audio.kodi_donor_radio/?mode=play&uuid=<station>` over JSON-RPC
+and sampled `Player.GetItem` / `Player.GetProperties(time)` every 250 ms. Beacon
+records came from `events.jsonl`; "lag" is the service-observed Kodi position at
+dispatch minus the event target.
+
+| Run | Station | Result |
+| --- | --- | --- |
+| 1 | SomaFM Secret Agent (MP3) | 1 × 60 s ad, then the station started 1.6 s after the ad ended |
+| 2 | 101 Smooth Jazz (MP3) | 2 × 30 s pod played in sequence (0.5 s gap), station started 2.4 s after the pod |
+| 3 | SomaFM Secret Agent, stopped 19.06 s into ad 2 | Ad 1 (15 s) completed; ad 2 (60 s, so firstQuartile at 15 s and midpoint at 30 s) sent impression/start/firstQuartile only; station did not start |
+
+Run 2 timing (both creatives, target → observed player position at dispatch):
+
+| Event | Target (s) | Lag (s) |
+| --- | --- | --- |
+| impression / start | 0.00 | 0.08 / 0.08 |
+| firstQuartile | 7.50 | 0.01 / 0.28 |
+| midpoint | 15.00 | 0.22 / 0.20 |
+| thirdQuartile | 22.50 | 0.23 / 0.19 |
+| complete (at Kodi end) | 30.00 | last observed 29.47, sent on `onPlayBackEnded` |
+
+All quartile/start lags were 0.01-0.29 s. The service samples Kodi's clock,
+then waits 250 ms, so the gap between samples is 250 ms plus processing time. Every
+beacon returned HTTP 2xx/3xx with 287-338 ms latency. Beacons share one worker
+queue, so `start` reaches the network about one request latency (~0.3 s) after
+the impression. The VAST request plus creative download took 0.35-2.4 s before
+the first item resolved.
+
+After the review fixes, runs 2 and 3 were repeated at commit 02cca36: a 2 × 30 s
+pod again played both creatives (impression, start, three quartiles and complete
+each; quartile/start lag 0.04-0.29 s) and the
+station started 1.8 s after the pod; stopping 20.25 s into a 60 s creative sent
+only impression/start/firstQuartile and started nothing.
+
+### Kodi 22.0 RC2 — 2026-11-17 and 2026-11-18
+
+Target: Kodi 22.0 RC2 Piers (`22.0.rc2`, macOS ARM64 build from
+mirrors.kodi.tv, Team ID QR7RHK8K4X), run from a scratch copy with `HOME`
+pointed at an isolated profile and the same sandbox profile and settings as
+above. Add-on built from commit 3391653, then 134062d and 8df6aaf for the last rows.
+Station A is 101 Smooth Jazz, station B is SomaFM Secret Agent; "switch" means
+a second `Player.Open` of B while A's pre-roll plays.
+
+| Run | Result |
+| --- | --- |
+| A, uninterrupted | 2 × 30 s pod, station started 2.5 s after the pod; all 14 beacons sent, start/quartile lag 0.04-0.23 s, complete 0.45-0.49 s before the declared end |
+| Switch to B (with pre-roll) 5 s into A's ad | A's ad finished as stopped; B's 60 s ad played with all beacons, then B's station; A's second ad and A's station never played |
+| Switch to B (`ads=0`) 5 s into A's ad | B's station started 2.3 s later; A's break did not resume |
+| A, no fill | A's station played directly |
+| Stop 20.08 s into a 30 s ad | impression/start/firstQuartile/midpoint only; nothing else started |
+| Switch to B 1 s before A's first ad ended, at 3391653 | A's ad ended before B's request reached the service (B was still being looked up in Radio Browser), so A's second ad played for 0.9 s and sent impression/start before B's ad replaced it |
+| Same switch, at 134062d (selection reserved before the lookup), twice | A's second ad was dropped as `switched` without any beacon; B's ads, or B's station on no fill, followed; A's station never played |
+| Same switch to B (with pre-roll), at 8df6aaf | A's first ad ended normally with `complete`; A's second ad was dropped as `switched` at 0.0 s without any beacon; B's two ads played with all beacons |
+| Same switch to B (`ads=0`), at 8df6aaf | A's second ad was dropped as `switched` at 0.0 s without any beacon; B's station started 1.8 s after the switch |
+| A, no fill, three times, at 8df6aaf | A's station metadata arrived 0.4 s after each empty response |
+| Click a station in a 50-row search listing (GUI `Input.Select`), at 8b0f676 | Kodi queued the whole listing; when the first ad ended Kodi advanced to the next row, which played its own pre-roll, and so on down the list |
+| Same click, at 107dc79 (the queue is cleared when an ad starts, only if every row is this add-on's play URL; Kodi still reports those URLs after the resolve) | Ad 1 (15 s) then ad 2 (60 s, labelled Advertisement) with all 10 beacons, then the clicked station 2.7 s later; Kodi did not advance |
+
+Limits: positions are Kodi's reported player clock, not independently measured
+audible output. The test zone does not always fill: on Kodi 22 it returned no
+ad on several consecutive requests and needed spaced retries; with `maxAds=2`
+it returned one or two ads. `X-Device-IP` was omitted because the
+test host is behind NAT. Live365 still needs to validate request data before
+production, and a production zone, agreement and `ads.txt` entries are pending.
+
 ## Current owned-renderer checkpoint — 2026-10-29
 
 The [owned-clock and beacon checkpoint](superpowers/reports/kodi-owned-clock-beacons-2026-10-29.md)

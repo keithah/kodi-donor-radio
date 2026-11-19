@@ -511,3 +511,139 @@ msgstr ""
 msgctxt "#30175"
 msgid "Ad break recovery fixture"
 msgstr ""
+
+msgctxt "#30180"
+msgid "Advertisement"
+msgstr ""
+
+msgctxt "#30181"
+msgid "Network pre-roll ads (Live365 VAST)"
+msgstr ""
+
+msgctxt "#30182"
+msgid "Play a network pre-roll before stations"
+msgstr ""
+
+msgctxt "#30183"
+msgid "Request the VAST tag below before each Radio Browser station, play the returned MP3 ads, and fire their impression and tracking URLs from actual playback. No fill or any ad failure plays the station directly."
+msgstr ""
+
+msgctxt "#30184"
+msgid "VAST tag URL"
+msgstr ""
+
+msgctxt "#30185"
+msgid "HTTPS tag from the ad network, including zoneId. The default is the always-on development test zone."
+msgstr ""
+
+msgctxt "#30186"
+msgid "Publisher domain"
+msgstr ""
+
+msgctxt "#30187"
+msgid "Domain hosting your ads.txt (publisher_domain). Leave empty when it is built into the tag."
+msgstr ""
+
+msgctxt "#30188"
+msgid "Publisher name"
+msgstr ""
+
+msgctxt "#30189"
+msgid "Sent as publisher_name. Empty sends the station name."
+msgstr ""
+
+msgctxt "#30190"
+msgid "Fallback genre"
+msgstr ""
+
+msgctxt "#30191"
+msgid "Sent as content_genre when the station has no Radio Browser tag."
+msgstr ""
+
+msgctxt "#30192"
+msgid "Content categories"
+msgstr ""
+
+msgctxt "#30193"
+msgid "IAB categories describing the content (content_categories)."
+msgstr ""
+
+msgctxt "#30194"
+msgid "Blocked categories"
+msgstr ""
+
+msgctxt "#30195"
+msgid "Comma-separated IAB categories not to run (blocked_categories)."
+msgstr ""
+
+msgctxt "#30196"
+msgid "Maximum ads per break"
+msgstr ""
+
+msgctxt "#30197"
+msgid "Sent as maxAds."
+msgstr ""
+
+msgctxt "#30198"
+msgid "Break length (seconds)"
+msgstr ""
+
+msgctxt "#30199"
+msgid "Enter seconds; the add-on sends it to the ad server as milliseconds. 0 means no limit."
+msgstr ""
+
+msgctxt "#30200"
+msgid "Listener IPv4 override"
+msgstr ""
+
+msgctxt "#30201"
+msgid "Sent as X-Device-IP. Empty uses this device's IPv4 when it is public; behind NAT the header is omitted."
+msgstr ""
+
+msgctxt "#30202"
+msgid "App store URL"
+msgstr ""
+
+msgctxt "#30203"
+msgid "Sent as store_url when set."
+msgstr ""
+
+msgctxt "#30204"
+msgid "GDPR applies"
+msgstr ""
+
+msgctxt "#30205"
+msgid "Sent as gdpr. Unknown omits the parameter."
+msgstr ""
+
+msgctxt "#30206"
+msgid "Consent string"
+msgstr ""
+
+msgctxt "#30207"
+msgid "Sent as consent when GDPR applies. A consent or gdpr value already in the VAST tag is always sent; edit the tag to remove it."
+msgstr ""
+
+msgctxt "#30208"
+msgid "Supply chain (schain)"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Required only for resellers; OpenRTB SupplyChain value."
+msgstr ""
+
+msgctxt "#30210"
+msgid "Unknown"
+msgstr ""
+
+msgctxt "#30211"
+msgid "No"
+msgstr ""
+
+msgctxt "#30212"
+msgid "Yes"
+msgstr ""
+
+msgctxt "#30213"
+msgid "The network pre-roll tag is invalid; network pre-roll is off."
+msgstr ""

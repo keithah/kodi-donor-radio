@@ -20,13 +20,14 @@ import xbmcgui
 import xbmcplugin
 import xbmcvfs
 
-from control import ControlClient, ServiceDescriptor
+from control import ControlClient, SelectionSuperseded, ServiceDescriptor
 from ad_models import AdConfig
 from ad_media import CreativeCache
 from kodi_ad_player import KodiAdPlayback
 from events import JsonEventSink
 from http_client import Cancelled, HttpClient, read_bounded
 from models import Station
+from network_ads import NetworkAdConfig, NetworkAdService, validate_tag_url
 from radio_browser import RadioBrowser
 from radio_ui import (DirectoryCacheStore, FavoriteStore, HistoryStore, PlaceStore, RecentSearchStore, StationSummary,
                       coordinates, safe_favicon, station_identifier, stations_in_radius)
@@ -38,6 +39,9 @@ from url_policy import UrlPolicy
 
 STARTUP_TIMEOUT = 5.0
 AD_CREATE_TIMEOUT = 30.0
+NETWORK_AD_TIMEOUT = 35.0
+NETWORK_AD_START_SECONDS = 10.0  # A chained creative that never starts is skipped.
+PLUGIN_ROOT = 'plugin://plugin.audio.kodi_donor_radio/'
 ADAPTIVE_PREFLIGHT_TIMEOUT = 5.0
 PAGE_SIZE = 50
 GEO_SCAN_PAGES = 4
@@ -158,6 +162,81 @@ def ad_settings():
     if not valid:
         raise ValueError('Invalid VAST fixture URL')
     return AdConfig(True, bool(preroll), bool(midroll), value, fixture)
+
+
+def _load_network_ads(service):
+    """Apply network pre-roll settings; an invalid tag disables pre-roll visibly."""
+    try:
+        service.config = network_ad_settings()
+    except ValueError:
+        service.config = NetworkAdConfig()
+        service._emit({'event': 'network_config_invalid'})
+        xbmcgui.Dialog().notification(text(30000), text(30213), xbmcgui.NOTIFICATION_ERROR, 5000)
+
+
+def network_ad_settings():
+    """Snapshot the opt-in network pre-roll settings; invalid tags raise."""
+    addon = xbmcaddon.Addon()
+    if not addon.getSettingBool('network_ads_enabled'):
+        return NetworkAdConfig()
+    def value(name):
+        return (addon.getSetting(name) or '').strip()
+    def number(name, low, high, default):
+        try:
+            return max(low, min(high, int(value(name) or default)))
+        except ValueError:
+            return default
+    gdpr = {'1': '0', '2': '1'}.get(value('network_gdpr'), '')
+    return NetworkAdConfig(
+        True, validate_tag_url(value('network_vast_url')),
+        publisher_domain=value('network_publisher_domain'),
+        publisher_name=value('network_publisher_name'),
+        content_genre=value('network_content_genre'),
+        content_categories=value('network_content_categories'),
+        blocked_categories=value('network_blocked_categories'),
+        max_ads=number('network_max_ads', 1, 5, 1),
+        break_ms=number('network_break_seconds', 0, 300, 0) * 1000,
+        device_ip=value('network_device_ip'),
+        user_agent=xbmc.getUserAgent(),
+        store_url=value('network_store_url'),
+        gdpr=gdpr, consent=value('network_consent'), schain=value('network_schain'))
+
+
+def _is_play_row(path):
+    parts = urlsplit(path or '')
+    return (parts.scheme == 'plugin' and parts.netloc == 'plugin.audio.kodi_donor_radio'
+            and parse_qs(parts.query).get('mode') == ['play'])
+
+
+def _drop_queued_listing():
+    """Clear a music queue Kodi built from one of this add-on's listings.
+
+    Clicking a station queues every row; a finite ad would end and Kodi would
+    advance to the next station, past the break, which chains its own items.
+    Only a queue made entirely of this add-on's play rows is cleared, so a
+    listener's own queue is never lost.
+    """
+    try:
+        playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+        size = playlist.size()
+        if size and all(_is_play_row(playlist[index].getPath()) for index in range(size)):
+            playlist.clear()
+    except (RuntimeError, IndexError, AttributeError):
+        pass
+
+
+def _network_entry(item, station, index, count):
+    label = text(30180) if count == 1 else '%s %d/%d' % (text(30180), index, count)
+    entry = xbmcgui.ListItem(label='%s · %s' % (label, station.name), path=item['url'])
+    tag = entry.getMusicInfoTag()
+    tag.setTitle(label)
+    tag.setArtist(station.name)
+    tag.setDuration(int(math.ceil(float(item['duration']))))
+    entry.setProperty('playlist_type_hint', '0')
+    entry.setProperty('IsPlayable', 'true')
+    entry.setMimeType('audio/mpeg')
+    entry.setContentLookup(False)
+    return entry
 
 
 def event_sink(profile):
@@ -1081,28 +1160,103 @@ def run_plugin(argv):
             if launch_nonce is not None and (action != 'play_fixture' or handle < 0
                     or not _HEX48.fullmatch(launch_nonce)):
                 raise ValueError('Invalid fixture launch')
+            def connect(timeout):
+                try:
+                    return _operation(lambda: _service(profile_path(), monitor, cancel, timeout),
+                                      monitor, cancel)
+                except OSError as error:
+                    if isinstance(error, Cancelled): raise
+                    _error(30010)
+                    if handle >= 0:
+                        xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+                    return None
+            continuation = params.get('continuation')
+            if continuation is not None and (action != 'play' or params.get('ads') != '0'
+                                             or not re.fullmatch(r'[a-f0-9]{32}', continuation)):
+                raise ValueError('Invalid continuation')
+            network, reserved = NetworkAdConfig(), None
+            if action == 'play':
+                try:
+                    network = network_ad_settings()
+                except ValueError:
+                    network = NetworkAdConfig()
+                # A break's own continuation keeps that break's place; every other
+                # pick claims selection order before the station lookup, which can
+                # take seconds, so a break still playing stops at its next item.
+                if network.enabled and continuation is None:
+                    client = connect(10)
+                    if client is None:
+                        return
+                    try:
+                        reserved = _operation(ControlClient(client.descriptor).reserve_selection,
+                                              monitor, cancel)
+                    except Cancelled:
+                        raise
+                    except (OSError, ValueError, TypeError):
+                        reserved = None  # The pre-roll request then registers itself.
             if action == 'play_fixture':
                 station = _fixture_station(params.get('id', ''))
             else:
                 uuid = _real_station_uuid(params.get('uuid', ''))
-                station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
+                station = None
+                if continuation is not None:
+                    # The relay kept the break's station, so the ads never end in
+                    # a failed second directory lookup; an unknown token (an old
+                    # or replayed URL) looks the station up as a plain choice.
+                    if client is None:
+                        client = connect(10)
+                        if client is None:
+                            return
+                    try:
+                        kept = _operation(lambda: ControlClient(client.descriptor).continuation_station(
+                            continuation), monitor, cancel)
+                        station = Station(**kept) if kept is not None else None
+                    except Cancelled:
+                        raise
+                    except (OSError, ValueError, TypeError):
+                        station = None
+                if station is None:
+                    station = _operation(lambda: browser.by_uuid(uuid), monitor, cancel)
                 if station.uuid != uuid:
                     raise ValueError('Invalid station lookup')
-            try:
+            if client is None:
                 # The service can still hold its previous valid ad config while
                 # Kodi settings are being edited, so use the longer bound for all
                 # controlled HLS fixtures regardless of the plugin's snapshot.
                 ad_create = station.uuid.startswith('fixture-') and station.hls
-                client = _operation(lambda: _service(profile_path(), monitor, cancel,
-                    AD_CREATE_TIMEOUT if ad_create else 10), monitor, cancel)
-            except OSError as error:
-                if isinstance(error, Cancelled): raise
-                _error(30010)
-                if handle >= 0:
-                    xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
-                return
+                client = connect(AD_CREATE_TIMEOUT if ad_create else 10)
+                if client is None:
+                    return
+            if action == 'play' and params.get('ads') != '0':
+                ads = []
+                if network.enabled:
+                    follow = PLUGIN_ROOT + '?' + urlencode({'mode': 'play', 'uuid': station.uuid, 'ads': '0'})
+                    ads_client = ControlClient(client.descriptor, timeout=NETWORK_AD_TIMEOUT)
+                    try:
+                        ads = _operation(lambda: ads_client.prepare_network_ads(
+                            station, follow, selection=reserved), monitor, cancel)
+                    except Cancelled:
+                        raise
+                    except SelectionSuperseded:
+                        # A newer selection owns playback; neither the ad nor this
+                        # station may replace it.
+                        if handle >= 0:
+                            xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
+                        return
+                    except (OSError, ValueError, TypeError):
+                        ads = []  # No fill or ad failure must never block the station.
+                if ads:
+                    entry = _network_entry(ads[0], station, 1, len(ads))
+                    if handle >= 0:
+                        xbmcplugin.setResolvedUrl(handle, True, entry)
+                    else:
+                        player = xbmc.Player()
+                        _playback_arbiter().start(lambda: player.play(ads[0]['url'], entry))
+                    return
             session = _operation(lambda: client.create(station, fixture_launch_nonce=launch_nonce)
-                                 if launch_nonce is not None else client.create(station),
+                                 if launch_nonce is not None else client.create(station, continuation=continuation)
+                                 if continuation is not None else client.create(station, selection=reserved)
+                                 if reserved is not None else client.create(station),
                                  monitor, cancel, stop)
             if not isinstance(session, dict):
                 raise ValueError('Invalid relay response')
@@ -1172,6 +1326,10 @@ def run_plugin(argv):
                 player = xbmc.Player()
                 _playback_arbiter().start(
                     lambda: player.play(playback_url, entry))
+        except SelectionSuperseded:
+            # A break's station continuation lost to a newer choice: say nothing.
+            if handle >= 0:
+                xbmcplugin.setResolvedUrl(handle, False, xbmcgui.ListItem())
         except (OSError, ValueError, KeyError, TypeError, RuntimeError):
             if session: stop(session)
             if not cancel.is_set(): _error(30011)
@@ -1368,15 +1526,115 @@ def run_plugin(argv):
 
 
 class RelayPlayer(xbmc.Player):
-    def __init__(self, manager, port, fixture_origin=None):
+    def __init__(self, manager, port, fixture_origin=None, network_ads=None):
         super().__init__()
         self.manager, self.port, self.owned = manager, port, None
+        self._item_active = False
+        self.network_ads = network_ads
+        self.network_token = None
+        self._network_generation = None  # Selection count when network_token was set.
+        self._network_next = None
+        self._network_waiting = None
         self._generation = 0
         self._armed_generation = None
         self.ads = KodiAdPlayback(manager, self, fixture_origin=fixture_origin,
                                   is_caching=lambda: xbmc.getCondVisibility('Player.Caching'))
 
+    def _playing_file(self):
+        try:
+            return self.getPlayingFile()
+        except RuntimeError:
+            return ''
+
+    def _network_started(self):
+        if self.network_ads is None:
+            return
+        token = self.network_ads.token_for(self._playing_file())
+        self._network_waiting = None
+        if token is None:
+            self.network_ads.forget_first()  # Another item owns the player now.
+        else:
+            _drop_queued_listing()
+        if self._network_next is not None:
+            # Something else started before the chain continued; drop it.
+            follow, self._network_next = self._network_next, None
+            pending = self.network_ads.token_for(follow)
+            if pending is not None:
+                self.network_ads.finish(pending, 'switched')
+        if token != self.network_token and self.network_token is not None:
+            # Kodi moved on (queued item or user skip) before an end callback.
+            self.network_ads.finish(self.network_token, 'switched')
+        self._track(token)
+
+    def _track(self, token):
+        self.network_token = token
+        if token is not None:
+            # Compare against the break's own selection, fixed when it was
+            # prepared, so later callbacks cannot absorb a newer choice.
+            selection = self.network_ads.selection_for(token)
+            self._network_generation = (self.manager.selection_count()
+                                        if selection is None else selection)
+
+    def _network_finished(self, reason):
+        if self.network_ads is None or self.network_token is None:
+            return False
+        if self.isPlaying() and self.network_ads.token_for(self._playing_file()) == self.network_token:
+            return True  # Late callback for the previous item; the tracked ad still plays.
+        token, self.network_token = self.network_token, None
+        self._network_waiting = None
+        follow = self.network_ads.finish(token, reason)
+        if follow:
+            self._network_next = follow
+        return True
+
+    def _network_sample(self):
+        if self.network_ads is None:
+            return
+        if self._network_next is not None:
+            follow, self._network_next = self._network_next, None
+            if self.manager.selection_count() != self._network_generation:
+                # The listener chose again while this creative played. Whether
+                # that choice is still opening, playing, failed or abandoned,
+                # continuing the break would override it, so drop the chain.
+                pending = self.network_ads.token_for(follow)
+                if pending is not None:
+                    self.network_ads.finish(pending, 'switched')
+                return
+            # Track a chained creative now, so an open failure before any
+            # started callback still falls through to the next item.
+            self._track(self.network_ads.token_for(follow))
+            if self.network_token is not None:
+                self._network_waiting = time.monotonic()
+            item = xbmcgui.ListItem(path=follow)
+            item.setProperty('IsPlayable', 'true')
+            if self.network_token is not None:
+                # Label a chained creative like the first one, not by its token file.
+                item.setLabel(text(30180))
+                item.getMusicInfoTag().setTitle(text(30180))
+                item.setMimeType('audio/mpeg')
+                item.setContentLookup(False)
+            self.play(follow, item)
+            return
+        if self.network_token is None:
+            return
+        if (self._network_waiting is not None and not self.isPlaying()
+                and time.monotonic() - self._network_waiting > NETWORK_AD_START_SECONDS):
+            self._network_finished('error')  # Open failed without a callback.
+            return
+        if self.network_ads.token_for(self._playing_file()) != self.network_token:
+            return
+        try:
+            position = self.getTime()
+        except RuntimeError:
+            return
+        if self.network_ads.token_for(self._playing_file()) != self.network_token:
+            return  # Kodi moved to another item between the two reads.
+        self.network_ads.observe(self.network_token, position, self.isPlaying(),
+                                 xbmc.getCondVisibility('Player.Paused'))
+
     def _started(self, av_started):
+        self._item_active = True  # Kodi's next Stopped/Ended/Error ends this item.
+        self._network_started()
         try: current = _relay_path(self.getPlayingFile(), self.port)
         except RuntimeError: current = None
         old = self.owned
@@ -1418,9 +1676,31 @@ class RelayPlayer(xbmc.Player):
             self.ads.on_end(reason, old)
             self.manager.stop(old)
 
-    def onPlayBackStopped(self): self._finished('cancelled')
-    def onPlayBackEnded(self): self._finished('source_end')
-    def onPlayBackError(self): self._finished('cancelled')
+    def onPlayBackStopped(self):
+        # Kodi sends Stopped for the item a new pick replaces, possibly after the
+        # new item already failed, so the player's state at this callback says
+        # nothing. A stop that ends an item that started is that replaced item's
+        # and keeps the new break's first-creative record; a stop with nothing
+        # started since (the opening first ad itself was stopped) clears it.
+        replaced, self._item_active = self._item_active, False
+        if self.network_ads is not None and not replaced:
+            self.network_ads.forget_first()
+        if not self._network_finished('stopped'): self._finished('cancelled')
+    def onPlayBackEnded(self):
+        self._item_active = False
+        if not self._network_finished('ended'): self._finished('source_end')
+    def onPlayBackError(self):
+        self._item_active = False
+        if self._network_finished('error'):
+            return
+        first = self.network_ads.unstarted_first() if self.network_ads is not None else None
+        if first is not None:
+            # The first creative failed to open before any started callback.
+            _drop_queued_listing()
+            self._track(first)
+            self._network_finished('error')
+            return
+        self._finished('cancelled')
     def _arm_current(self):
         if self.owned is None or not self.isPlaying():
             return
@@ -1455,14 +1735,19 @@ class RelayPlayer(xbmc.Player):
         if identity is not None: self.ads.on_speed_changed(speed, identity)
 
     def onPlayBackSeek(self, time, seek_offset):
+        if self.network_ads is not None and self.network_token is not None:
+            self.network_ads.seeked(self.network_token)
         identity = self._callback_session()
         if identity is not None: self.ads.on_seek(identity)
 
     def onPlayBackSeekChapter(self, chapter):
+        if self.network_ads is not None and self.network_token is not None:
+            self.network_ads.seeked(self.network_token)
         identity = self._callback_session()
         if identity is not None: self.ads.on_seek(identity)
 
     def sample_ads(self):
+        self._network_sample()
         if self.owned is None:
             return
         try:
@@ -1498,7 +1783,7 @@ class ServiceMonitor(xbmc.Monitor):
 def run_service():
     monitor = ServiceMonitor()
     while not monitor.abortRequested():
-        server, descriptor, player = None, None, None
+        server, descriptor, player, network_ads = None, None, None, None
         try:
             monitor.ad_changed = False
             profile = _private_profile(profile_path())
@@ -1514,12 +1799,15 @@ def run_service():
                 # A bad ad-only value must not prevent ordinary radio playback.
                 xbmcgui.Dialog().notification(text(30000), text(30068), xbmcgui.NOTIFICATION_ERROR, 5000)
                 config = AdConfig(False, False, False, '', '')
-            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=event_sink(profile),
+            sink = event_sink(profile)  # One sink serializes events.jsonl rotation.
+            manager = SessionManager(client=HttpClient(policy=runtime_policy()), sink=sink,
                                      ad_config=config, cache_root=profile,
                                      icy_marker_store=IcyMarkerStore(profile))
-            server = RelayServer(manager=manager)
+            network_ads = NetworkAdService(HttpClient(policy=UrlPolicy()), sink=sink)
+            _load_network_ads(network_ads)
+            server = RelayServer(manager=manager, network_ads=network_ads)
             descriptor = server.start()
-            player = RelayPlayer(manager, descriptor.port, fixture_origin())
+            player = RelayPlayer(manager, descriptor.port, fixture_origin(), network_ads)
             publish_descriptor(profile, descriptor)
             while not monitor.abortRequested() and not monitor.settings_changed:
                 if monitor.ad_changed:
@@ -1529,6 +1817,7 @@ def run_service():
                     except ValueError:
                         # An incomplete edit must not retire the playing session.
                         pass
+                    _load_network_ads(network_ads)
                 manager.expire()
                 player.sample_ads()
                 if monitor.waitForAbort(.25): break
@@ -1541,5 +1830,7 @@ def run_service():
         finally:
             if player is not None:
                 player.ads.close()
+            if network_ads is not None:
+                network_ads.close(wait=False)
             if server is not None: server.close()
             if descriptor is not None: remove_descriptor(profile, descriptor)
