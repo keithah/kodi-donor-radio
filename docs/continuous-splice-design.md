@@ -93,8 +93,8 @@ Only AdsWizz ICY metadata is a splice signal, and only its `adw_ad` field:
   including raw units. Output is byte-identical to the de-framed source.
 - **REPLACING** drops each source frame, and any raw unit inside the break, and
   emits the next creative frame in its place.
-- A splice fault (source loses sync inside a break, changes format, or the
-  splicer raises) returns to source pass-through for the rest of the session and
+- A splice fault (source loses sync during a replacement, changes format, or
+  the splicer raises) returns to source pass-through for the rest of the session and
   emits `continuous_splice_disabled`. A splicer exception drops at most the one
   pending frame the assembler held.
 
@@ -185,7 +185,7 @@ AdsWizz context:
   `boundary_error_bytes`, `start_sample`, `codec`, `sample_rate`.
 - `continuous_replacement_end`: `reason` (`truncated` when `adw_ad=false`
   cuts the creative, `creative_exhausted`, `timeout`, `format_change`,
-  `sync_lost`, `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
+  `sync_lost`, `splicer_error`, `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
   `rejoin_sample` and, for MP3, `rejoin_reservoir_bytes`. `stopped` covers stop,
   switch, client disconnect and upstream EOF or failure; it has no rejoin.
 - `continuous_replacement_skipped`: `reason` (`no_fill`, `format_mismatch`,

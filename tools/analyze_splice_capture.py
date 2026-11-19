@@ -111,8 +111,15 @@ def main():
     last = matched[-1][3] if matched else 0
     kodi_only = []
     for start, windows in cap_gaps:
-        if first <= start + offset <= last and not any(abs(start - s) < 3 * 1152 for s, _ in ref_gaps):
-            kodi_only.append({'at_s': round((start + offset) / RATE, 3), 'ms': windows * 10})
+        if not first <= start + offset <= last:
+            continue
+        # Count only the part of a capture gap that no reference gap explains.
+        end = start + windows * WINDOW
+        covered = sum(max(0, min(end, s + w * WINDOW) - max(start, s)) for s, w in ref_gaps)
+        extra = end - start - covered
+        if extra > 0:
+            kodi_only.append({'at_s': round((start + offset) / RATE, 3),
+                              'ms': round(extra / RATE * 1000, 1)})
     report = {
         'capture_status': manifest.get('status'), 'capture_frames': manifest.get('total_frames'),
         'native_rate': manifest.get('format', {}).get('sample_rate') if isinstance(manifest.get('format'), dict) else None,
