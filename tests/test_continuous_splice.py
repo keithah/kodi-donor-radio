@@ -838,3 +838,146 @@ def test_fixture_builder_rejects_signals_sharing_a_metadata_block():
         fixture.icy_interleave(b'a' * 64, 16, {0: START, 16: END})
     stream, placed = fixture.icy_interleave(b'a' * 64, 16, {16: START, 32: END})
     assert [p[1] for p in placed] == [16, 32]
+
+
+# ---------------------------------------------------------------------------
+# Follow-ups to the PR #9 review.
+
+def test_signals_held_across_reads_cannot_evict_a_pending_end(monkeypatch):
+    monkeypatch.setattr(cs, 'MAX_SIGNALS', 8)
+    source = frames(cs.AAC, b'AABBCCCC')
+    frame = len(source[0])
+    creative = creative_of(cs.AAC, b'xyzxyz')
+    events = Events()
+    splicer = cs.ContinuousSplicer(cs.AAC, creative, events)
+    audio = b''.join(source)
+    splicer.observe_metadata(START, 2 * frame)
+    output = bytearray(splicer.feed(audio[:4 * frame]))
+    # The end arrives at frame 4's start; repeats arrive on later reads while
+    # that frame is still incomplete, so it stays held across every read.
+    splicer.observe_metadata(END, 4 * frame)
+    for position in range(4 * frame, 4 * frame + cs.MAX_SIGNALS):
+        output += splicer.feed(audio[position:position + 1])
+        splicer.observe_metadata(END, position + 1)
+    output += splicer.feed(audio[4 * frame + cs.MAX_SIGNALS:]) + splicer.finish()
+    assert bytes(output) == b''.join(source[:2]) + b''.join(creative.frames[:2]) + b''.join(source[4:])
+    assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
+                              'continuous_splice_disabled']
+    assert events[1][1]['reason'] == 'signal_overflow' and 'rejoin_offset' not in events[1][1]
+    assert events[-1][1]['reason'] == 'signal_overflow'
+
+
+def test_break_timeout_is_media_time_across_a_source_rate_change(monkeypatch):
+    monkeypatch.setattr(cs, 'BREAK_GRACE_SECONDS', 0)
+    # 48 kHz frames, then 24 kHz frames: each 1024-sample frame is 21.3 ms,
+    # then 42.7 ms. A 100 ms break opened at 48 kHz has ended by frame 5.
+    source = frames(cs.AAC, b'AABB', rate_index=3) + frames(cs.AAC, b'CCDDEEFF', rate_index=6)
+    frame = len(source[0])
+    creative = creative_of(cs.AAC, b'xyzxyz', rate_index=6)
+    output, events, _ = run(cs.AAC, source, creative, {
+        (2, 0): dict(START, durationMilliseconds='100'), (6, 0): START, (8, 0): END})
+    assert events.kinds() == ['continuous_replacement_skipped', 'continuous_break_unresolved',
+                              'continuous_replacement_start', 'continuous_replacement_end']
+    assert output == b''.join(source[:6]) + b''.join(creative.frames[:2]) + b''.join(source[8:])
+    assert frame == len(source[-1])
+
+
+def test_rejoin_is_reported_only_for_a_forwarded_source_frame():
+    source = frames(cs.MP3, b'AABBBBCC')
+    frame = len(source[0])
+    creative = creative_of(cs.MP3, b'xyzxyz')
+    output, events, _ = run(cs.MP3, source, creative,
+                            {(2, 0): START, (3, 1): END, (4, 0): START, (6, 0): END})
+    assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
+                              'continuous_replacement_start', 'continuous_replacement_end']
+    first, second = events[1][1], events[3][1]
+    assert first['reason'] == 'truncated' and first['frames_replaced'] == 2
+    assert 'rejoin_offset' not in first and 'rejoin_sample' not in first
+    assert 'rejoin_reservoir_bytes' not in first
+    assert second['reason'] == 'truncated' and second['rejoin_offset'] == 6 * frame
+    assert second['rejoin_sample'] == 6 * 1152
+    assert output == (b''.join(source[:2]) + b''.join(creative.frames[:2])
+                      + b''.join(creative.frames[:2]) + b''.join(source[6:]))
+
+
+def _splice_stream(upstream, audio, signals, frame):
+    fixture = _tools('continuous_splice_fixtures')
+    stream, _ = fixture.icy_interleave(audio, frame, signals)
+    upstream.update(icy=stream, metaint=frame, mime='audio/mpeg')
+    return stream
+
+
+def test_relay_rechecks_stop_after_finish_before_writing_the_tail(upstream):
+    source = frames(cs.MP3, b'AAAA')
+    frame = len(source[0])
+    tail = source[0][:frame // 2]
+    _splice_stream(upstream, b''.join(source) + tail, {2 * frame: START}, frame)
+    upstream['creative'] = b''.join(frames(cs.MP3, b'xy'))
+    server, manager, sink = relay_for(upstream)
+    sessions = []
+    emit = sink.emit
+    def stopping(event):
+        emit(event)
+        # The listener stops while finish() reports the pending end.
+        if event.kind == 'continuous_replacement_end' and sessions:
+            sessions[0].cancel.set()
+    sink.emit = stopping
+    try:
+        session = manager.create(Station('fixture-30218', 'Splice', upstream['origin'] + '/s', '', False))
+        sessions.append(session)
+        status, body = fetch(session.playback_url)
+    finally:
+        server.close()
+    assert status == 200
+    assert body == b''.join(source[:2]) + upstream['creative']
+    assert sink.kinds() == ['continuous_replacement_start', 'continuous_replacement_end']
+
+
+def test_relay_flushes_held_programme_tail_on_upstream_read_failure(upstream):
+    source = frames(cs.MP3, b'AAAA')
+    frame = len(source[0])
+    stream = _splice_stream(upstream, b''.join(source), {}, frame)
+    upstream['creative'] = b''.join(frames(cs.MP3, b'xy'))
+    # Three frames and their metadata bytes, then half a frame, then a reset.
+    upstream['drop_after'] = 3 * (frame + 1) + frame // 2
+    server, manager, sink = relay_for(upstream)
+    try:
+        session = manager.create(Station('fixture-30218', 'Splice', upstream['origin'] + '/s', '', False))
+        assert session.continuous_splice_enabled
+        status, body = fetch(session.playback_url)
+        assert _wait(lambda: any(e.kind == 'stream_error' for e in sink.events))
+    finally:
+        server.close()
+    assert len(stream) > upstream['drop_after']
+    assert status == 200 and body == b''.join(source[:3]) + source[3][:frame // 2]
+    error = next(e for e in sink.events if e.kind == 'stream_error')
+    assert error.details == {'reason': 'incomplete_upstream_body'}
+
+
+def test_continuous_fixture_create_uses_extended_control_timeout(kodi, monkeypatch):
+    from control import ServiceDescriptor
+    from urllib.parse import urlencode
+    runtime, state, profile = kodi
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765',
+                          ad_enabled=True, ad_continuous=True,
+                          ad_continuous_creative='http://127.0.0.1:8765/splice/creative.mp3')
+    descriptor = ServiceDescriptor(32123, 'a' * 48, 'b' * 64)
+    runtime.publish_descriptor(profile, descriptor)
+    timeouts = []
+
+    class Client:
+        def __init__(self, descriptor, timeout=10):
+            self.descriptor = descriptor
+            timeouts.append(timeout)
+        def health(self): return {'status': 'ok', 'instance_id': descriptor.instance_id}
+        def create(self, station):
+            return {'id': 'c' * 48, 'mime_type': 'audio/mpeg',
+                    'playback_url': 'http://127.0.0.1:32123/media/' + 'c' * 48 + '/' + 'd' * 48}
+        def stop(self, session_id): pass
+
+    monkeypatch.setattr(runtime, 'ControlClient', Client)
+    monkeypatch.setattr(runtime.RadioBrowser, 'click', lambda *args: None)
+    runtime.run_plugin(['plugin://plugin.audio.kodi_donor_radio', '7',
+                        '?' + urlencode({'mode': 'play_fixture', 'id': 'fixture-30218'})])
+    assert timeouts[-1] == runtime.AD_CREATE_TIMEOUT
+    assert state.resolved[0][0]

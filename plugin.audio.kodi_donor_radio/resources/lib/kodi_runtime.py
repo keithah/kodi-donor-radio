@@ -1236,8 +1236,10 @@ def run_plugin(argv):
             if client is None:
                 # The service can still hold its previous valid ad config while
                 # Kodi settings are being edited, so use the longer bound for all
-                # controlled HLS fixtures regardless of the plugin's snapshot.
-                ad_create = station.uuid.startswith('fixture-') and station.hls
+                # controlled fixtures regardless of the plugin's snapshot. HLS
+                # fixtures prepare ads; continuous fixtures can fetch a splice
+                # creative after the source probe, which together can exceed 10 s.
+                ad_create = station.uuid.startswith('fixture-')
                 client = connect(AD_CREATE_TIMEOUT if ad_create else 10)
                 if client is None:
                     return

@@ -538,6 +538,17 @@ class _Handler(BaseHTTPRequestHandler):
                 # Default off: None unless the guarded fixture splice is enabled.
                 splicer = session.continuous_splicer(response.headers.get('content-type', ''))
         self._headers(response.status, response.headers)
+
+        def write_tail():
+            # Held programme bytes are still deliverable while the listener
+            # remains. finish() may run the diagnostic sink, and a stop can
+            # land meanwhile, so the cancellation is checked again after it.
+            if splicer is None or session.cancel.is_set():
+                return
+            tail = splicer.finish()
+            if tail and not session.cancel.is_set():
+                self.wfile.write(tail)
+
         block = session.source.initial_bytes
         try:
             while not session.cancel.is_set():
@@ -547,13 +558,19 @@ class _Handler(BaseHTTPRequestHandler):
                         audio = splicer.feed(audio)
                     if audio:
                         self.wfile.write(audio)
-                block = response.read(CHUNK_BYTES)
+                try:
+                    block = response.read(CHUNK_BYTES)
+                except Exception:
+                    # Upstream failure, not a stop or a client write failure:
+                    # send the held programme tail, then report the original
+                    # upstream error. A failed tail write must not replace it.
+                    try:
+                        write_tail()
+                    except Exception:
+                        pass
+                    raise
                 if not block:
-                    if splicer is not None and not session.cancel.is_set():
-                        # Clean EOF: held programme bytes are still deliverable.
-                        tail = splicer.finish()
-                        if tail:
-                            self.wfile.write(tail)
+                    write_tail()  # Clean EOF.
                     break
         finally:
             if decoder is not None:
