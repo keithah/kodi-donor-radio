@@ -51,9 +51,9 @@ production demand, settle consent inputs, creative expiry/reuse, contractual
 tracking semantics, and any broader VAST requirements. Do not expand advertising
 origins or enable production success beacons until the Kodi clock mapping passes.
 
-Kodi 22 RC2 evidence (2026-11-19, loopback fixture only): the add-on's qualified
-clock is bound to the actual playback session and placed the replacement and all
-six events correctly across a moving six-segment window, past output retention,
+Kodi 22 RC2 evidence (2026-11-19, loopback fixture only; the mapping has not
+passed for production): the add-on's qualified clock is bound to the actual
+playback session and kept the replacement and all six events aligned across a moving six-segment window, past output retention,
 and at both ad discontinuities; backward and in-ad forward seeks permanently
 suppressed later events without backfill. Remaining evidence: a public station's
 live source clock, an upstream (or released) FFmpegDirect end-of-stream fix, and
