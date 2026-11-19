@@ -22,7 +22,7 @@ those streams.
 
 ### Automated tests
 
-`tests/test_continuous_splice.py` (56 tests) covers:
+`tests/test_continuous_splice.py` (61 tests) covers:
 
 - header parsing for MPEG-1/2/2.5 Layer III and ADTS, and rejection of Layer
   I/II, free-format, reserved values, PCE channel configurations and short frames;
@@ -34,14 +34,17 @@ those streams.
   first frame at or after the signalled byte; ICY metadata split at every
   tested read size; creative exhaustion, truncation, no-fill, format mismatch,
   repeated starts, a second break replaying the creative from frame 0,
-  duration-bounded timeout, source format change, finish/stop semantics and
-  fault fallback;
+  duration-bounded timeout, source format change, sync loss inside a break,
+  metadata bursts that must not crowd out the end signal, back-to-back breaks,
+  CRC-protected MP3 headers split mid-header, finish/stop semantics and fault
+  fallback;
 - the relay: a real loopback upstream, relay and session manager; MP3 and AAC
   splices; default-off, non-fixture and foreign-origin sessions byte-identical
   to the de-framed source (observation still logged); 404, unparseable and
   mismatched creatives as no-fill; stop and switch mid-break (worker exits,
   `stopped` end event, creative released) followed by a restart that replaces
-  from creative frame 0; an abrupt upstream failure mid-break;
+  from creative frame 0; an upstream body cut short mid-break (`stream_error`,
+  session removed); no creative fetch for non-ICY or unsupported-codec sources;
 - decoded audio (FFmpeg): for both codecs and both creative lengths, bytes
   before the splice and after the rejoin equal the source, FFmpeg reports no
   decode error, and the decoded tone sequence and boundary positions match

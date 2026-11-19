@@ -2234,7 +2234,7 @@ def test_fixture_launch_shutdown_cancels_without_modal_error(kodi, monkeypatch):
     runtime, state, _ = kodi
     station = Station('fixture-30174', 'Fixture', 'http://127.0.0.1:18789/source/live/index.m3u8', 'AAC', True)
     monkeypatch.setattr(runtime, '_fixture_station', lambda _identifier: station)
-    monkeypatch.setattr(runtime, 'ad_settings', lambda: SimpleNamespace(enabled=True))
+    monkeypatch.setattr(runtime, 'ad_settings', lambda: SimpleNamespace(enabled=True, preroll=True, midroll=False))
     monkeypatch.setattr(runtime, '_inputstream_version', lambda _addon_id: '22.2.10')
     cancelled = []
     class Client:

@@ -69,16 +69,24 @@ def main():
     ref = classify(F.transitions(ref_track))
     cap = classify(F.transitions(cap_track))
     # Align on the first programme transition present in both, then match in order.
-    matched = []
+    matched, unmatched = [], []
     j = 0
     for start, a, b, kind in cap:
-        while j < len(ref) and (ref[j][1], ref[j][2]) != (a, b):
-            j += 1
-        if j == len(ref):
-            break
-        matched.append((kind, a, b, start, ref[j][0]))
-        j += 1
+        k = j
+        while k < len(ref) and (ref[k][1], ref[k][2]) != (a, b):
+            k += 1
+        if k == len(ref):
+            # Keep the cursor: one extra capture transition must not end the comparison.
+            unmatched.append({'capture_s': round(start / RATE, 3), 'from': a, 'to': b})
+            continue
+        matched.append((kind, a, b, start, ref[k][0]))
+        j = k + 1
     programme = [c - r for kind, _, _, c, r in matched if kind == 'programme']
+    if not programme:
+        print(json.dumps({'capture_status': manifest.get('status'),
+                          'error': 'no programme transition to align on',
+                          'unmatched_capture_transitions': unmatched}, indent=1))
+        return
     offset = statistics.median(programme)
     rows = [{'kind': kind, 'from': a, 'to': b,
              'capture_s': round(c / RATE, 3),
@@ -103,7 +111,8 @@ def main():
         'native_rate': manifest.get('format', {}).get('sample_rate') if isinstance(manifest.get('format'), dict) else None,
         'alignment_offset_s': round(offset / RATE, 3),
         'programme_alignment_spread_ms': round((max(programme) - min(programme)) / RATE * 1000, 1),
-        'transitions': rows, 'splice_boundary_unclear_audio': boundary,
+        'transitions': rows, 'unmatched_capture_transitions': unmatched,
+        'splice_boundary_unclear_audio': boundary,
         'kodi_only_unclear_runs_between_first_and_last_transition': kodi_only,
         'relay_reference_events': [(k, {x: d.get(x) for x in ('reason', 'start_sample', 'rejoin_sample',
                                                                'boundary_error_bytes', 'rejoin_reservoir_bytes')})

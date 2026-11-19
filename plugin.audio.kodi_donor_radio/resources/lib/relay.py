@@ -549,7 +549,7 @@ class _Handler(BaseHTTPRequestHandler):
                         self.wfile.write(audio)
                 block = response.read(CHUNK_BYTES)
                 if not block:
-                    if splicer is not None:
+                    if splicer is not None and not session.cancel.is_set():
                         # Clean EOF: held programme bytes are still deliverable.
                         tail = splicer.finish()
                         if tail:

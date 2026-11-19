@@ -1128,7 +1128,8 @@ def run_plugin(argv):
                 except (OSError, ValueError): pass
         try:
             station = _fixture_station(params.get('id', ''))
-            if (not station.hls or not ad_settings().enabled
+            config = ad_settings()
+            if (not station.hls or not config.enabled or not (config.preroll or config.midroll)
                     or _inputstream_version('inputstream.ffmpegdirect') != '22.2.10'):
                 raise ValueError('Qualified fixture playback unavailable')
             client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
@@ -1511,7 +1512,10 @@ def run_plugin(argv):
         elif action == 'tests':
             if fixture_origin():
                 try:
-                    qualified = ad_settings().enabled
+                    config = ad_settings()
+                    # Launches are HLS composition; the continuous splice alone
+                    # does not qualify them.
+                    qualified = config.enabled and (config.preroll or config.midroll)
                 except ValueError:
                     qualified = False
                 for label, _, _, hls in _FIXTURES:

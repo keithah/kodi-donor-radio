@@ -20,8 +20,9 @@ CREATIVE_SECONDS = 5
 DEFAULT_BREAK_SECONDS = 300
 BREAK_GRACE_SECONDS = 10
 
-# Every compressed frame header both parsers read fits in these many bytes.
-_HEADER_BYTES = {MP3: 6, AAC: 9}
+# The most bytes either parser reads: an MP3 header, CRC and two side-info
+# bytes, or an ADTS header with CRC. Fewer bytes are incomplete, not invalid.
+_HEADER_BYTES = {MP3: 8, AAC: 9}
 _MIME_CODECS = {'audio/mpeg': MP3, 'audio/mp3': MP3, 'audio/aac': AAC,
                 'audio/aacp': AAC, 'audio/x-aac': AAC}
 
@@ -284,7 +285,6 @@ class ContinuousSplicer:
         self._sample = 0          # Source media samples processed so far.
         self._break = None        # Open-break bookkeeping.
         self._rejoin = None       # End event waiting for its first source frame.
-        self.breaks = []          # Completed replacement summaries (tests, diagnostics).
 
     def _emit(self, kind, details):
         try:
@@ -295,8 +295,15 @@ class ContinuousSplicer:
     def signal(self, kind, offset, duration_ms=None):
         if kind not in ('start', 'end'):
             raise ValueError('Invalid boundary signal')
-        if self.state != DISABLED and len(self._signals) < 64:
-            self._signals.append((kind, offset, duration_ms))
+        if self.state == DISABLED:
+            return
+        # Coalesce repeats so a burst of metadata cannot crowd out a boundary;
+        # the queue then alternates start/end and stays small.
+        if self._signals and self._signals[-1][0] == kind:
+            return
+        if len(self._signals) >= 64:
+            self._signals.pop(0)
+        self._signals.append((kind, offset, duration_ms))
 
     def observe_metadata(self, metadata, offset):
         signal = adw_signal(metadata)
@@ -323,7 +330,8 @@ class ContinuousSplicer:
             return bytes(output)
         except Exception:
             # Never risk the source on a splicer defect: pass through from here.
-            # Bytes held for this feed's partial frame are dropped (< 1 frame).
+            # Bytes the assembler still held from earlier feeds are dropped
+            # (at most one pending frame); they cannot be re-ordered safely.
             self.assembler = None
             self._disable('splicer_error')
             return bytes(data)
@@ -361,8 +369,15 @@ class ContinuousSplicer:
             while self._signals and self._signals[0][1] <= unit.offset:
                 self._apply(self._signals.pop(0), unit)
         if unit.kind == 'raw':
-            if self.state != REPLACING:
+            if self.state == REPLACING:
+                # The break began on a locked frame, so raw bytes mean the
+                # source lost sync: give the listener the source back.
+                self.state = BREAK_SOURCE
+                self._end('sync_lost', None)
                 output.extend(unit.data)
+                self._disable('sync_lost')
+                return
+            output.extend(unit.data)
             return
         if self.state == REPLACING:
             if header.format != self.creative.format:
@@ -400,6 +415,9 @@ class ContinuousSplicer:
         if kind == 'start':
             if self.state != PROGRAMME:
                 return
+            # A previous break that ended without a source frame in between
+            # still reports its end before the new break starts.
+            self._flush_rejoin(None)
             details = {'signal_offset': offset, 'splice_offset': unit.offset,
                        'boundary_error_bytes': unit.offset - offset,
                        'start_sample': self._sample, 'codec': self.codec,
@@ -430,7 +448,8 @@ class ContinuousSplicer:
                    'splice_offset': record['start']['splice_offset'],
                    'signal_offset': record['start']['signal_offset']}
         self._rejoin = details
-        if rejoin_unit is not None or reason in ('stopped', 'format_change', 'splicer_error'):
+        if rejoin_unit is not None or reason in ('stopped', 'format_change', 'sync_lost',
+                                                 'splicer_error'):
             self._flush_rejoin(rejoin_unit)
 
     def _flush_rejoin(self, unit):
@@ -442,5 +461,4 @@ class ContinuousSplicer:
             details['rejoin_sample'] = self._sample
             if self.codec == MP3:
                 details['rejoin_reservoir_bytes'] = unit.header.reservoir
-        self.breaks.append(dict(details))
         self._emit('continuous_replacement_end', details)

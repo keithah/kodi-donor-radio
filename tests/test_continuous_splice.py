@@ -426,6 +426,9 @@ def upstream():
             self.send_response(200)
             self.send_header('Content-Type', state['mime'])
             self.send_header('icy-metaint', str(state['metaint']))
+            if state['drop_after']:
+                # A declared length makes the early close a failure, not EOF.
+                self.send_header('Content-Length', str(len(body)))
             self.send_header('Connection', 'close')
             self.end_headers()
             self.close_connection = True
@@ -621,6 +624,7 @@ def test_upstream_network_failure_mid_break_closes_cleanly(upstream):
         end = next(e for e in sink.events if e.kind == 'continuous_replacement_end')
         assert end.details['reason'] == 'stopped' and session.cancel.is_set()
         assert manager.get(session.id) is None
+        assert any(e.kind == 'stream_error' for e in sink.events)
     finally:
         server.close()
     assert len(source) == 62
@@ -637,7 +641,9 @@ def encoded():
     if FFMPEG is None:
         pytest.skip('FFmpeg not installed')
     fixture = _tools('continuous_splice_fixtures')
-    if not (ASSETS / 'source.aac').is_file():
+    names = [prefix + '.' + codec for codec in ('mp3', 'aac')
+             for prefix in ('source', 'creative-short', 'creative-long', 'creative-mismatch')]
+    if not all((ASSETS / name).is_file() for name in names):
         fixture.generate(ASSETS, FFMPEG)
     return fixture
 
@@ -719,3 +725,67 @@ def test_fixture_server_serves_paced_icy_splice_stream(encoded):
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+def test_protected_mp3_header_split_inside_crc_keeps_lock():
+    source = frames(cs.MP3, b'ABCDEFGH', crc=True)
+    data = b''.join(source)
+    for cut in range(len(source[0]) * 2, len(source[0]) * 2 + 9):
+        assembler = cs.FrameAssembler(cs.MP3)
+        units = assembler.feed(data[:cut]) + assembler.feed(data[cut:]) + assembler.finish()
+        assert [u.kind for u in units] == ['frame'] * 8, cut
+
+
+def test_lost_sync_during_break_returns_source_and_disables():
+    source = frames(cs.MP3, b'AABB')
+    noise = b'not an mp3 frame at all ' * 40
+    events = Events()
+    splicer = cs.ContinuousSplicer(cs.MP3, creative_of(cs.MP3, b'xyzxyzxyz'), events)
+    splicer.observe_metadata(START, len(source[0]) * 2)
+    output = splicer.feed(b''.join(source) + noise) + splicer.feed(noise) + splicer.finish()
+    creative = creative_of(cs.MP3, b'xyzxyzxyz')
+    assert output == b''.join(source[:2]) + b''.join(creative.frames[:2]) + noise + noise
+    assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
+                              'continuous_splice_disabled']
+    assert events[1][1]['reason'] == 'sync_lost'
+
+
+def test_metadata_burst_cannot_crowd_out_the_end_signal():
+    source = frames(cs.AAC, b'AABBCC')
+    splicer = cs.ContinuousSplicer(cs.AAC, creative_of(cs.AAC, b'xyzxyz'), Events())
+    for _ in range(200):
+        splicer.observe_metadata(START, len(source[0]) * 2)
+    splicer.observe_metadata(END, len(source[0]) * 4)
+    output = splicer.feed(b''.join(source)) + splicer.finish()
+    creative = creative_of(cs.AAC, b'xyzxyz')
+    assert output == b''.join(source[:2]) + b''.join(creative.frames[:2]) + b''.join(source[4:])
+
+
+def test_session_skips_creative_fetch_without_icy_or_supported_codec(upstream):
+    for headers in ({'icy-metaint': '0', 'content-type': 'audio/mpeg'},
+                    {'icy-metaint': '16000', 'content-type': 'audio/ogg'}):
+        from sessions import PlaybackSession
+        from types import SimpleNamespace
+        origin = upstream['origin']
+        config = AdConfig(True, False, False, '', origin, True, origin + '/creative')
+        source = SimpleNamespace(protocol='continuous', final_url=origin + '/s',
+                                 response=SimpleNamespace(headers=headers))
+        session = PlaybackSession(Station('fixture-30218', 'S', origin + '/s', '', False), source,
+                                  threading.Event(), '', Sink(), 8, config,
+                                  HttpClient(UrlPolicy([origin])))
+        assert not session.continuous_splice_enabled
+    assert '/creative' not in upstream['requests']
+
+
+def test_back_to_back_breaks_without_programme_frame_keep_event_pairs():
+    source = frames(cs.MP3, b'AABBBBCC')
+    frame = len(source[0])
+    events = Events()
+    splicer = cs.ContinuousSplicer(cs.MP3, creative_of(cs.MP3, b'xy'), events)
+    splicer.observe_metadata(START, 2 * frame)
+    splicer.observe_metadata(END, 4 * frame)
+    splicer.observe_metadata(dict(START, durationMilliseconds='1'), 4 * frame)
+    splicer.feed(b''.join(source))
+    splicer.finish()
+    assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
+                              'continuous_replacement_start', 'continuous_replacement_end']

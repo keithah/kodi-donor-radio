@@ -175,9 +175,14 @@ class PlaybackSession:
         test_origins = getattr(getattr(ad_client, 'policy', None), 'test_origins', frozenset())
         fixture = getattr(ad_config, 'fixture_origin', '') if ad_config is not None else ''
         creative_url = getattr(ad_config, 'continuous_creative_url', '') if ad_config is not None else ''
+        headers = getattr(source.response, 'headers', None) or {}
+        metaint = headers.get('icy-metaint', '')
         if not (ad_config is not None and ad_config.enabled
                 and getattr(ad_config, 'continuous', False)
                 and source.protocol != 'hls' and source.response is not None
+                # Only an ICY stream of a supported codec can be spliced.
+                and re.fullmatch('[0-9]{1,10}', metaint) and int(metaint) > 0
+                and codec_for_mime(headers.get('content-type', '')) is not None
                 and station.uuid.startswith('fixture-')
                 and fixture.startswith('http://127.0.0.1:') and creative_url
                 and origin(fixture) in test_origins

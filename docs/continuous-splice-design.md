@@ -43,9 +43,15 @@ a locked frame (an ID3 tag, garbage, a truncated frame) are carried as opaque
 if both have the same codec, MPEG version and layer (MP3) or audio object type
 (AAC), sample rate, channel count and samples per frame. Bitrate may differ,
 because MP3 and ADTS decoders accept a per-frame bitrate. With equal samples per
-frame, replacing source frames one-for-one keeps the output's media duration and
-real-time pacing identical to the source, so there is no drift, buffering or
-catch-up.
+frame, replacing source frames one-for-one keeps the output's media duration
+identical to the source, so there is no drift, buffering or catch-up. Output
+bytes follow the creative's bitrate, so a read can leave as a larger or smaller
+write than it arrived.
+
+ADTS carries only a 2-bit profile, so implicitly signalled HE-AAC (SBR) or PS
+cannot be distinguished from AAC-LC at the same ADTS rate. A creative must come
+from the same encoder profile as the station; this is not detectable from the
+headers and is recorded as a limitation.
 
 ## Boundary-signal contract
 
@@ -59,11 +65,14 @@ Only AdsWizz ICY metadata is a splice signal, and only its `adw_ad` field:
   interval. That provider-side quantisation is outside the relay's control and
   is recorded, not corrected.
 - The splice starts at the first source frame whose first byte is at or after the
-  boundary. A frame that straddles the boundary is programme audio. The splice
-  therefore lands within one frame (≤ 26.1 ms for 44.1 kHz MP3, ≤ 21.3 ms for
-  48 kHz AAC) after the signalled byte, and never inside a frame.
+  boundary. A frame that straddles the boundary is programme audio. With a
+  synchronised source the splice therefore lands within one frame (≤ 26.1 ms for 44.1 kHz MP3, ≤ 21.3 ms for
+  48 kHz AAC) after the signalled byte, and never inside a frame. Raw
+  (unsynchronised) bytes right after the boundary pass through as programme and
+  can push the splice later; `boundary_error_bytes` reports the actual distance.
 - A repeated `true` while a break is open, or a `false` with no open break, is
-  ignored.
+  ignored. Repeated signals are coalesced before the frames that follow them are
+  processed, so a burst of metadata cannot crowd out a boundary.
 - `durationMilliseconds`, when present and valid (1–300000), bounds the break:
   if no `false` arrives within that duration plus 10 seconds, the break is
   closed as unresolved. Without it, the bound is 300 seconds.
@@ -84,9 +93,10 @@ Only AdsWizz ICY metadata is a splice signal, and only its `adw_ad` field:
   including raw units. Output is byte-identical to the de-framed source.
 - **REPLACING** drops each source frame, and any raw unit inside the break, and
   emits the next creative frame in its place.
-- A splice fault (source loses sync, changes format, or the splicer raises)
-  returns to source pass-through for the rest of the session and emits
-  `continuous_splice_disabled`.
+- A splice fault (source loses sync inside a break, changes format, or the
+  splicer raises) returns to source pass-through for the rest of the session and
+  emits `continuous_splice_disabled`. A splicer exception drops at most the one
+  pending frame the assembler held.
 
 ## Rejoin and decoder state
 
@@ -142,8 +152,8 @@ The splicer is per-connection state inside the relay worker. Stop, station
 switch, restart, a client disconnect and upstream EOF or failure all end the
 worker loop. `finish()` then flushes or drops held bytes according to state
 (held source bytes are flushed in PROGRAMME/BREAK_SOURCE; inside REPLACING they
-are dropped), closes any open break as `break_unresolved`, and releases the
-creative reference. The creative is held in memory only, so no cache files
+are dropped), ends an active replacement with reason `stopped`, and releases
+the creative reference. An open pass-through break ends silently. The creative is held in memory only, so no cache files
 outlive the session.
 
 ## Enablement guard
@@ -155,8 +165,12 @@ byte-for-byte the existing one:
    off), plus a creative URL on the configured fixture origin.
 2. The session source is continuous (not HLS), on the configured loopback
    fixture origin, and its station is a built-in `fixture-` station.
-3. The source response declares `icy-metaint` and a `Content-Type` of
-   `audio/mpeg` or `audio/aac`/`audio/aacp`.
+3. The source response declares a positive `icy-metaint` and a `Content-Type`
+   of `audio/mpeg`, `audio/mp3`, `audio/aac`, `audio/aacp` or `audio/x-aac`;
+   otherwise no creative is fetched.
+
+The station check is the `fixture-` identifier prefix, as for the controlled
+HLS path; the relay control API that creates sessions is bearer-token gated.
 
 No tracking is fetched or fired. Lifting the fixture-origin restriction needs a
 separate decision on demand, rights and beacon timing (roadmap sections 1 and 3).
@@ -170,11 +184,11 @@ AdsWizz context:
   `boundary_error_bytes`, `start_sample`, `codec`, `sample_rate`.
 - `continuous_replacement_end`: `reason` (`truncated` when `adw_ad=false`
   cuts the creative, `creative_exhausted`, `timeout`, `format_change`,
-  `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
+  `sync_lost`, `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
   `rejoin_sample` and, for MP3, `rejoin_reservoir_bytes`. `stopped` covers stop,
   switch, client disconnect and upstream EOF or failure; it has no rejoin.
 - `continuous_replacement_skipped`: `reason` (`no_fill`, `format_mismatch`,
   `creative_unparseable`, `creative_too_large`, `creative_mixed_format`).
 - `continuous_break_unresolved`: a pass-through break reached its bound.
 - `continuous_splice_disabled`: `reason` (`unsupported_codec`,
-  `format_change`, `splicer_error`).
+  `format_change`, `sync_lost`, `splicer_error`).
