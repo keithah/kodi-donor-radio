@@ -861,7 +861,9 @@ def test_signals_held_across_reads_cannot_evict_a_pending_end(monkeypatch):
         splicer.observe_metadata(END, position + 1)
     output += splicer.feed(audio[4 * frame + cs.MAX_SIGNALS:]) + splicer.finish()
     assert bytes(output) == b''.join(source[:2]) + b''.join(creative.frames[:2]) + b''.join(source[4:])
-    assert events.kinds()[-1] == 'continuous_splice_disabled'
+    assert events.kinds() == ['continuous_replacement_start', 'continuous_replacement_end',
+                              'continuous_splice_disabled']
+    assert events[1][1]['reason'] == 'signal_overflow' and 'rejoin_offset' not in events[1][1]
     assert events[-1][1]['reason'] == 'signal_overflow'
 
 

@@ -161,8 +161,10 @@ worker loop. `finish()` then flushes or drops held bytes according to state
 (held source bytes are flushed in PROGRAMME/BREAK_SOURCE; inside REPLACING they
 are dropped), ends an active replacement with reason `stopped`, and releases
 the creative reference. The relay writes the flushed tail at clean EOF and
-after an upstream read failure, but never after a stop (checked again after
-`finish()`, whose diagnostics can race a stop) or a failed client write. An
+after an upstream read failure, but not after a failed client write or a stop
+seen before the write (checked again after `finish()`, whose diagnostics can
+race a stop; a stop landing between that check and the write can still let
+one tail through, as for any in-flight chunk). An
 open pass-through break ends silently. The creative is held in memory only, so no cache files
 outlive the session.
 
@@ -194,11 +196,12 @@ AdsWizz context:
   `boundary_error_bytes`, `start_sample`, `codec`, `sample_rate`.
 - `continuous_replacement_end`: `reason` (`truncated` when `adw_ad=false`
   cuts the creative, `creative_exhausted`, `timeout`, `format_change`,
-  `sync_lost`, `splicer_error`, `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
+  `sync_lost`, `splicer_error`, `signal_overflow`, `stopped`), `frames_replaced`, `samples_replaced`, `rejoin_offset`,
   `rejoin_sample` and, for MP3, `rejoin_reservoir_bytes`. The rejoin fields
   describe the first source frame actually forwarded after the break; an end
   followed by a new start on the same frame has none. `stopped` covers stop,
-  switch, client disconnect and upstream EOF or failure; it has no rejoin.
+  switch, client disconnect and upstream EOF or failure; it, `format_change`,
+  `sync_lost`, `splicer_error` and `signal_overflow` have no rejoin.
 - `continuous_replacement_skipped`: `reason` (`no_fill`, `format_mismatch`,
   `creative_unparseable`, `creative_too_large`, `creative_mixed_format`,
   `creative_reservoir`).
