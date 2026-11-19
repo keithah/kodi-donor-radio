@@ -596,7 +596,7 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     route(runtime,action='tests'); assert not state.items
     state.settings.update(test_mode=True,test_origin='http://127.0.0.1:8765')
     route(runtime,action='tests')
-    assert len(state.items)==23
+    assert len(state.items)==25
     assert all(item.label.startswith('localized-') for _,item,_ in state.items)
     station=json.loads(station_payload(runtime._fixture_station(parse_qs(urlsplit(state.items[0][0]).query)['id'][0])))
     assert station['url']=='http://127.0.0.1:8765/continuous.mp3'
@@ -605,6 +605,7 @@ def test_test_navigation_opt_in_localized_and_disabled_route_rejected(kodi):
     assert 'http://127.0.0.1:8765/source/extended/index.m3u8' in paths
     assert 'http://127.0.0.1:8765/source/late-break/index.m3u8' in paths
     assert 'http://127.0.0.1:8765/source/recovery/index.m3u8' in paths
+    assert paths[-2:]==['http://127.0.0.1:8765/splice/source.mp3','http://127.0.0.1:8765/splice/source.aac']
 
 
 @pytest.mark.parametrize('callback',['onPlayBackStopped','onPlayBackEnded','onPlayBackError'])
@@ -721,6 +722,8 @@ def test_radio_settings_preserve_fixture_controls_and_defer_theme_selectors():
         'ad_preroll': ('boolean', 'false', 'toggle'),
         'ad_midroll': ('boolean', 'false', 'toggle'),
         'ad_vast_url': ('string', '', 'edit'),
+        'ad_continuous': ('boolean', 'false', 'toggle'),
+        'ad_continuous_creative': ('string', '', 'edit'),
     }
     network = {name for name in controls if name.startswith('network_')}
     assert set(controls) == set(expected) | network | {
@@ -917,6 +920,25 @@ def test_ad_settings_default_off_and_require_exact_fixture_origin(kodi):
         state.settings['ad_vast_url'] = url
         with pytest.raises(ValueError): runtime.ad_settings()
     state.settings['test_mode'] = False
+    assert runtime.ad_settings().enabled is False
+
+
+def test_continuous_splice_setting_default_off_and_fixture_origin_only(kodi):
+    runtime, state, _ = kodi
+    settings = ET.parse(ADDON / 'resources/settings.xml')
+    assert settings.find(".//setting[@id='ad_continuous']/default").text == 'false'
+    state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765', ad_enabled=True,
+                          ad_continuous_creative='http://127.0.0.1:8765/splice/creative-short.mp3')
+    assert runtime.ad_settings().enabled is False  # Toggle still off.
+    state.settings['ad_continuous'] = True
+    config = runtime.ad_settings()
+    assert config.enabled and config.continuous and not (config.preroll or config.midroll)
+    assert config.vast_url == '' and config.continuous_creative_url.endswith('/creative-short.mp3')
+    for url in ('http://127.0.0.1:8766/c.mp3', 'https://ads.example/c.mp3', '', 'garbage',
+                'http://user@127.0.0.1:8765/c.mp3'):
+        state.settings['ad_continuous_creative'] = url
+        with pytest.raises(ValueError): runtime.ad_settings()
+    state.settings['ad_enabled'] = False
     assert runtime.ad_settings().enabled is False
 
 
@@ -1441,7 +1463,7 @@ def test_fixture_routes_are_fixed_identifiers_and_require_enabled_exact_origin(k
     browser = directory(monkeypatch, runtime)
     state.settings.update(test_mode=True, test_origin='http://127.0.0.1:8765')
     route(runtime, mode='tests')
-    assert len(state.items) == 23
+    assert len(state.items) == 25
     for link, item, folder in state.items:
         params = parse_qs(urlsplit(link).query)
         assert set(params) == {'mode', 'id'} and params['mode'] == ['play_fixture']
