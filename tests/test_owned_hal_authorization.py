@@ -139,7 +139,9 @@ def test_close_racing_probe_release_closes_authorization_descriptor(tmp_path,mon
         while not path.exists() and time.monotonic()<until:time.sleep(.0005)
         raw=path.read_bytes();request=json.loads(raw)
         response=response_for(request,request_sha256=auth.sha(raw))
-        name=transport.path/'response-000001.json';name.write_bytes(auth.canonical(response));name.chmod(0o600)
+        # Publish atomically: the probe must never see an empty or 0644 file.
+        temp=transport.path/'.response-000001.tmp';temp.write_bytes(auth.canonical(response));temp.chmod(0o600)
+        temp.rename(transport.path/'response-000001.json')
     server=threading.Thread(target=responder);server.start()
     probe=threading.Thread(target=lambda:proofs.append(transport.probe(
         p.binding,ev,p.generation,'tracker',decision_id='e'*64,
@@ -203,7 +205,9 @@ def test_private_file_exchange_echoes_bytes_and_has_no_directory_scan(tmp_path,m
         until=time.monotonic()+1
         while not path.exists() and time.monotonic()<until:time.sleep(.0005)
         raw=path.read_bytes();request=json.loads(raw);response=response_for(request,request_sha256=auth.sha(raw))
-        name=transport.path/'response-000001.json';name.write_bytes(auth.canonical(response));name.chmod(0o600)
+        # Publish atomically: the probe must never see an empty or 0644 file.
+        temp=transport.path/'.response-000001.tmp';temp.write_bytes(auth.canonical(response));temp.chmod(0o600)
+        temp.rename(transport.path/'response-000001.json')
     worker=threading.Thread(target=responder);worker.start()
     proof=transport.probe(p.binding,ev,p.generation,'tracker',decision_id='e'*64,lease_expiry_ns=now[0]+500_000_000)
     worker.join();assert proof and proof.response['authorized'] and not transport.failed
@@ -212,7 +216,7 @@ def test_private_file_exchange_echoes_bytes_and_has_no_directory_scan(tmp_path,m
     transport.close()
 
 
-@pytest.mark.parametrize('fault',['symlink','oversize','wrong_hash','wrong_stage','future','late'])
+@pytest.mark.parametrize('fault',['symlink','oversize','wrong_hash','wrong_stage','future','late','readable','empty'])
 def test_bad_response_retires_without_retry(tmp_path,fault):
     import os,threading,time,json
     p,now,ev,_=prepared();transport=auth.HalAuthorizationTransport(tmp_path,lambda:now[0])
@@ -225,7 +229,8 @@ def test_bad_response_retires_without_retry(tmp_path,fault):
         if fault=='future':response['check_start_ns']+=1;response['check_end_ns']+=1
         if fault=='late':now[0]+=20_000_001
         name=transport.path/'response-000001.json';temp=transport.path/'.reply'
-        temp.write_bytes(b'x'*4097 if fault=='oversize' else auth.canonical(response));temp.chmod(0o600)
+        temp.write_bytes(b'x'*4097 if fault=='oversize' else b'' if fault=='empty' else auth.canonical(response))
+        temp.chmod(0o644 if fault=='readable' else 0o600)
         if fault=='symlink':name.symlink_to(temp)
         else:temp.rename(name)
     worker=threading.Thread(target=responder);worker.start()

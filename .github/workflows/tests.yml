@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run. Every other run gets
+# its own group, because a shared group keeps only one pending run and would
+# drop a queued main commit.
+concurrency:
+  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Python ${{ matrix.python }})
+    # macOS: the owned-HAL transport under test needs macOS (exclusive rename),
+    # and macOS is where the add-on is validated with Kodi.
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9: macOS's system Python and the oldest tested; 3.11: Kodi 21/22
+        # builds; 3.13: newest.
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      # FFmpeg and eSpeak let the generated-audio, generated-ad-audio and
+      # decoder tests run instead of skipping. Homebrew's `espeak` formula is disabled; espeak-ng
+      # installs an `espeak` executable.
+      - name: Install audio tools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: brew install ffmpeg espeak-ng
+      - name: Install pytest
+        run: python -m pip install "pytest>=7,<9"
+      - name: Generate test audio fixtures
+        run: python tools/generate_audio.py
+      - name: Run tests
+        run: python -m pytest -q -rs
+      - name: Build and check the add-on package
+        run: |
+          python tools/package_addon.py --output dist
+          python tools/check_package.py dist/plugin.audio.kodi_donor_radio-*.zip
