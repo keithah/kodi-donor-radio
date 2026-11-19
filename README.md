@@ -187,7 +187,8 @@ the station's original break.
 
 The controlled test menu's **Test ad tracking** context action uses the legacy
 continuous AAC adapter. It explicitly selects Kodi VideoPlayer and qualifies that
-exact route with already-enabled FFmpegDirect 22.2.10. A short-lived, single-use
+exact route with already-enabled FFmpegDirect 22.2.10 or 22.2.11 (identical
+source; Kodi 22's repository serves 22.2.11). A short-lived, single-use
 launch ticket binds that selection
 to one fixture session. Tracking also requires owned AV startup, consecutive
 clock progress, and matching session and URL observations. Paused/interrupted ads,

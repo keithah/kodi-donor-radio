@@ -339,6 +339,12 @@ def _inputstream_version(addon_id):
     return None
 
 
+# FFmpegDirect releases whose timeshift/demux source the qualified fixture clock
+# was measured on. 22.2.11 changed only build dependencies and its version
+# string (src/ is identical to 22.2.10); Kodi 22's repository serves it.
+_QUALIFIED_FFMPEGDIRECT = ('22.2.10', '22.2.11')
+
+
 def _inputstream_enabled(addon_id, minimum_major):
     version = _inputstream_version(addon_id)
     return version is not None and int(version.split('.', 1)[0]) >= minimum_major
@@ -1116,7 +1122,7 @@ def run_plugin(argv):
         try:
             station = _fixture_station(params.get('id', ''))
             if (not station.hls or not ad_settings().enabled
-                    or _inputstream_version('inputstream.ffmpegdirect') != '22.2.10'):
+                    or _inputstream_version('inputstream.ffmpegdirect') not in _QUALIFIED_FFMPEGDIRECT):
                 raise ValueError('Qualified fixture playback unavailable')
             client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
             nonce = _operation(lambda: client.reserve_fixture_launch(station.uuid),
@@ -1293,7 +1299,7 @@ def run_plugin(argv):
                 elif adaptive:
                     playback_url = adaptive_url
             if (launch_nonce is not None and buffered and playback_url == continuous_url
-                    and _inputstream_version('inputstream.ffmpegdirect') == '22.2.10'):
+                    and _inputstream_version('inputstream.ffmpegdirect') in _QUALIFIED_FFMPEGDIRECT):
                 _operation(lambda: client.qualify_fixture_clock(session_id, launch_nonce),
                            monitor, cancel)
             entry = xbmcgui.ListItem(label=station.name, path=playback_url)
@@ -1309,7 +1315,7 @@ def run_plugin(argv):
                 entry.setProperty('inputstream.ffmpegdirect.stream_mode', 'timeshift')
                 entry.setProperty('inputstream.ffmpegdirect.is_realtime_stream', 'false')
                 # The composed fixture route closes only after the source playlist ends (or
-                # fails). Stock 22.2.10 ignores this; patched timeshift then reports Kodi EOF
+                # fails). Stock 22.2.10/22.2.11 ignore this; patched timeshift then reports Kodi EOF
                 # instead of caching forever on the closed source.
                 entry.setProperty('inputstream.ffmpegdirect.terminal_eof', 'true')
             elif adaptive:

@@ -14,9 +14,14 @@ unqualified. On 2026-10-30, a fresh 360-second Kodi master capture of the
 bounded 128-segment fixture aligned the controlled replacement tone with all
 six loopback VAST success events, but then stalled near the fixture's expected
 end at player time 260.408 seconds, produced 76.4 seconds of captured silence,
-and did not reach natural EOF. No production success beacons are
-enabled; `docs/superpowers/reports/kodi-owned-clock-beacons-2026-10-30.md` is the
-current acceptance status. The native lab is preserved as optional source
+and did not reach natural EOF. On 2026-11-19 that stall was traced to stock
+FFmpegDirect timeshift never reporting end of stream: with the
+`timeshift-startup-eof` patch, Kodi 22 RC2 captures reached natural EOF with no
+gap and kept all six events aligned across the moving window and both ad
+discontinuities, while stock 22.2.10 and 22.2.11 still stall. No production
+success beacons are enabled;
+`docs/superpowers/reports/kodi-22-hls-eof-2026-11-19.md` is the current
+acceptance status. The native lab is preserved as optional source
 patches; it is not installed or required by the shipped Python addon.
 
 Proceed under the user's stated Kodi repository-policy exception for this addon;
@@ -46,11 +51,14 @@ production demand, settle consent inputs, creative expiry/reuse, contractual
 tracking semantics, and any broader VAST requirements. Do not expand advertising
 origins or enable production success beacons until the Kodi clock mapping passes.
 
-Remaining evidence: connect a qualified live source clock to the actual addon
-playback session, then correlate ad placement and tracking across moving HLS
-windows and both ad discontinuities. The offline native lab estimator does not
-yet provide that runtime contract. Verify seek/reset/ambiguous-jump behavior and heard output
-separately. Existing deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
+Kodi 22 RC2 evidence (2026-11-19, loopback fixture only): the add-on's qualified
+clock is bound to the actual playback session and placed the replacement and all
+six events correctly across a moving six-segment window, past output retention,
+and at both ad discontinuities; backward and in-ad forward seeks permanently
+suppressed later events without backfill. Remaining evidence: a public station's
+live source clock, an upstream (or released) FFmpegDirect end-of-stream fix, and
+heard output on physical speakers. The offline native lab estimator still does
+not provide that runtime contract. Existing deterministic fixtures cover direct/wrapped VAST, cycles, no-fill, timeout,
 malformed input and incompatible media. Fetching or caching a creative must never
 count as an impression. Stop/cancel must not emit completion, and retries must
 not duplicate tracking.
