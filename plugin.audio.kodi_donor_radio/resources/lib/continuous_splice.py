@@ -209,8 +209,9 @@ def prepare_creative(codec, data):
     assembler = FrameAssembler(codec)
     units = assembler.feed(data) + assembler.finish()
     frames = [unit for unit in units if unit.kind == 'frame']
-    raw = sum(len(unit.data) for unit in units if unit.kind == 'raw')
-    if not frames or raw > len(data) // 100:
+    # Tags are already stripped: any other unframed byte hides a frame the
+    # creative would silently lose, such as one at a different sample rate.
+    if not frames or any(unit.kind == 'raw' for unit in units):
         raise CreativeRejected('creative_unparseable')
     formats = {unit.header.format for unit in frames}
     if len(formats) != 1:
