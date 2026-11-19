@@ -31,7 +31,7 @@ FILES = frozenset({
         'playback_arbiter',
         'relay', 'sessions', 'station_resolver', 'url_policy',
         'ad_models', 'ad_tracking', 'ad_media', 'ad_session', 'ad_timeline',
-        'vast', 'kodi_ad_player', 'network_ads')),
+        'vast', 'kodi_ad_player', 'network_ads', 'continuous_splice')),
     'resources/skins/Default/1080i/map.xml',
 })
 

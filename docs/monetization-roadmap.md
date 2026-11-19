@@ -69,7 +69,17 @@ relay-decoding evidence for cue boundaries, missing ends, discontinuities, cache
 retention and fallback. In-band cues and continuous streams have separate
 coverage; absence of HLS cues does not prove absence of ads.
 
-## 3. Continuous-stream replacement investigation
+## 3. Continuous-stream replacement — guarded fixture splice implemented
+
+A default-off, fixture-only frame splice now exists for ICY MP3 (Layer III) and
+ADTS AAC streams; [continuous-splice-design.md](continuous-splice-design.md)
+records the supported framing, the AdsWizz `adw_ad` boundary contract, latency,
+no-fill and fallback decisions. It requires test mode, controlled ads, the new
+`ad_continuous` toggle, a built-in `fixture-` station and a creative on the
+loopback fixture origin; it parses no tracking and fires no beacons. Evidence,
+including Kodi 22 captures, is in [testing.md](testing.md) under "Continuous-stream
+frame splice". Production sources, demand, beacons and rights remain open; the
+original investigation notes follow.
 
 Determine whether a participating continuous source exposes sufficiently reliable
 boundaries and whether audio can be switched/rejoined without corrupting MP3/AAC

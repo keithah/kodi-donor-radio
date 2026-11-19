@@ -32,6 +32,9 @@ class IcyDecoder:
         self._metadata = bytearray()
         self._finished = False
         self._observer_error_reported = False
+        # De-framed audio bytes returned so far. Inside on_metadata it is the
+        # audio offset that immediately follows the metadata block.
+        self.audio_position = 0
 
     def feed(self, chunk: bytes) -> bytes:
         """Return audio immediately; buffer only an incomplete metadata block."""
@@ -44,6 +47,7 @@ class IcyDecoder:
                 count = min(self._audio_remaining, len(chunk) - position)
                 audio.extend(chunk[position:position + count])
                 self._audio_remaining -= count
+                self.audio_position += count
                 position += count
             elif self._metadata_remaining:
                 count = min(self._metadata_remaining, len(chunk) - position)

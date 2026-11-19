@@ -23,6 +23,9 @@ class AdConfig:
     midroll: bool
     vast_url: str
     fixture_origin: str
+    # Continuous ICY frame splicing (fixture origin only; default off).
+    continuous: bool = False
+    continuous_creative_url: str = ''
 
 
 @dataclass(frozen=True)

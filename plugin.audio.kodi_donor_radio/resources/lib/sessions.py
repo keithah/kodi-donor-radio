@@ -12,8 +12,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from url_policy import origin
 
+from continuous_splice import (ContinuousSplicer, CreativeRejected, codec_for_mime,
+                               fetch_creative, prepare_creative)
 from cues import CueTracker
-from http_client import HttpClient
+from http_client import Cancelled, HttpClient
 from icy_markers import IcyMarkerTracker, adswizz_evidence
 from icy_marker_store import normalize_marker
 from models import Event
@@ -159,6 +161,65 @@ class PlaybackSession:
                 # extra resource slot. Ordinary radio playback never offers it.
                 self.continuous_route = '/media/%s/%s.aac' % (self.id, root.id)
                 self.continuous_playback_url = base_url + self.continuous_route
+        self._prepare_continuous_splice(station, source, cancel, ad_config, ad_client)
+
+    def _prepare_continuous_splice(self, station, source, cancel, ad_config, ad_client):
+        """Fetch a fixture creative for frame splicing; every failure is no-fill.
+
+        Only built-in fixture stations on the configured loopback fixture origin
+        qualify. No tracking is parsed, so this path cannot fire beacons.
+        """
+        self.continuous_splice_enabled = False
+        self._splice_creative = None
+        self._splice_skip = 'no_fill'
+        test_origins = getattr(getattr(ad_client, 'policy', None), 'test_origins', frozenset())
+        fixture = getattr(ad_config, 'fixture_origin', '') if ad_config is not None else ''
+        creative_url = getattr(ad_config, 'continuous_creative_url', '') if ad_config is not None else ''
+        headers = getattr(source.response, 'headers', None) or {}
+        metaint = headers.get('icy-metaint', '')
+        if not (ad_config is not None and ad_config.enabled
+                and getattr(ad_config, 'continuous', False)
+                and source.protocol != 'hls' and source.response is not None
+                # Only an ICY stream of a supported codec can be spliced.
+                and re.fullmatch('[0-9]{1,10}', metaint) and int(metaint) > 0
+                and codec_for_mime(headers.get('content-type', '')) is not None
+                and station.uuid.startswith('fixture-')
+                and fixture.startswith('http://127.0.0.1:') and creative_url
+                and origin(fixture) in test_origins
+                and origin(source.final_url) == origin(fixture)
+                and origin(creative_url) == origin(fixture)):
+            return
+        self.continuous_splice_enabled = True
+        try:
+            self._splice_creative = fetch_creative(ad_client, creative_url, fixture, cancel)
+        except Cancelled:
+            raise
+        except CreativeRejected as error:
+            self._splice_skip = error.reason
+        except Exception:
+            self._splice_skip = 'no_fill'
+
+    def continuous_splicer(self, content_type):
+        """Return the splicer for this session's single continuous claim, or None."""
+        with self._lock:
+            if not self.continuous_splice_enabled:
+                return None
+            data, self._splice_creative = self._splice_creative, None
+        def emit(kind, details):
+            self.sink.emit(Event(kind, self.id, self.station.uuid, 'icy', 'continuous_splice',
+                                 {}, datetime.now(timezone.utc).isoformat(), time.monotonic(),
+                                 details))
+        codec = codec_for_mime(content_type)
+        if codec is None:
+            emit('continuous_splice_disabled', {'reason': 'unsupported_codec'})
+            return None
+        creative, reason = None, self._splice_skip
+        if data is not None:
+            try:
+                creative = prepare_creative(codec, data)
+            except CreativeRejected as error:
+                reason = error.reason
+        return ContinuousSplicer(codec, creative, emit, reason)
 
     def observe_icy_metadata(self, metadata, observed_at, monotonic_at):
         with self._lock:
@@ -379,6 +440,7 @@ class PlaybackSession:
 
     def close(self, reason='session_stopped'):
         self.cancel.set()
+        self._splice_creative = None
         if self.source.response is not None:
             self.source.response.close()
         ad = self.ad

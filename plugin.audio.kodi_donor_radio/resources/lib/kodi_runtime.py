@@ -141,16 +141,8 @@ def runtime_policy():
     return UrlPolicy(test_origins={origin} if origin else frozenset())
 
 
-def ad_settings():
-    """Snapshot explicit fixture-only advertising choices for the next session."""
-    addon = xbmcaddon.Addon()
-    enabled = addon.getSettingBool('test_mode') and addon.getSettingBool('ad_enabled')
-    preroll = enabled and addon.getSettingBool('ad_preroll')
-    midroll = enabled and addon.getSettingBool('ad_midroll')
-    if not (preroll or midroll):
-        return AdConfig(False, False, False, '', '')
-    fixture = fixture_origin()
-    value = addon.getSetting('ad_vast_url')
+def _fixture_url(value, fixture, message):
+    """Return value if it is a path URL on the exact configured fixture origin."""
     try:
         parts = urlsplit(value)
         valid = (parts.scheme == 'http' and parts.netloc == urlsplit(fixture).netloc
@@ -160,8 +152,28 @@ def ad_settings():
     except ValueError:
         valid = False
     if not valid:
-        raise ValueError('Invalid VAST fixture URL')
-    return AdConfig(True, bool(preroll), bool(midroll), value, fixture)
+        raise ValueError(message)
+    return value
+
+
+def ad_settings():
+    """Snapshot explicit fixture-only advertising choices for the next session."""
+    addon = xbmcaddon.Addon()
+    enabled = addon.getSettingBool('test_mode') and addon.getSettingBool('ad_enabled')
+    preroll = enabled and addon.getSettingBool('ad_preroll')
+    midroll = enabled and addon.getSettingBool('ad_midroll')
+    continuous = enabled and addon.getSettingBool('ad_continuous')
+    if not (preroll or midroll or continuous):
+        return AdConfig(False, False, False, '', '')
+    fixture = fixture_origin()
+    value = creative = ''
+    if preroll or midroll:
+        value = _fixture_url(addon.getSetting('ad_vast_url'), fixture, 'Invalid VAST fixture URL')
+    if continuous:
+        creative = _fixture_url(addon.getSetting('ad_continuous_creative'), fixture,
+                                'Invalid continuous creative URL')
+    return AdConfig(True, bool(preroll), bool(midroll), value, fixture,
+                    bool(continuous), creative)
 
 
 def _load_network_ads(service):
@@ -434,6 +446,7 @@ _FIXTURES = (
     (30063, 'icy/wrapped.mp3', 'MP3', False), (30064, 'icy/return-to-track.mp3', 'MP3', False),
     (30065, 'icy/paired-marker.mp3', 'MP3', False), (30066, 'icy/punctuation.mp3', 'MP3', False),
     (30067, 'icy/unresolved.mp3', 'MP3', False),
+    (30218, 'splice/source.mp3', 'MP3', False), (30219, 'splice/source.aac', 'AAC', False),
 )
 
 
@@ -1115,7 +1128,8 @@ def run_plugin(argv):
                 except (OSError, ValueError): pass
         try:
             station = _fixture_station(params.get('id', ''))
-            if (not station.hls or not ad_settings().enabled
+            config = ad_settings()
+            if (not station.hls or not config.enabled or not (config.preroll or config.midroll)
                     or _inputstream_version('inputstream.ffmpegdirect') != '22.2.10'):
                 raise ValueError('Qualified fixture playback unavailable')
             client = _operation(lambda: _service(profile_path(), monitor, cancel), monitor, cancel)
@@ -1498,7 +1512,10 @@ def run_plugin(argv):
         elif action == 'tests':
             if fixture_origin():
                 try:
-                    qualified = ad_settings().enabled
+                    config = ad_settings()
+                    # Launches are HLS composition; the continuous splice alone
+                    # does not qualify them.
+                    qualified = config.enabled and (config.preroll or config.midroll)
                 except ValueError:
                     qualified = False
                 for label, _, _, hls in _FIXTURES:

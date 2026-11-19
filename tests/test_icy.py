@@ -24,6 +24,19 @@ def test_every_split_point_preserves_audio_and_emits_each_metadata_block():
         assert metadata == [{'StreamTitle': 'One'}, {'StreamTitle': 'Two', 'StreamUrl': ''}], split
 
 
+def test_audio_position_marks_the_byte_after_each_metadata_block_at_any_split():
+    wire = (b'abcde' + block(b"adw_ad='true';") + b'12345' + b'\0'
+            + b'vwxyz' + block(b"adw_ad='false';") + b'END')
+    for split in range(len(wire) + 1):
+        positions = []
+        decoder = None
+        decoder = IcyDecoder(5, lambda value: positions.append((value, decoder.audio_position)))
+        decoder.feed(wire[:split])
+        decoder.feed(wire[split:])
+        assert positions == [({'adw_ad': 'true'}, 5), ({'adw_ad': 'false'}, 15)], split
+        assert decoder.audio_position == 18
+
+
 def test_single_byte_reads_and_duplicate_blocks_are_observed_individually():
     metadata = []
     decoder = IcyDecoder(1, metadata.append)
